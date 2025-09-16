@@ -1,0 +1,212 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Container Fluid Utility */
+.container-fluid {
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+@media (min-width: 640px) {
+  .container-fluid {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .container-fluid {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
+
+/* PDF Viewer styles */
+.pdf-container {
+  @apply flex flex-col items-center min-h-[600px] w-full;
+}
+
+.react-pdf__Document {
+  @apply w-full flex flex-col items-center;
+}
+
+.react-pdf__Page {
+  @apply max-w-full;
+}
+
+.react-pdf__Page canvas {
+  @apply max-w-full h-auto !important;
+}
+
+.react-pdf__Page__textContent {
+  @apply select-text;
+}
+
+.react-pdf__Page__annotations {
+  @apply hidden;
+}
+
+/* Custom Scrollbar Styles */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db #f3f4f6;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+  transition: background-color 0.2s ease;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Story Content Styles */
+.story-container {
+  @apply transition-all duration-200;
+}
+
+.story-container:hover {
+  @apply shadow-md;
+}
+
+/* Enhanced Word Layout Styles */
+.word-item {
+  position: relative;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  word-break: keep-all;
+  hyphens: auto;
+}
+
+.word-item:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.word-item:active {
+  transform: translateY(0);
+}
+
+/* Paragraph Container */
+.paragraph-container {
+  position: relative;
+  margin-bottom: 1.5rem;
+}
+
+.paragraph-container:last-child {
+  margin-bottom: 0;
+}
+
+/* Current Word Highlighting */
+.word-item.current-word {
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  color: white;
+  font-weight: 600;
+  box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+  transform: scale(1.05);
+}
+
+/* Reading Progress Indicator */
+.reading-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #3b82f6, #1d4ed8);
+  transition: width 0.3s ease;
+}
+
+/* Typography Enhancements */
+.story-text {
+  font-feature-settings: "liga" 1, "kern" 1;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Word Spacing Animation */
+@keyframes word-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.word-item {
+  animation: word-fade-in 0.3s ease-out;
+}
+
+/* Reading Flow Indicator */
+.reading-flow {
+  position: relative;
+}
+
+.reading-flow::before {
+  content: '';
+  position: absolute;
+  left: -10px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, #3b82f6, transparent);
+  border-radius: 2px;
+}
+
+/* Progress Bar Animation */
+@keyframes progress-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.progress-animate {
+  animation: progress-pulse 2s ease-in-out infinite;
+}
+
+/* Enhanced Scrollbar for Story Content */
+.story-container .custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #3b82f6 #f1f5f9;
+}
+
+.story-container .custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.story-container .custom-scrollbar::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+.story-container .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #3b82f6, #1d4ed8);
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.story-container .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #1d4ed8, #1e40af);
+}
