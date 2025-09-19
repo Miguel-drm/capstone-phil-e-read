@@ -66,7 +66,7 @@ const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="bg-white shadow-sm z-[999]">
+    <header className="bg-white shadow-sm z-[40]">
       <div className="px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Left side */}
@@ -74,6 +74,7 @@ const Header: React.FC<HeaderProps> = ({
             <button
               onClick={onMenuToggle}
               className="p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none transition-colors duration-200"
+              aria-expanded={!isSidebarCollapsed}
             >
               <span className="sr-only">Toggle menu</span>
               <span className="relative block h-6 w-6">
@@ -180,7 +181,7 @@ const Header: React.FC<HeaderProps> = ({
                     {isMobile && onShowSessionsModal && (
                       <button
                         onClick={onShowSessionsModal}
-                        className="block w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 focus:outline-none flex items-center gap-2"
+                        className="w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 focus:outline-none flex items-center gap-2"
                       >
                         <i className="fas fa-calendar-alt"></i>
                         Upcoming Sessions

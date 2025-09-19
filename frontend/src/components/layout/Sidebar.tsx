@@ -35,6 +35,7 @@ const iconMap: Record<string, React.ReactNode> = {
   parents: <GroupIcon fontSize="medium" />,
   settings: <SettingsIcon fontSize="medium" />,
   stories: <MenuBookIcon fontSize="medium" />,
+  resources: <MenuBookIcon fontSize="medium" />,
   children: <GroupIcon fontSize="medium" /> // Added for My Children
 };
 
@@ -61,7 +62,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           { path: '/admin/students', label: 'Students', icon: 'students' },
           { path: '/admin/parents', label: 'Parents', icon: 'parents' },
           { path: '/admin/reports', label: 'Reports', icon: 'reports' },
-          { path: '/admin/stories', label: 'Stories', icon: 'stories' },
+          { path: '/admin/resources', label: 'Resources', icon: 'resources' },
           { path: '/admin/profile', label: 'Profile', icon: 'profile' }
         ];
       case 'teacher':
@@ -101,7 +102,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const sidebarClasses = `
-    fixed top-0 left-0 z-[9999] h-screen
+    fixed top-0 left-0 z-[30] h-screen
     transition-all duration-300 ease-in-out overflow-x-hidden
     ${isMobile
       ? `w-full max-w-xs shadow-2xl ${isOpen ? 'translate-x-0' : '-translate-x-full'}`

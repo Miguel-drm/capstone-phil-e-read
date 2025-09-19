@@ -36,6 +36,7 @@ import SyncTeacherProfile from './components/SyncTeacherProfile';
 import AdminReports from './pages/admin/Reports';
 import TeacherReports from './pages/teacher/Reports';
 import AdminProfile from './pages/admin/Profile';
+import AdminResourcesPage from './pages/admin/Resources';
 
 const App: React.FC = () => {
   return (
@@ -60,6 +61,7 @@ const App: React.FC = () => {
                     <Route path="dashboard" element={<AdminDashboardPage />} />
                     <Route path="teachers" element={<Teachers />} />
                     <Route path="stories" element={<StoriesManagement />} />
+                    <Route path="resources" element={<AdminResourcesPage />} />
                     <Route path="students" element={<Students />} />
                     <Route path="parents" element={<Parents />} />
                     <Route path="reports" element={<AdminReports />} />
