@@ -95,10 +95,13 @@ const ParentDashboard: React.FC = () => {
         {loading ? (
           <div className="animate-pulse text-gray-400">Loading children...</div>
         ) : children.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-8">
-            <img src="https://cdn.jsdelivr.net/gh/edent/SuperTinyIcons/images/svg/child.svg" alt="No children" className="w-16 h-16 mb-2 opacity-60" />
-            <p className="text-gray-500">No children linked to your account yet.</p>
-            <button className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">Add Child</button>
+          <div className="flex flex-col items-center justify-center py-10 text-center">
+            <div className="h-24 w-24 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 border border-gray-200 shadow-sm flex items-center justify-center">
+              <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-12 w-12 text-gray-400">
+                <path fill="currentColor" d="M12 12a5 5 0 1 0-5-5 5 5 0 0 0 5 5Zm-9 8a9 9 0 1 1 18 0v1H3Z"/>
+              </svg>
+            </div>
+            <p className="mt-3 text-sm text-gray-500">No children linked to your account yet.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

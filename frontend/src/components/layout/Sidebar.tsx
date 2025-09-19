@@ -7,7 +7,7 @@ import GroupIcon from '@mui/icons-material/Group';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import SettingsIcon from '@mui/icons-material/Settings';
-import TaskIcon from '@mui/icons-material/Task';
+
 import SchoolIcon from '@mui/icons-material/School';
 import PersonIcon from '@mui/icons-material/Person';
 import Tooltip from '@mui/material/Tooltip';
@@ -29,7 +29,7 @@ const iconMap: Record<string, React.ReactNode> = {
   reports: <BarChartIcon fontSize="medium" />,
   profile: <PersonIcon fontSize="medium" />,
   progress: <BarChartIcon fontSize="medium" />,
-  assignments: <TaskIcon fontSize="medium" />,
+
   teachers: <SchoolIcon fontSize="medium" />,
   students: <PersonIcon fontSize="medium" />,
   parents: <GroupIcon fontSize="medium" />,
@@ -78,7 +78,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           { path: '/parent/dashboard', label: 'Dashboard', icon: 'dashboard' },
           { path: '/parent/children', label: 'My Children', icon: 'children' },
           { path: '/parent/progress', label: 'Progress', icon: 'progress' },
-          { path: '/parent/assignments', label: 'Assignments', icon: 'assignments' },
+
           { path: '/parent/reports', label: 'Reports', icon: 'reports' },
           { path: '/parent/profile', label: 'Profile', icon: 'profile' }
         ];

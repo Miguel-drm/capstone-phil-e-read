@@ -28,7 +28,7 @@ import StudentTestPage from './pages/student/StudentTestPage';
 
 // Parent Pages
 import ProgressPage from './pages/parent/Progress';
-import AssignmentsPage from './pages/parent/Assignments';
+
 import ReportsPage from './pages/parent/Reports';
 import ParentProfilePage from './pages/parent/Profile';
 
@@ -111,7 +111,7 @@ const App: React.FC = () => {
                     <Route path="dashboard" element={<ParentDashboardPage />} />
                     <Route path="children" element={<MyChildrenPage />} />
                     <Route path="progress" element={<ProgressPage />} />
-                    <Route path="assignments" element={<AssignmentsPage />} />
+                    
                     <Route path="reports" element={<ReportsPage />} />
                     <Route path="profile" element={<ParentProfilePage />} />
                     {/* Add more parent routes here */}
