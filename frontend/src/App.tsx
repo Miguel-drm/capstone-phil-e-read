@@ -19,12 +19,12 @@ import MyChildrenPage from './pages/parent/MyChildren';
 // Teacher Pages
 import Reading from './pages/teacher/Reading';
 import ClassList from './pages/teacher/ClassList';
-import MakeTest from './pages/teacher/MakeTest';
 import Profile from './pages/teacher/Profile';
 import ReadingSessionPage from './pages/teacher/ReadingSessionPage';
 
 // Student Pages
 import StudentTestPage from './pages/student/StudentTestPage';
+import AdminViewTest from './pages/student/adminViewTest';
 
 // Parent Pages
 import ProgressPage from './pages/parent/Progress';
@@ -83,7 +83,6 @@ const App: React.FC = () => {
                     <Route path="dashboard" element={<TeacherDashboardPage />} />
                     <Route path="reading" element={<Reading />} />
                     <Route path="class-list" element={<ClassList />} />
-                    <Route path="make-test" element={<MakeTest />} />
                     <Route path="reports" element={<TeacherReports />} />
                     <Route path="profile/*" element={<Profile />} />
                     <Route path="reading-session/:sessionId" element={<ReadingSessionPage />} />
@@ -93,11 +92,20 @@ const App: React.FC = () => {
             }
           />
           
-          {/* Student test route - accessible by teachers for their students */}
+          {/* Admin test view route - accessible by admins only */}
+          <Route
+            path="/admin/test/:testId"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminViewTest />
+              </ProtectedRoute>
+            }
+          />
+          {/* Student test route - accessible by teachers and parents only */}
           <Route
             path="/student/test/:testId"
             element={
-              <ProtectedRoute allowedRoles={['teacher']}>
+              <ProtectedRoute allowedRoles={['teacher', 'parent']}>
                 <StudentTestPage />
               </ProtectedRoute>
             }

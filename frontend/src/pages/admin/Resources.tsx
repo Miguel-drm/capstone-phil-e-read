@@ -1,5 +1,5 @@
-// This file is a direct clone of pages/teacher/MakeTest.tsx, exported as Admin Resources
-// Keep it in sync if MakeTest.tsx changes
+// This file contains admin resources functionality
+// Originally based on MakeTest.tsx but now standalone
 import React, { useState, useRef, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import type { DropResult } from '@hello-pangea/dnd';
@@ -13,9 +13,6 @@ import { UnifiedStoryService } from '../../services/UnifiedStoryService';
 import type { Story } from '../../types/Story';
  
 import { useAuth } from '../../contexts/AuthContext';
-import { studentService, type Student } from '../../services/studentService';
-import { resultService, type Result } from '../../services/resultsService';
-import { readingSessionService } from '../../services/readingSessionService';
 
 type ToggleSwitchProps = {
   checked: boolean;
@@ -53,13 +50,7 @@ const Resources: React.FC = () => {
   const [selectionMode, setSelectionMode] = useState(false);
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [students, setStudents] = useState<Student[]>([]);
   
-  const [isStudentSelectionModalOpen, setIsStudentSelectionModalOpen] = useState(false);
-  const [selectedTestTemplate, setSelectedTestTemplate] = useState<{id: string; [key: string]: any} | null>(null);
-  
-  const [completedSessionStudents, setCompletedSessionStudents] = useState<Student[]>([]);
-  const [selectedCompletedStudent, setSelectedCompletedStudent] = useState<Student | null>(null);
   const [recentTests, setRecentTests] = useState<any[]>([]);
   const [recentTestsLoading, setRecentTestsLoading] = useState(false);
   const [stories, setStories] = useState<Story[]>([]);
@@ -128,63 +119,6 @@ const Resources: React.FC = () => {
 
   
 
-  useEffect(() => {
-    const loadStudents = async () => {
-      if (!currentUser?.uid) return;
-      try {
-        const fetchedStudents = await studentService.getStudents(currentUser.uid);
-        const readingResults = await resultService.getReadingSessionResults(currentUser.uid);
-        const studentsWithReadings = new Set(
-          readingResults.flatMap((result: Result) => result.students)
-        );
-        const filteredStudents = fetchedStudents.filter(s => studentsWithReadings.has(s.name));
-        setStudents(filteredStudents);
-      } catch (error) {
-        console.error('Error loading students:', error);
-      }
-    };
-    loadStudents();
-  }, [currentUser?.uid]);
-
-  useEffect(() => {
-    const fetchCompletedSessionStudents = async () => {
-      if (!currentUser?.uid) return;
-      try {
-        const sessions = await readingSessionService.getTeacherSessions(currentUser.uid);
-        const completedSessions = sessions.filter(s => s.status === 'completed');
-        const studentMap = new Map<string, Student>();
-        const missingIds: string[] = [];
-        for (const session of completedSessions) {
-          for (const studentIdRaw of session.students) {
-            if (!studentIdRaw) continue;
-            const studentId = String(studentIdRaw);
-            const found = students.find(s => s.id === studentId);
-            if (found && !studentMap.has(String(found.id))) {
-              studentMap.set(String(found.id), found);
-            } else if (!found && !studentMap.has(studentId)) {
-              missingIds.push(studentId);
-            }
-          }
-        }
-        const fetchedMissing = await Promise.all(missingIds.map(async (id) => {
-          try {
-            const s = await studentService.getStudent(id);
-            if (s && s.name) {
-              return { id: s.id, name: s.name, grade: s.grade || '', readingLevel: s.readingLevel || '', performance: s.performance || 'Good', lastAssessment: s.lastAssessment || '', teacherId: s.teacherId || currentUser.uid, status: 'active' as 'active' };
-            }
-          } catch {}
-          return { id, name: id, grade: '', readingLevel: '', performance: 'Good' as 'Good', lastAssessment: '', teacherId: currentUser.uid, status: 'active' as 'active' };
-        }));
-        for (const s of fetchedMissing) {
-          studentMap.set(String(s.id), s);
-        }
-        setCompletedSessionStudents(Array.from(studentMap.values()));
-      } catch (error) {
-        console.error('Error fetching completed session students:', error);
-      }
-    };
-    fetchCompletedSessionStudents();
-  }, [currentUser?.uid, students]);
 
   const validateTest = () => {
     if (!testName.trim()) return 'Test name is required.';
@@ -247,16 +181,16 @@ const Resources: React.FC = () => {
 
   const handleTemplateSelection = async (template: {id: string; [key: string]: any}) => {
     if (!currentUser?.uid) return;
-    setSelectedTestTemplate(template);
-    setIsStudentSelectionModalOpen(true);
+    // Navigate directly to the AdminViewTest (view-only for admin)
+    navigate(`/admin/test/${template.id}`, {
+      state: { 
+        testName: template.testName || 'Untitled Test'
+      }
+    });
   };
 
   
 
-  const closeStudentSelectionModal = () => {
-    setIsStudentSelectionModalOpen(false);
-    setSelectedTestTemplate(null);
-  };
 
 
   const handleQuestionChange = (index: number, value: string) => {
@@ -702,21 +636,6 @@ const Resources: React.FC = () => {
           </div>
         )}
       </div>
-      {isStudentSelectionModalOpen && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black bg-opacity-60">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 relative flex flex-col">
-            <h2 className="text-lg font-semibold mb-4">Select Student (Completed Reading Session)</h2>
-            <select value={selectedCompletedStudent?.id || ''} onChange={e => { const student = completedSessionStudents.find(s => String(s.id || '') === e.target.value); setSelectedCompletedStudent(student || null); }} className="w-full border border-gray-300 rounded-lg px-3 py-2 mb-4">
-              <option value="">-- Select a student --</option>
-              {completedSessionStudents.map(s => (<option key={String(s.id || '')} value={String(s.id || '')}>{s.name && s.name !== s.id ? s.name : `Unknown (${String(s.id || '')})`}</option>))}
-            </select>
-            <div className="flex justify-end gap-2">
-              <button onClick={closeStudentSelectionModal} className="px-4 py-2 rounded bg-gray-200 hover:bg-gray-300 text-gray-700">Cancel</button>
-              <button onClick={() => { if (selectedCompletedStudent && selectedTestTemplate) { navigate(`/student/test/${selectedTestTemplate.id}`, { state: { studentId: selectedCompletedStudent.id, studentName: selectedCompletedStudent.name, testName: selectedTestTemplate.testName || 'Untitled Test' } }); setIsStudentSelectionModalOpen(false); setSelectedTestTemplate(null); setSelectedCompletedStudent(null); } }} className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white disabled:bg-blue-300" disabled={!selectedCompletedStudent}>Proceed</button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 };
