@@ -28,7 +28,8 @@ import AdminViewTest from './pages/student/adminViewTest';
 
 // Parent Pages
 import ProgressPage from './pages/parent/Progress';
-
+// import ParentReadingPage from './pages/parent/ParentReading';
+import ParentReadingSessionPage from './pages/parent/ParentReadingSessionPage';
 import ReportsPage from './pages/parent/Reports';
 import ParentProfilePage from './pages/parent/Profile';
 
@@ -120,8 +121,10 @@ const App: React.FC = () => {
                   <Routes>
                     <Route path="dashboard" element={<ParentDashboardPage />} />
                     <Route path="children" element={<MyChildrenPage />} />
+                    <Route path="reading" element={<ParentReadingSessionPage />} />
+                    <Route path="reading-session/:sessionId" element={<ParentReadingSessionPage />} />
+                    <Route path="reading-practice" element={<ParentReadingSessionPage />} />
                     <Route path="progress" element={<ProgressPage />} />
-                    
                     <Route path="reports" element={<ReportsPage />} />
                     <Route path="profile" element={<ParentProfilePage />} />
                     {/* Add more parent routes here */}

@@ -27,7 +27,7 @@ const iconMap: Record<string, React.ReactNode> = {
   'class-list': <GroupIcon fontSize="medium" />,
   reports: <BarChartIcon fontSize="medium" />,
   profile: <PersonIcon fontSize="medium" />,
-  progress: <BarChartIcon fontSize="medium" />,
+  progress: <AssignmentIcon fontSize="medium" />,
 
   teachers: <SchoolIcon fontSize="medium" />,
   students: <PersonIcon fontSize="medium" />,
@@ -76,8 +76,8 @@ const Sidebar: React.FC<SidebarProps> = ({
         return [
           { path: '/parent/dashboard', label: 'Dashboard', icon: 'dashboard' },
           { path: '/parent/children', label: 'My Children', icon: 'children' },
+          { path: '/parent/reading', label: 'Reading', icon: 'reading' },
           { path: '/parent/progress', label: 'Progress', icon: 'progress' },
-
           { path: '/parent/reports', label: 'Reports', icon: 'reports' },
           { path: '/parent/profile', label: 'Profile', icon: 'profile' }
         ];

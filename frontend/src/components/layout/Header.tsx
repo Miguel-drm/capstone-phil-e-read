@@ -131,10 +131,11 @@ const Header: React.FC<HeaderProps> = ({
               </button>
             )}
             {/* Profile dropdown */}
-            <div className="relative">
+            <div className="relative" onMouseEnter={() => setIsProfileOpen(true)} onMouseLeave={() => setIsProfileOpen(false)}>
               <button
                 onClick={() => setIsProfileOpen(!isProfileOpen)}
                 className="flex items-center space-x-3 focus:outline-none"
+                aria-haspopup="menu" aria-expanded={isProfileOpen}
               >
                 {/* Avatar with overlapping chevron dropdown icon */}
                 <div className="relative h-12 w-12">

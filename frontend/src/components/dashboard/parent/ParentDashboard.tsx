@@ -3,6 +3,8 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { studentService, type Student } from '../../../services/studentService';
 import { type ClassGrade } from '../../../services/gradeService';
 import PerformanceChart from '../teacher/PerformanceChart';
+import { useNavigate } from 'react-router-dom';
+import { BookOpenIcon, UsersIcon, ChartBarIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
 
 // Mock data for chart (replace with real data if available)
 const mockChartData = {
@@ -23,10 +25,19 @@ const mockGrades: ClassGrade[] = [
   },
 ];
 
-const OverviewCard = memo(({ title, value, color }: { title: string; value: number | string; color: string }) => (
-  <div className="bg-white p-6 rounded-lg shadow-sm">
-    <h3 className="text-lg font-medium text-gray-900">{title}</h3>
-    <p className={`mt-2 text-3xl font-bold ${color}`}>{value}</p>
+const OverviewCard = memo(({ title, value, icon: Icon, accent }: { title: string; value: number | string; icon: React.ElementType; accent: string }) => (
+  <div className="group relative overflow-hidden rounded-2xl bg-white shadow-sm border border-gray-100 transition-all duration-200 hover:shadow-md">
+    <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-r ${accent} pointer-events-none`} />
+    <div className="relative p-5 flex items-center gap-4">
+      <div className="h-12 w-12 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-600 group-hover:bg-white/90 transition-colors">
+        <Icon className="h-6 w-6" />
+      </div>
+      <div className="flex-1">
+        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">{title}</h3>
+        <p className="mt-1 text-3xl font-extrabold text-gray-900">{value}</p>
+      </div>
+      <ArrowRightIcon className="h-5 w-5 text-gray-300 group-hover:text-gray-600 transition-colors" />
+    </div>
   </div>
 ));
 
@@ -59,6 +70,7 @@ const ChildCard = memo(({ child }: { child: Student }) => (
 
 const ParentDashboard: React.FC = () => {
   const { currentUser } = useAuth();
+  const navigate = useNavigate();
   const [children, setChildren] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -82,16 +94,42 @@ const ParentDashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900">Parent Dashboard</h2>
+      {/* Hero header */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 border border-gray-100">
+        <div className="px-6 py-6 sm:px-8 sm:py-8">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-blue-900">Welcome back</h2>
+              <p className="mt-1 text-sm text-blue-700">Track your children’s progress and start a new practice anytime.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <button onClick={() => navigate('/parent/reading')} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-white bg-gradient-to-r from-blue-500 to-purple-500 shadow hover:shadow-md transition">
+                <BookOpenIcon className="h-5 w-5" /> Start Practice
+              </button>
+              <button onClick={() => navigate('/parent/reports')} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-blue-700 bg-white border border-blue-100 hover:bg-blue-50 transition">
+                <ChartBarIcon className="h-5 w-5" /> View Reports
+              </button>
+              <button onClick={() => navigate('/parent/children')} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-blue-700 bg-white border border-blue-100 hover:bg-blue-50 transition">
+                <UsersIcon className="h-5 w-5" /> Manage Children
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Overview cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <OverviewCard title="Children" value={children.length} color="text-blue-600" />
-        <OverviewCard title="Reading Sessions" value={0} color="text-green-600" />
-        <OverviewCard title="Test Results" value={0} color="text-purple-600" />
+        <OverviewCard title="Children" value={children.length} icon={UsersIcon} accent="from-blue-100/60 via-transparent to-transparent" />
+        <OverviewCard title="Reading Sessions" value={0} icon={BookOpenIcon} accent="from-green-100/60 via-transparent to-transparent" />
+        <OverviewCard title="Test Results" value={0} icon={ChartBarIcon} accent="from-purple-100/60 via-transparent to-transparent" />
       </div>
 
       {/* Children Overview */}
-      <div className="bg-white p-6 rounded-lg shadow-sm">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Children Overview</h3>
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">Children Overview</h3>
+          <button onClick={() => navigate('/parent/children')} className="text-sm text-blue-600 hover:text-blue-700 inline-flex items-center gap-1">Manage<ArrowRightIcon className="h-4 w-4" /></button>
+        </div>
         {loading ? (
           <div className="animate-pulse text-gray-400">Loading children...</div>
         ) : children.length === 0 ? (
@@ -110,11 +148,26 @@ const ParentDashboard: React.FC = () => {
         )}
       </div>
 
-      {/* Progress Chart */}
-      <PerformanceChart data={mockChartData} grades={mockGrades} students={children} />
+      {/* Progress Charts per child */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {children.length === 0 ? (
+          <PerformanceChart data={mockChartData} grades={mockGrades} students={children} title="All Students" targetLine={85} />
+        ) : (
+          children.map((child) => (
+            <PerformanceChart
+              key={child.id}
+              data={mockChartData}
+              grades={mockGrades}
+              students={[child]}
+              title={child.name}
+              targetLine={85}
+            />
+          ))
+        )}
+      </div>
 
       {/* Recent Activity */}
-      <div className="bg-white p-6 rounded-lg shadow-sm">
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
         <h3 className="text-lg font-medium text-gray-900 mb-4">Recent Activity</h3>
         <div className="space-y-4">
           <p className="text-gray-500">No recent activity</p>

@@ -4,7 +4,7 @@ import { readingSessionService, type ReadingSession } from '@/services/readingSe
 import { resultService } from '@/services/resultsService';
 import { UnifiedStoryService } from '@/services/UnifiedStoryService';
 import type { Story } from '@/types/Story';
-import { ArrowLeftIcon, XCircleIcon, BookOpenIcon, UserGroupIcon, ClockIcon, ChartBarIcon, MicrophoneIcon, PlayIcon, PauseIcon, StopIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, XCircleIcon, BookOpenIcon, UserGroupIcon, ChartBarIcon, MicrophoneIcon, PlayIcon, PauseIcon, StopIcon } from '@heroicons/react/24/outline';
 import * as pdfjsLib from 'pdfjs-dist';
 import type { TextItem } from 'pdfjs-dist/types/src/display/api';
 import 'pdfjs-dist/build/pdf.worker.entry';

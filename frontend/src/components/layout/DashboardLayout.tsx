@@ -68,6 +68,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   const [isTablet, setIsTablet] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [lastInteractionTs, setLastInteractionTs] = useState<number>(Date.now());
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [showSessionsModal, setShowSessionsModal] = useState(false);
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
@@ -111,6 +112,29 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
     window.addEventListener('resize', checkScreenSize);
     return () => window.removeEventListener('resize', checkScreenSize);
   }, []);
+
+  // Auto-close/collapse sidebar after 10s of inactivity
+  useEffect(() => {
+    const updateActivity = () => setLastInteractionTs(Date.now());
+    const events = ['mousemove', 'mousedown', 'touchstart', 'keydown', 'scroll'];
+    events.forEach((e) => window.addEventListener(e, updateActivity, { passive: true } as any));
+
+    const interval = setInterval(() => {
+      const idleMs = Date.now() - lastInteractionTs;
+      if (idleMs > 10000) {
+        if (isMobile) {
+          setSidebarOpen(false);
+        } else {
+          setSidebarCollapsed(true);
+        }
+      }
+    }, 1000);
+
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, updateActivity as any));
+      clearInterval(interval);
+    };
+  }, [isMobile, lastInteractionTs]);
 
   // Scroll detection for back to top button
   useEffect(() => {
