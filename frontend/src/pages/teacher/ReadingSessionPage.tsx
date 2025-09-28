@@ -45,7 +45,13 @@ const ReadingSessionPage: React.FC = () => {
   // Audio and speech recognition refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recognitionRef = useRef<any>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const scriptNodeRef = useRef<ScriptProcessorNode | null>(null);
+  const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const voskSocketRef = useRef<WebSocket | null>(null);
   const [transcript, setTranscript] = useState('');
+  const [sttProvider, setSttProvider] = useState<'vosk' | 'webspeech' | 'none'>('none');
+  const [voskStatus, setVoskStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const [wordsRead, setWordsRead] = useState(0);
   const [storyLanguage, setStoryLanguage] = useState<'english' | 'tagalog'>('english');
   const [readingSpeed, setReadingSpeed] = useState(0); // WPM
@@ -185,58 +191,196 @@ const ReadingSessionPage: React.FC = () => {
       setIsRecording(false);
     }
 
-    // --- SpeechRecognition ---
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognitionRef.current = recognition;
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
-      let runningTranscript = '';
-      recognition.onresult = (event: any) => {
-        let interim = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            runningTranscript += event.results[i][0].transcript + ' ';
-          } else {
-            interim += event.results[i][0].transcript;
-          }
-        }
-        setTranscript(runningTranscript + interim);
+    // Choose STT path: Vosk (WS) for Tagalog if enabled, else Web Speech
+    // Force-try Vosk whenever the story is Tagalog; fallback to Web Speech if Vosk WS fails
+    const useVosk = storyLanguage === 'tagalog';
+    if (useVosk) {
+      try {
+        const wsUrl = (import.meta as any)?.env?.VITE_VOSK_WS_URL || 'ws://localhost:2700';
+        const startVosk = async () => {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 48000 } });
+          const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
+          audioContextRef.current = ctx;
+          const src = ctx.createMediaStreamSource(stream);
+          sourceNodeRef.current = src;
+          const script = ctx.createScriptProcessor(4096, 1, 1);
+          scriptNodeRef.current = script;
 
-        if (storyText && isRecording) {
-          const storyWords = storyText.split(/\s+/).map(normalize);
-          const spokenWords = (runningTranscript + interim).split(/\s+/).map(normalize).filter(Boolean);
-          setDebugStoryWords(storyWords);
-          setDebugSpokenWords(spokenWords);
-          // Extra logs
-          console.log('Story words:', storyWords);
-          console.log('Spoken words:', spokenWords);
-          let matchIdx = 0;
-          for (let i = 0; i < spokenWords.length && matchIdx < storyWords.length; i++) {
-            if (spokenWords[i] === storyWords[matchIdx]) {
-              matchIdx++;
+          // Downsample Float32 (48k) to Int16 (16k)
+          const downsampleTo16k = (input: Float32Array): Int16Array => {
+            const sampleRate = ctx.sampleRate || 48000;
+            const ratio = sampleRate / 16000;
+            const newLength = Math.floor(input.length / ratio);
+            const result = new Int16Array(newLength);
+            let idx = 0;
+            let i = 0;
+            while (idx < newLength) {
+              const next = Math.floor((idx + 1) * ratio);
+              let sum = 0;
+              let count = 0;
+              for (; i < next && i < input.length; i++) {
+                sum += input[i];
+                count++;
+              }
+              const sample = sum / (count || 1);
+              const s = Math.max(-1, Math.min(1, sample));
+              result[idx++] = s < 0 ? s * 0x8000 : s * 0x7FFF;
             }
-            console.log(`Comparing: spoken='${spokenWords[i]}' story='${storyWords[matchIdx]}' => matchIdx=${matchIdx}`);
+            return result;
+          };
+
+          setVoskStatus('connecting');
+          const ws = new WebSocket(wsUrl);
+          voskSocketRef.current = ws;
+          ws.binaryType = 'arraybuffer';
+          ws.onopen = () => {
+            setVoskStatus('connected');
+            setSttProvider('vosk');
+            script.onaudioprocess = (e: AudioProcessingEvent) => {
+              const channel = e.inputBuffer.getChannelData(0);
+              const pcm16 = downsampleTo16k(channel);
+              if (ws.readyState === WebSocket.OPEN) ws.send(pcm16);
+            };
+            src.connect(script);
+            script.connect(ctx.destination);
+          };
+          ws.onmessage = (evt) => {
+            try {
+              const msg = JSON.parse(evt.data);
+              if (msg.text || msg.partial) {
+                const text = msg.text || msg.partial;
+                setTranscript(text);
+              }
+            } catch {}
+          };
+          ws.onerror = () => {
+            console.warn('Vosk WS error, falling back to Web Speech');
+            cleanupVosk();
+            setVoskStatus('disconnected');
+            startWebSpeech();
+          };
+          ws.onclose = () => {
+            setVoskStatus('disconnected');
+          };
+        };
+
+        const cleanupVosk = () => {
+          try { scriptNodeRef.current?.disconnect(); } catch {}
+          try { sourceNodeRef.current?.disconnect(); } catch {}
+          try { audioContextRef.current?.close(); } catch {}
+          try { voskSocketRef.current?.close(); } catch {}
+          scriptNodeRef.current = null;
+          sourceNodeRef.current = null;
+          audioContextRef.current = null;
+          voskSocketRef.current = null;
+        };
+
+        const startWebSpeech = () => {
+          const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+          if (!SpeechRecognition) {
+            alert('SpeechRecognition not supported in this browser.');
+            return;
           }
-          console.log('Highlight index:', matchIdx);
-          setCurrentWordIndex(matchIdx);
-          setWordsRead(matchIdx);
-          setAccuracy(storyWords.length > 0 ? Math.round((matchIdx / storyWords.length) * 100) : 0);
-          setReadingSpeed(elapsedTime > 0 ? Math.round((matchIdx / (elapsedTime / 60))) : 0);
+          const recognition = new SpeechRecognition();
+          recognitionRef.current = recognition;
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          const selectRecognitionLang = (lang: 'english' | 'tagalog') => {
+            if (lang === 'tagalog') {
+              const preferred = (navigator.languages || []).map(l => l.toLowerCase());
+              if (preferred.includes('fil-ph')) return 'fil-PH';
+              if (preferred.includes('tl-ph')) return 'tl-PH';
+              return 'fil-PH';
+            }
+            return 'en-US';
+          };
+          recognition.lang = selectRecognitionLang(storyLanguage);
+          setSttProvider('webspeech');
+          let runningTranscript = '';
+          recognition.onresult = (event: any) => {
+            let interim = '';
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+              if (event.results[i].isFinal) runningTranscript += event.results[i][0].transcript + ' ';
+              else interim += event.results[i][0].transcript;
+            }
+            setTranscript(runningTranscript + interim);
+          };
+          recognition.onerror = (_e: any) => {};
+          recognition.start();
+        };
+
+        // try Vosk, fallback to Web Speech
+        startVosk().catch(() => {
+          console.warn('Failed to start Vosk, using Web Speech');
+          startWebSpeech();
+        });
+      } catch {
+        // fallback
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          const recognition = new SpeechRecognition();
+          recognitionRef.current = recognition;
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          recognition.lang = 'fil-PH';
+          setSttProvider('webspeech');
+          recognition.onresult = (e: any) => setTranscript(e.results[0][0].transcript || '');
+          recognition.start();
         }
-      };
-      recognition.onerror = (e: any) => {
-        if (e.error !== 'no-speech') {
-          alert('Speech recognition error: ' + e.error);
-        }
-      };
-      recognition.start();
+      }
     } else {
-      alert('SpeechRecognition not supported in this browser.');
+      // Web Speech path (default)
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognitionRef.current = recognition;
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        const selectRecognitionLang = (lang: 'english' | 'tagalog') => {
+          if (lang === 'tagalog') {
+            const preferred = (navigator.languages || []).map(l => l.toLowerCase());
+            if (preferred.includes('fil-ph')) return 'fil-PH';
+            if (preferred.includes('tl-ph')) return 'tl-PH';
+            return 'fil-PH';
+          }
+          return 'en-US';
+        };
+        recognition.lang = selectRecognitionLang(storyLanguage);
+        setSttProvider('webspeech');
+        let runningTranscript = '';
+        recognition.onresult = (event: any) => {
+          let interim = '';
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) runningTranscript += event.results[i][0].transcript + ' ';
+            else interim += event.results[i][0].transcript;
+          }
+          setTranscript(runningTranscript + interim);
+        };
+        recognition.onerror = (_e: any) => {};
+        recognition.start();
+      } else {
+        alert('SpeechRecognition not supported in this browser.');
+      }
     }
   };
+
+  // Keep SpeechRecognition language in sync if story language changes while recording
+  useEffect(() => {
+    const rec: any = recognitionRef.current;
+    if (!rec) return;
+    const target = (storyLanguage === 'tagalog') ? ((navigator.languages || []).map(l => l.toLowerCase()).includes('fil-ph') ? 'fil-PH' : 'tl-PH') : 'en-US';
+    try {
+      if (rec.lang !== target) {
+        // Some implementations require restart to apply new language
+        const wasRunning = isRecording && !isPaused;
+        try { rec.stop(); } catch {}
+        rec.lang = target;
+        if (wasRunning) {
+          try { rec.start(); } catch {}
+        }
+      }
+    } catch {}
+  }, [storyLanguage, isRecording, isPaused]);
 
   // Stop recording and speech recognition
   const handleStopRecording = async () => {
@@ -251,6 +395,35 @@ const ReadingSessionPage: React.FC = () => {
       // Stop SpeechRecognition
       if (recognitionRef.current) {
         recognitionRef.current.stop();
+      }
+      // Stop Vosk stream if active
+      try { scriptNodeRef.current?.disconnect(); } catch {}
+      try { sourceNodeRef.current?.disconnect(); } catch {}
+      try { audioContextRef.current?.close(); } catch {}
+      try { voskSocketRef.current?.close(); } catch {}
+      scriptNodeRef.current = null;
+      sourceNodeRef.current = null;
+      audioContextRef.current = null;
+      voskSocketRef.current = null;
+      // If Tagalog story, optionally send audio to backend Whisper for better transcription
+      const enableServerTranscribe = (import.meta as any)?.env?.VITE_ENABLE_SERVER_TRANSCRIBE === 'true';
+      if (audioBlob && storyLanguage === 'tagalog' && enableServerTranscribe) {
+        try {
+          const form = new FormData();
+          form.append('audio', audioBlob, 'audio.webm');
+          form.append('language', 'fil');
+          const resp = await fetch('/api/transcribe', { method: 'POST', body: form });
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data?.text) {
+              setTranscript(data.text);
+            }
+          } else {
+            console.warn('Whisper transcription failed');
+          }
+        } catch (e) {
+          console.warn('Error sending to Whisper:', e);
+        }
       }
     } catch (error) {
       console.error('Failed to stop recording:', error);
@@ -1018,6 +1191,44 @@ const ReadingSessionPage: React.FC = () => {
       {/* Session Controls */}
       <section className="w-full px-4 sm:px-8 pb-8">
         <div className="bg-white/80 rounded-3xl shadow-xl border border-blue-100 p-8 flex flex-col items-center gap-6">
+          {/* Language selector + STT Provider/Vosk status badge */}
+          <div className="w-full flex justify-between items-center gap-2 -mt-4 -mb-2">
+            <div className="flex items-center gap-2">
+              <label htmlFor="recognition-language" className="text-sm font-semibold text-blue-900">Recognition language</label>
+              <select
+                id="recognition-language"
+                value={storyLanguage}
+                onChange={(e) => setStoryLanguage(e.target.value as 'english' | 'tagalog')}
+                className="text-sm px-2 py-1 rounded-md border border-blue-200 bg-white text-blue-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+              >
+                <option value="english">English</option>
+                <option value="tagalog">Tagalog</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              {/* Always show Vosk status for Tagalog stories */}
+              {storyLanguage === 'tagalog' && (
+                <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold ${voskStatus === 'connected' ? 'bg-green-100 text-green-800' : voskStatus === 'connecting' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+                  <span className={`w-2 h-2 rounded-full ${voskStatus === 'connected' ? 'bg-green-500' : voskStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'}`}></span>
+                  {voskStatus === 'connected' ? 'Vosk (Tagalog) connected' : voskStatus === 'connecting' ? 'Vosk (Tagalog) connecting…' : 'Vosk (Tagalog) disconnected'}
+                </span>
+              )}
+              {/* If we fell back, show a small fallback label */}
+              {storyLanguage === 'tagalog' && sttProvider === 'webspeech' && (
+                <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                  Fallback: Web Speech
+                </span>
+              )}
+              {/* For English */}
+              {storyLanguage !== 'tagalog' && sttProvider === 'webspeech' && (
+                <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                  Web Speech
+                </span>
+              )}
+            </div>
+          </div>
           <div className="flex items-center gap-4 mb-2">
             <MicrophoneIcon className="h-7 w-7 text-blue-500" />
             <h4 className="text-lg font-bold text-blue-900">Session Controls</h4>

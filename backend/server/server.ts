@@ -11,6 +11,8 @@ import Story, { IStory } from './models/Story.js';
 import GridFSService from './services/gridfsService.js';
 import teacherRoutes from './routes/teacherRoutes.js';
 import { resultService } from './services/resultService.js';
+import type { Readable } from 'stream';
+// Removed Node Vosk integration; using external Python Vosk WS instead
 
 dotenv.config();
 
@@ -61,7 +63,7 @@ app.use(express.json());
     console.log('GridFS initialized');
 
     // Start the server only after successful database connection
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
 
@@ -525,6 +527,8 @@ app.use(express.json());
     });
 
     app.use('/api/teachers', teacherRoutes);
+
+    // Removed OpenAI Whisper transcription route; using external Python Vosk WS instead
 
   } catch (error) {
     console.error('Failed to connect to MongoDB or initialize GridFS:', error);
