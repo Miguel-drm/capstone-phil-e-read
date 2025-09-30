@@ -60,15 +60,13 @@ const sessionsData = [
 ];
 
 export const EditProfileModalContext = createContext({ openEditProfileModal: () => {} });
-export const BannerContext = createContext({ banner: '', setBanner: (url: string) => {} });
+export const BannerContext = createContext({ banner: '', setBanner: (_url: string) => {} });
 
 const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   const { currentUser, userRole, userProfile } = useAuth();
   const [isMobile, setIsMobile] = useState(false);
-  const [isTablet, setIsTablet] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [lastInteractionTs, setLastInteractionTs] = useState<number>(Date.now());
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [showSessionsModal, setShowSessionsModal] = useState(false);
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
@@ -93,7 +91,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
     const checkScreenSize = () => {
       const width = window.innerWidth;
       setIsMobile(width < 768);
-      setIsTablet(width >= 768 && width < 1024);
+      
       
       
       if (width >= 1024) {
@@ -113,28 +111,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
     return () => window.removeEventListener('resize', checkScreenSize);
   }, []);
 
-  // Auto-close/collapse sidebar after 10s of inactivity
-  useEffect(() => {
-    const updateActivity = () => setLastInteractionTs(Date.now());
-    const events = ['mousemove', 'mousedown', 'touchstart', 'keydown', 'scroll'];
-    events.forEach((e) => window.addEventListener(e, updateActivity, { passive: true } as any));
-
-    const interval = setInterval(() => {
-      const idleMs = Date.now() - lastInteractionTs;
-      if (idleMs > 10000) {
-        if (isMobile) {
-          setSidebarOpen(false);
-        } else {
-          setSidebarCollapsed(true);
-        }
-      }
-    }, 1000);
-
-    return () => {
-      events.forEach((e) => window.removeEventListener(e, updateActivity as any));
-      clearInterval(interval);
-    };
-  }, [isMobile, lastInteractionTs]);
+ 
 
   // Scroll detection for back to top button
   useEffect(() => {

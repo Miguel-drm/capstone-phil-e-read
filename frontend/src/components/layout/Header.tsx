@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLocation } from 'react-router-dom';
 
@@ -18,6 +18,21 @@ const Header: React.FC<HeaderProps> = ({
   const { currentUser, userRole, signOut } = useAuth();
   const location = useLocation();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const profileCloseTimer = useRef<number | null>(null);
+  const openProfileMenu = () => {
+    if (profileCloseTimer.current) {
+      window.clearTimeout(profileCloseTimer.current);
+      profileCloseTimer.current = null;
+    }
+    setIsProfileOpen(true);
+  };
+  const scheduleCloseProfileMenu = () => {
+    if (profileCloseTimer.current) window.clearTimeout(profileCloseTimer.current);
+    profileCloseTimer.current = window.setTimeout(() => {
+      setIsProfileOpen(false);
+      profileCloseTimer.current = null;
+    }, 250);
+  };
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 
   // Add state and effect for teacher profile image
@@ -131,7 +146,7 @@ const Header: React.FC<HeaderProps> = ({
               </button>
             )}
             {/* Profile dropdown */}
-            <div className="relative" onMouseEnter={() => setIsProfileOpen(true)} onMouseLeave={() => setIsProfileOpen(false)}>
+            <div className="relative" onMouseEnter={openProfileMenu} onMouseLeave={scheduleCloseProfileMenu}>
               <button
                 onClick={() => setIsProfileOpen(!isProfileOpen)}
                 className="flex items-center space-x-3 focus:outline-none"

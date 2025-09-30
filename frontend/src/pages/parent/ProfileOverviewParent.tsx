@@ -8,7 +8,7 @@ const ProfileOverviewParent: React.FC = () => {
   const { userProfile, currentUser } = useAuth();
   const { openEditProfileModal } = useContext(EditProfileModalContext);
   const { banner } = useContext(BannerContext);
-  const [activeTab, setActiveTab] = useState<'Profile' | 'Children' | 'Reports' | 'Settings'>('Profile');
+  const [activeTab, setActiveTab] = useState<'Profile' | 'Settings'>('Profile');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const firebaseUid = currentUser?.uid;
@@ -21,6 +21,19 @@ const ProfileOverviewParent: React.FC = () => {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [isExportingData, setIsExportingData] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+
+  const formatPhoneDisplay = (raw?: string | null) => {
+    if (!raw) return '-';
+    const digits = String(raw).replace(/\D/g, '');
+    if (digits.startsWith('63') && digits.length >= 12) {
+      const n = digits.slice(2); // 10 digits
+      const p1 = n.slice(0, 3);
+      const p2 = n.slice(3, 6);
+      const p3 = n.slice(6, 10);
+      return `+63${p1} ${p2} ${p3}`;
+    }
+    return raw;
+  };
 
   useEffect(() => {
     async function fetchProfileImage() {
@@ -217,7 +230,7 @@ const ProfileOverviewParent: React.FC = () => {
 
       <div className="max-w-5xl mx-auto mt-8 px-4">
         <div className="flex gap-2 border-b border-gray-200 overflow-x-auto">
-          {(['Profile', 'Children', 'Reports', 'Settings'] as const).map(tab => (
+          {(['Profile', 'Settings'] as const).map(tab => (
             <button key={tab} className={`px-4 py-2 text-gray-700 font-medium border-b-2 transition-colors focus:outline-none ${activeTab === tab ? 'text-blue-600 border-blue-600' : 'border-transparent hover:text-blue-600 hover:border-blue-600'}`} onClick={() => setActiveTab(tab)}>
               {tab}
             </button>
@@ -230,30 +243,24 @@ const ProfileOverviewParent: React.FC = () => {
           <div className="bg-white rounded-3xl shadow-2xl p-10 md:p-14 flex flex-col gap-8 border border-blue-100">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Name</label>
-                <div className="text-lg font-bold text-gray-900">{userProfile?.displayName || '-'}</div>
-              </div>
-              <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Email</label>
                 <div className="text-lg font-bold text-gray-900">{userProfile?.email || '-'}</div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Phone Number</label>
+                <div className="text-lg font-bold text-gray-900">{formatPhoneDisplay(userProfile?.phoneNumber)}</div>
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Address</label>
+                <div className="text-lg font-bold text-gray-900">{userProfile?.address || '-'}</div>
               </div>
             </div>
           </div>
         )}
 
-        {activeTab === 'Children' && (
-          <div className="bg-white rounded-3xl shadow-2xl p-10 md:p-14 border border-blue-100">
-            <div className="text-lg font-semibold text-gray-800 mb-2">Children</div>
-            <div className="text-gray-600">View and manage your children here.</div>
-          </div>
-        )}
+       
 
-        {activeTab === 'Reports' && (
-          <div className="bg-white rounded-3xl shadow-2xl p-10 md:p-14 border border-blue-100">
-            <div className="text-lg font-semibold text-gray-800 mb-2">Reports</div>
-            <div className="text-gray-600">View your reports here.</div>
-          </div>
-        )}
+        
 
         {activeTab === 'Settings' && (
           <div className="space-y-6">
