@@ -193,7 +193,6 @@
     "websocket-driver": "^0.7.4",
     "websocket-extensions": "^0.1.4",
     "ws": "^8.18.0",
-    "vosk": "^0.3.45",
     "whatwg-url": "^11.0.0",
     "wrap-ansi": "^7.0.0",
     "wrappy": "^1.0.2",
@@ -202,6 +201,9 @@
     "yargs": "^17.7.2",
     "yargs-parser": "^21.1.1",
     "yn": "^3.1.1"
+  },
+  "optionalDependencies": {
+    "vosk": "0.3.45"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19"
