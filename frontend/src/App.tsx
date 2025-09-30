@@ -19,25 +19,26 @@ import MyChildrenPage from './pages/parent/MyChildren';
 // Teacher Pages
 import Reading from './pages/teacher/Reading';
 import ClassList from './pages/teacher/ClassList';
-import MakeTest from './pages/teacher/MakeTest';
 import Profile from './pages/teacher/Profile';
 import ReadingSessionPage from './pages/teacher/ReadingSessionPage';
 
 // Student Pages
 import StudentTestPage from './pages/student/StudentTestPage';
+import AdminViewTest from './pages/student/adminViewTest';
 
 // Parent Pages
 import ProgressPage from './pages/parent/Progress';
-import AssignmentsPage from './pages/parent/Assignments';
+// import ParentReadingPage from './pages/parent/ParentReading';
+import ParentReadingSessionPage from './pages/parent/ParentReadingSessionPage';
 import ReportsPage from './pages/parent/Reports';
 import ParentProfilePage from './pages/parent/Profile';
 import ReadingPractice from './pages/parent/ReadingPractice';
-import ParentReadingSessionPage from './pages/parent/ReadingSessionPage';
 
 import SyncTeacherProfile from './components/SyncTeacherProfile';
 import AdminReports from './pages/admin/Reports';
 import TeacherReports from './pages/teacher/Reports';
 import AdminProfile from './pages/admin/Profile';
+import AdminResourcesPage from './pages/admin/Resources';
 
 const App: React.FC = () => {
   return (
@@ -62,6 +63,7 @@ const App: React.FC = () => {
                     <Route path="dashboard" element={<AdminDashboardPage />} />
                     <Route path="teachers" element={<Teachers />} />
                     <Route path="stories" element={<StoriesManagement />} />
+                    <Route path="resources" element={<AdminResourcesPage />} />
                     <Route path="students" element={<Students />} />
                     <Route path="parents" element={<Parents />} />
                     <Route path="reports" element={<AdminReports />} />
@@ -83,7 +85,6 @@ const App: React.FC = () => {
                     <Route path="dashboard" element={<TeacherDashboardPage />} />
                     <Route path="reading" element={<Reading />} />
                     <Route path="class-list" element={<ClassList />} />
-                    <Route path="make-test" element={<MakeTest />} />
                     <Route path="reports" element={<TeacherReports />} />
                     <Route path="profile/*" element={<Profile />} />
                     <Route path="reading-session/:sessionId" element={<ReadingSessionPage />} />
@@ -93,11 +94,20 @@ const App: React.FC = () => {
             }
           />
           
-          {/* Student test route - accessible by teachers for their students */}
+          {/* Admin test view route - accessible by admins only */}
+          <Route
+            path="/admin/test/:testId"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminViewTest />
+              </ProtectedRoute>
+            }
+          />
+          {/* Student test route - accessible by teachers and parents only */}
           <Route
             path="/student/test/:testId"
             element={
-              <ProtectedRoute allowedRoles={['teacher']}>
+              <ProtectedRoute allowedRoles={['teacher', 'parent']}>
                 <StudentTestPage />
               </ProtectedRoute>
             }
@@ -115,7 +125,6 @@ const App: React.FC = () => {
                     <Route path="reading" element={<ReadingPractice />} />
                     <Route path="reading-practice/:storyId" element={<ParentReadingSessionPage />} />
                     <Route path="progress" element={<ProgressPage />} />
-                    <Route path="assignments" element={<AssignmentsPage />} />
                     <Route path="reports" element={<ReportsPage />} />
                     <Route path="profile" element={<ParentProfilePage />} />
                     {/* Add more parent routes here */}

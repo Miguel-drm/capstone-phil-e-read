@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { doc, getDoc, collection, addDoc, Timestamp, setDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import Loader from '../../components/Loader';
 import { resultService } from '../../services/resultsService';
@@ -193,11 +193,11 @@ const StudentTestPage: React.FC = () => {
       })),
       testDate: now,
     };
-    if (userRole === 'teacher') {
+    if (userRole === 'teacher' || userRole === 'parent') {
       testResultData.teacherId = currentUser.uid;
       testResultData.studentId = studentId;
     } else {
-      alert('Only teachers can save test results.');
+      alert('Only teachers and parents can save test results.');
       setSavingResult(false);
       return;
     }

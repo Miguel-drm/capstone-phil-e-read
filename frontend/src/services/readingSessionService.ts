@@ -139,4 +139,22 @@ export const readingSessionService = {
       return session;
     });
   },
+
+  async removeStudentFromSession(sessionId: string, studentName: string): Promise<void> {
+    try {
+      const session = await this.getSessionById(sessionId);
+      if (!session) {
+        throw new Error('Session not found');
+      }
+
+      // Remove the student from the students array
+      const updatedStudents = session.students.filter(name => name !== studentName);
+      
+      // Update the session with the new students array
+      await this.updateSession(sessionId, { students: updatedStudents });
+    } catch (error) {
+      console.error('Error removing student from session:', error);
+      throw error;
+    }
+  },
 };

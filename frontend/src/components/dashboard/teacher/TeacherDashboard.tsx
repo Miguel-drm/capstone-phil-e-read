@@ -5,8 +5,11 @@ import UpcomingSessions from './UpcomingSessions';
 import { useAuth } from '../../../contexts/AuthContext';
 import { gradeService, type ClassGrade } from '../../../services/gradeService';
 import { studentService, type Student } from '../../../services/studentService';
+import { resultService, type CombinedStudentMetrics } from '../../../services/resultsService';
 import ClassPerformanceChart from './ClassPerformanceChart';
 import ReadingLevelDistributionChart from './ReadingLevelDistributionChart';
+import RecentActivity from './RecentActivity';
+import QuickActions from './QuickActions';
 
 interface TeacherDashboardProps {
   showSessionsModal: boolean;
@@ -154,9 +157,81 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
     }
   ];
 
-  // Add mock data for class performance
-  const classNames = ["Grade 1", "Grade 2", "Grade 3", "Grade 4"];
-  const classAverages = [75, 80, 85, 90];
+  // Calculate class performance from real data
+  const [classPerformanceData, setClassPerformanceData] = useState<{classNames: string[], classAverages: number[]}>({
+    classNames: [],
+    classAverages: []
+  });
+
+  // Calculate class performance when grades and students data is available
+  useEffect(() => {
+    const calculateClassPerformance = async () => {
+      if (grades.length === 0 || students.length === 0) {
+        setClassPerformanceData({ classNames: [], classAverages: [] });
+        return;
+      }
+
+      const classNames = grades.map(grade => grade.name);
+      const classAverages: number[] = [];
+
+      for (const grade of grades) {
+        const studentsInClass = students.filter(student => student.grade === grade.name);
+        
+        if (studentsInClass.length === 0) {
+          classAverages.push(0);
+          continue;
+        }
+
+        // Calculate average performance for this class
+        let totalScore = 0;
+        let validScores = 0;
+
+        for (const student of studentsInClass) {
+          try {
+            // Get combined metrics for this student
+            const metrics: CombinedStudentMetrics = await resultService.getStudentCombinedMetrics(student.id!);
+            
+            // Calculate overall performance score
+            let studentScore = 0;
+            let scoreCount = 0;
+
+            // Use oral reading score if available
+            if (metrics.oralReadingScore !== undefined) {
+              studentScore += metrics.oralReadingScore;
+              scoreCount++;
+            }
+
+            // Use comprehension score if available
+            if (metrics.comprehension !== undefined) {
+              studentScore += metrics.comprehension;
+              scoreCount++;
+            }
+
+            // If we have at least one score, use it
+            if (scoreCount > 0) {
+              totalScore += studentScore / scoreCount;
+              validScores++;
+            }
+          } catch (error) {
+            console.log(`No performance data for student ${student.name}:`, error);
+            // If no data available, use a default score based on performance level
+            const defaultScore = student.performance === 'Excellent' ? 85 : 
+                                student.performance === 'Good' ? 75 : 65;
+            totalScore += defaultScore;
+            validScores++;
+          }
+        }
+
+        // Calculate class average
+        const classAverage = validScores > 0 ? Math.round(totalScore / validScores) : 0;
+        classAverages.push(classAverage);
+      }
+
+      setClassPerformanceData({ classNames, classAverages });
+    };
+
+    calculateClassPerformance();
+  }, [grades, students]);
 
   const handleMenuClick = (menuItem: string) => {
     setActiveMenuItem(menuItem);
@@ -199,9 +274,10 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
           <div className="h-full flex flex-col">
             <ClassPerformanceChart
-              classNames={classNames}
-              classAverages={classAverages}
+              classNames={classPerformanceData.classNames}
+              classAverages={classPerformanceData.classAverages}
               className="Classes"
+              isLoading={isLoading}
             />
           </div>
           <div className="h-full flex flex-col">
@@ -212,148 +288,8 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
       
       {/* Recent Activity and Quick Actions */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-2">
-        {/* Recent Activity */}
-        <div className="lg:col-span-2 bg-white rounded-lg shadow-sm p-4 md:p-6">
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 md:mb-6 space-y-2 sm:space-y-0">
-            <h3 className="text-base md:text-lg font-semibold text-[#2C3E50]">Recent Activity</h3>
-            <button 
-              onClick={() => {}}
-              className="text-[#3498DB] hover:underline text-xs md:text-sm cursor-pointer self-start sm:self-auto"
-            >
-              View All
-            </button>
-          </div>
-          <div className="relative">
-            <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200"></div>
-            <div className="space-y-4 md:space-y-6">
-              <div className="relative pl-8 md:pl-10">
-                <div className="absolute left-0 top-1 w-6 h-6 md:w-8 md:h-8 rounded-full bg-blue-500 flex items-center justify-center text-white">
-                  <i className="fas fa-book-open text-xs md:text-sm"></i>
-                </div>
-                <div>
-                  <h4 className="font-medium text-[#2C3E50] text-sm md:text-base">Reading Session Completed</h4>
-                  <p className="text-xs md:text-sm text-gray-500 mt-1">Completed reading session with Group A - "The Magic Tree House"</p>
-                  <p className="text-xs text-gray-400 mt-2">Today, 9:15 AM</p>
-                </div>
-              </div>
-              <div className="relative pl-8 md:pl-10">
-                <div className="absolute left-0 top-1 w-6 h-6 md:w-8 md:h-8 rounded-full bg-green-500 flex items-center justify-center text-white">
-                  <i className="fas fa-user-check text-xs md:text-sm"></i>
-                </div>
-                <div>
-                  <h4 className="font-medium text-[#2C3E50] text-sm md:text-base">Assessment Graded</h4>
-                  <p className="text-xs md:text-sm text-gray-500 mt-1">Graded comprehension test for 8 students</p>
-                  <p className="text-xs text-gray-400 mt-2">Yesterday, 3:45 PM</p>
-                </div>
-              </div>
-              <div className="relative pl-8 md:pl-10">
-                <div className="absolute left-0 top-1 w-6 h-6 md:w-8 md:h-8 rounded-full bg-purple-500 flex items-center justify-center text-white">
-                  <i className="fas fa-plus text-xs md:text-sm"></i>
-                </div>
-                <div>
-                  <h4 className="font-medium text-[#2C3E50] text-sm md:text-base">New Test Created</h4>
-                  <p className="text-xs md:text-sm text-gray-500 mt-1">Created new vocabulary assessment for Level 3 readers</p>
-                  <p className="text-xs text-gray-400 mt-2">Jun 8, 11:20 AM</p>
-                </div>
-              </div>
-              <div className="relative pl-8 md:pl-10">
-                <div className="absolute left-0 top-1 w-6 h-6 md:w-8 md:h-8 rounded-full bg-yellow-500 flex items-center justify-center text-white">
-                  <i className="fas fa-file-export text-xs md:text-sm"></i>
-                </div>
-                <div>
-                  <h4 className="font-medium text-[#2C3E50] text-sm md:text-base">Data Exported</h4>
-                  <p className="text-xs md:text-sm text-gray-500 mt-1">Exported reading progress report for the principal</p>
-                  <p className="text-xs text-gray-400 mt-2">Jun 7, 2:30 PM</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        {/* Quick Actions */}
-        <div className="bg-white rounded-lg shadow-sm p-4 md:p-6">
-          <h3 className="text-base md:text-lg font-semibold text-[#2C3E50] mb-4 md:mb-6">Quick Actions</h3>
-          <div className="grid grid-cols-2 gap-3 md:gap-4">
-            <button 
-              onClick={() => {}}
-              className="flex flex-col items-center justify-center p-3 md:p-4 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors cursor-pointer"
-            >
-              <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-[#3498DB] flex items-center justify-center text-white mb-2">
-                <i className="fas fa-book-reader text-sm md:text-base"></i>
-              </div>
-              <span className="text-xs md:text-sm font-medium text-[#2C3E50] text-center">Start Reading</span>
-            </button>
-            <button 
-              onClick={() => {}}
-              className="flex flex-col items-center justify-center p-3 md:p-4 bg-green-50 rounded-lg hover:bg-green-100 transition-colors cursor-pointer"
-            >
-              <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-[#27AE60] flex items-center justify-center text-white mb-2">
-                <i className="fas fa-clipboard-list text-sm md:text-base"></i>
-              </div>
-              <span className="text-xs md:text-sm font-medium text-[#2C3E50] text-center">New Test</span>
-            </button>
-            <button 
-              onClick={() => {}}
-              className="flex flex-col items-center justify-center p-3 md:p-4 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors cursor-pointer"
-            >
-              <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-purple-500 flex items-center justify-center text-white mb-2">
-                <i className="fas fa-user-plus text-sm md:text-base"></i>
-              </div>
-              <span className="text-xs md:text-sm font-medium text-[#2C3E50] text-center">Add Student</span>
-            </button>
-            <button 
-              onClick={() => {}}
-              className="flex flex-col items-center justify-center p-3 md:p-4 bg-yellow-50 rounded-lg hover:bg-yellow-100 transition-colors cursor-pointer"
-            >
-              <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-yellow-500 flex items-center justify-center text-white mb-2">
-                <i className="fas fa-chart-bar text-sm md:text-base"></i>
-              </div>
-              <span className="text-xs md:text-sm font-medium text-[#2C3E50] text-center">Reports</span>
-            </button>
-            <button 
-              onClick={() => {}}
-              className="col-span-2 flex items-center justify-center p-3 md:p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
-            >
-              <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-gray-500 flex items-center justify-center text-white mr-3">
-                <i className="fas fa-calendar-alt text-sm md:text-base"></i>
-              </div>
-              <span className="text-xs md:text-sm font-medium text-[#2C3E50]">Schedule Session</span>
-            </button>
-          </div>
-          
-          <div className="mt-4 md:mt-6 pt-4 md:pt-6 border-t border-gray-200">
-            <h4 className="text-xs md:text-sm font-medium text-[#2C3E50] mb-3 md:mb-4">Students Needing Attention</h4>
-            <div className="space-y-2 md:space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <div className="w-6 h-6 md:w-8 md:h-8 rounded-full bg-red-100 flex items-center justify-center text-red-500 mr-2 md:mr-3">
-                    <span className="text-xs font-medium">JD</span>
-                  </div>
-                  <span className="text-xs md:text-sm text-[#2C3E50]">Jack Davis</span>
-                </div>
-                <span className="text-xs px-2 py-1 bg-red-100 text-red-600 rounded-full">Below Level</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <div className="w-6 h-6 md:w-8 md:h-8 rounded-full bg-yellow-100 flex items-center justify-center text-yellow-500 mr-2 md:mr-3">
-                    <span className="text-xs font-medium">SM</span>
-                  </div>
-                  <span className="text-xs md:text-sm text-[#2C3E50]">Sarah Miller</span>
-                </div>
-                <span className="text-xs px-2 py-1 bg-yellow-100 text-yellow-600 rounded-full">Missed Test</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <div className="w-6 h-6 md:w-8 md:h-8 rounded-full bg-orange-100 flex items-center justify-center text-orange-500 mr-2 md:mr-3">
-                    <span className="text-xs font-medium">TW</span>
-                  </div>
-                  <span className="text-xs md:text-sm text-[#2C3E50]">Tim Wilson</span>
-                </div>
-                <span className="text-xs px-2 py-1 bg-orange-100 text-orange-600 rounded-full">Struggling</span>
-              </div>
-            </div>
-          </div>
-        </div>
+        <RecentActivity />
+        <QuickActions />
       </div>
     </>
   );

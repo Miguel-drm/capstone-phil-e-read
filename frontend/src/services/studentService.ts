@@ -20,6 +20,7 @@ export interface Student {
   name: string;
   grade: string;
   readingLevel: string;
+  lrn?: string;
   performance: 'Excellent' | 'Good' | 'Needs Improvement';
   lastAssessment: string;
   parentId?: string;
@@ -32,8 +33,12 @@ export interface Student {
 
 export interface ImportedStudent {
   name: string;
+  firstName?: string;
+  lastName?: string;
   grade: string;
   readingLevel: string;
+  lrn?: string;
+  performance?: string;
   parentId?: string;
   parentName?: string;
 }
@@ -255,6 +260,8 @@ class StudentService {
             name: studentData.name, // Update combined name
             grade: studentData.grade, // Update grade if changed
             readingLevel: studentData.readingLevel, // Update reading level if changed
+            lrn: studentData.lrn || null, // Update LRN if changed
+            performance: studentData.performance || 'Good', // Update performance if changed
             parentId: studentData.parentId || null, // Update parent info
             parentName: studentData.parentName || null, // Update parent info
             updatedAt: serverTimestamp()
@@ -267,7 +274,7 @@ class StudentService {
 
           batch.set(docRef, {
             ...studentData,
-            performance: 'Good' as const,
+            performance: (studentData.performance || 'Good') as const,
             lastAssessment: new Date().toISOString().split('T')[0],
             status: 'active' as const, // Set as active upon import
             teacherId,

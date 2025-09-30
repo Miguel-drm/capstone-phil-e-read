@@ -4,25 +4,12 @@ import { useAuth } from '../../contexts/AuthContext';
 import { gradeService, type ClassGrade } from '../../services/gradeService';
 import { studentService, type Student } from '../../services/studentService';
 import { readingSessionService, type ReadingSession } from '../../services/readingSessionService';
+import { resultService, type Result } from '../../services/resultsService';
 import { UnifiedStoryService } from '../../services/UnifiedStoryService';
 import type { Story } from '../../types/Story';
 import { useNavigate } from 'react-router-dom';
-import {
-  PlayIcon,
-  PencilIcon,
-  TrashIcon,
-} from '@heroicons/react/24/outline';
 import Loader from '../../components/Loader';
 
-const sessionColors = [
-  'from-blue-50 to-indigo-50 border-blue-200 text-blue-900',
-  'from-green-50 to-emerald-50 border-green-200 text-green-900',
-  'from-yellow-50 to-orange-50 border-yellow-200 text-yellow-900',
-  'from-purple-50 to-pink-50 border-purple-200 text-purple-900',
-  'from-red-50 to-rose-50 border-red-200 text-red-900',
-  'from-gray-50 to-slate-50 border-gray-200 text-gray-900',
-];
-const getSessionColor = (idx: number) => sessionColors[idx % sessionColors.length];
 
 const Reading: React.FC = () => {
   const { currentUser } = useAuth();
@@ -34,6 +21,7 @@ const Reading: React.FC = () => {
   const [stories, setStories] = useState<Story[]>([]);
   const [storiesLoading, setStoriesLoading] = useState(true);
   const [storiesError, setStoriesError] = useState<string | null>(null);
+  const [sessionResults, setSessionResults] = useState<Map<string, Result[]>>(new Map());
 
   const loadSessions = useCallback(async () => {
     if (!currentUser?.uid) return;
@@ -85,6 +73,30 @@ const Reading: React.FC = () => {
     }
   }, [currentUser?.uid]);
 
+  const loadSessionResults = useCallback(async () => {
+    if (!currentUser?.uid || readingSessions.length === 0) return;
+    try {
+      const resultsMap = new Map<string, Result[]>();
+      
+      // Load results for each session
+      for (const session of readingSessions) {
+        if (session.id) {
+          try {
+            const results = await resultService.getReadingSessionResults(session.id);
+            resultsMap.set(session.id, results);
+          } catch (error) {
+            console.error(`Error loading results for session ${session.id}:`, error);
+            resultsMap.set(session.id, []);
+          }
+        }
+      }
+      
+      setSessionResults(resultsMap);
+    } catch (error) {
+      console.error('Error loading session results:', error);
+    }
+  }, [currentUser?.uid, readingSessions]);
+
   // Load grades, students, and sessions on component mount
   useEffect(() => {
     if (currentUser?.uid) {
@@ -94,6 +106,13 @@ const Reading: React.FC = () => {
       loadStories();
     }
   }, [currentUser?.uid, loadGrades, loadStudents, loadSessions, loadStories]);
+
+  // Load session results when sessions change
+  useEffect(() => {
+    if (readingSessions.length > 0) {
+      loadSessionResults();
+    }
+  }, [readingSessions, loadSessionResults]);
 
   const loadStudentsByGrade = async (gradeId: string) => {
     try {
@@ -112,7 +131,9 @@ const Reading: React.FC = () => {
       const { value: formValues } = await Swal.fire({
         title: 'Reading Session',
         html: `
-          <div class="text-left p-4">
+          <div class="flex gap-6 p-4">
+            <!-- Left side - Form (50% width) -->
+            <div class="w-1/2 text-left">
             <div class="mb-6">
               <label class="block text-sm font-medium text-gray-700 mb-2">Session Title</label>
               <input 
@@ -145,10 +166,13 @@ const Reading: React.FC = () => {
                 `).join('')}
               </select>
             </div>
-            <div class="mb-6">
-              <label class="block text-sm font-medium text-gray-700 mb-2">Students</label>
-              <div id="student-list" class="max-h-40 overflow-y-auto border border-gray-300 rounded-md p-2">
-                <p class="text-sm text-gray-500 italic">Select a class to view students</p>
+            </div>
+            
+            <!-- Right side - Students (50% width) -->
+            <div class="w-1/2">
+              <h3 class="text-lg font-semibold text-gray-700 mb-4">Grade and section</h3>
+              <div id="student-display" class="space-y-4">
+                <p class="text-sm text-gray-500 italic text-center">Select a class to view students</p>
               </div>
             </div>
           </div>
@@ -159,34 +183,40 @@ const Reading: React.FC = () => {
         focusConfirm: false,
         backdrop: 'rgba(0,0,0,0.6)',
         customClass: {
-          popup: 'rounded-lg shadow-xl',
+          popup: 'rounded-lg shadow-xl w-full max-w-6xl',
           title: 'text-xl font-semibold text-gray-900',
           confirmButton: 'bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md',
           cancelButton: 'bg-white hover:bg-gray-50 text-gray-700 font-medium py-2 px-4 rounded-md border border-gray-300'
         },
         didOpen: () => {
           const gradeSelect = document.getElementById('session-grade') as HTMLSelectElement;
-          if (gradeSelect) {
+          const studentDisplay = document.getElementById('student-display') as HTMLDivElement;
+          
+          if (gradeSelect && studentDisplay) {
             gradeSelect.addEventListener('change', async (e) => {
               const gradeId = (e.target as HTMLSelectElement).value;
               if (gradeId) {
                 const gradeStudents = await loadStudentsByGrade(gradeId);
-                const studentList = document.getElementById('student-list');
-                if (studentList) {
-                  studentList.innerHTML = gradeStudents.length > 0
-                    ? gradeStudents.map(student => `
-                        <div class="flex items-center space-x-2 mb-2">
-                          <input type="radio" name="student-radio" id="student-${student.id}" value="${student.id}" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
-                          <label for="student-${student.id}" class="text-sm text-gray-700">${student.name}</label>
+                
+                if (gradeStudents.length > 0) {
+                  // Display students as individual buttons in vertical list
+                  studentDisplay.innerHTML = `
+                    <div class="space-y-2">
+                      ${gradeStudents.map(student => `
+                        <div class="w-full px-3 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium text-center cursor-default">
+                          ${student.name}
                         </div>
-                      `).join('')
-                    : '<p class="text-sm text-gray-500 italic">No students in this class</p>';
+                      `).join('')}
+                    </div>
+                    <div class="mt-3 text-xs text-gray-600 font-medium text-center">
+                      Total: ${gradeStudents.length} student${gradeStudents.length !== 1 ? 's' : ''}
+                        </div>
+                  `;
+                } else {
+                  studentDisplay.innerHTML = '<p class="text-sm text-gray-500 italic">No students in this class</p>';
                 }
               } else {
-                const studentList = document.getElementById('student-list');
-                if (studentList) {
-                  studentList.innerHTML = '<p class="text-sm text-gray-500 italic">Select a class to view students</p>';
-                }
+                studentDisplay.innerHTML = '<p class="text-sm text-gray-500 italic">Select a class to view students</p>';
               }
             });
           }
@@ -198,23 +228,26 @@ const Reading: React.FC = () => {
           const storyUrl = storySelect.options[storySelect.selectedIndex].getAttribute('data-url') || '';
           const gradeId = (document.getElementById('session-grade') as HTMLSelectElement).value;
 
-          const selectedStudentRadio = document.querySelector('input[name="student-radio"]:checked') as HTMLInputElement;
-          const selectedStudents = selectedStudentRadio ? [selectedStudentRadio.value] : [];
-
-          if (!title || !book || !gradeId || selectedStudents.length !== 1) {
-            Swal.showValidationMessage('Please fill in all required fields and select one student');
+          if (!title || !book || !gradeId) {
+            Swal.showValidationMessage('Please fill in all required fields');
             return false;
           }
+
+          // Get all students from the selected class by loading them again
+          // This ensures we have the most up-to-date student list
+          return loadStudentsByGrade(gradeId).then(gradeStudents => {
+            const allStudents = gradeStudents.map(student => student.name);
 
           return {
             title,
             book,
             storyUrl,
             gradeId,
-            students: selectedStudents,
+              students: allStudents, // Include all students from the class
             status: 'pending' as const,
             teacherId: currentUser?.uid
           };
+          });
         }
       });
 
@@ -261,216 +294,6 @@ const Reading: React.FC = () => {
     }
   };
 
-  const handleEditSession = async (session: ReadingSession) => {
-    const { value: formValues } = await Swal.fire({
-      title: 'Edit Reading Session',
-      html: `
-        <div class="text-left p-4">
-          <div class="mb-6">
-            <label class="block text-sm font-medium text-gray-700 mb-2">Session Title</label>
-            <input 
-              id="session-title" 
-              class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
-              value="${session.title}"
-            >
-          </div>
-          <div class="mb-6">
-            <label class="block text-sm font-medium text-gray-700 mb-2">Select Story</label>
-            <select 
-              id="session-story" 
-              class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="">Select a story</option>
-              ${stories.map(story => `
-                <option value="${story.title}" 
-                        data-url="${story.pdfUrl}"
-                        ${story.title === session.book ? 'selected' : ''}>
-                  ${story.title}
-                </option>
-              `).join('')}
-            </select>
-          </div>
-          <div class="mb-6">
-            <label class="block text-sm font-medium text-gray-700 mb-2">Class/Grade</label>
-            <select 
-              id="session-grade" 
-              class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="">Select a class</option>
-              ${grades.map(grade => `
-                <option value="${grade.id}" ${grade.id === session.gradeId ? 'selected' : ''}>${grade.name}</option>
-              `).join('')}
-            </select>
-          </div>
-          <div class="mb-6">
-            <label class="block text-sm font-medium text-gray-700 mb-2">Students</label>
-            <div id="student-list" class="max-h-40 overflow-y-auto border border-gray-300 rounded-md p-2">
-              <p class="text-sm text-gray-500 italic">Select a class to view students</p>
-            </div>
-          </div>
-        </div>
-      `,
-      showCancelButton: true,
-      confirmButtonText: 'Save Changes',
-      cancelButtonText: 'Cancel',
-      focusConfirm: false,
-      backdrop: 'rgba(0,0,0,0.6)',
-      customClass: {
-        popup: 'rounded-lg shadow-xl',
-        title: 'text-xl font-semibold text-gray-900',
-        confirmButton: 'bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md',
-        cancelButton: 'bg-white hover:bg-gray-50 text-gray-700 font-medium py-2 px-4 rounded-md border border-gray-300'
-      },
-      didOpen: () => {
-        const gradeSelect = document.getElementById('session-grade') as HTMLSelectElement;
-        if (gradeSelect) {
-          // Load initial students
-          const loadInitialStudents = async () => {
-            const gradeId = session.gradeId;
-            if (gradeId) {
-              const gradeStudents = await loadStudentsByGrade(gradeId);
-              const studentList = document.getElementById('student-list');
-              if (studentList) {
-                studentList.innerHTML = gradeStudents.length > 0
-                  ? gradeStudents.map(student => `
-                      <div class="flex items-center space-x-2 mb-2">
-                        <input type="radio" name="student-radio" id="student-${student.id}" value="${student.id}" 
-                          class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                          ${session.students.includes(student.name) ? 'checked' : ''}>
-                        <label for="student-${student.id}" class="text-sm text-gray-700">${student.name}</label>
-                      </div>
-                    `).join('')
-                  : '<p class="text-sm text-gray-500 italic">No students in this class</p>';
-              }
-            }
-          };
-          loadInitialStudents();
-
-          // Handle grade change
-          gradeSelect.addEventListener('change', async (e) => {
-            const gradeId = (e.target as HTMLSelectElement).value;
-            if (gradeId) {
-              const gradeStudents = await loadStudentsByGrade(gradeId);
-              const studentList = document.getElementById('student-list');
-              if (studentList) {
-                studentList.innerHTML = gradeStudents.length > 0
-                  ? gradeStudents.map(student => `
-                      <div class="flex items-center space-x-2 mb-2">
-                        <input type="radio" name="student-radio" id="student-${student.id}" value="${student.id}" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
-                        <label for="student-${student.id}" class="text-sm text-gray-700">${student.name}</label>
-                      </div>
-                    `).join('')
-                  : '<p class="text-sm text-gray-500 italic">No students in this class</p>';
-              }
-            } else {
-              const studentList = document.getElementById('student-list');
-              if (studentList) {
-                studentList.innerHTML = '<p class="text-sm text-gray-500 italic">Select a class to view students</p>';
-              }
-            }
-          });
-        }
-      },
-      preConfirm: () => {
-        const title = (document.getElementById('session-title') as HTMLInputElement).value;
-        const storySelect = document.getElementById('session-story') as HTMLSelectElement;
-        const book = storySelect.value;
-        const storyUrl = storySelect.options[storySelect.selectedIndex].getAttribute('data-url') || '';
-        const gradeId = (document.getElementById('session-grade') as HTMLSelectElement).value;
-
-        const selectedStudentRadio = document.querySelector('input[name="student-radio"]:checked') as HTMLInputElement;
-        const selectedStudents = selectedStudentRadio ? [selectedStudentRadio.value] : [];
-
-        if (!title || !book || !gradeId || selectedStudents.length === 0) {
-          Swal.showValidationMessage('Please fill in all required fields and select at least one student');
-          return false;
-        }
-
-        return {
-          title,
-          book,
-          storyUrl,
-          gradeId,
-          students: selectedStudents,
-          status: session.status,
-          teacherId: currentUser?.uid
-        };
-      }
-    });
-
-    if (formValues && session.id) {
-      try {
-        await readingSessionService.updateSession(session.id, formValues);
-        setReadingSessions(prev =>
-          prev.map(s => s.id === session.id ? { ...s, ...formValues } : s)
-        );
-
-        await Swal.fire({
-          icon: 'success',
-          title: 'Session Updated!',
-          text: 'The reading session has been updated successfully.',
-          timer: 2000,
-          showConfirmButton: false
-        });
-      } catch (error) {
-        console.error('Error updating session:', error);
-        await Swal.fire({
-          icon: 'error',
-          title: 'Error',
-          text: 'Failed to update the reading session. Please try again.',
-        });
-      }
-    }
-  };
-
-  const handleDeleteSession = async (sessionId: string) => {
-    const result = await Swal.fire({
-      title: 'Delete Session',
-      text: 'Are you sure you want to delete this session? This action cannot be undone.',
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'Delete',
-      cancelButtonText: 'Cancel',
-      confirmButtonColor: '#dc2626',
-      cancelButtonColor: '#6b7280',
-    });
-
-    if (result.isConfirmed && sessionId) {
-      try {
-        await readingSessionService.deleteSession(sessionId);
-        setReadingSessions(prev => prev.filter(s => s.id !== sessionId));
-
-        await Swal.fire({
-          icon: 'success',
-          title: 'Session Deleted!',
-          text: 'The reading session has been deleted successfully.',
-          timer: 2000,
-          showConfirmButton: false
-        });
-      } catch (error) {
-        console.error('Error deleting session:', error);
-        await Swal.fire({
-          icon: 'error',
-          title: 'Error',
-          text: 'Failed to delete the reading session. Please try again.',
-        });
-      }
-    }
-  };
-
-  const handleProceedSession = async (sessionId: string) => {
-    try {
-      await readingSessionService.updateSessionStatus(sessionId, 'in-progress');
-      navigate(`/teacher/reading-session/${sessionId}`);
-    } catch (error) {
-      console.error('Error proceeding to session:', error);
-      await Swal.fire({
-        icon: 'error',
-        title: 'Error',
-        text: 'Failed to start the reading session. Please try again.',
-      });
-    }
-  };
 
   const handleViewStoryDetails = async (story: Story) => {
     await Swal.fire({
@@ -515,6 +338,269 @@ const Reading: React.FC = () => {
         htmlContainer: 'p-6'
       }
     });
+  };
+
+  // Student card handlers
+  const handleStudentProceed = (studentId: string, studentName: string, sessionId: string) => {
+    // Navigate to reading session page
+    navigate(`/teacher/reading-session/${sessionId}`, {
+      state: {
+        studentId,
+        studentName,
+        teacherId: currentUser?.uid
+      }
+    });
+  };
+
+  const handleStudentEdit = async (studentId: string, studentName: string) => {
+    try {
+      // Get the current student data
+      const student = await studentService.getStudent(studentId);
+      if (!student) {
+        await Swal.fire('Error', 'Student not found', 'error');
+        return;
+      }
+
+      // Show edit form using SweetAlert2
+      const { value: formValues } = await Swal.fire({
+        title: 'Edit Student',
+        html: `
+          <div class="text-left space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Student Name</label>
+              <input 
+                id="edit-name" 
+                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
+                value="${student.name}"
+                placeholder="Enter student name"
+              >
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Grade</label>
+              <select 
+                id="edit-grade" 
+                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">Select a grade</option>
+                ${grades.map(grade => `
+                  <option value="${grade.name}" ${grade.name === student.grade ? 'selected' : ''}>${grade.name}</option>
+                `).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Reading Level</label>
+              <select 
+                id="edit-reading-level" 
+                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="Beginner" ${student.readingLevel === 'Beginner' ? 'selected' : ''}>Beginner</option>
+                <option value="Intermediate" ${student.readingLevel === 'Intermediate' ? 'selected' : ''}>Intermediate</option>
+                <option value="Advanced" ${student.readingLevel === 'Advanced' ? 'selected' : ''}>Advanced</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Performance</label>
+              <select 
+                id="edit-performance" 
+                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="Excellent" ${student.performance === 'Excellent' ? 'selected' : ''}>Excellent</option>
+                <option value="Good" ${student.performance === 'Good' ? 'selected' : ''}>Good</option>
+                <option value="Needs Improvement" ${student.performance === 'Needs Improvement' ? 'selected' : ''}>Needs Improvement</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+              <select 
+                id="edit-status" 
+                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="active" ${student.status === 'active' ? 'selected' : ''}>Active</option>
+                <option value="pending" ${student.status === 'pending' ? 'selected' : ''}>Pending</option>
+                <option value="inactive" ${student.status === 'inactive' ? 'selected' : ''}>Inactive</option>
+              </select>
+            </div>
+          </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'Update Student',
+        cancelButtonText: 'Cancel',
+        focusConfirm: false,
+        backdrop: 'rgba(0,0,0,0.6)',
+        customClass: {
+          popup: 'rounded-lg shadow-xl w-full max-w-md',
+          title: 'text-xl font-semibold text-gray-900',
+          confirmButton: 'bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md',
+          cancelButton: 'bg-white hover:bg-gray-50 text-gray-700 font-medium py-2 px-4 rounded-md border border-gray-300'
+        },
+        preConfirm: () => {
+          const name = (document.getElementById('edit-name') as HTMLInputElement).value;
+          const grade = (document.getElementById('edit-grade') as HTMLSelectElement).value;
+          const readingLevel = (document.getElementById('edit-reading-level') as HTMLSelectElement).value;
+          const performance = (document.getElementById('edit-performance') as HTMLSelectElement).value;
+          const status = (document.getElementById('edit-status') as HTMLSelectElement).value;
+
+          if (!name || !grade || !readingLevel || !performance || !status) {
+            Swal.showValidationMessage('Please fill in all fields');
+            return false;
+          }
+
+          return {
+            name,
+            grade,
+            readingLevel,
+            performance,
+            status
+          };
+        }
+      });
+
+      if (formValues) {
+        // Update the student
+        await studentService.updateStudent(studentId, formValues);
+        
+        // Reload students to reflect changes
+        await loadStudents();
+        
+        await Swal.fire({
+          icon: 'success',
+          title: 'Student Updated!',
+          text: `${studentName} has been updated successfully.`,
+          timer: 2000,
+          showConfirmButton: false
+        });
+      }
+    } catch (error) {
+      console.error('Error editing student:', error);
+      await Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: 'Failed to update student. Please try again.',
+      });
+    }
+  };
+
+  const handleStudentDelete = async (studentName: string, sessionId: string) => {
+    try {
+      // Show confirmation dialog
+      const result = await Swal.fire({
+        title: 'Remove Student from Session',
+        text: `Are you sure you want to remove ${studentName} from this reading session? This will not delete the student from your class list.`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#3085d6',
+        confirmButtonText: 'Yes, remove from session!',
+        cancelButtonText: 'Cancel',
+        backdrop: 'rgba(0,0,0,0.6)',
+        customClass: {
+          popup: 'rounded-lg shadow-xl',
+          title: 'text-xl font-semibold text-gray-900',
+          confirmButton: 'bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-md',
+          cancelButton: 'bg-white hover:bg-gray-50 text-gray-700 font-medium py-2 px-4 rounded-md border border-gray-300'
+        }
+      });
+
+      if (result.isConfirmed) {
+        // Show loading
+        Swal.fire({
+          title: 'Removing...',
+          text: 'Please wait while we remove the student from the session.',
+          allowOutsideClick: false,
+          didOpen: () => {
+            Swal.showLoading();
+          }
+        });
+
+        // Remove the student from the session only
+        await readingSessionService.removeStudentFromSession(sessionId, studentName);
+        
+        // Reload sessions to reflect changes
+        await loadSessions();
+        
+        await Swal.fire({
+          icon: 'success',
+          title: 'Student Removed!',
+          text: `${studentName} has been removed from this reading session.`,
+          timer: 2000,
+          showConfirmButton: false
+        });
+      }
+    } catch (error) {
+      console.error('Error removing student from session:', error);
+      await Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: error instanceof Error ? error.message : 'Failed to remove student from session. Please try again.',
+      });
+    }
+  };
+
+  // Student Card Component
+  const StudentCard: React.FC<{
+    student: { id: string; name: string };
+    status: 'pending' | 'completed';
+    onProceed: () => void;
+    onEdit: () => void;
+    onDelete: () => void;
+  }> = ({ student, status, onProceed, onEdit, onDelete }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+
+    return (
+      <div className="bg-white rounded-lg p-3 shadow-sm border border-gray-200">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 bg-gray-300 rounded-full flex items-center justify-center">
+              <i className="fas fa-user text-gray-600 text-xs"></i>
+            </div>
+            <span className="text-sm font-medium text-gray-800">{student.name}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+              status === 'completed' 
+                ? 'bg-green-100 text-green-800' 
+                : 'bg-yellow-100 text-yellow-800'
+            }`}>
+              {status === 'completed' ? 'Completed' : 'Pending'}
+            </span>
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              <i className={`fas fa-chevron-${isExpanded ? 'up' : 'down'} text-xs`}></i>
+            </button>
+          </div>
+        </div>
+        
+        {isExpanded && (
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onProceed}
+                className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
+              >
+                <i className="fas fa-play text-xs"></i>
+                Proceed
+              </button>
+              <button
+                onClick={onEdit}
+                className="flex items-center gap-1 px-2 py-1 text-xs bg-yellow-500 text-white rounded hover:bg-yellow-600"
+              >
+                <i className="fas fa-edit text-xs"></i>
+                Edit
+              </button>
+              <button
+                onClick={onDelete}
+                className="flex items-center gap-1 px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600"
+              >
+                <i className="fas fa-trash text-xs"></i>
+                Delete
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -563,79 +649,98 @@ const Reading: React.FC = () => {
 
         {/* Content */}
         {activeTab === 'sessions' && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="space-y-6">
             {readingSessions.length === 0 ? (
-              <div className="col-span-full text-center py-10 text-gray-400 italic">No sessions found. Click + to add a session.</div>
+              <div className="text-center py-10 text-gray-400 italic">No sessions found. Click + to add a session.</div>
             ) : (
-              readingSessions.map((session, idx) => (
+              readingSessions.map((session) => {
+                // Get students for this session
+                const sessionStudents = session.students.map((studentName: string) => {
+                  const student = students.find(s => s.name === studentName);
+                  return {
+                    id: student?.id || studentName,
+                    name: student?.name || studentName
+                  };
+                });
+
+                // Get results for this session
+                const sessionResultsData = sessionResults.get(session.id || '') || [];
+                
+                // Split students into pending and completed based on real data
+                const completedStudentIds = new Set(
+                  sessionResultsData
+                    .filter(result => result.type === 'reading-session' && result.studentId)
+                    .map(result => result.studentId!)
+                );
+
+                const pendingStudents = sessionStudents.filter(student => 
+                  !completedStudentIds.has(student.id)
+                );
+                const completedStudents = sessionStudents.filter(student => 
+                  completedStudentIds.has(student.id)
+                );
+
+                return (
                 <div
                   key={session.id}
-                  className={`flex flex-col justify-between rounded-xl shadow-md border-2 bg-gradient-to-br ${getSessionColor(idx)} p-5 transition-all duration-200 hover:shadow-lg`}
-                >
-                  <div className="flex items-center gap-3 mb-3">
-                    <span className="w-10 h-10 flex items-center justify-center rounded-full text-lg font-bold shadow bg-white/80 text-blue-500">
-                      <i className="fas fa-book-reader"></i>
+                    className="bg-blue-100 rounded-2xl p-6 shadow-lg border border-blue-200"
+                  >
+                    {/* Grade Header */}
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+                        <i className="fas fa-graduation-cap text-white text-sm"></i>
+                      </div>
+                      <h3 className="text-lg font-semibold text-blue-900">{session.title}</h3>
+                      <span className="text-sm text-blue-600 bg-blue-200 px-2 py-1 rounded-full">
+                        {session.book}
                     </span>
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-base font-semibold break-words leading-tight">{session.title}</span>
-                      <span className="text-xs text-gray-500 truncate max-w-[120px]">{session.book}</span>
+                    </div>
+
+                    {/* Two Column Layout */}
+                    <div className="grid grid-cols-2 gap-6">
+                      {/* Left Column - Pending Students */}
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                          <span className="w-3 h-3 bg-yellow-400 rounded-full"></span>
+                          Pending ({pendingStudents.length})
+                        </h4>
+                        <div className="space-y-2">
+                          {pendingStudents.map((student, studentIdx) => (
+                            <StudentCard
+                              key={student.id || studentIdx}
+                              student={student}
+                              status="pending"
+                              onProceed={() => handleStudentProceed(student.id, student.name, session.id || '')}
+                              onEdit={() => handleStudentEdit(student.id, student.name)}
+                              onDelete={() => handleStudentDelete(student.name, session.id || '')}
+                            />
+                          ))}
                     </div>
                   </div>
-                  <div className="flex flex-col gap-1 mb-2">
-                    <span className="text-xs font-medium text-gray-700">Students:</span>
-                    <span className="text-sm text-gray-900 truncate">
-                      {session.students.map((id: string) => {
-                        const student = students.find(s => s.id === id);
-                        return student ? student.name : `Unknown (${id})`;
-                      }).join(', ')}
-                    </span>
+
+                      {/* Right Column - Completed Students */}
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                          <span className="w-3 h-3 bg-green-400 rounded-full"></span>
+                          Completed ({completedStudents.length})
+                        </h4>
+                        <div className="space-y-2">
+                          {completedStudents.map((student, studentIdx) => (
+                            <StudentCard
+                              key={student.id || studentIdx}
+                              student={student}
+                              status="completed"
+                              onProceed={() => handleStudentProceed(student.id, student.name, session.id || '')}
+                              onEdit={() => handleStudentEdit(student.id, student.name)}
+                              onDelete={() => handleStudentDelete(student.name, session.id || '')}
+                            />
+                          ))}
                   </div>
-                  <div className="flex items-center justify-between mt-2">
-                    <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${session.status === 'completed'
-                        ? 'bg-green-100 text-green-800'
-                        : session.status === 'in-progress'
-                          ? 'bg-blue-100 text-blue-800'
-                          : 'bg-yellow-100 text-yellow-800'
-                      }`}>
-                      {session.status.charAt(0).toUpperCase() + session.status.slice(1)}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      {session.status === 'pending' && (
-                        <button
-                          onClick={() => session.id && handleProceedSession(session.id)}
-                          className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-blue-600 hover:text-white hover:bg-blue-500 rounded-md transition-colors"
-                        >
-                          <PlayIcon className="h-4 w-4 mr-1.5" />
-                          Proceed
-                        </button>
-                      )}
-                      {session.status === 'in-progress' && (
-                        <button
-                          onClick={() => session.id && handleProceedSession(session.id)}
-                          className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-blue-600 hover:text-white hover:bg-blue-500 rounded-md transition-colors"
-                        >
-                          <PlayIcon className="h-4 w-4 mr-1.5" />
-                          Continue
-                        </button>
-                      )}
-                      <button
-                        onClick={() => handleEditSession(session)}
-                        className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-yellow-600 hover:text-white hover:bg-yellow-400 rounded-md transition-colors"
-                      >
-                        <PencilIcon className="h-4 w-4 mr-1.5" />
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => session.id && handleDeleteSession(session.id)}
-                        className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-red-600 hover:text-white hover:bg-red-400 rounded-md transition-colors"
-                      >
-                        <TrashIcon className="h-4 w-4 mr-1.5" />
-                        Delete
-                      </button>
                     </div>
                   </div>
                 </div>
-              ))
+                );
+              })
             )}
           </div>
         )}

@@ -136,7 +136,7 @@ export const isProfileComplete = (profile: UserProfile): boolean => {
   } else if (profile.role === 'parent') {
     return hasBasicInfo && 
            Boolean(profile.phoneNumber) && 
-           Boolean(profile.gradeLevel);
+           Boolean(profile.address);
   } else if (profile.role === 'admin') {
     return hasBasicInfo && 
            Boolean(profile.phoneNumber) && 
@@ -212,6 +212,7 @@ export const getUserProfile = async (): Promise<UserProfile | null> => {
         phoneNumber: '',
         gradeLevel: '',
         school: '',
+        address: '',
       };
       return {
         ...initialProfile,
@@ -227,6 +228,7 @@ export const getUserProfile = async (): Promise<UserProfile | null> => {
       phoneNumber: String(userData.phoneNumber || ''),
       gradeLevel: String(userData.gradeLevel || ''),
       school: String(userData.school || ''),
+      address: String(userData.address || ''),
       isProfileComplete: Boolean(userData.isProfileComplete || false),
       banner: userData.banner || undefined,
     };
@@ -240,6 +242,7 @@ export const getUserProfile = async (): Promise<UserProfile | null> => {
       phoneNumber: '',
       gradeLevel: '',
       school: '',
+      address: '',
     };
     return {
       ...defaultProfile,

@@ -167,17 +167,23 @@ const ClassList: React.FC = () => {
           const worksheet = workbook.Sheets[sheetName];
           const jsonData = XLSX.utils.sheet_to_json(worksheet);
           const students = jsonData.map((row: any) => {
-            const name = (row.Name || row.name || '').trim();
-            const surname = (row.Surname || row.surname || '').trim();
+            const firstName = (row['First Name'] || row['first name'] || row['FirstName'] || row['firstname'] || '').trim();
+            const lastName = (row['Last Name'] || row['last name'] || row['LastName'] || row['lastname'] || '').trim();
+            const lrn = (row.LRN || row.lrn || '').trim();
+            const performance = (row.Performance || row.performance || 'Good').trim();
             
-            // Combine name and surname with ' ' separator
-            const fullName = [surname, name].filter(Boolean).join(' ');
+            // Combine first and last name
+            const fullName = [firstName, lastName].filter(Boolean).join(' ');
 
             return {
               name: fullName,
-            grade: row.Grade || row.grade || '',
-            readingLevel: String(row.ReadingLevel || row.readingLevel || '').replace('Level ', '').trim() as string,
-            // parentId and parentName can be added here if available in import
+              firstName: firstName,
+              lastName: lastName,
+              grade: row.Grade || row.grade || '',
+              readingLevel: String(row.ReadingLevel || row.readingLevel || '').replace('Level ', '').trim() as string,
+              lrn: lrn,
+              performance: performance,
+              // parentId and parentName can be added here if available in import
             };
           });
           resolve(students);
@@ -1226,7 +1232,7 @@ const ClassList: React.FC = () => {
             <div className="ml-3">
               <p className="text-sm text-yellow-700">
                 <strong>Profile Incomplete:</strong> Please complete your profile information to access all features. 
-                Missing fields: {userRole === 'teacher' ? 'Phone Number, School' : userRole === 'parent' ? 'Phone Number, Grade Level' : 'Phone Number, School'}.
+                Missing fields: {userRole === 'teacher' ? 'Phone Number, School' : userRole === 'parent' ? 'Phone Number' : 'Phone Number, School'}.
                 <a href="/teacher/profile" className="font-medium underline hover:text-yellow-600 ml-1">
                   Update Profile
                 </a>
@@ -1509,7 +1515,7 @@ const ClassList: React.FC = () => {
                     <thead className="bg-gray-50 sticky top-0 z-10">
                       <tr>
                         <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
-                        <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Grade</th>
+                        <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">LRN</th>
                         <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Parent</th>
                         <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ISR</th>
                         <th scope="col" className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
@@ -1566,7 +1572,7 @@ const ClassList: React.FC = () => {
                               </div>
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap">
-                              <div className="text-sm text-gray-900 select-none">{student.grade}</div>
+                              <div className="text-sm text-gray-900 select-none">{student.lrn || '-'}</div>
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap text-left align-middle">
                               <div className="flex items-center h-8">
@@ -1676,17 +1682,19 @@ const ClassList: React.FC = () => {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50 sticky top-0">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Name</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Grade</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Reading Level</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">First Name</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Last Name</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">LRN</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Performance</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-100">
                   {importedStudents.map((student, index) => (
                     <tr key={index} className="hover:bg-blue-50 transition-colors duration-150">
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{student.name.replace(/\|/g, ' ')}</td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{student.grade}</td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{student.readingLevel}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{student.firstName || '-'}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{student.lastName || '-'}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{student.lrn || '-'}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{student.performance || 'Good'}</td>
                     </tr>
                   ))}
                 </tbody>
