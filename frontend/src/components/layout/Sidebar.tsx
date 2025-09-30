@@ -101,7 +101,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const sidebarClasses = `
     fixed top-0 left-0 z-[30] h-screen
-    transition-all duration-300 ease-in-out overflow-x-hidden
+    transition-all duration-300 ease-in-out overflow-x-hidden z-1000
     ${isMobile
       ? `w-full max-w-xs shadow-2xl ${isOpen ? 'translate-x-0' : '-translate-x-full'}`
       : isCollapsed
