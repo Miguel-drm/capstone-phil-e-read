@@ -6,9 +6,10 @@ import * as XLSX from 'xlsx';
 import { showError, showSuccess, showConfirmation } from '../../services/alertService';
 import Swal from 'sweetalert2';
 import { onSnapshot, collection } from 'firebase/firestore';
-import { getAllParents } from '../../services/authService';
+import { getAllParents, getUserProfile } from '../../services/authService';
 import { db } from '../../config/firebase';
 import Loader from '../../components/Loader';
+import { resultService } from '../../services/resultsService';
 
 const ClassList: React.FC = () => {
   const { currentUser, userRole, isProfileComplete } = useAuth();
@@ -341,6 +342,180 @@ const ClassList: React.FC = () => {
     } catch (error) {
       showError('Error', 'Failed to load student details.');
       setLoadingStudentId(null);
+    }
+  };
+
+  const handleViewISR = async (student: Student) => {
+    try {
+      if (!student.id) return;
+      const [readingResults, testResults] = await Promise.all([
+        resultService.getReadingResults(student.id),
+        resultService.getTestResults(student.id)
+      ]);
+      const latestReading = readingResults.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+      const latestTest = testResults.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+
+      // Teacher profile for header info
+      let teacherName = '';
+      let schoolName = '';
+      try {
+        const profile: any = await (getUserProfile() as Promise<any>);
+        teacherName = profile?.displayName || '';
+        schoolName = profile?.school || '';
+      } catch {}
+
+      const safe = (v: any) => (v === undefined || v === null ? '' : String(v));
+      const elapsedMins = latestReading?.elapsedTime ? (latestReading.elapsedTime / 60).toFixed(2) : '';
+      const rate = safe(latestReading?.readingSpeed);
+      const mark = safe(latestTest?.correctAnswers);
+      const percent = latestTest?.comprehension != null ? `${latestTest.comprehension}%` : '';
+      const compLevel = (() => {
+        const v = typeof latestTest?.comprehension === 'string' ? parseFloat(latestTest?.comprehension) : latestTest?.comprehension;
+        if (v == null || isNaN(v)) return '';
+        if (v >= 80) return 'Independent';
+        if (v >= 59) return 'Instructional';
+        return 'Frustration';
+      })();
+      const wordReadingScore = latestReading?.oralReadingScore != null ? `${latestReading.oralReadingScore}%` : '';
+      const wordReadingLevel = (() => {
+        const v = typeof latestReading?.oralReadingScore === 'string' ? parseFloat(latestReading?.oralReadingScore) : latestReading?.oralReadingScore;
+        if (v == null || isNaN(v)) return '';
+        if (v >= 95) return 'Independent';
+        if (v >= 90) return 'Instructional';
+        return 'Frustrational';
+      })();
+
+      const answers: string[] = Array.from({ length: 7 }).map((_, i) => {
+        const entry = (latestTest as any)?.answers?.[i];
+        const sel = entry?.selectedAnswer ?? '';
+        // If selected answer looks like a letter option, normalize to lowercase a/b/c/etc.
+        const letterMatch = String(sel).trim().match(/^[A-Da-d]$/);
+        return letterMatch ? letterMatch[0].toLowerCase() : String(sel);
+      });
+
+      const html = `
+        <!doctype html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>Phil-IRI Form 3A</title>
+            <style>
+              body { font-family: Arial, sans-serif; padding: 24px; color: #111827; }
+              .header { display:flex; justify-content: space-between; font-size:12px; margin-bottom: 6px; }
+              .title { text-align:right; font-weight:700; }
+              .row { margin: 8px 0; font-size: 13px; }
+              table { width:100%; border-collapse: collapse; font-size:12px; }
+              th, td { border:1.5px solid #9ca3af; padding:8px; }
+              th { background:#f3f4f6; }
+              .right { text-align:right; }
+              .bold { font-weight:600; }
+              .u { text-decoration: underline; }
+              .no-print { margin-top: 16px; padding: 8px 12px; background:#2563eb; color:#fff; border:0; border-radius:6px; cursor:pointer; }
+              .answers { width:100%; border:0; margin-top: 4px; }
+              .answers td { border:0; padding: 4px 16px 4px 0; font-size:13px; }
+              .ansline { display:inline-block; min-width: 90px; border-bottom: 1px solid #9ca3af; text-align:center; }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <div>
+                <div class="bold">School: <span class="u">${safe(schoolName)}</span></div>
+                <div class="bold">Teacher: <span class="u">${safe(teacherName)}</span></div>
+                <div class="bold">Student: <span class="u">${safe(student.name)}</span></div>
+              </div>
+              <div class="title">Phil-IRI Form 3A, Pahina 4</div>
+            </div>
+
+            <div class="row bold">PART A</div>
+            <div class="row">
+              Kabuuang Oras ng Pagbasa: <span class="u">${elapsedMins}</span> minuto
+              &nbsp;&nbsp;&nbsp; Rate ng Pagbasa: <span class="u">${rate}</span> salita /minuto
+            </div>
+            <div class="row">
+              Sagot sa mga Tanong: Marka: <span class="u">${mark}</span>
+              &nbsp;&nbsp; %: <span class="u">${percent}</span>
+              &nbsp;&nbsp; Comprehension Level: <span class="u">${compLevel}</span>
+            </div>
+
+            <table class="answers">
+              <tr>
+                <td>1.&nbsp;<span class="ansline">${answers[0] || '&nbsp;'}</span></td>
+                <td>5.&nbsp;<span class="ansline">${answers[4] || '&nbsp;'}</span></td>
+              </tr>
+              <tr>
+                <td>2.&nbsp;<span class="ansline">${answers[1] || '&nbsp;'}</span></td>
+                <td>6.&nbsp;<span class="ansline">${answers[5] || '&nbsp;'}</span></td>
+              </tr>
+              <tr>
+                <td>3.&nbsp;<span class="ansline">${answers[2] || '&nbsp;'}</span></td>
+                <td>7.&nbsp;<span class="ansline">${answers[6] || '&nbsp;'}</span></td>
+              </tr>
+              <tr>
+                <td>4.&nbsp;<span class="ansline">${answers[3] || '&nbsp;'}</span></td>
+                <td></td>
+              </tr>
+            </table>
+
+            <div class="row bold">PART B</div>
+            <div class="row bold">Word Reading (Pagbasa)</div>
+            <div class="row">Seleksyon: <span class="u">${safe(latestReading?.book)}</span> &nbsp;&nbsp; Level: <span class="u">${safe(student.readingLevel)}</span> &nbsp;&nbsp; Set: <span class="u"></span></div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:50px" class="right">#</th>
+                  <th>Types of Miscues <span style="font-weight:400">(Uri ng Mali)</span></th>
+                  <th class="right">Number of Miscues <span style="font-weight:400">(Bilang ng Salitang mali ang basa)</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${[
+                  'Mispronunciation (Maling Bigkas)',
+                  'Omission (Pagkakaltas)',
+                  'Substitution (Pagpapalit)',
+                  'Insertion (Pagsisingit)',
+                  'Repetition (Pag-uulit)',
+                  'Transposition (Pagpapalit ng lugar)',
+                  'Reversal (Paglilipat)'
+                ].map((label, idx) => `
+                  <tr>
+                    <td class="right">${idx+1}</td>
+                    <td>${label}</td>
+                    <td class="right"></td>
+                  </tr>
+                `).join('')}
+                <tr>
+                  <td colspan="2" class="bold">Total Miscues (Kabuuan)</td>
+                  <td class="right">${safe(latestReading?.miscues)}</td>
+                </tr>
+                <tr>
+                  <td colspan="2" class="bold">Number of Words in the Passage</td>
+                  <td class="right">${safe(latestReading?.totalWords)}</td>
+                </tr>
+                <tr>
+                  <td colspan="2" class="bold">Word Reading Score</td>
+                  <td class="right">${wordReadingScore}</td>
+                </tr>
+                <tr>
+                  <td colspan="2" class="bold">Word Reading Level (Antas ng Pagbasa)</td>
+                  <td class="right">${wordReadingLevel}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <button class="no-print" onclick="window.print()">Print</button>
+          </body>
+        </html>
+      `;
+
+      const w = window.open('', '_blank');
+      if (!w) return;
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+    } catch (e) {
+      showError('Error', 'Failed to open ISR for this student.');
     }
   };
 
@@ -1336,7 +1511,7 @@ const ClassList: React.FC = () => {
                         <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
                         <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Grade</th>
                         <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Parent</th>
-                        <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Performance</th>
+                        <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ISR</th>
                         <th scope="col" className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                       </tr>
                     </thead>
@@ -1413,9 +1588,13 @@ const ClassList: React.FC = () => {
                               </div>
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap">
-                              <span className={`px-1.5 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${getPerformanceColor(student.performance)} select-none`}>
-                                {student.performance}
-                              </span>
+                              <button
+                                onClick={() => handleViewISR(student)}
+                                className="px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 hover:bg-blue-200"
+                                title="View ISR"
+                              >
+                                View
+                              </button>
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
                               <div className="flex justify-end space-x-2">

@@ -60,14 +60,14 @@ const sessionsData = [
 ];
 
 export const EditProfileModalContext = createContext({ openEditProfileModal: () => {} });
-export const BannerContext = createContext({ banner: '', setBanner: (url: string) => {} });
+export const BannerContext = createContext({ banner: '', setBanner: (_url: string) => {} });
 
 const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   const { currentUser, userRole, userProfile } = useAuth();
   const [isMobile, setIsMobile] = useState(false);
-  const [isTablet, setIsTablet] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [showSessionsModal, setShowSessionsModal] = useState(false);
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
@@ -92,7 +92,6 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
     const checkScreenSize = () => {
       const width = window.innerWidth;
       setIsMobile(width < 768);
-      setIsTablet(width >= 768 && width < 1024);
       
       
       if (width >= 1024) {
@@ -111,6 +110,8 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
     window.addEventListener('resize', checkScreenSize);
     return () => window.removeEventListener('resize', checkScreenSize);
   }, []);
+
+  // Removed auto-close/collapse on inactivity
 
   // Scroll detection for back to top button
   useEffect(() => {

@@ -80,18 +80,21 @@ service cloud.firestore {
       allow read: if request.auth != null && (
         isTeacher() || 
         isAdmin() ||
-        (isParent() && resource.data.students.hasAny(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.children))
+        (isParent() && (
+          resource.data.students.hasAny(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.children) ||
+          resource.data.teacherId == request.auth.uid
+        ))
       );
       allow create: if request.auth != null && (
-        isTeacher() && 
+        (isTeacher() || isParent()) &&
         request.resource.data.teacherId == request.auth.uid
       );
       allow update: if request.auth != null && (
-        (isTeacher() && isSessionOwner()) ||
+        ((isTeacher() || isParent()) && isSessionOwner()) ||
         isAdmin()
       );
       allow delete: if request.auth != null && (
-        (isTeacher() && isSessionOwner()) ||
+        ((isTeacher() || isParent()) && isSessionOwner()) ||
         isAdmin()
       );
     }

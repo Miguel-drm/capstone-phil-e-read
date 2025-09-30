@@ -31,6 +31,8 @@ import ProgressPage from './pages/parent/Progress';
 import AssignmentsPage from './pages/parent/Assignments';
 import ReportsPage from './pages/parent/Reports';
 import ParentProfilePage from './pages/parent/Profile';
+import ReadingPractice from './pages/parent/ReadingPractice';
+import ParentReadingSessionPage from './pages/parent/ReadingSessionPage';
 
 import SyncTeacherProfile from './components/SyncTeacherProfile';
 import AdminReports from './pages/admin/Reports';
@@ -110,6 +112,8 @@ const App: React.FC = () => {
                   <Routes>
                     <Route path="dashboard" element={<ParentDashboardPage />} />
                     <Route path="children" element={<MyChildrenPage />} />
+                    <Route path="reading" element={<ReadingPractice />} />
+                    <Route path="reading-practice/:storyId" element={<ParentReadingSessionPage />} />
                     <Route path="progress" element={<ProgressPage />} />
                     <Route path="assignments" element={<AssignmentsPage />} />
                     <Route path="reports" element={<ReportsPage />} />

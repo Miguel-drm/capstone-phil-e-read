@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { studentService, type Student } from '../../services/studentService';
 import { resultService } from '../../services/resultsService';
+import { getUserProfile } from '../../services/authService';
 
 const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ setIsHeaderDarkened }) => {
   const { currentUser } = useAuth();
@@ -20,6 +21,14 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
   const [modalType, setModalType] = useState<'reading' | 'test' | null>(null);
   const [modalStudent, setModalStudent] = useState<Student | null>(null);
   const [modalSearchTerm, setModalSearchTerm] = useState('');
+
+  // Student-specific printable report
+  const [selectedStudentIdForISR, setSelectedStudentIdForISR] = useState<string>('');
+
+  // Share-to-parent modal state
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareStudent, setShareStudent] = useState<Student | null>(null);
+  const [parentEmail, setParentEmail] = useState('');
 
   useEffect(() => {
     const fetchStudents = async () => {
@@ -148,11 +157,253 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
   ];
 
   const handleExportReport = (reportType: string) => {
-    // showInfo('Export Report', `${reportType} report export will be available in the next update.`);
+    try {
+      const headers = [
+        'Student Name',
+        'Grade',
+        'Reading Level',
+        'Latest Reading: Words Read',
+        'Latest Reading: Miscues',
+        'Latest Reading: Oral Reading Score (%)',
+        'Latest Reading: Speed (WPM)',
+        'Latest Reading: Date',
+        'Latest Test: Name',
+        'Latest Test: Score',
+        'Latest Test: Comprehension (%)',
+        'Latest Test: Correct/Total',
+        'Latest Test: Date'
+      ];
+
+      const escape = (val: any) => {
+        if (val === null || val === undefined) return '';
+        const s = String(val).replace(/\n/g, ' ').replace(/\r/g, ' ');
+        if (/[",]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+        return s;
+      };
+
+      const rows: string[][] = [headers];
+      for (const student of students) {
+        if (!student.id) continue;
+        const readingList = studentReadingResults[student.id] || [];
+        const testList = studentTestResults[student.id] || [];
+        const latestReading = readingList.length
+          ? [...readingList].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+          : null;
+        const latestTest = testList.length
+          ? [...testList].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+          : null;
+
+        rows.push([
+          escape(student.name?.replace(/\|/g, ' ') || ''),
+          escape(student.grade || ''),
+          escape(student.readingLevel ?? ''),
+          escape(latestReading?.wordsRead ?? ''),
+          escape(latestReading?.miscues ?? ''),
+          escape(latestReading?.oralReadingScore ?? ''),
+          escape(latestReading?.readingSpeed ?? ''),
+          escape(latestReading?.createdAt ? new Date(latestReading.createdAt).toLocaleString() : ''),
+          escape(latestTest?.testName ?? ''),
+          escape(latestTest?.score ?? ''),
+          escape(latestTest?.comprehension ?? ''),
+          escape(latestTest && latestTest.correctAnswers != null && latestTest.totalQuestions != null ? `${latestTest.correctAnswers}/${latestTest.totalQuestions}` : ''),
+          escape(latestTest?.createdAt ? new Date(latestTest.createdAt).toLocaleString() : '')
+        ]);
+      }
+
+      const csv = rows.map(r => r.join(',')).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const ts = new Date().toISOString().replace(/[:T]/g, '-').split('.')[0];
+      link.download = `report-${reportType}-${ts}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      // optional toast
+    }
   };
 
-  const handleGenerateReport = (reportType: string) => {
-    // showInfo('Generate Report', `${reportType} report generation will be available in the next update.`);
+  const handleGenerateReport = async (reportType: string) => {
+    if (reportType !== 'student-isr') return;
+    const student = students.find(s => s.id === selectedStudentIdForISR);
+    if (!student || !student.id) return;
+
+    const readingList = studentReadingResults[student.id] || [];
+    const testList = studentTestResults[student.id] || [];
+    const latestReading = readingList.length
+      ? [...readingList].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+      : null;
+    const latestTest = testList.length
+      ? [...testList].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+      : null;
+
+    const safe = (v: any) => (v === undefined || v === null ? '' : String(v));
+
+    // Helpers to map scores to ISR buckets
+    const determineReadingLevelBucket = (score: number | string | undefined | null) => {
+      if (score === undefined || score === null) return '';
+      const n = typeof score === 'string' ? parseFloat(score) : score;
+      if (isNaN(n)) return '' as any;
+      if (n >= 95) return 'Ind';
+      if (n >= 90) return 'Ins';
+      return 'Frus';
+    };
+    const determineComprehensionBucket = (score: number | string | undefined | null) => {
+      if (score === undefined || score === null) return '';
+      const n = typeof score === 'string' ? parseFloat(score) : score;
+      if (isNaN(n)) return '' as any;
+      if (n >= 80) return 'Ind';
+      if (n >= 59) return 'Ins';
+      return 'Frus';
+    };
+
+    const readingBucket = determineReadingLevelBucket(latestReading?.oralReadingScore);
+    const compBucket = determineComprehensionBucket(latestTest?.comprehension);
+    const levels = ['K','I','II','III','IV','V','VI','VII'];
+    const toRoman = (num?: number | null) => {
+      if (num === undefined || num === null) return '';
+      const map: Record<number, string> = {1:'I',2:'II',3:'III',4:'IV',5:'V',6:'VI',7:'VII'};
+      return map[num] || '';
+    };
+    const startedLevel = toRoman(typeof student.readingLevel === 'number' ? student.readingLevel : parseInt(String(student.readingLevel || ''), 10));
+
+    // Attempt to infer story language from latest reading/test or default to Filipino
+    const storyLanguage = (latestReading?.language || latestTest?.language || 'Filipino').toString();
+
+    // Try to fetch teacher profile for school/teacher name
+    let teacherName = '';
+    let schoolName = '';
+    try {
+      // getUserProfile reads the current logged-in user (teacher)
+      const profile: any = await (getUserProfile() as Promise<any>);
+      teacherName = profile?.displayName || '';
+      schoolName = profile?.school || '';
+    } catch {}
+
+    const html = `
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Individual Summary Record</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 24px; color: #111827; }
+            .title { text-align: center; font-weight: 700; font-size: 18px; margin-bottom: 8px; }
+            .subtitle { text-align: center; color: #374151; margin-bottom: 20px; }
+            .row { display: flex; gap: 16px; margin-bottom: 8px; }
+            .field { flex: 1; }
+            .label { font-size: 12px; color: #374151; }
+            .value { border-bottom: 1px solid #d1d5db; padding: 4px 0; min-height: 18px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
+            th, td { border: 1px solid #e5e7eb; padding: 6px; text-align: left; vertical-align: middle; }
+            th { background: #f9fafb; }
+            .section { margin-top: 20px; font-weight: 600; }
+            .note { font-size: 11px; color: #6b7280; margin-top: 6px; }
+            @media print { .no-print { display: none; } }
+            .btn { margin-top: 16px; padding: 8px 12px; background: #2563eb; color: white; border: 0; border-radius: 6px; cursor: pointer; }
+            .center { text-align: center; }
+          </style>
+        </head>
+        <body>
+          <div class="title">Individual Summary Record (ISR)</div>
+          <div class="subtitle">Talaan ng Indibidwal na Pagbabasa (TIP)</div>
+
+          <div class="row">
+            <div class="field"><div class="label">Name</div><div class="value">${safe(student.name?.replace(/\|/g,' '))}</div></div>
+            <div class="field"><div class="label">Age</div><div class="value"></div></div>
+            <div class="field"><div class="label">Grade/Section</div><div class="value">${safe(student.grade)}</div></div>
+          </div>
+          <div class="row">
+            <div class="field"><div class="label">School</div><div class="value">${safe(schoolName)}</div></div>
+            <div class="field"><div class="label">Teacher</div><div class="value">${safe(teacherName)}</div></div>
+          </div>
+          <div class="row">
+            <div class="field"><div class="label">Language</div><div class="value">${storyLanguage === 'Filipino' || storyLanguage.toLowerCase() === 'tagalog' || storyLanguage === 'none' ? 'Filipino ✓  English ☐' : 'Filipino ☐  English ✓'}</div></div>
+            <div class="field"><div class="label">Reading Level</div><div class="value">${safe(student.readingLevel)}</div></div>
+          </div>
+
+          <!-- Latest Results removed per request -->
+
+          <div class="section">Instructional Level Summary</div>
+          <table>
+            <thead>
+              <tr>
+                <th class="center" colspan="2">Level Started</th>
+                <th class="center" rowspan="2">Level</th>
+                <th class="center" rowspan="2">Set<br/><span style="font-weight:400">Indicate if A, B, C, or D</span></th>
+                <th class="center" colspan="3">Word Reading</th>
+                <th class="center" colspan="3">Comprehension</th>
+                <th class="center" rowspan="2">Date Taken</th>
+              </tr>
+              <tr>
+                <th class="center" colspan="2">Mark with an *</th>
+                <th class="center">Ind</th>
+                <th class="center">Ins</th>
+                <th class="center">Frus</th>
+                <th class="center">Ind</th>
+                <th class="center">Ins</th>
+                <th class="center">Frus</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${levels.map(lvl => {
+                const isStarted = startedLevel && lvl === startedLevel ? '*' : '';
+                const wrInd = readingBucket === 'Ind' ? '✓' : '';
+                const wrIns = readingBucket === 'Ins' ? '✓' : '';
+                const wrFr  = readingBucket === 'Frus' ? '✓' : '';
+                const cInd  = compBucket === 'Ind' ? '✓' : '';
+                const cIns  = compBucket === 'Ins' ? '✓' : '';
+                const cFr   = compBucket === 'Frus' ? '✓' : '';
+                const dateReading = latestReading?.createdAt ? new Date(latestReading.createdAt).toLocaleDateString() : '';
+                const dateTest = latestTest?.createdAt ? new Date(latestTest.createdAt).toLocaleDateString() : '';
+                const dateTaken = dateReading || dateTest;
+                return `
+                <tr>
+                  <td class="center" style="width:90px">${isStarted}</td>
+                  <td class="center" style="width:60px"></td>
+                  <td class="center" style="width:60px">${lvl}</td>
+                  <td class="center" style="width:120px"></td>
+                  <td class="center" style="width:50px">${wrInd}</td>
+                  <td class="center" style="width:50px">${wrIns}</td>
+                  <td class="center" style="width:50px">${wrFr}</td>
+                  <td class="center" style="width:50px">${cInd}</td>
+                  <td class="center" style="width:50px">${cIns}</td>
+                  <td class="center" style="width:50px">${cFr}</td>
+                  <td class="center" style="width:110px">${dateTaken}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+          <div class="note"><strong>Legend:</strong> <strong>Ind</strong> - Independent; <strong>Ins</strong> - Instructional; <strong>Frus</strong> - Frustration</div>
+
+          <div class="section">Oral Reading Observation Checklist</div>
+          <div class="note">Mark with ✓ or X as applicable.</div>
+          <table>
+            <tbody>
+              <tr><td>Does word-by-word reading</td><td>☐</td></tr>
+              <tr><td>Lacks expression; reads in a monotonous tone</td><td>☐</td></tr>
+              <tr><td>Voice is hardly audible</td><td>☐</td></tr>
+              <tr><td>Disregards punctuation</td><td>☐</td></tr>
+              <tr><td>Points to each word with finger</td><td>☐</td></tr>
+              <tr><td>Employs little or no method of analysis</td><td>☐</td></tr>
+              <tr><td>Other observations</td><td>______________________________</td></tr>
+            </tbody>
+          </table>
+
+          <button class="btn no-print" onclick="window.print()">Print</button>
+        </body>
+      </html>
+    `;
+
+    const w = window.open('', '_blank');
+    if (!w) return;
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    w.focus();
   };
 
   const handleViewProgress = async (student: Student) => {
@@ -176,12 +427,72 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     setModalOpen(true);
     setIsHeaderDarkened?.(true);
   };
+  const handleOpenShare = (student: Student) => {
+    setShareStudent(student);
+    setShareOpen(true);
+    setIsHeaderDarkened?.(true);
+  };
   const handleCloseModal = () => {
     setModalOpen(false);
     setModalType(null);
     setModalStudent(null);
     setIsHeaderDarkened?.(false);
   };
+  const handleCloseShare = () => {
+    setShareOpen(false);
+    setShareStudent(null);
+    setParentEmail('');
+    setIsHeaderDarkened?.(false);
+  };
+
+  const latestReadingForShare = useMemo(() => {
+    if (!shareStudent?.id) return null;
+    const list = studentReadingResults[shareStudent.id] || [];
+    if (!list.length) return null;
+    return [...list].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+  }, [shareStudent, studentReadingResults]);
+
+  const latestTestForShare = useMemo(() => {
+    if (!shareStudent?.id) return null;
+    const list = studentTestResults[shareStudent.id] || [];
+    if (!list.length) return null;
+    return [...list].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+  }, [shareStudent, studentTestResults]);
+
+  const shareMailtoHref = useMemo(() => {
+    const to = encodeURIComponent(parentEmail.trim());
+    const subject = encodeURIComponent(`Progress report for ${shareStudent?.name || ''}`);
+    const lines: string[] = [];
+    if (shareStudent) {
+      lines.push(`Student: ${shareStudent.name}`);
+      if (shareStudent.grade) lines.push(`Grade: ${shareStudent.grade}`);
+      if (shareStudent.readingLevel) lines.push(`Reading Level: ${shareStudent.readingLevel}`);
+    }
+    if (latestReadingForShare) {
+      lines.push('');
+      lines.push('Latest Reading Session:');
+      if (latestReadingForShare.sessionTitle) lines.push(`- Session: ${latestReadingForShare.sessionTitle}`);
+      if (latestReadingForShare.book) lines.push(`- Story: ${latestReadingForShare.book}`);
+      if (latestReadingForShare.wordsRead != null) lines.push(`- Words Read: ${latestReadingForShare.wordsRead}`);
+      if (latestReadingForShare.miscues != null) lines.push(`- Miscues: ${latestReadingForShare.miscues}`);
+      if (latestReadingForShare.oralReadingScore != null) lines.push(`- Oral Reading Score: ${latestReadingForShare.oralReadingScore}%`);
+      if (latestReadingForShare.readingSpeed != null) lines.push(`- Speed: ${latestReadingForShare.readingSpeed} WPM`);
+      if (latestReadingForShare.elapsedTime != null) lines.push(`- Time: ${latestReadingForShare.elapsedTime}s`);
+      if (latestReadingForShare.createdAt) lines.push(`- Date: ${new Date(latestReadingForShare.createdAt).toLocaleString()}`);
+    }
+    if (latestTestForShare) {
+      lines.push('');
+      lines.push('Latest Assessment:');
+      if (latestTestForShare.testName) lines.push(`- Test: ${latestTestForShare.testName}`);
+      if (latestTestForShare.score != null) lines.push(`- Score: ${latestTestForShare.score}`);
+      if (latestTestForShare.comprehension != null) lines.push(`- Comprehension: ${latestTestForShare.comprehension}%`);
+      if (latestTestForShare.correctAnswers != null && latestTestForShare.totalQuestions != null) lines.push(`- Correct: ${latestTestForShare.correctAnswers}/${latestTestForShare.totalQuestions}`);
+      if (latestTestForShare.createdAt) lines.push(`- Date: ${new Date(latestTestForShare.createdAt).toLocaleString()}`);
+    }
+    lines.push('', 'Notes:', '- ');
+    const body = encodeURIComponent(lines.join('\n'));
+    return `mailto:${to}?subject=${subject}&body=${body}`;
+  }, [parentEmail, shareStudent, latestReadingForShare, latestTestForShare]);
 
   const getTrendIcon = (trend: string) => {
     switch (trend) {
@@ -228,7 +539,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
             <option value="year">This Year</option>
           </select>
           <button
-            onClick={() => handleExportReport('comprehensive')}
+            onClick={() => handleExportReport(selectedReport === 'performance' ? 'performance' : 'comprehensive')}
             className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors"
           >
             <i className="fas fa-download mr-2"></i>
@@ -261,17 +572,6 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
           >
             <i className="fas fa-user-graduate mr-2"></i>
             Student Performance
-          </button>
-          <button
-            onClick={() => setSelectedReport('assessments')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              selectedReport === 'assessments'
-                ? 'bg-blue-100 text-blue-700'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            <i className="fas fa-clipboard-check mr-2"></i>
-            Assessments
           </button>
         </div>
       </div>
@@ -372,13 +672,26 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
         <div className="space-y-6">
           <div className="flex justify-between items-center">
             <h2 className="text-lg font-semibold text-gray-900">Student Performance Report</h2>
-            <button
-              onClick={() => handleGenerateReport('performance')}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
-            >
-              <i className="fas fa-file-alt mr-2"></i>
-              Generate Report
-            </button>
+            <div className="flex items-center gap-3">
+              <select
+                value={selectedStudentIdForISR}
+                onChange={(e) => setSelectedStudentIdForISR(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="">Select student…</option>
+                {students.map(s => s.id ? (
+                  <option key={s.id} value={s.id}>{s.name.replace(/\|/g,' ')}</option>
+                ) : null)}
+              </select>
+              <button
+                onClick={() => handleGenerateReport('student-isr')}
+                disabled={!selectedStudentIdForISR}
+                className={`px-4 py-2 rounded-lg transition-colors text-white ${selectedStudentIdForISR ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-400 cursor-not-allowed'}`}
+              >
+                <i className="fas fa-file-alt mr-2"></i>
+                Generate Report
+              </button>
+            </div>
           </div>
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
             <div className="overflow-x-auto">
@@ -393,6 +706,9 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Test Results
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Share
                     </th>
                   </tr>
                 </thead>
@@ -435,6 +751,14 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                           <span className="text-gray-400 text-sm flex items-center gap-1"><i className="fas fa-info-circle"></i> No test results</span>
                         )}
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <button
+                          className="bg-green-100 hover:bg-green-200 text-green-700 font-semibold px-4 py-2 rounded shadow text-sm"
+                          onClick={() => handleOpenShare(student)}
+                        >
+                          Share to Parent
+                        </button>
+                      </td>
                     </tr>
                     ) : null
                   ))}
@@ -445,43 +769,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
         </div>
       )}
 
-      {/* Assessments Report */}
-      {selectedReport === 'assessments' && (
-        <div className="space-y-6">
-          <div className="flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-gray-900">Assessment Report</h2>
-            <button
-              onClick={() => handleGenerateReport('assessments')}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
-            >
-              <i className="fas fa-file-alt mr-2"></i>
-              Generate Report
-            </button>
-          </div>
-          
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="text-center py-8">
-              <i className="fas fa-clipboard-check text-4xl text-gray-400 mb-4"></i>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Assessment Analytics</h3>
-              <p className="text-gray-600 mb-4">Comprehensive assessment results and analysis will be available in the next update.</p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-                <div className="bg-indigo-50 rounded-lg p-4">
-                  <p className="text-2xl font-bold text-indigo-600">{classStats.completedAssessments}</p>
-                  <p className="text-sm text-gray-600">Completed Assessments</p>
-                </div>
-                <div className="bg-yellow-50 rounded-lg p-4">
-                  <p className="text-2xl font-bold text-yellow-600">85%</p>
-                  <p className="text-sm text-gray-600">Average Score</p>
-                </div>
-                <div className="bg-pink-50 rounded-lg p-4">
-                  <p className="text-2xl font-bold text-pink-600">+{classStats.improvementRate}%</p>
-                  <p className="text-sm text-gray-600">Improvement Rate</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      
 
       {progressOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
@@ -634,6 +922,53 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                     </div>
                   </div>
                 ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Share to Parent Modal */}
+      {shareOpen && shareStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-lg relative border border-gray-200">
+            <button
+              className="absolute top-3 right-4 text-gray-400 hover:text-red-500 text-2xl font-bold"
+              onClick={handleCloseShare}
+              title="Close"
+            >
+              ×
+            </button>
+            <h2 className="text-xl font-extrabold mb-4 text-gray-900 tracking-tight">Share Report to Parent</h2>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Parent email</label>
+                <input
+                  type="email"
+                  value={parentEmail}
+                  onChange={(e) => setParentEmail(e.target.value)}
+                  placeholder="parent@example.com"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-900">
+                This will open your email client with a pre-filled summary for {shareStudent.name}.
+              </div>
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  onClick={handleCloseShare}
+                  className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <a
+                  href={shareMailtoHref}
+                  onClick={handleCloseShare}
+                  className={`px-4 py-2 rounded-lg text-white ${parentEmail.trim() ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-400 cursor-not-allowed'}`}
+                  aria-disabled={!parentEmail.trim()}
+                >
+                  Open Email
+                </a>
+              </div>
             </div>
           </div>
         </div>

@@ -11,9 +11,11 @@ interface PerformanceChartProps {
   };
   grades: ClassGrade[];
   students: Student[];
+  title?: string;
+  targetLine?: number; // important target benchmark percentage
 }
 
-const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, grades, students }) => {
+const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, grades, students, title, targetLine }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts | null>(null);
   const [selectedGrade, setSelectedGrade] = useState<string>('');
@@ -164,7 +166,18 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, grades, stude
                   { offset: 1, color: 'rgba(59, 130, 246, 0.05)' }
                 ]
               }
-            }
+            },
+            markPoint: {
+              data: [
+                { type: 'max', name: 'Max' },
+                { type: 'min', name: 'Min' }
+              ]
+            },
+            markLine: targetLine ? {
+              data: [{ yAxis: targetLine, name: 'Target' }],
+              lineStyle: { color: '#f59e0b', type: 'dashed' },
+              label: { formatter: `Target ${targetLine}%` }
+            } : undefined
           },
           {
             name: 'Class Average',
@@ -214,7 +227,7 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, grades, stude
     <div className="bg-white rounded-2xl shadow-md p-4 transition-all duration-300 hover:shadow-lg">
       <div className="p-4">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 lg:mb-6 space-y-3 sm:space-y-0">
-          <h3 className="text-base md:text-lg font-semibold text-[#2C3E50]">Students Performance</h3>
+          <h3 className="text-base md:text-lg font-semibold text-[#2C3E50]">{title ? `Performance - ${title}` : 'Students Performance'}</h3>
           <div className="flex items-center space-x-2">
             <select
               value={selectedGrade}

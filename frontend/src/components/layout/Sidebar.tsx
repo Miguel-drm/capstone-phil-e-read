@@ -7,7 +7,7 @@ import GroupIcon from '@mui/icons-material/Group';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import SettingsIcon from '@mui/icons-material/Settings';
-import TaskIcon from '@mui/icons-material/Task';
+
 import SchoolIcon from '@mui/icons-material/School';
 import PersonIcon from '@mui/icons-material/Person';
 import Tooltip from '@mui/material/Tooltip';
@@ -25,16 +25,16 @@ const iconMap: Record<string, React.ReactNode> = {
   dashboard: <DashboardIcon fontSize="medium" />,
   reading: <MenuBookIcon fontSize="medium" />,
   'class-list': <GroupIcon fontSize="medium" />,
-  'make-test': <AssignmentIcon fontSize="medium" />,
   reports: <BarChartIcon fontSize="medium" />,
   profile: <PersonIcon fontSize="medium" />,
-  progress: <BarChartIcon fontSize="medium" />,
-  assignments: <TaskIcon fontSize="medium" />,
+  progress: <AssignmentIcon fontSize="medium" />,
+
   teachers: <SchoolIcon fontSize="medium" />,
   students: <PersonIcon fontSize="medium" />,
   parents: <GroupIcon fontSize="medium" />,
   settings: <SettingsIcon fontSize="medium" />,
   stories: <MenuBookIcon fontSize="medium" />,
+  resources: <MenuBookIcon fontSize="medium" />,
   children: <GroupIcon fontSize="medium" /> // Added for My Children
 };
 
@@ -61,7 +61,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           { path: '/admin/students', label: 'Students', icon: 'students' },
           { path: '/admin/parents', label: 'Parents', icon: 'parents' },
           { path: '/admin/reports', label: 'Reports', icon: 'reports' },
-          { path: '/admin/stories', label: 'Stories', icon: 'stories' },
+          { path: '/admin/resources', label: 'Resources', icon: 'resources' },
           { path: '/admin/profile', label: 'Profile', icon: 'profile' }
         ];
       case 'teacher':
@@ -69,7 +69,6 @@ const Sidebar: React.FC<SidebarProps> = ({
           { path: '/teacher/dashboard', label: 'Dashboard', icon: 'dashboard' },
           { path: '/teacher/class-list', label: 'Class List', icon: 'class-list' },
           { path: '/teacher/reading', label: 'Reading Session', icon: 'reading' },
-          { path: '/teacher/make-test', label: 'Make Test', icon: 'make-test' },
           { path: '/teacher/reports', label: 'Reports', icon: 'reports' },
           { path: '/teacher/profile', label: 'Profile', icon: 'profile' }
         ];
@@ -77,8 +76,8 @@ const Sidebar: React.FC<SidebarProps> = ({
         return [
           { path: '/parent/dashboard', label: 'Dashboard', icon: 'dashboard' },
           { path: '/parent/children', label: 'My Children', icon: 'children' },
+          { path: '/parent/reading', label: 'Reading', icon: 'reading' },
           { path: '/parent/progress', label: 'Progress', icon: 'progress' },
-          { path: '/parent/assignments', label: 'Assignments', icon: 'assignments' },
           { path: '/parent/reports', label: 'Reports', icon: 'reports' },
           { path: '/parent/profile', label: 'Profile', icon: 'profile' }
         ];
@@ -101,7 +100,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const sidebarClasses = `
-    fixed top-0 left-0 z-[9999] h-screen
+    fixed top-0 left-0 z-[30] h-screen
     transition-all duration-300 ease-in-out overflow-x-hidden
     ${isMobile
       ? `w-full max-w-xs shadow-2xl ${isOpen ? 'translate-x-0' : '-translate-x-full'}`
