@@ -157,7 +157,7 @@ const Students: React.FC = () => {
                 <thead className="bg-gray-100">
                   <tr>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student ID</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">LRN</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Grade</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Linked Parent</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
@@ -170,7 +170,7 @@ const Students: React.FC = () => {
                     return (
                       <tr key={sid || student.id} className="hover:bg-blue-50">
                       <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{student.name}</td>
-                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{sid || student.id}</td>
+                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{student.lrn || '-'}</td>
                       <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{student.grade}</td>
                         <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{student.parentName || '-'}</td>
                       <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{student.status}</td>

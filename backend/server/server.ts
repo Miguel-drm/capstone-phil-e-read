@@ -210,36 +210,21 @@ app.use(express.json());
         }
 
         if (story.pdfFileId) {
-          // fetch from GridFS and send
+          // Stream directly from GridFS to avoid any buffer/header corruption
           try {
-            const { buffer } = await mongoStoryService.getPDFContent(story._id.toString());
-            
-            // Ensure we have a proper Node.js Buffer
-            const pdfBuffer = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
-            
-            // Debug: Check what we're about to send
-            console.log('About to send PDF buffer:');
-            console.log('- Buffer size:', pdfBuffer.length);
-            console.log('- Buffer type:', typeof pdfBuffer);
-            console.log('- Is Buffer:', Buffer.isBuffer(pdfBuffer));
-            console.log('- First 20 bytes (hex):', pdfBuffer.slice(0, 20).toString('hex'));
-            console.log('- First 10 chars:', pdfBuffer.slice(0, 10).toString());
-            
-            // Verify it's a valid PDF before sending
-            const header = pdfBuffer.slice(0, 4).toString();
-            if (!header.startsWith('%PDF')) {
-              console.error('Invalid PDF header before sending:', header);
-              res.status(500).json({ error: 'Invalid PDF data: Missing PDF header' });
-              return;
-            }
-            
+            const stream = await GridFSService.createReadStream(story.pdfFileId.toString());
             res.setHeader('Content-Type', 'application/pdf');
             res.setHeader('Content-Disposition', 'inline; filename="story.pdf"');
-            res.setHeader('Content-Length', pdfBuffer.length.toString());
-            res.send(pdfBuffer);
+            stream.on('error', (e: any) => {
+              console.error('GridFS stream error:', e);
+              if (!res.headersSent) {
+                res.status(500).json({ error: 'Failed to stream PDF from storage' });
+              }
+            });
+            stream.pipe(res);
             return;
           } catch (err) {
-            console.error('Error fetching PDF from GridFS:', err);
+            console.error('Error creating GridFS stream:', err);
             res.status(500).json({ error: 'Failed to fetch PDF from storage' });
             return;
           }

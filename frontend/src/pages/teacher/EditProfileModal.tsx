@@ -55,14 +55,14 @@ async function getCroppedImg(imageSrc: string, crop: any) {
 }
 
 const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) => {
-  const { userProfile, currentUser, refreshUserProfile } = useAuth();
+  const { userProfile, currentUser, refreshUserProfile, userRole } = useAuth();
   const firebaseUid = currentUser?.uid;
   const [editAvatar, setEditAvatar] = useState<string | undefined>(undefined);
   const [editBanner, setEditBanner] = useState<string>(bannerUrl);
-  const [editBio, setEditBio] = useState(userProfile?.bio || '');
+  // Bio removed per requirements
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
-  const [errors, setErrors] = useState<{ phoneNumber?: string; school?: string; gradeLevel?: string }>({});
+  const [errors, setErrors] = useState<{ phoneNumber?: string; school?: string; gradeLevel?: string; address?: string; zipCode?: string }>(() => ({}));
 
   // Cropper modal state
   const [showCropModal, setShowCropModal] = useState(false);
@@ -76,6 +76,19 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
     phoneNumber: userProfile?.phoneNumber || '',
     school: userProfile?.school || '',
     gradeLevel: userProfile?.gradeLevel || '',
+    address: userProfile?.address || '',
+  });
+
+  // Structured address inputs for parents; combined into address on save
+  const [editAddress, setEditAddress] = useState<{ addressLine: string; city: string; province: string; zipCode: string }>(() => {
+    const raw = userProfile?.address || '';
+    const parts = raw.split(',').map(p => p.trim());
+    return {
+      addressLine: parts[0] || '',
+      city: parts[1] || '',
+      province: parts[2] || '',
+      zipCode: (parts[3] || '').replace(/[^\d]/g, '').slice(0, 4),
+    };
   });
 
   // Add new state for banner picker
@@ -149,8 +162,14 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
     onClose();
     setEditAvatar(undefined);
     setEditBanner(bannerUrl);
-    setEditBio(userProfile?.bio || '');
     setAvatarFile(null);
+  };
+
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const digits = e.target.value.replace(/[^\d]/g, '').slice(0, 10);
+    const normalized = `63${digits}`;
+    setEditProfile(prev => ({ ...prev, phoneNumber: normalized }));
+    setErrors(validateFields({ ...editProfile, phoneNumber: normalized }));
   };
   const handleEditSave = async () => {
     console.log('Save button clicked');
@@ -185,14 +204,20 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
       }
       // Save banner and other profile info, removing undefined values
       console.log('Saving banner:', editBanner);
-      const profileToSave = {
+      const profileToSave: any = {
         ...userProfile,
         banner: editBanner,
-        bio: editBio,
         phoneNumber: editProfile.phoneNumber,
-        school: editProfile.school,
-        gradeLevel: editProfile.gradeLevel,
       };
+      // Bio removed
+      if (userRole === 'teacher') {
+        profileToSave.school = editProfile.school;
+        profileToSave.gradeLevel = editProfile.gradeLevel;
+      }
+      const combinedAddress = [editAddress.addressLine, editAddress.city, editAddress.province, editAddress.zipCode]
+        .filter(Boolean)
+        .join(', ');
+      profileToSave.address = combinedAddress;
       console.log('profileToSave:', profileToSave);
       await updateUserProfile(profileToSave);
       await refreshUserProfile();
@@ -214,26 +239,65 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
     }
   };
 
-  const validateFields = (data: typeof editProfile) => {
-    const newErrors: { phoneNumber?: string; school?: string; gradeLevel?: string } = {};
+  const validateFields = (data: typeof editProfile, addressOverride?: { addressLine: string; city: string; province: string; zipCode: string }) => {
+    const newErrors: { phoneNumber?: string; school?: string; gradeLevel?: string; address?: string; zipCode?: string } = {};
     if (data && data.phoneNumber && !/^\d*$/.test(data.phoneNumber)) {
       newErrors.phoneNumber = 'Phone number must contain numbers only.';
     }
-    if (data && data.school && /\d/.test(data.school)) {
+    // Philippines format: must start with 63 and be 12 digits total (e.g., 639XXXXXXXXX)
+    if (data && data.phoneNumber) {
+      if (!data.phoneNumber.startsWith('63')) {
+        newErrors.phoneNumber = 'Must start with 63 (e.g., 639XXXXXXXXX)';
+      } else if (data.phoneNumber.length !== 12) {
+        newErrors.phoneNumber = 'Must be exactly 12 digits (e.g., 639XXXXXXXXX)';
+      }
+    }
+    if (userRole === 'teacher' && data && data.school && /\d/.test(data.school)) {
       newErrors.school = 'School name cannot contain numbers.';
     }
+    if (userRole === 'teacher') {
     if (data && data.gradeLevel && !/^\d*$/.test(data.gradeLevel)) {
       newErrors.gradeLevel = 'Grade level must be a number.';
     }
+    }
+    const addr = addressOverride || editAddress;
+    const totalLen = `${addr.addressLine} ${addr.city} ${addr.province} ${addr.zipCode}`.trim().length;
+    if (totalLen > 220) newErrors.address = 'Address is too long.';
+    if (addr.zipCode && !/^\d{4}$/.test(addr.zipCode)) newErrors.zipCode = 'ZIP must be 4 digits';
     return newErrors;
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     let filteredValue = value;
-    if (name === 'phoneNumber') filteredValue = value.replace(/[^\d]/g, '');
+    if (name === 'phoneNumber') {
+      const digitsOnly = value.replace(/[^\d]/g, '');
+      let normalized = digitsOnly;
+      // Convert common local formats to international 63 prefix
+      if (normalized.startsWith('09')) {
+        normalized = '63' + normalized.slice(1); // 09XXXXXXXXX -> 639XXXXXXXXX
+      } else if (normalized.startsWith('9')) {
+        normalized = '63' + normalized; // 9XXXXXXXXX -> 639XXXXXXXXX
+      } else if (!normalized.startsWith('63') && normalized.length > 0) {
+        normalized = '63' + normalized.replace(/^0+/, '');
+      }
+      // Cap at 12 digits total
+      if (normalized.length > 12) normalized = normalized.slice(0, 12);
+      filteredValue = normalized;
+    }
     if (name === 'school') filteredValue = value.replace(/\d/g, '');
     if (name === 'gradeLevel') filteredValue = value.replace(/[^\d]/g, '');
+
+    // Structured address fields
+    if (name === 'addressLine' || name === 'city' || name === 'province' || name === 'zipCode') {
+      let val = value;
+      if (name === 'zipCode') val = value.replace(/[^\d]/g, '').slice(0, 4);
+      const nextAddress = { ...editAddress, [name]: val } as typeof editAddress;
+      setEditAddress(nextAddress);
+      setErrors(validateFields({ ...editProfile }, nextAddress));
+      return;
+    }
+
     setEditProfile(prev => ({ ...prev, [name]: filteredValue }));
     setErrors(validateFields({ ...editProfile, [name]: filteredValue }));
   };
@@ -364,34 +428,57 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
               </div>
             </div>
           )}
-          {/* Bio */}
+          {/* Bio removed */}
+          {/* Grade Level (teachers only) - moved above Phone Number */}
+          {userRole === 'teacher' && (
           <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Bio</label>
-            <textarea
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-[80px]"
-              value={editBio}
-              onChange={e => setEditBio(e.target.value)}
-              placeholder="Write something about yourself..."
-              maxLength={300}
-            />
-            <div className="text-xs text-gray-400 text-right mt-1">{editBio.length}/300</div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Grade Level</label>
+              <div className="relative">
+                <select
+                  name="gradeLevel"
+                  value={editProfile.gradeLevel || ''}
+                  onChange={handleInputChange}
+                  disabled={savingEdit}
+                  className={`w-full appearance-none border ${errors.gradeLevel ? 'border-red-400' : 'border-gray-300'} rounded-lg px-3 py-2 pr-10 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 bg-white`}
+                >
+                  <option value="" disabled>Select grade level</option>
+                  <option value="3">Grade 3</option>
+                  <option value="4">Grade 4</option>
+                  <option value="5">Grade 5</option>
+                  <option value="6">Grade 6</option>
+                </select>
+                <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500">
+                  <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                    <path fillRule="evenodd" d="M10 12a1 1 0 01-.707-.293l-4-4a1 1 0 111.414-1.414L10 9.586l3.293-3.293a1 1 0 111.414 1.414l-4 4A1 1 0 0110 12z" clipRule="evenodd" />
+                  </svg>
+                </span>
+              </div>
+              {errors.gradeLevel && <div className="text-xs text-red-500 mt-1">{errors.gradeLevel}</div>}
           </div>
+          )}
           {/* Phone Number */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-2">Phone Number</label>
+            <div className="relative">
+              <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-600 select-none">+63</span>
             <input
               type="tel"
               name="phoneNumber"
-              value={editProfile.phoneNumber}
-              onChange={handleInputChange}
+                value={editProfile.phoneNumber.replace(/^63/, '')}
+                onChange={handlePhoneChange}
               disabled={savingEdit}
               inputMode="numeric"
+                placeholder="9XXXXXXXXX"
               pattern="[0-9]*"
-              className={`w-full border ${errors.phoneNumber ? 'border-red-400' : 'border-gray-300'} rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100`}
+                className={`w-full border ${errors.phoneNumber ? 'border-red-400' : (editProfile.phoneNumber.length === 12 ? 'border-green-400' : 'border-gray-300')} rounded-lg pl-12 pr-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100`}
             />
-            {errors.phoneNumber && <div className="text-xs text-red-500 mt-1">{errors.phoneNumber}</div>}
+            </div>
+            <div className={`text-xs mt-1 ${errors.phoneNumber ? 'text-red-500' : (editProfile.phoneNumber.length === 12 ? 'text-green-600' : 'text-gray-500')}`}>
+              {errors.phoneNumber ? errors.phoneNumber : (editProfile.phoneNumber.length === 12 ? 'Phone number looks good.' : 'Philippines format: +63 9XXXXXXXXX (10 digits after +63).')}
+            </div>
           </div>
-          {/* School */}
+          {/* School (teachers only) */}
+          {userRole === 'teacher' && (
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-2">School</label>
             <input
@@ -404,21 +491,68 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
             />
             {errors.school && <div className="text-xs text-red-500 mt-1">{errors.school}</div>}
           </div>
-          {/* Grade Level */}
+          )}
+          {/* Address (all roles) */}
+          {
           <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Grade Level</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Address</label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <input
+                    type="text"
+                    name="addressLine"
+                    value={editAddress.addressLine}
+                    onChange={handleInputChange}
+                    disabled={savingEdit}
+                    placeholder="House No., Street, Barangay"
+                    className={`w-full border ${errors.address ? 'border-red-400' : (editAddress.addressLine ? 'border-green-400' : 'border-gray-300')} rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100`}
+                  />
+                </div>
+                <div>
+                  <input
+                    type="text"
+                    name="city"
+                    value={editAddress.city}
+                    onChange={handleInputChange}
+                    disabled={savingEdit}
+                    placeholder="City / Municipality"
+                    className={`w-full border ${errors.address ? 'border-red-400' : (editAddress.city ? 'border-green-400' : 'border-gray-300')} rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100`}
+                  />
+                </div>
+                <div>
+                  <input
+                    type="text"
+                    name="province"
+                    value={editAddress.province}
+                    onChange={handleInputChange}
+                    disabled={savingEdit}
+                    placeholder="Province"
+                    className={`w-full border ${errors.address ? 'border-red-400' : (editAddress.province ? 'border-green-400' : 'border-gray-300')} rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100`}
+                  />
+                </div>
+                <div>
             <input
               type="text"
-              name="gradeLevel"
-              value={editProfile.gradeLevel}
+                    name="zipCode"
+                    value={editAddress.zipCode}
               onChange={handleInputChange}
               disabled={savingEdit}
+                    placeholder="ZIP (4 digits)"
               inputMode="numeric"
-              pattern="[0-9]*"
-              className={`w-full border ${errors.gradeLevel ? 'border-red-400' : 'border-gray-300'} rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100`}
-            />
-            {errors.gradeLevel && <div className="text-xs text-red-500 mt-1">{errors.gradeLevel}</div>}
+                    className={`w-full border ${errors.zipCode ? 'border-red-400' : (editAddress.zipCode.length === 4 ? 'border-green-400' : 'border-gray-300')} rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100`}
+                  />
+                  {errors.zipCode ? (
+                    <div className="text-xs mt-1 text-red-500">{errors.zipCode}</div>
+                  ) : null}
+                </div>
+              </div>
+              <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700">
+                <span className="font-medium mr-1">Preview:</span>
+                {[editAddress.addressLine, editAddress.city, editAddress.province, editAddress.zipCode].filter(Boolean).join(', ') || '—'}
           </div>
+            </div>
+          }
+          {/* Grade Level (teachers only) moved above - section retained here intentionally removed */}
         </div>
         {/* Sticky Action Buttons */}
         <div className="flex justify-end gap-3 p-4 border-t bg-white sticky bottom-0 z-10">

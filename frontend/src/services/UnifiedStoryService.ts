@@ -2,7 +2,7 @@ import axios from 'axios';
 import type { Story, StoryFilters } from '../types/Story';
 
 interface FileBuffer {
-  buffer: Buffer | ArrayBuffer;
+  buffer: ArrayBuffer | Uint8Array;
   originalname: string;
   mimetype: string;
   size: number;
@@ -10,13 +10,13 @@ interface FileBuffer {
 
 export class UnifiedStoryService {
   private static instance: UnifiedStoryService;
-  // private readonly API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
   private static getApiBaseUrl(): string {
-    // Use localhost for local dev, otherwise use production URL
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    const envBase = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
+    if (envBase && envBase.trim()) return `${envBase.replace(/\/$/, '')}/api`;
+    if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
       return 'http://localhost:5000/api';
     }
-    return 'https://phil-e-read-1.onrender.com/api';
+    return '/api';
   }
 
   private readonly API_BASE_URL = UnifiedStoryService.getApiBaseUrl();
@@ -77,7 +77,8 @@ export class UnifiedStoryService {
       if (file instanceof File) {
         formData.append('pdf', file);
       } else {
-        const blob = new Blob([file.buffer], { type: file.mimetype });
+        const part = file.buffer instanceof ArrayBuffer ? file.buffer : new Uint8Array(file.buffer as Uint8Array);
+        const blob = new Blob([part], { type: file.mimetype });
         formData.append('pdf', blob, file.originalname);
       }
 
@@ -125,7 +126,8 @@ export class UnifiedStoryService {
         if (file instanceof File) {
           formData.append('pdf', file);
         } else {
-          const blob = new Blob([file.buffer], { type: file.mimetype });
+          const part = file.buffer instanceof ArrayBuffer ? file.buffer : new Uint8Array(file.buffer as Uint8Array);
+          const blob = new Blob([part], { type: file.mimetype });
           formData.append('pdf', blob, file.originalname);
         }
       }

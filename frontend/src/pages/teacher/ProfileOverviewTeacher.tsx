@@ -4,6 +4,8 @@ import { EditProfileModalContext, BannerContext } from '../../components/layout/
 import axios from 'axios';
 import Cropper from 'react-easy-crop';
 import Loader from '../../components/Loader';
+import { gradeService, type ClassGrade } from '../../services/gradeService';
+import { studentService, type Student } from '../../services/studentService';
 
 const ProfileOverviewTeacher: React.FC = () => {
   const { userProfile } = useAuth();
@@ -38,6 +40,11 @@ const ProfileOverviewTeacher: React.FC = () => {
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
   const { banner } = useContext(BannerContext);
+  // Classes data
+  const [grades, setGrades] = useState<ClassGrade[]>([]);
+  const [gradesLoading, setGradesLoading] = useState(false);
+  const [expandedGradeId, setExpandedGradeId] = useState<string | null>(null);
+  const [gradeStudents, setGradeStudents] = useState<Student[]>([]);
 
   useEffect(() => {
     if (userProfile) {
@@ -253,7 +260,69 @@ const ProfileOverviewTeacher: React.FC = () => {
 
   if (!firebaseUid) return <Loader label="Loading profile..." />;
 
-  const tabs = ['Profile', 'Classes', 'Students', 'Assignments', 'Reports', 'Reading Sessions', 'Settings'];
+  const tabs = ['Profile', 'Classes', 'Settings'];
+
+  const formatPhoneDisplay = (raw?: string | null) => {
+    if (!raw) return '-';
+    const digits = String(raw).replace(/\D/g, '');
+    if (digits.startsWith('63') && digits.length >= 12) {
+      const n = digits.slice(2);
+      const p1 = n.slice(0, 3);
+      const p2 = n.slice(3, 6);
+      const p3 = n.slice(6, 10);
+      return `+63${p1} ${p2} ${p3}`;
+    }
+    return raw;
+  };
+
+  // Load classes for teacher
+  useEffect(() => {
+    const loadGrades = async () => {
+      if (!currentUser?.uid) return;
+      try {
+        setGradesLoading(true);
+        const gradesData = await gradeService.getGradesByTeacher(currentUser.uid);
+        // Attach student counts
+        const withCounts = await Promise.all(
+          gradesData.map(async (g: any) => {
+            try {
+              if (!g.id) return { ...g, studentCount: 0 };
+              const studentsInGrade = await gradeService.getStudentsInGrade(g.id);
+              return { ...g, studentCount: studentsInGrade.length };
+            } catch {
+              return { ...g, studentCount: 0 };
+            }
+          })
+        );
+        setGrades(withCounts);
+      } finally {
+        setGradesLoading(false);
+      }
+    };
+    if (activeTab === 'Classes') loadGrades();
+  }, [activeTab, currentUser?.uid]);
+
+  const toggleGradeStudents = async (grade: ClassGrade) => {
+    if (!grade.id || !currentUser?.uid) return;
+    // Collapse if already open
+    if (expandedGradeId === grade.id) {
+      setExpandedGradeId(null);
+      setGradeStudents([]);
+      return;
+    }
+    setExpandedGradeId(grade.id);
+    try {
+      const studentsInGrade = await gradeService.getStudentsInGrade(grade.id);
+      const all = await studentService.getStudents(currentUser.uid);
+      const detailed = studentsInGrade
+        .map(sg => all.find(s => s.id === sg.studentId))
+        .filter(Boolean) as Student[];
+      detailed.sort((a, b) => a.name.localeCompare(b.name));
+      setGradeStudents(detailed);
+    } catch {
+      setGradeStudents([]);
+    }
+  };
 
   return (
     <div className="w-full min-h-screen bg-gray-50">
@@ -374,7 +443,7 @@ const ProfileOverviewTeacher: React.FC = () => {
       </div>
       <div className="w-full max-w-5xl mx-auto mt-8 px-4">
         {activeTab === 'Settings' ? (
-          <div className="bg-white rounded-3xl shadow-2xl p-10 md:p-14 flex flex-col gap-8 border border-blue-100">
+          <div className="bg-white rounded-3xl   p-10 md:p-14 flex flex-col gap-8 border border-blue-100">
             <div className="border-b border-gray-200 mb-6">
               <nav className="-mb-px flex space-x-8">
                 <button
@@ -616,21 +685,68 @@ const ProfileOverviewTeacher: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Phone Number</label>
-                    <div className="text-lg font-bold text-gray-900">{profileData.phoneNumber || '-'}</div>
+                    <div className="text-lg font-bold text-gray-900">{formatPhoneDisplay(profileData.phoneNumber)}</div>
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">School</label>
-                    <div className="text-lg font-bold text-gray-900">{profileData.school || '-'}</div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Email</label>
+                    <div className="text-lg font-bold text-gray-900">{userProfile?.email || '-'}</div>
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Grade Level</label>
-                    <div className="text-lg font-bold text-gray-900">{profileData.gradeLevel || '-'}</div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Address</label>
+                    <div className="text-lg font-bold text-gray-900">{userProfile?.address || '-'}</div>
                   </div>
                 </div>
               </div>
               {/* Add more teacher-specific sections here if needed */}
             </>
           )
+        )}
+        {activeTab === 'Classes' && (
+          <div className="bg-white rounded-3xl shadow-2xl p-8 border border-blue-100">
+            {gradesLoading ? (
+              <div className="py-12 text-center text-gray-600">Loading classes…</div>
+            ) : grades.length === 0 ? (
+              <div className="py-12 text-center text-gray-500 italic">No classes yet.</div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                {grades.map(g => (
+                  <div key={g.id} className="w-full rounded-xl border border-gray-200 bg-gradient-to-b from-white to-gray-50 shadow-sm p-4 flex flex-col">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="text-base font-semibold text-gray-900">{g.name}</div>
+                        <div className="text-xs text-gray-500">{g.description || '—'}</div>
+                      </div>
+                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">{g.studentCount || 0} students</span>
+                    </div>
+                    <div className="mt-4 flex gap-2">
+                      <button
+                        onClick={() => toggleGradeStudents(g)}
+                        className="flex-1 inline-flex items-center justify-center px-3 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                      >
+                        {expandedGradeId === g.id ? 'Hide Students' : 'View Students'}
+                      </button>
+                    </div>
+                    {expandedGradeId === g.id && (
+                      <div className="mt-4 border-t border-gray-200 pt-3">
+                        {gradeStudents.length === 0 ? (
+                          <div className="text-sm text-gray-500">No students in this class.</div>
+                        ) : (
+                          <ul className="divide-y divide-gray-100 max-h-60 overflow-auto">
+                            {gradeStudents.map(s => (
+                              <li key={s.id} className="py-2 flex items-center justify-between">
+                                <div className="text-sm text-gray-800">{s.name}</div>
+                                <span className="text-xs text-gray-500">{String(s.readingLevel || '')}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

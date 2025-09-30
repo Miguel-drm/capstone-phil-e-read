@@ -10,7 +10,7 @@ const ProfileOverviewAdmin: React.FC = () => {
   const { banner } = useContext(BannerContext);
   const [activeTab, setActiveTab] = useState('Profile');
   const [settingsTab, setSettingsTab] = useState('personal');
-  const [profileData, setProfileData] = useState({
+  const [profileData] = useState({
     displayName: userProfile?.displayName || '',
     email: userProfile?.email || '',
     phoneNumber: userProfile?.phoneNumber || '',
@@ -190,6 +190,18 @@ const ProfileOverviewAdmin: React.FC = () => {
   };
 
   const tabs = ['Profile', 'Users', 'System Settings', 'Reports', 'Settings'];
+  const formatPhoneDisplay = (raw?: string | null) => {
+    if (!raw) return '-';
+    const digits = String(raw).replace(/\D/g, '');
+    if (digits.startsWith('63') && digits.length >= 12) {
+      const n = digits.slice(2);
+      const p1 = n.slice(0, 3);
+      const p2 = n.slice(3, 6);
+      const p3 = n.slice(6, 10);
+      return `+63${p1} ${p2} ${p3}`;
+    }
+    return raw;
+  };
 
   return (
     <div className="w-full min-h-screen bg-gray-50">
@@ -298,19 +310,19 @@ const ProfileOverviewAdmin: React.FC = () => {
       </div>
       <div className="w-full max-w-5xl mx-auto mt-8 px-4">
         {activeTab === 'Profile' && (
-          <div className="bg-white rounded-3xl shadow-2xl p-10 md:p-14 flex flex-col gap-8 border border-blue-100">
+          <div className="bg-white rounded-3xl p-10 md:p-14 flex flex-col gap-8 border border-blue-100">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Name</label>
-                <div className="text-lg font-bold text-gray-900">{userProfile?.displayName || '-'}</div>
-              </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Email</label>
                 <div className="text-lg font-bold text-gray-900">{userProfile?.email || '-'}</div>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Role</label>
-                <div className="text-lg font-bold text-gray-900">Admin</div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Phone Number</label>
+                <div className="text-lg font-bold text-gray-900">{formatPhoneDisplay(userProfile?.phoneNumber)}</div>
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Address</label>
+                <div className="text-lg font-bold text-gray-900">{userProfile?.address || '-'}</div>
               </div>
             </div>
           </div>
@@ -351,10 +363,10 @@ const ProfileOverviewAdmin: React.FC = () => {
                   <input type="email" className="w-full border rounded-lg px-3 py-2 bg-gray-100" value={profileData.email} readOnly />
                   <span className="text-xs text-gray-400">Email cannot be changed</span>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
-                  <input type="text" className="w-full border rounded-lg px-3 py-2" value={profileData.phoneNumber} readOnly />
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                <input type="text" className="w-full border rounded-lg px-3 py-2" value={formatPhoneDisplay(profileData.phoneNumber)} readOnly />
+              </div>
                 {/* Add more admin-specific fields here if needed */}
                 <div className="col-span-2">
                   <button type="button" className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg">Edit Profile</button>
