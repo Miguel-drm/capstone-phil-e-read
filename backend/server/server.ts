@@ -41,7 +41,7 @@ const audioUpload = multer({ storage: multer.memoryStorage() });
 // Middleware
 app.use(cors({
   origin: isProduction
-    ? 'https://phil-e-read-7p2c.onrender.com'
+    ? 'https://phileread-api.onrender.com'
     : '*',
 }));
 app.use(express.json());
