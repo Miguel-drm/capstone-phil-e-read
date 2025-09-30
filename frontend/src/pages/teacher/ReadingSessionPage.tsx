@@ -156,6 +156,10 @@ const ReadingSessionPage: React.FC = () => {
 
   // Start recording and speech recognition
   const handleStartRecording = () => {
+    if (currentSession?.status === 'completed') {
+      alert('This session is already completed. Recording is disabled.');
+      return;
+    }
     setIsRecording(true);
     setIsPaused(false);
     setTranscript('');
@@ -956,6 +960,8 @@ const ReadingSessionPage: React.FC = () => {
     );
   }
 
+  const isCompleted = (currentSession?.status as any) === 'completed';
+
   const handleCompleteSession = async () => {
     if (!sessionId || !currentSession) return;
 
@@ -1217,6 +1223,7 @@ const ReadingSessionPage: React.FC = () => {
       </section>
 
       {/* Session Controls */}
+      {!isCompleted && (
       <section className="w-full px-4 sm:px-8 pb-8">
         <div className="bg-white/80 rounded-3xl shadow-xl border border-blue-100 p-8 flex flex-col items-center gap-6">
           {/* Language selector + STT Provider/Vosk status badge */}
@@ -1298,7 +1305,7 @@ const ReadingSessionPage: React.FC = () => {
                 </button>
               </>
             )}
-            {currentSession?.status === 'in-progress' && (
+            {!isCompleted && (
               <button
                 onClick={handleCompleteSession}
                 className="flex items-center gap-2 px-8 py-4 rounded-2xl bg-gradient-to-r from-green-500 to-blue-500 text-white text-xl font-bold shadow-lg hover:scale-105 transition-all duration-200"
@@ -1321,6 +1328,7 @@ const ReadingSessionPage: React.FC = () => {
           )}
         </div>
       </section>
+      )}
     </div>
   );
 };

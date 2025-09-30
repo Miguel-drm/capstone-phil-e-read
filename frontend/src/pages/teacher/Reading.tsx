@@ -693,14 +693,6 @@ const Reading: React.FC = () => {
 
                   return (
                     <div key={session.id} className="bg-white rounded-xl shadow-md border border-blue-50 overflow-hidden flex flex-col h-full">
-                      <div className="relative pb-[42%] bg-blue-100 flex items-center justify-center">
-                        <div className="absolute inset-0 flex items-center justify-center text-blue-300 text-lg select-none">
-                          No Image
-                        </div>
-                        <span className={`absolute top-3 right-3 px-2.5 py-1 rounded-full text-[11px] font-semibold ${isSessionCompleted ? 'bg-green-100 text-green-800' : (session as any).status === 'in-progress' ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                          {isSessionCompleted ? 'Completed' : (session as any).status === 'in-progress' ? 'In Progress' : 'Pending'}
-                        </span>
-                      </div>
                       <div className="p-4 flex-grow flex flex-col">
                         <div className="flex items-center justify-between mb-1">
                           <h3 className="text-lg font-semibold text-blue-900 line-clamp-1">{session.title}</h3>
@@ -708,16 +700,15 @@ const Reading: React.FC = () => {
                         <div className="mb-3">
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-blue-100 text-blue-700">{session.book}</span>
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-gray-600 mb-4">
-                          <span className="px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-700 border border-yellow-100">Pending: {pendingCount}</span>
-                          <span className="px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-100">Completed: {completedCount}</span>
-                        </div>
                         <div className="mt-auto flex items-center justify-between">
+                          <span className={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${isSessionCompleted ? 'bg-green-100 text-green-800' : (session as any).status === 'in-progress' ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                            {isSessionCompleted ? 'Completed' : (session as any).status === 'in-progress' ? 'In Progress' : 'Pending'}
+                          </span>
                           <button
                             onClick={() => handleOpenSession(session.id || '')}
-                            className="inline-flex items-center text-blue-600 hover:text-white hover:bg-blue-500 px-3 py-1.5 rounded-md text-sm font-medium transition-colors"
+                            className={`inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${isSessionCompleted ? 'bg-green-500 text-white hover:bg-green-600' : 'bg-yellow-500 text-white hover:bg-yellow-600'}`}
                           >
-                            <span>Manage Session</span>
+                            <span>Go to Session</span>
                             <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                             </svg>
