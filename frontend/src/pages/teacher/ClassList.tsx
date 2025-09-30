@@ -810,6 +810,22 @@ const ClassList: React.FC = () => {
   const handleAddGrade = async () => {
     // Set loading state *after* preConfirm, just before API call
     try {
+      // Determine teacher's grade level from profile and lock it
+      const teacherProfile: any = await (getUserProfile() as Promise<any>);
+      const teacherGradeRaw = String(teacherProfile?.gradeLevel || '').trim();
+      if (!teacherGradeRaw) {
+        await Swal.fire({
+          icon: 'warning',
+          title: 'Set Grade Level',
+          text: 'Please set your Grade Level in your Profile first.',
+          confirmButtonText: 'OK'
+        });
+        return;
+      }
+      const lockedGradeLevel = teacherGradeRaw.toLowerCase().startsWith('grade')
+        ? teacherGradeRaw
+        : `Grade ${teacherGradeRaw}`;
+
       const { value: formValues } = await Swal.fire({
         title: 'Create New Class',
         customClass: {
@@ -825,13 +841,7 @@ const ClassList: React.FC = () => {
           <div class="text-left p-4 bg-white rounded-b-xl -mt-4">
             <div class="mb-6">
               <label class="block text-sm font-medium text-gray-700 mb-2">Grade Level</label>
-              <select id="grade-level" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                <option value="">Select grade level</option>
-                <option value="Grade 3">Grade 3</option>
-                <option value="Grade 4">Grade 4</option>
-                <option value="Grade 5">Grade 5</option>
-                <option value="Grade 6">Grade 6</option>
-              </select>
+              <input id="grade-level" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm bg-gray-100 text-gray-700" value="${lockedGradeLevel}" disabled />
             </div>
             <div class="mb-6">
               <label class="block text-sm font-medium text-gray-700 mb-2">Section</label>
@@ -876,7 +886,7 @@ const ClassList: React.FC = () => {
           }
         },
         preConfirm: () => {
-          const gradeLevel = (document.getElementById('grade-level') as HTMLSelectElement).value;
+          const gradeLevel = lockedGradeLevel;
           const section = (document.getElementById('grade-section') as HTMLInputElement).value.trim();
           const description = (document.getElementById('grade-description') as HTMLTextAreaElement).value;
           const color = (document.getElementById('grade-color') as HTMLSelectElement).value;

@@ -430,6 +430,21 @@ const ReadingSessionPage: React.FC = () => {
     }
   };
 
+  // Wait for MediaRecorder to finalize audio (audioBlob/audioUrl set) with timeout
+  const waitForAudioFinalization = async (timeoutMs: number = 2000): Promise<void> => {
+    if (!isRecording && (audioBlob || audioUrl)) return;
+    await new Promise<void>((resolve) => {
+      const start = Date.now();
+      const interval = setInterval(() => {
+        const done = (!!audioBlob || !!audioUrl) || Date.now() - start > timeoutMs;
+        if (done) {
+          clearInterval(interval);
+          resolve();
+        }
+      }, 100);
+    });
+  };
+
   // Pause/Resume speech recognition (optional)
   const handlePauseRecording = () => {
     setIsPaused(true);
@@ -884,6 +899,7 @@ const ReadingSessionPage: React.FC = () => {
   }, [transcript, realWords]);
 
   const [studentNames, setStudentNames] = useState<{ [id: string]: string }>({});
+  const [completedStudents, setCompletedStudents] = useState<{ [id: string]: boolean }>({});
 
   // Fetch student names when currentSession changes
   useEffect(() => {
@@ -944,6 +960,12 @@ const ReadingSessionPage: React.FC = () => {
     if (!sessionId || !currentSession) return;
 
     try {
+      // If recording is active, stop and wait for audio to finalize
+      if (isRecording) {
+        await handleStopRecording();
+        await waitForAudioFinalization(2500);
+      }
+
       // Update session status to completed
       await readingSessionService.updateSessionStatus(sessionId, 'completed');
       
@@ -975,6 +997,7 @@ const ReadingSessionPage: React.FC = () => {
           sessionDate: new Date()
         };
         await resultService.createReadingSessionResult(readingSessionResult);
+        setCompletedStudents(prev => ({ ...prev, [studentId]: true }));
       }
       
       // Update local state
@@ -1146,10 +1169,15 @@ const ReadingSessionPage: React.FC = () => {
             {/* Students */}
             <div className="rounded-xl bg-blue-100 shadow p-4 flex flex-col items-center">
               <span className="text-blue-700 font-bold text-lg mb-1 flex items-center gap-2"><UserGroupIcon className="h-5 w-5 text-blue-500" />Students</span>
-              <div className="flex flex-wrap gap-1 justify-center">
+              <div className="flex flex-wrap gap-2 justify-center">
                 {currentSession?.students.map((student: string, idx: number) => (
-                  <span key={idx} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-200 text-blue-800 shadow-sm">
+                  <span key={idx} className="inline-flex items-center gap-2 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-200 text-blue-800 shadow-sm">
                     {studentNames[student] || student}
+                    {completedStudents[student] && (
+                      <span className="ml-1 inline-flex items-center px-2 py-0.5 rounded-full bg-green-200 text-green-800 text-[10px] font-semibold">
+                        Completed
+                      </span>
+                    )}
                   </span>
                 ))}
               </div>

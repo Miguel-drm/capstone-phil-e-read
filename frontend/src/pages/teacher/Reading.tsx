@@ -129,7 +129,7 @@ const Reading: React.FC = () => {
   const handleScheduleSession = async () => {
     try {
       const { value: formValues } = await Swal.fire({
-        title: 'Reading Session',
+        title: 'Create Reading Session',
         html: `
           <div class="flex gap-6 p-4">
             <!-- Left side - Form (50% width) -->
@@ -139,7 +139,7 @@ const Reading: React.FC = () => {
               <input 
                 id="session-title" 
                 class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
-                placeholder="e.g., Group A - Level 2 Reading"
+                placeholder="e.g., Individual Reading - Emma"
               >
             </div>
             <div class="mb-6">
@@ -170,10 +170,12 @@ const Reading: React.FC = () => {
             
             <!-- Right side - Students (50% width) -->
             <div class="w-1/2">
-              <h3 class="text-lg font-semibold text-gray-700 mb-4">Grade and section</h3>
-              <div id="student-display" class="space-y-4">
-                <p class="text-sm text-gray-500 italic text-center">Select a class to view students</p>
+              <h3 class="text-lg font-semibold text-gray-700 mb-2">Select Student</h3>
+              <input id="student-search" placeholder="Search student..." class="w-full mb-3 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+              <div id="student-display" class="space-y-2 max-h-72 overflow-auto border border-gray-200 rounded-md p-2">
+                <p class="text-sm text-gray-500 italic text-center">Choose a class to list students</p>
               </div>
+              <div class="mt-2 text-xs text-gray-500">Only one student can be selected for an individual reading session.</div>
             </div>
           </div>
         `,
@@ -191,31 +193,42 @@ const Reading: React.FC = () => {
         didOpen: () => {
           const gradeSelect = document.getElementById('session-grade') as HTMLSelectElement;
           const studentDisplay = document.getElementById('student-display') as HTMLDivElement;
-          
+          const studentSearch = document.getElementById('student-search') as HTMLInputElement;
+          let currentStudents: { id?: string; name: string }[] = [];
+
+          const render = (list: typeof currentStudents) => {
+            studentDisplay.innerHTML = list.length
+              ? `
+                <div class="space-y-1">
+                  ${list.map(s => `
+                    <label class=\"flex items-center justify-between gap-3 px-3 py-2 rounded-md hover:bg-blue-50 cursor-pointer\">
+                      <div class=\"flex items-center gap-2\">
+                        <input type=\"radio\" name=\"selected-student\" value=\"${s.id || s.name}\" class=\"accent-blue-600\" />
+                        <span class=\"text-sm text-gray-800\">${s.name}</span>
+                      </div>
+                    </label>
+                  `).join('')}
+                </div>
+                <div class="mt-2 text-xs text-gray-600">Total: ${list.length} student${list.length !== 1 ? 's' : ''}</div>
+              `
+              : '<p class="text-sm text-gray-500 italic text-center">No students in this class</p>';
+          };
+
           if (gradeSelect && studentDisplay) {
             gradeSelect.addEventListener('change', async (e) => {
               const gradeId = (e.target as HTMLSelectElement).value;
               if (gradeId) {
                 const gradeStudents = await loadStudentsByGrade(gradeId);
-                
-                if (gradeStudents.length > 0) {
-                  // Display students as individual buttons in vertical list
-                  studentDisplay.innerHTML = `
-                    <div class="space-y-2">
-                      ${gradeStudents.map(student => `
-                        <div class="w-full px-3 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium text-center cursor-default">
-                          ${student.name}
-                        </div>
-                      `).join('')}
-                    </div>
-                    <div class="mt-3 text-xs text-gray-600 font-medium text-center">
-                      Total: ${gradeStudents.length} student${gradeStudents.length !== 1 ? 's' : ''}
-                        </div>
-                  `;
-                } else {
-                  studentDisplay.innerHTML = '<p class="text-sm text-gray-500 italic">No students in this class</p>';
+                currentStudents = gradeStudents;
+                render(currentStudents);
+                if (studentSearch) {
+                  studentSearch.oninput = () => {
+                    const q = studentSearch.value.toLowerCase();
+                    render(currentStudents.filter(s => s.name.toLowerCase().includes(q)));
+                  };
                 }
               } else {
+                currentStudents = [];
                 studentDisplay.innerHTML = '<p class="text-sm text-gray-500 italic">Select a class to view students</p>';
               }
             });
@@ -228,25 +241,27 @@ const Reading: React.FC = () => {
           const storyUrl = storySelect.options[storySelect.selectedIndex].getAttribute('data-url') || '';
           const gradeId = (document.getElementById('session-grade') as HTMLSelectElement).value;
 
-          if (!title || !book || !gradeId) {
-            Swal.showValidationMessage('Please fill in all required fields');
+          const selectedRadio = document.querySelector('input[name="selected-student"]:checked') as HTMLInputElement | null;
+          const selectedStudentKey = selectedRadio?.value || '';
+
+          if (!title || !book || !gradeId || !selectedStudentKey) {
+            Swal.showValidationMessage('Please complete all fields and select a student');
             return false;
           }
 
-          // Get all students from the selected class by loading them again
-          // This ensures we have the most up-to-date student list
+          // Build single-student session
           return loadStudentsByGrade(gradeId).then(gradeStudents => {
-            const allStudents = gradeStudents.map(student => student.name);
-
-          return {
-            title,
-            book,
-            storyUrl,
-            gradeId,
-              students: allStudents, // Include all students from the class
-            status: 'pending' as const,
-            teacherId: currentUser?.uid
-          };
+            const found = gradeStudents.find(s => (s.id || s.name) === selectedStudentKey);
+            const selectedName = found?.name || selectedStudentKey;
+            return {
+              title,
+              book,
+              storyUrl,
+              gradeId,
+              students: [selectedName],
+              status: 'pending' as const,
+              teacherId: currentUser?.uid
+            };
           });
         }
       });
@@ -340,16 +355,11 @@ const Reading: React.FC = () => {
     });
   };
 
-  // Student card handlers
-  const handleStudentProceed = (studentId: string, studentName: string, sessionId: string) => {
-    // Navigate to reading session page
-    navigate(`/teacher/reading-session/${sessionId}`, {
-      state: {
-        studentId,
-        studentName,
-        teacherId: currentUser?.uid
-      }
-    });
+  // Legacy per-student handlers were used in the old list view; not used in card grid
+  // Keeping minimal no-op to avoid refactoring large blocks while grid is active
+  const handleStudentProceed = (_studentId: string, _studentName: string, sessionId: string) => {
+    if (!sessionId) return;
+    navigate(`/teacher/reading-session/${sessionId}`);
   };
 
   const handleStudentEdit = async (studentId: string, studentName: string) => {
@@ -536,7 +546,12 @@ const Reading: React.FC = () => {
     }
   };
 
-  // Student Card Component
+  const handleOpenSession = (sessionId: string) => {
+    if (!sessionId) return;
+    navigate(`/teacher/reading-session/${sessionId}`);
+  };
+
+  // Student Card Component (currently not used in card grid view)
   const StudentCard: React.FC<{
     student: { id: string; name: string };
     status: 'pending' | 'completed';
@@ -547,53 +562,51 @@ const Reading: React.FC = () => {
     const [isExpanded, setIsExpanded] = useState(false);
 
     return (
-      <div className="bg-white rounded-lg p-3 shadow-sm border border-gray-200">
+      <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm hover:shadow-md hover:border-blue-200 transition">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-gray-300 rounded-full flex items-center justify-center">
-              <i className="fas fa-user text-gray-600 text-xs"></i>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-7 h-7 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center">
+              <i className="fas fa-user text-[11px]"></i>
             </div>
-            <span className="text-sm font-medium text-gray-800">{student.name}</span>
+            <span className="text-sm font-medium text-gray-800 truncate">{student.name}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-              status === 'completed' 
-                ? 'bg-green-100 text-green-800' 
-                : 'bg-yellow-100 text-yellow-800'
+            <span className={`px-2.5 py-0.5 text-[11px] font-semibold rounded-full ${
+              status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
             }`}>
               {status === 'completed' ? 'Completed' : 'Pending'}
             </span>
             <button
               onClick={() => setIsExpanded(!isExpanded)}
               className="text-gray-400 hover:text-gray-600"
+              aria-label="Toggle actions"
             >
               <i className={`fas fa-chevron-${isExpanded ? 'up' : 'down'} text-xs`}></i>
             </button>
           </div>
         </div>
-        
         {isExpanded && (
-          <div className="mt-3 pt-3 border-t border-gray-100">
-            <div className="flex items-center gap-2">
+          <div className="mt-2 pt-2 border-t border-gray-100">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={onProceed}
-                className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] bg-blue-500 text-white rounded hover:bg-blue-600"
               >
-                <i className="fas fa-play text-xs"></i>
+                <i className="fas fa-play text-[10px]"></i>
                 Proceed
               </button>
               <button
                 onClick={onEdit}
-                className="flex items-center gap-1 px-2 py-1 text-xs bg-yellow-500 text-white rounded hover:bg-yellow-600"
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] bg-yellow-500 text-white rounded hover:bg-yellow-600"
               >
-                <i className="fas fa-edit text-xs"></i>
+                <i className="fas fa-edit text-[10px]"></i>
                 Edit
               </button>
               <button
                 onClick={onDelete}
-                className="flex items-center gap-1 px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600"
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] bg-red-500 text-white rounded hover:bg-red-600"
               >
-                <i className="fas fa-trash text-xs"></i>
+                <i className="fas fa-trash text-[10px]"></i>
                 Delete
               </button>
             </div>
@@ -604,7 +617,7 @@ const Reading: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex flex-col items-center py-2\ sm:py-6">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex flex-col items-center py-2 sm:py-6">
       <div className="w-full px-2 sm:px-4 md:px-6 lg:px-8 bg-white/90 rounded-2xl shadow-lg p-4 sm:p-8 border border-blue-100">
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8 border-b border-blue-100 pb-4">
@@ -649,98 +662,72 @@ const Reading: React.FC = () => {
 
         {/* Content */}
         {activeTab === 'sessions' && (
-          <div className="space-y-6">
+          <div className="pt-4 border-t border-blue-100">
             {readingSessions.length === 0 ? (
               <div className="text-center py-10 text-gray-400 italic">No sessions found. Click + to add a session.</div>
             ) : (
-              readingSessions.map((session) => {
-                // Get students for this session
-                const sessionStudents = session.students.map((studentName: string) => {
-                  const student = students.find(s => s.name === studentName);
-                  return {
-                    id: student?.id || studentName,
-                    name: student?.name || studentName
-                  };
-                });
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 md:gap-6">
+                {readingSessions.map((session) => {
+                  // Get students for this session
+                  const sessionStudents = session.students.map((studentName: string) => {
+                    const student = students.find(s => s.name === studentName);
+                    return {
+                      id: student?.id || studentName,
+                      name: student?.name || studentName
+                    };
+                  });
 
-                // Get results for this session
-                const sessionResultsData = sessionResults.get(session.id || '') || [];
-                
-                // Split students into pending and completed based on real data
-                const completedStudentIds = new Set(
-                  sessionResultsData
-                    .filter(result => result.type === 'reading-session' && result.studentId)
-                    .map(result => result.studentId!)
-                );
+                  // Get results for this session
+                  const sessionResultsData = sessionResults.get(session.id || '') || [];
 
-                const pendingStudents = sessionStudents.filter(student => 
-                  !completedStudentIds.has(student.id)
-                );
-                const completedStudents = sessionStudents.filter(student => 
-                  completedStudentIds.has(student.id)
-                );
+                  // Split students into pending and completed based on real data
+                  const completedStudentIds = new Set(
+                    sessionResultsData
+                      .filter(result => result.type === 'reading-session' && result.studentId)
+                      .map(result => result.studentId!)
+                  );
 
-                return (
-                <div
-                  key={session.id}
-                    className="bg-blue-100 rounded-2xl p-6 shadow-lg border border-blue-200"
-                  >
-                    {/* Grade Header */}
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
-                        <i className="fas fa-graduation-cap text-white text-sm"></i>
+                  const pendingCount = sessionStudents.filter(s => !completedStudentIds.has(s.id)).length;
+                  const completedCount = sessionStudents.length - pendingCount;
+                  const isSessionCompleted = (session as any).status === 'completed' || (pendingCount === 0 && completedCount > 0);
+
+                  return (
+                    <div key={session.id} className="bg-white rounded-xl shadow-md border border-blue-50 overflow-hidden flex flex-col h-full">
+                      <div className="relative pb-[42%] bg-blue-100 flex items-center justify-center">
+                        <div className="absolute inset-0 flex items-center justify-center text-blue-300 text-lg select-none">
+                          No Image
+                        </div>
+                        <span className={`absolute top-3 right-3 px-2.5 py-1 rounded-full text-[11px] font-semibold ${isSessionCompleted ? 'bg-green-100 text-green-800' : (session as any).status === 'in-progress' ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                          {isSessionCompleted ? 'Completed' : (session as any).status === 'in-progress' ? 'In Progress' : 'Pending'}
+                        </span>
                       </div>
-                      <h3 className="text-lg font-semibold text-blue-900">{session.title}</h3>
-                      <span className="text-sm text-blue-600 bg-blue-200 px-2 py-1 rounded-full">
-                        {session.book}
-                    </span>
+                      <div className="p-4 flex-grow flex flex-col">
+                        <div className="flex items-center justify-between mb-1">
+                          <h3 className="text-lg font-semibold text-blue-900 line-clamp-1">{session.title}</h3>
+                        </div>
+                        <div className="mb-3">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-blue-100 text-blue-700">{session.book}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-gray-600 mb-4">
+                          <span className="px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-700 border border-yellow-100">Pending: {pendingCount}</span>
+                          <span className="px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-100">Completed: {completedCount}</span>
+                        </div>
+                        <div className="mt-auto flex items-center justify-between">
+                          <button
+                            onClick={() => handleOpenSession(session.id || '')}
+                            className="inline-flex items-center text-blue-600 hover:text-white hover:bg-blue-500 px-3 py-1.5 rounded-md text-sm font-medium transition-colors"
+                          >
+                            <span>Manage Session</span>
+                            <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
                     </div>
-
-                    {/* Two Column Layout */}
-                    <div className="grid grid-cols-2 gap-6">
-                      {/* Left Column - Pending Students */}
-                      <div>
-                        <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                          <span className="w-3 h-3 bg-yellow-400 rounded-full"></span>
-                          Pending ({pendingStudents.length})
-                        </h4>
-                        <div className="space-y-2">
-                          {pendingStudents.map((student, studentIdx) => (
-                            <StudentCard
-                              key={student.id || studentIdx}
-                              student={student}
-                              status="pending"
-                              onProceed={() => handleStudentProceed(student.id, student.name, session.id || '')}
-                              onEdit={() => handleStudentEdit(student.id, student.name)}
-                              onDelete={() => handleStudentDelete(student.name, session.id || '')}
-                            />
-                          ))}
-                    </div>
-                  </div>
-
-                      {/* Right Column - Completed Students */}
-                      <div>
-                        <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                          <span className="w-3 h-3 bg-green-400 rounded-full"></span>
-                          Completed ({completedStudents.length})
-                        </h4>
-                        <div className="space-y-2">
-                          {completedStudents.map((student, studentIdx) => (
-                            <StudentCard
-                              key={student.id || studentIdx}
-                              student={student}
-                              status="completed"
-                              onProceed={() => handleStudentProceed(student.id, student.name, session.id || '')}
-                              onEdit={() => handleStudentEdit(student.id, student.name)}
-                              onDelete={() => handleStudentDelete(student.name, session.id || '')}
-                            />
-                          ))}
-                  </div>
-                    </div>
-                  </div>
-                </div>
-                );
-              })
+                  );
+                })}
+              </div>
             )}
           </div>
         )}

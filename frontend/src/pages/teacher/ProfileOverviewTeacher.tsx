@@ -6,6 +6,7 @@ import Cropper from 'react-easy-crop';
 import Loader from '../../components/Loader';
 import { gradeService, type ClassGrade } from '../../services/gradeService';
 import { studentService, type Student } from '../../services/studentService';
+import { updateUserProfile } from '../../services/authService';
 
 const ProfileOverviewTeacher: React.FC = () => {
   const { userProfile } = useAuth();
@@ -19,6 +20,10 @@ const ProfileOverviewTeacher: React.FC = () => {
     phoneNumber: userProfile?.phoneNumber || '',
     school: userProfile?.school || '',
     gradeLevel: userProfile?.gradeLevel || '',
+    addressStreet: (userProfile as any)?.addressStreet || '',
+    addressCity: (userProfile as any)?.addressCity || '',
+    addressProvince: (userProfile as any)?.addressProvince || '',
+    addressZip: (userProfile as any)?.addressZip || '',
   });
   const [settingsTab, setSettingsTab] = useState('personal');
   const [preferences, setPreferences] = useState({
@@ -48,13 +53,52 @@ const ProfileOverviewTeacher: React.FC = () => {
 
   useEffect(() => {
     if (userProfile) {
-      setProfileData({
+      setProfileData(prev => ({
+        ...prev,
         displayName: userProfile.displayName || '',
         email: userProfile.email || '',
         phoneNumber: userProfile.phoneNumber || '',
         school: userProfile.school || '',
         gradeLevel: userProfile.gradeLevel || '',
-      });
+        addressStreet: (userProfile as any)?.addressStreet || prev.addressStreet,
+        addressCity: (userProfile as any)?.addressCity || prev.addressCity,
+        addressProvince: (userProfile as any)?.addressProvince || prev.addressProvince,
+        addressZip: (userProfile as any)?.addressZip || prev.addressZip,
+      }));
+
+      // If Firestore has a single composed address, try to hydrate structured fields
+      const composed = String((userProfile as any)?.address || '').trim();
+      if (composed) {
+        const parts = composed.split(',').map(p => p.trim()).filter(Boolean);
+        // Heuristic: [street, city, province, zip]
+        let street = '', city = '', province = '', zip = '';
+        if (parts.length >= 1) street = parts[0];
+        if (parts.length >= 2) city = parts[1];
+        if (parts.length >= 3) {
+          // detect if last token is zip
+          const last = parts[parts.length - 1];
+          if (/^\d{4,}$/.test(last)) {
+            zip = last;
+            province = parts[2] || '';
+          } else {
+            province = parts[2] || '';
+          }
+          // If there are more than 4 parts, merge middle into street
+          if (parts.length > 4) {
+            street = parts.slice(0, parts.length - 3).join(', ');
+            city = parts[parts.length - 3] || city;
+            province = parts[parts.length - 2] || province;
+            zip = /^\d{4,}$/.test(last) ? last : zip;
+          }
+        }
+        setProfileData(prev => ({
+          ...prev,
+          addressStreet: prev.addressStreet || street,
+          addressCity: prev.addressCity || city,
+          addressProvince: prev.addressProvince || province,
+          addressZip: prev.addressZip || zip,
+        }));
+      }
     }
   }, [userProfile]);
 
@@ -76,8 +120,26 @@ const ProfileOverviewTeacher: React.FC = () => {
   const handleSaveProfile = async () => {
     setIsSaving(true);
     try {
+      // Compose single address string for Firestore
+      const composedAddress = [
+        profileData.addressStreet,
+        profileData.addressCity,
+        profileData.addressProvince,
+        profileData.addressZip
+      ].filter(Boolean).join(', ');
+
+      await updateUserProfile({
+        displayName: profileData.displayName,
+        phoneNumber: profileData.phoneNumber,
+        school: profileData.school,
+        gradeLevel: profileData.gradeLevel,
+        address: composedAddress,
+      });
+
       setIsEditing(false);
     } catch (error) {
+      console.error('Save profile failed:', error);
+      alert('Failed to save profile. Please try again.');
     } finally {
       setIsSaving(false);
     }
@@ -260,7 +322,7 @@ const ProfileOverviewTeacher: React.FC = () => {
 
   if (!firebaseUid) return <Loader label="Loading profile..." />;
 
-  const tabs = ['Profile', 'Classes', 'Settings'];
+  
 
   const formatPhoneDisplay = (raw?: string | null) => {
     if (!raw) return '-';
@@ -428,21 +490,9 @@ const ProfileOverviewTeacher: React.FC = () => {
           </div>
         </div>
       </div>
-      <div className="max-w-5xl mx-auto mt-8 px-4">
-        <div className="flex gap-2 border-b border-gray-200 overflow-x-auto">
-          {tabs.map(tab => (
-            <button
-              key={tab}
-              className={`px-4 py-2 text-gray-700 font-medium border-b-2 transition-colors focus:outline-none ${activeTab === tab ? 'text-blue-600 border-blue-600' : 'border-transparent hover:text-blue-600 hover:border-blue-600'}`}
-              onClick={() => setActiveTab(tab)}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
-      </div>
+      
       <div className="w-full max-w-5xl mx-auto mt-8 px-4">
-        {activeTab === 'Settings' ? (
+        {
           <div className="bg-white rounded-3xl   p-10 md:p-14 flex flex-col gap-8 border border-blue-100">
             <div className="border-b border-gray-200 mb-6">
               <nav className="-mb-px flex space-x-8">
@@ -451,6 +501,12 @@ const ProfileOverviewTeacher: React.FC = () => {
                   className={`py-2 px-1 border-b-2 font-medium text-sm ${settingsTab === 'personal' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
                 >
                   Personal Information
+                </button>
+                <button
+                  onClick={() => setSettingsTab('classes')}
+                  className={`py-2 px-1 border-b-2 font-medium text-sm ${settingsTab === 'classes' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
+                >
+                  Classes
                 </button>
                 <button
                   onClick={() => setSettingsTab('preferences')}
@@ -490,17 +546,40 @@ const ProfileOverviewTeacher: React.FC = () => {
                     <p className="text-xs text-gray-500 mt-1">Email cannot be changed</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Phone Number</label>
-                    <input
-                      type="tel"
-                      name="phoneNumber"
-                      value={profileData.phoneNumber}
-                      onChange={handleInputChange}
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Grade Level</label>
+                    <select
+                      name="gradeLevel"
+                      value={profileData.gradeLevel}
+                      onChange={e => handleInputChange(e as unknown as React.ChangeEvent<HTMLInputElement>)}
                       disabled={!isEditing}
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      className={`w-full border ${errors.phoneNumber ? 'border-red-400' : 'border-gray-300'} rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100`}
-                    />
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                    >
+                      <option value="">Select grade level</option>
+                      <option value="1">1</option>
+                      <option value="2">2</option>
+                      <option value="3">3</option>
+                      <option value="4">4</option>
+                      <option value="5">5</option>
+                      <option value="6">6</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Phone Number</label>
+                    <div className="flex items-center gap-2">
+                      <span className="px-3 py-2 rounded-md bg-gray-100 text-gray-600 border border-gray-300">+63</span>
+                      <input
+                        type="tel"
+                        name="phoneNumber"
+                        value={profileData.phoneNumber}
+                        onChange={handleInputChange}
+                        disabled={!isEditing}
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        placeholder="9XXXXXXXXX"
+                        className={`flex-1 border ${errors.phoneNumber ? 'border-red-400' : 'border-gray-300'} rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100`}
+                      />
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">Philippines format: +63 9XXXXXXXXX (10 digits after +63).</div>
                     {errors.phoneNumber && <div className="text-xs text-red-500 mt-1">{errors.phoneNumber}</div>}
                   </div>
                   <div>
@@ -515,23 +594,42 @@ const ProfileOverviewTeacher: React.FC = () => {
                     />
                     {errors.school && <div className="text-xs text-red-500 mt-1">{errors.school}</div>}
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Grade Level</label>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Address</label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <input
-                      type="text"
-                      name="gradeLevel"
-                      value={profileData.gradeLevel}
-                      onChange={handleInputChange}
+                      placeholder="House No., Street, Barangay"
+                      value={profileData.addressStreet}
+                      onChange={e => setProfileData({ ...profileData, addressStreet: e.target.value })}
                       disabled={!isEditing}
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      className={`w-full border ${errors.gradeLevel ? 'border-red-400' : 'border-gray-300'} rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100`}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                     />
-                    {errors.gradeLevel && <div className="text-xs text-red-500 mt-1">{errors.gradeLevel}</div>}
+                    <input
+                      placeholder="City / Municipality"
+                      value={profileData.addressCity}
+                      onChange={e => setProfileData({ ...profileData, addressCity: e.target.value })}
+                      disabled={!isEditing}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                    />
+                    <input
+                      placeholder="Province"
+                      value={profileData.addressProvince}
+                      onChange={e => setProfileData({ ...profileData, addressProvince: e.target.value })}
+                      disabled={!isEditing}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                    />
+                    <input
+                      placeholder="ZIP (4 digits)"
+                      value={profileData.addressZip}
+                      onChange={e => setProfileData({ ...profileData, addressZip: e.target.value })}
+                      disabled={!isEditing}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                    />
                   </div>
                 </div>
                 <div className="flex gap-4 mt-8">
-                  {isEditing ? (
+                  {isEditing && (
                     <>
                       <button
                         onClick={() => setIsEditing(false)}
@@ -547,13 +645,6 @@ const ProfileOverviewTeacher: React.FC = () => {
                         {isSaving ? 'Saving...' : 'Save Changes'}
                       </button>
                     </>
-                  ) : (
-                    <button
-                      onClick={() => setIsEditing(true)}
-                      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
-                    >
-                      Edit Profile
-                    </button>
                   )}
                 </div>
               </div>
@@ -677,77 +768,55 @@ const ProfileOverviewTeacher: React.FC = () => {
                 </div>
               </div>
             )}
-          </div>
-        ) : (
-          activeTab === 'Profile' && (
-            <>
-              <div className="bg-white rounded-3xl shadow-2xl p-10 md:p-14 flex flex-col gap-8 border border-blue-100">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Phone Number</label>
-                    <div className="text-lg font-bold text-gray-900">{formatPhoneDisplay(profileData.phoneNumber)}</div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Email</label>
-                    <div className="text-lg font-bold text-gray-900">{userProfile?.email || '-'}</div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Address</label>
-                    <div className="text-lg font-bold text-gray-900">{userProfile?.address || '-'}</div>
-                  </div>
-                </div>
-              </div>
-              {/* Add more teacher-specific sections here if needed */}
-            </>
-          )
-        )}
-        {activeTab === 'Classes' && (
-          <div className="bg-white rounded-3xl shadow-2xl p-8 border border-blue-100">
-            {gradesLoading ? (
-              <div className="py-12 text-center text-gray-600">Loading classes…</div>
-            ) : grades.length === 0 ? (
-              <div className="py-12 text-center text-gray-500 italic">No classes yet.</div>
-            ) : (
-              <div className="flex flex-col gap-4">
-                {grades.map(g => (
-                  <div key={g.id} className="w-full rounded-xl border border-gray-200 bg-gradient-to-b from-white to-gray-50 shadow-sm p-4 flex flex-col">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="text-base font-semibold text-gray-900">{g.name}</div>
-                        <div className="text-xs text-gray-500">{g.description || '—'}</div>
-                      </div>
-                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">{g.studentCount || 0} students</span>
-                    </div>
-                    <div className="mt-4 flex gap-2">
-                      <button
-                        onClick={() => toggleGradeStudents(g)}
-                        className="flex-1 inline-flex items-center justify-center px-3 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700"
-                      >
-                        {expandedGradeId === g.id ? 'Hide Students' : 'View Students'}
-                      </button>
-                    </div>
-                    {expandedGradeId === g.id && (
-                      <div className="mt-4 border-t border-gray-200 pt-3">
-                        {gradeStudents.length === 0 ? (
-                          <div className="text-sm text-gray-500">No students in this class.</div>
-                        ) : (
-                          <ul className="divide-y divide-gray-100 max-h-60 overflow-auto">
-                            {gradeStudents.map(s => (
-                              <li key={s.id} className="py-2 flex items-center justify-between">
-                                <div className="text-sm text-gray-800">{s.name}</div>
-                                <span className="text-xs text-gray-500">{String(s.readingLevel || '')}</span>
-                              </li>
-                            ))}
-                          </ul>
+            {settingsTab === 'classes' && (
+              <div className="bg-white rounded-3xl shadow-2xl p-8 border border-blue-100">
+                {gradesLoading ? (
+                  <div className="py-12 text-center text-gray-600">Loading classes…</div>
+                ) : grades.length === 0 ? (
+                  <div className="py-12 text-center text-gray-500 italic">No classes yet.</div>
+                ) : (
+                  <div className="flex flex-col gap-4">
+                    {grades.map(g => (
+                      <div key={g.id} className="w-full rounded-xl border border-gray-200 bg-gradient-to-b from-white to-gray-50 shadow-sm p-4 flex flex-col">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <div className="text-base font-semibold text-gray-900">{g.name}</div>
+                            <div className="text-xs text-gray-500">{g.description || '—'}</div>
+                          </div>
+                          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">{g.studentCount || 0} students</span>
+                        </div>
+                        <div className="mt-4 flex gap-2">
+                          <button
+                            onClick={() => toggleGradeStudents(g)}
+                            className="flex-1 inline-flex items-center justify-center px-3 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                          >
+                            {expandedGradeId === g.id ? 'Hide Students' : 'View Students'}
+                          </button>
+                        </div>
+                        {expandedGradeId === g.id && (
+                          <div className="mt-4 border-t border-gray-200 pt-3">
+                            {gradeStudents.length === 0 ? (
+                              <div className="text-sm text-gray-500">No students in this class.</div>
+                            ) : (
+                              <ul className="divide-y divide-gray-100 max-h-60 overflow-auto">
+                                {gradeStudents.map(s => (
+                                  <li key={s.id} className="py-2 flex items-center justify-between">
+                                    <div className="text-sm text-gray-800">{s.name}</div>
+                                    <span className="text-xs text-gray-500">{String(s.readingLevel || '')}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
                         )}
                       </div>
-                    )}
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             )}
           </div>
-        )}
+        }
       </div>
     </div>
   );
