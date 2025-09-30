@@ -134,7 +134,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             
           </div>
           {/* Navigation Menu */}
-          <nav className="flex-1 overflow-y-auto py-4 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent">
+          <nav className="flex-1 overflow-y-auto py-4 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent z-1000">
             <ul className="space-y-1 px-2">
               {navItems.map((item) => {
                 return (
