@@ -559,9 +559,12 @@ const ReadingSessionPage: React.FC = () => {
           if (!sessionData) throw new Error('Session not found');
           setCurrentSession(sessionData);
 
-          // Match story by id or title
-          const stories = await UnifiedStoryService.getInstance().getStories({});
-          const story = stories.find((s: Story) => s._id === sessionData.book || s.title === sessionData.book);
+          // Match story by id or title - normalize response to array first
+          const storiesResp = await UnifiedStoryService.getInstance().getStories({});
+          const stories: Story[] = Array.isArray(storiesResp)
+            ? storiesResp
+            : (Array.isArray((storiesResp as any)?.data) ? (storiesResp as any).data : []);
+          const story = stories.find((s: Story) => s && (s._id === sessionData.book || s.title === sessionData.book));
           if (!story || !story._id) throw new Error('Story not found');
 
           const fullStory = await UnifiedStoryService.getInstance().getStoryById(story._id);
