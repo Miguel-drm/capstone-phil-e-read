@@ -81,7 +81,7 @@ const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="bg-white shadow-sm z-[40]">
+    <header className="bg-white z-[40]">
       <div className="px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Left side */}
@@ -128,7 +128,7 @@ const Header: React.FC<HeaderProps> = ({
                 </svg>
               </button>
               {isNotificationsOpen && (
-                <div className="origin-top-right absolute right-0 mt-2 w-80 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
+                <div className="origin-top-right absolute right-0 mt-2 w-80 rounded-md bg-white ring-1 ring-black ring-opacity-5">
                   <div className="py-1">
                     <div className="px-4 py-2 text-sm text-gray-700">No new notifications</div>
                   </div>
@@ -138,7 +138,7 @@ const Header: React.FC<HeaderProps> = ({
             {/* Upcoming Sessions Button for larger screens */}
             {!isMobile && onShowSessionsModal && (
               <button
-                className="flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow transition-all duration-200 text-sm font-semibold"
+                className="flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all duration-200 text-sm font-semibold"
                 onClick={onShowSessionsModal}
               >
                 <i className="fas fa-calendar-alt mr-2"></i>
@@ -174,7 +174,7 @@ const Header: React.FC<HeaderProps> = ({
                     )}
                   </div>
                   {/* Chevron dropdown icon, overlapping bottom-right */}
-                  <span className="absolute -bottom-0 -right-0 translate-x-1/4 translate-y-1/4 bg-gray-100 rounded-full flex items-center justify-center shadow border border-gray-200" style={{ width: '1.25rem', height: '1.25rem' }}>
+                  <span className="absolute -bottom-0 -right-0 translate-x-1/4 translate-y-1/4 bg-gray-100 rounded-full flex items-center justify-center border border-gray-200" style={{ width: '1.25rem', height: '1.25rem' }}>
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="#111" className="w-5 h-5">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                     </svg>
@@ -185,7 +185,7 @@ const Header: React.FC<HeaderProps> = ({
                 </span>
               </button>
               {isProfileOpen && (
-                <div className="origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
+                <div className="origin-top-right absolute right-0 mt-2 w-48 rounded-md bg-white ring-1 ring-black ring-opacity-5">
                   <div className="py-1">
                     <div className="px-4 py-2 text-sm text-gray-700">
                       {currentUser?.email}

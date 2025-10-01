@@ -138,7 +138,7 @@ const Reading: React.FC = () => {
               <label class="block text-sm font-medium text-gray-700 mb-2">Session Title</label>
               <input 
                 id="session-title" 
-                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
                 placeholder="e.g., Individual Reading - Emma"
               >
             </div>
@@ -146,7 +146,7 @@ const Reading: React.FC = () => {
               <label class="block text-sm font-medium text-gray-700 mb-2">Select Story</label>
               <select 
                 id="session-story" 
-                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="">Select a story</option>
                 ${stories.map(story => `
@@ -158,7 +158,7 @@ const Reading: React.FC = () => {
               <label class="block text-sm font-medium text-gray-700 mb-2">Class/Grade</label>
               <select 
                 id="session-grade" 
-                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="">Select a class</option>
                 ${grades.map(grade => `
@@ -380,7 +380,7 @@ const Reading: React.FC = () => {
               <label class="block text-sm font-medium text-gray-700 mb-1">Student Name</label>
               <input 
                 id="edit-name" 
-                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
                 value="${student.name}"
                 placeholder="Enter student name"
               >
@@ -389,7 +389,7 @@ const Reading: React.FC = () => {
               <label class="block text-sm font-medium text-gray-700 mb-1">Grade</label>
               <select 
                 id="edit-grade" 
-                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="">Select a grade</option>
                 ${grades.map(grade => `
@@ -401,7 +401,7 @@ const Reading: React.FC = () => {
               <label class="block text-sm font-medium text-gray-700 mb-1">Reading Level</label>
               <select 
                 id="edit-reading-level" 
-                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="Beginner" ${student.readingLevel === 'Beginner' ? 'selected' : ''}>Beginner</option>
                 <option value="Intermediate" ${student.readingLevel === 'Intermediate' ? 'selected' : ''}>Intermediate</option>
@@ -412,7 +412,7 @@ const Reading: React.FC = () => {
               <label class="block text-sm font-medium text-gray-700 mb-1">Performance</label>
               <select 
                 id="edit-performance" 
-                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="Excellent" ${student.performance === 'Excellent' ? 'selected' : ''}>Excellent</option>
                 <option value="Good" ${student.performance === 'Good' ? 'selected' : ''}>Good</option>
@@ -423,7 +423,7 @@ const Reading: React.FC = () => {
               <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
               <select 
                 id="edit-status" 
-                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="active" ${student.status === 'active' ? 'selected' : ''}>Active</option>
                 <option value="pending" ${student.status === 'pending' ? 'selected' : ''}>Pending</option>

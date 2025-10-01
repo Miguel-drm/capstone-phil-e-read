@@ -25,7 +25,7 @@ const UpcomingSessions: React.FC<UpcomingSessionsProps> = ({ sessions }) => {
           <h3 className="text-lg sm:text-xl font-semibold text-gray-900 mb-1">Upcoming Sessions</h3>
           <p className="text-sm text-gray-500">Your scheduled activities</p>
         </div>
-        <button className="flex items-center px-4 py-2 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-lg shadow transition-all duration-200 text-sm font-semibold self-start sm:self-auto">
+        <button className="flex items-center px-4 py-2 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-lg transition-all duration-200 text-sm font-semibold self-start sm:self-auto">
           <i className="fas fa-list mr-2"></i>
           View All
         </button>
@@ -48,12 +48,12 @@ const UpcomingSessions: React.FC<UpcomingSessionsProps> = ({ sessions }) => {
                 <div className="flex items-center mt-2 sm:mt-3">
                   <div className="flex -space-x-1 sm:-space-x-2">
                     {session.students.slice(0, 3).map((student, index) => (
-                      <div key={index} className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 flex items-center justify-center text-xs text-white font-medium border-2 border-white shadow-sm">
+                      <div key={index} className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 flex items-center justify-center text-xs text-white font-medium border-2 border-white">
                         {student}
                       </div>
                     ))}
                     {session.students.length > 3 && (
-                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-gray-600 flex items-center justify-center text-xs text-white font-medium border-2 border-white shadow-sm">
+                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-gray-600 flex items-center justify-center text-xs text-white font-medium border-2 border-white">
                         +{session.students.length - 3}
                       </div>
                     )}
@@ -82,7 +82,7 @@ const UpcomingSessions: React.FC<UpcomingSessionsProps> = ({ sessions }) => {
       
       {/* Quick Action */}
       <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-gray-100">
-        <button className="w-full flex items-center justify-center px-4 py-2.5 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-lg transition-all duration-200 group shadow font-semibold">
+        <button className="w-full flex items-center justify-center px-4 py-2.5 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-lg transition-all duration-200 group font-semibold">
           <i className="fas fa-plus mr-2 text-sm group-hover:scale-110 transition-transform duration-200"></i>
           <span className="font-medium text-sm">Schedule New Session</span>
         </button>

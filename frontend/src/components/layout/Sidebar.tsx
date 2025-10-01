@@ -100,10 +100,10 @@ const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const sidebarClasses = `
-    fixed top-0 left-0 z-[30] h-screen
+    fixed top-0 left-0 z-[60] h-screen
     transition-all duration-300 ease-in-out overflow-x-hidden
     ${isMobile
-      ? `w-full max-w-xs shadow-2xl ${isOpen ? 'translate-x-0' : '-translate-x-full'}`
+      ? `w-full max-w-xs ${isOpen ? 'translate-x-0' : '-translate-x-full'}`
       : isCollapsed
         ? 'w-0'
         : 'w-64'
@@ -144,9 +144,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                         to={item.path}
                         onClick={handleMenuClick}
                         className={`
-                          w-full flex items-center ${isCollapsed ? 'justify-center' : ''} px-3 py-3 text-left transition-all duration-200 cursor-pointer rounded-lg
+                          w-full flex items-center ${isCollapsed ? 'justify-center' : ''} px-3 py-4 text-left transition-all duration-200 cursor-pointer rounded-lg min-h-[48px] relative z-10
                           ${isActive(item.path)
-                            ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-lg'
+                            ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white'
                             : 'hover:bg-white/10 text-gray-200 hover:text-white'
                           }
                         `}
@@ -168,7 +168,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           {/* User Profile */}
           <div className="p-4 border-t border-gray-600 bg-gradient-to-r from-[#1A2530] to-[#2C3E50]">
             <div className="flex items-center">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 flex items-center justify-center text-white flex-shrink-0 shadow-lg">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 flex items-center justify-center text-white flex-shrink-0">
                 <i className="fas fa-user"></i>
               </div>
               {!isCollapsed && (

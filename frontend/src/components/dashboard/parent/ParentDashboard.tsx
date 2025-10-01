@@ -26,7 +26,7 @@ const mockGrades: ClassGrade[] = [
 ];
 
 const OverviewCard = memo(({ title, value, icon: Icon, accent }: { title: string; value: number | string; icon: React.ElementType; accent: string }) => (
-  <div className="group relative overflow-hidden rounded-2xl bg-white shadow-sm border border-gray-100 transition-all duration-200 hover:shadow-md">
+  <div className="group relative overflow-hidden rounded-2xl bg-white border border-gray-100 transition-all duration-200">
     <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-r ${accent} pointer-events-none`} />
     <div className="relative p-5 flex items-center gap-4">
       <div className="h-12 w-12 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-600 group-hover:bg-white/90 transition-colors">
@@ -42,7 +42,7 @@ const OverviewCard = memo(({ title, value, icon: Icon, accent }: { title: string
 ));
 
 const ChildCard = memo(({ child }: { child: Student }) => (
-  <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 flex flex-col shadow-sm">
+  <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 flex flex-col">
     <div className="flex items-center mb-2">
       <div className="h-10 w-10 rounded-full bg-blue-200 flex items-center justify-center text-lg font-bold text-blue-700 mr-3">
         {child.name?.[0] || '?'}
@@ -103,7 +103,7 @@ const ParentDashboard: React.FC = () => {
               <p className="mt-1 text-sm text-blue-700">Track your children’s progress and start a new practice anytime.</p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <button onClick={() => navigate('/parent/reading')} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-white bg-gradient-to-r from-blue-500 to-purple-500 shadow hover:shadow-md transition">
+              <button onClick={() => navigate('/parent/reading')} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-white bg-gradient-to-r from-blue-500 to-purple-500 transition">
                 <BookOpenIcon className="h-5 w-5" /> Start Practice
               </button>
               <button onClick={() => navigate('/parent/reports')} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-blue-700 bg-white border border-blue-100 hover:bg-blue-50 transition">
@@ -125,7 +125,7 @@ const ParentDashboard: React.FC = () => {
       </div>
 
       {/* Children Overview */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+      <div className="bg-white p-6 rounded-2xl border border-gray-100">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900">Children Overview</h3>
           <button onClick={() => navigate('/parent/children')} className="text-sm text-blue-600 hover:text-blue-700 inline-flex items-center gap-1">Manage<ArrowRightIcon className="h-4 w-4" /></button>
@@ -134,7 +134,7 @@ const ParentDashboard: React.FC = () => {
           <div className="animate-pulse text-gray-400">Loading children...</div>
         ) : children.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-center">
-            <div className="h-24 w-24 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 border border-gray-200 shadow-sm flex items-center justify-center">
+            <div className="h-24 w-24 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 border border-gray-200 flex items-center justify-center">
               <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-12 w-12 text-gray-400">
                 <path fill="currentColor" d="M12 12a5 5 0 1 0-5-5 5 5 0 0 0 5 5Zm-9 8a9 9 0 1 1 18 0v1H3Z"/>
               </svg>
@@ -167,7 +167,7 @@ const ParentDashboard: React.FC = () => {
       </div>
 
       {/* Recent Activity */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+      <div className="bg-white p-6 rounded-2xl border border-gray-100">
         <h3 className="text-lg font-medium text-gray-900 mb-4">Recent Activity</h3>
         <div className="space-y-4">
           <p className="text-gray-500">No recent activity</p>

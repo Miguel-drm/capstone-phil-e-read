@@ -817,18 +817,18 @@ const ReadingSessionPage: React.FC = () => {
           <div className="flex items-center gap-4">
             <button
               onClick={handleGoBack}
-              className="inline-flex items-center px-3 py-2 text-base font-semibold text-blue-700 bg-white/80 border border-blue-200 rounded-lg shadow hover:bg-blue-50 transition"
+              className="inline-flex items-center px-3 py-2 text-base font-semibold text-blue-700 bg-white/80 border border-blue-200 rounded-lg hover:bg-blue-50 transition"
               title="Back"
             >
               <ArrowLeftIcon className="h-5 w-5 mr-2" />
               Back
             </button>
-            <h1 className="text-3xl font-extrabold text-blue-900 drop-shadow-sm mb-2">
+            <h1 className="text-3xl font-extrabold text-blue-900 mb-2">
               {isPracticeMode ? 'Practice Session' : (currentSession?.title || 'Reading Session')}
             </h1>
           </div>
           {!isPracticeMode && currentSession && (
-            <span className={`ml-4 px-4 py-2 rounded-full text-base font-semibold shadow transition-all duration-200
+            <span className={`ml-4 px-4 py-2 rounded-full text-base font-semibold transition-all duration-200
               ${currentSession.status === 'completed' ? 'bg-green-100 text-green-700' :
                 currentSession.status === 'in-progress' ? 'bg-blue-100 text-blue-700 animate-pulse' :
                 'bg-yellow-100 text-yellow-700'}`}
@@ -842,7 +842,7 @@ const ReadingSessionPage: React.FC = () => {
       {/* Display last recognized word */}
       {isRecording && (
         <div className="w-full flex justify-center mb-4">
-          <div className="bg-yellow-100 border border-yellow-300 rounded-lg px-6 py-3 flex items-center gap-3 shadow text-lg">
+          <div className="bg-yellow-100 border border-yellow-300 rounded-lg px-6 py-3 flex items-center gap-3 text-lg">
             <span className="font-semibold text-yellow-800">Mic heard:</span>
             <span className="font-mono text-yellow-900 text-xl font-bold">{transcript.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || '-'}</span>
           </div>

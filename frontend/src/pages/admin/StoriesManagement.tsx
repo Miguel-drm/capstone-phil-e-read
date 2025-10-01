@@ -238,7 +238,7 @@ export default function StoriesManagement() {
             <div className="text-center text-gray-500 py-10">No stories available.</div>
           ) : (
             (Array.isArray(stories) ? stories : []).map((story) => (
-              <div key={story._id} className="bg-white rounded-xl border shadow-sm p-6 hover:shadow-md transition-shadow">
+              <div key={story._id} className="bg-white rounded-xl border p-6 transition-colors">
                 {/* Header row: title + actions */}
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
@@ -273,7 +273,7 @@ export default function StoriesManagement() {
                         const testsForStory = storyIdToTests[String(story._id)] || [];
                         const canDelete = testsForStory.length > 1;
                         return testsForStory.map(t => (
-                        <div key={t.id} className="w-full h-24 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors shadow-sm px-5 py-4 flex items-center justify-between">
+                        <div key={t.id} className="w-full h-24 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors px-5 py-4 flex items-center justify-between">
                           <div className="min-w-0 pr-4">
                             <div className="flex items-center gap-3">
                               <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-700 text-sm font-bold">T</span>
@@ -307,7 +307,7 @@ export default function StoriesManagement() {
       )}
       {viewTest && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-[100]">
-          <div className="bg-white rounded-lg shadow-2xl w-full max-w-2xl p-6">
+          <div className="bg-white rounded-lg w-full max-w-2xl p-6">
             <div className="flex items-start justify-between">
               <h3 className="text-xl font-bold text-gray-900">{viewTest.testName}</h3>
               <button onClick={() => setViewTest(null)} className="text-gray-500 hover:text-gray-700">✕</button>
@@ -356,7 +356,7 @@ export default function StoriesManagement() {
                   type="text"
                   value={editingStory.title}
                   onChange={(e) => setEditingStory({ ...editingStory, title: e.target.value })}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  className="mt-1 block w-full rounded-md border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                 />
               </div>
 
@@ -366,7 +366,7 @@ export default function StoriesManagement() {
                   value={editingStory.description}
                   onChange={(e) => setEditingStory({ ...editingStory, description: e.target.value })}
                   rows={3}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  className="mt-1 block w-full rounded-md border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                 />
               </div>
 
@@ -375,7 +375,7 @@ export default function StoriesManagement() {
                 <select
                   value={editingStory.grade}
                   onChange={(e) => setEditingStory({ ...editingStory, grade: e.target.value })}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  className="mt-1 block w-full rounded-md border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                 >
                   <option value="1">Grade 1</option>
                   <option value="2">Grade 2</option>
@@ -388,7 +388,7 @@ export default function StoriesManagement() {
                 <select
                   value={editingStory.language === 'none' ? 'tagalog' : editingStory.language === 'en' ? 'english' : editingStory.language}
                   onChange={(e) => setEditingStory({ ...editingStory, language: e.target.value })}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  className="mt-1 block w-full rounded-md border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                 >
                   <option value="english">English</option>
                   <option value="tagalog">Tagalog</option>

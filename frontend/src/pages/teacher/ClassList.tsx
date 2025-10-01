@@ -330,7 +330,7 @@ const ClassList: React.FC = () => {
         showCloseButton: true,
         showConfirmButton: false,
         customClass: {
-          popup: 'rounded-xl shadow-2xl',
+          popup: 'rounded-xl',
           title: 'text-white text-xl font-semibold',
         },
         width: '40rem',
@@ -699,9 +699,9 @@ const ClassList: React.FC = () => {
         await Swal.fire({
           title: gradeName,
           customClass: {
-            popup: 'rounded-xl shadow-2xl',
+            popup: 'rounded-xl',
             title: 'text-white text-xl font-semibold',
-            confirmButton: 'px-4 py-2 text-sm font-medium bg-blue-100 text-blue-700 rounded-lg shadow-md hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
+            confirmButton: 'px-4 py-2 text-sm font-medium bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
           },
           backdrop: 'rgba(0,0,0,0.6)',
           background: '#fff',
@@ -711,7 +711,7 @@ const ClassList: React.FC = () => {
               <p class="mb-3 text-gray-700"><strong>Description:</strong> ${grade.description}</p>
               <p class="mb-5 text-gray-700"><strong>Total Students:</strong> ${validStudentsInGrade.length}</p>
               <h3 class="text-lg font-semibold text-gray-800 mb-3">Students in this Grade:</h3>
-              <div class="max-h-60 overflow-y-auto border border-gray-200 rounded-lg shadow-sm">
+              <div class="max-h-60 overflow-y-auto border border-gray-200 rounded-lg">
                 ${validStudentsInGrade.length > 0 ? `
                   <table class="min-w-full divide-y divide-gray-100">
                     <thead class="bg-gray-50">
@@ -829,7 +829,7 @@ const ClassList: React.FC = () => {
       const { value: formValues } = await Swal.fire({
         title: 'Create New Class',
         customClass: {
-          popup: 'rounded-xl shadow-2xl',
+          popup: 'rounded-xl',
           title: 'text-white text-xl font-semibold',
           confirmButton: 'px-4 py-2 text-sm font-medium bg-blue-100 text-blue-700 rounded-lg shadow-md hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
           cancelButton: 'px-4 py-2 text-sm font-medium bg-white text-gray-700 rounded-lg shadow-md hover:bg-gray-100 transition-all duration-200',
@@ -1102,7 +1102,7 @@ const ClassList: React.FC = () => {
       const { value: formValues } = await Swal.fire({
         title: `Add Student to ${gradeName}`,
         customClass: {
-          popup: 'rounded-xl shadow-2xl',
+          popup: 'rounded-xl',
           title: 'text-white text-xl font-semibold',
           confirmButton: 'px-4 py-2 text-sm font-medium bg-blue-100 text-blue-700 rounded-lg shadow-md hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
           cancelButton: 'px-4 py-2 text-sm font-medium bg-white text-gray-700 rounded-lg shadow-md hover:bg-gray-100 transition-all duration-200',
@@ -1292,12 +1292,12 @@ const ClassList: React.FC = () => {
                     grades.map((grade) => (
                       <div
                         key={grade.id}
-                        className={`flex flex-col w-full max-w-full rounded-xl shadow-md border-2 cursor-pointer transition-all duration-200 bg-white/90 hover:shadow-lg ${selectedGrade === grade.id ? 'border-blue-500 ring-2 ring-blue-200' : 'border-blue-100'} ${selectedGrades.includes(grade.id || '') ? 'bg-red-50' : ''} ${getGradeColorClasses(grade.color)}`}
+                        className={`flex flex-col w-full max-w-full rounded-xl border-2 cursor-pointer transition-all duration-200 bg-white/90 ${selectedGrade === grade.id ? 'border-blue-500 ring-2 ring-blue-200' : 'border-blue-100'} ${selectedGrades.includes(grade.id || '') ? 'bg-red-50' : ''} ${getGradeColorClasses(grade.color)}`}
                         style={{ minWidth: 0 }}
                         onClick={() => grade.id && handleGradeSelect(grade.id)}
                       >
                         <div className="flex items-center gap-3 p-4 pb-2 min-w-0">
-                          <span className={`w-10 h-10 flex items-center justify-center rounded-full text-lg font-bold shadow ${getBadgeColorClasses(grade.color)}`}>{grade.name[0]}</span>
+                          <span className={`w-10 h-10 flex items-center justify-center rounded-full text-lg font-bold ${getBadgeColorClasses(grade.color)}`}>{grade.name[0]}</span>
                           <div className="flex flex-col min-w-0">
                             <span className="text-base font-semibold truncate max-w-[120px]">{grade.name}</span>
                             <span className="text-xs text-gray-500 truncate max-w-[120px]">{grade.description || 'No description'}</span>
@@ -1354,9 +1354,9 @@ const ClassList: React.FC = () => {
                                   const { value: formValues } = await Swal.fire({
                                     title: 'Edit Class Grade',
                                     customClass: {
-                                      popup: 'rounded-xl shadow-2xl',
+                                      popup: 'rounded-xl',
                                       title: 'text-white text-xl font-semibold',
-                                      confirmButton: 'px-4 py-2 text-sm font-medium bg-blue-100 text-blue-700 rounded-lg shadow-md hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
+                                      confirmButton: 'px-4 py-2 text-sm font-medium bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
                                       cancelButton: 'px-4 py-2 text-sm font-medium bg-white text-gray-700 rounded-lg shadow-md hover:bg-gray-100 transition-all duration-200',
                                     },
                                     backdrop: 'rgba(0,0,0,0.6)',

@@ -224,7 +224,7 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, grades, stude
   }, [data]);
 
   return (
-    <div className="bg-white rounded-2xl shadow-md p-4 transition-all duration-300 hover:shadow-lg">
+    <div className="bg-white rounded-2xl p-4 transition-all duration-300">
       <div className="p-4">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 lg:mb-6 space-y-3 sm:space-y-0">
           <h3 className="text-base md:text-lg font-semibold text-[#2C3E50]">{title ? `Performance - ${title}` : 'Students Performance'}</h3>

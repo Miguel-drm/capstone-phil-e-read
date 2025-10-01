@@ -680,7 +680,7 @@ const ReadingSessionPage: React.FC = () => {
       const paragraphs = storyText.split('\n\n').filter(p => p.trim().length > 0);
       
       return (
-        <div className="story-container bg-white rounded-lg shadow-sm border border-gray-200">
+        <div className="story-container bg-white rounded-lg border border-gray-200">
           <div className="p-6">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-semibold text-gray-900">Story Content</h3>
@@ -714,7 +714,7 @@ const ReadingSessionPage: React.FC = () => {
                                   className={
                                     `inline-block mr-2 mb-1 px-2 py-1 rounded font-serif text-base transition-all duration-150 ` +
                                     (isCurrentWord
-                                      ? 'bg-blue-600 text-white font-bold shadow-md scale-105'
+                                      ? 'bg-blue-600 text-white font-bold scale-105'
                                       : 'bg-gray-100 text-gray-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer')
                                   }
                                 >
@@ -745,7 +745,7 @@ const ReadingSessionPage: React.FC = () => {
       const paragraphs = pdfContent.split('\n\n').filter(p => p.trim().length > 0);
       
       return (
-        <div className="story-container bg-white rounded-lg shadow-sm border border-gray-200">
+        <div className="story-container bg-white rounded-lg border border-gray-200">
           <div className="p-6">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-semibold text-gray-900">Story Content</h3>
@@ -773,7 +773,7 @@ const ReadingSessionPage: React.FC = () => {
                                   className={
                                     `inline-block mr-2 mb-1 px-2 py-1 rounded font-serif text-base transition-all duration-150 ` +
                                     (isCurrentWord
-                                      ? 'bg-blue-600 text-white font-bold shadow-md scale-105'
+                                      ? 'bg-blue-600 text-white font-bold scale-105'
                                       : 'bg-gray-100 text-gray-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer')
                                   }
                                 >
@@ -1063,23 +1063,23 @@ const ReadingSessionPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-100 flex flex-col">
       {/* Title */}
-      <header className="w-full px-4 sm:px-8 pt-8 pb-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
+      <header className="w-full px-4 sm:px-8 pt-4 sm:pt-8 pb-4 relative z-50 bg-gradient-to-br from-blue-50 via-white to-purple-100">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             <button
               onClick={handleGoBack}
-              className="inline-flex items-center px-3 py-2 text-base font-semibold text-blue-700 bg-white/80 border border-blue-200 rounded-lg shadow hover:bg-blue-50 transition"
+              className="inline-flex items-center px-3 py-2 text-sm sm:text-base font-semibold text-blue-700 bg-white border border-blue-200 rounded-lg hover:bg-blue-50 transition-all duration-200 shadow-sm z-50 relative min-h-[44px] min-w-[44px] touch-manipulation"
               title="Back"
             >
-              <ArrowLeftIcon className="h-5 w-5 mr-2" />
-              Back
+              <ArrowLeftIcon className="h-4 w-4 sm:h-5 sm:w-5 mr-1 sm:mr-2" />
+              <span className="hidden sm:inline">Back</span>
             </button>
-            <h1 className="text-3xl font-extrabold text-blue-900 drop-shadow-sm mb-2">
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-blue-900 truncate">
               {currentSession?.title || 'Reading Session'}
             </h1>
           </div>
           {currentSession && (
-            <span className={`ml-4 px-4 py-2 rounded-full text-base font-semibold shadow transition-all duration-200
+            <span className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-full text-sm sm:text-base font-semibold transition-all duration-200
               ${currentSession.status === 'completed' ? 'bg-green-100 text-green-700' :
                 currentSession.status === 'in-progress' ? 'bg-blue-100 text-blue-700 animate-pulse' :
                 'bg-yellow-100 text-yellow-700'}`}
@@ -1101,29 +1101,29 @@ const ReadingSessionPage: React.FC = () => {
       )}
 
       {/* Story Content + Progress Side by Side */}
-      <section className="w-full px-4 sm:px-8 mb-6 flex flex-col lg:flex-row gap-8">
+      <section className="w-full px-4 sm:px-8 mb-6 flex flex-col lg:flex-row gap-4 lg:gap-8 relative z-10">
         {/* Story Content */}
         <div className="flex-1">
-          <div className="relative bg-white/80 rounded-3xl shadow-xl border border-blue-100 p-10 overflow-hidden max-h-[48rem]">
+          <div className="relative bg-white/80 rounded-2xl lg:rounded-3xl border border-blue-100 p-4 sm:p-6 lg:p-10 overflow-hidden max-h-[40rem] lg:max-h-[48rem]">
             {/* Progress Bar */}
             <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 rounded-t-3xl animate-pulse" style={{ width: `${Math.min((currentWordIndex / words.length) * 100, 100)}%` }}></div>
-            <div className="mb-8 flex items-center justify-between">
-              <h3 className="text-2xl font-bold text-blue-900 flex items-center gap-2">
-                <BookOpenIcon className="h-7 w-7 text-blue-500" /> Story Content
+            <div className="mb-4 sm:mb-6 lg:mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
+              <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-blue-900 flex items-center gap-2">
+                <BookOpenIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 text-blue-500" /> Story Content
               </h3>
-              <div className="flex items-center gap-6 text-lg text-blue-700">
+              <div className="flex items-center gap-3 sm:gap-6 text-sm sm:text-base lg:text-lg text-blue-700">
                 <span>{words.length} words</span>
-                <span>•</span>
+                <span className="hidden sm:inline">•</span>
                 <span>{storyText ? storyText.split('\n\n').length : pdfContent.split('\n\n').length} paragraphs</span>
               </div>
             </div>
-            <div className="max-h-[38rem] overflow-y-auto custom-scrollbar prose prose-xl prose-blue bg-white/60 rounded-xl p-8 shadow-inner text-[1.35rem] leading-relaxed tracking-wide">
+            <div className="max-h-[20rem] sm:max-h-[30rem] lg:max-h-[38rem] overflow-y-auto custom-scrollbar prose prose-sm sm:prose-base lg:prose-xl prose-blue bg-white/60 rounded-lg sm:rounded-xl p-4 sm:p-6 lg:p-8 text-sm sm:text-base lg:text-[1.35rem] leading-relaxed tracking-wide">
               {(storyText || pdfContent) ? (
                 (storyText ? storyText : pdfContent).split('\n\n').filter(p => p.trim().length > 0).map((paragraph, paragraphIndex, paragraphs) => {
                   const wordsInParagraph = paragraph.trim().split(/\s+/);
                   return (
-                    <div key={paragraphIndex} className="mb-8 last:mb-0">
-                      <p className="text-gray-800 leading-relaxed flex flex-wrap gap-y-3">
+                    <div key={paragraphIndex} className="mb-4 sm:mb-6 lg:mb-8 last:mb-0">
+                      <p className="text-gray-800 leading-relaxed flex flex-wrap gap-y-1 sm:gap-y-2 lg:gap-y-3">
                         {wordsInParagraph.map((word, wordIndex) => {
                           const globalWordIndex = paragraphs
                             .slice(0, paragraphIndex)
@@ -1133,15 +1133,15 @@ const ReadingSessionPage: React.FC = () => {
                           return (
                             <span
                               key={`${paragraphIndex}-${wordIndex}`}
-                              className={
-                                isSpecialChar
-                                  ? 'inline-block mr-3 mb-2 px-3 py-2 rounded font-serif text-2xl text-gray-400 bg-transparent pointer-events-none select-none not-allowed'
-                                  : `inline-block mr-3 mb-2 px-3 py-2 rounded font-serif text-2xl transition-all duration-200 ` +
-                                    (isCurrentWord
-                                      ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold shadow-lg scale-110 animate-pulse'
-                                      : 'bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer')
-                              }
-                              style={isCurrentWord ? { boxShadow: '0 0 12px 2px #a5b4fc' } : {}}
+                            className={
+                              isSpecialChar
+                                ? 'inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none not-allowed'
+                                : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl transition-all duration-200 ` +
+                                  (isCurrentWord
+                                    ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold scale-105 sm:scale-110 animate-pulse'
+                                    : 'bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer')
+                            }
+                            style={isCurrentWord ? { boxShadow: '0 0 8px 2px #a5b4fc' } : {}}
                             >
                               {word}
                             </span>
@@ -1171,17 +1171,21 @@ const ReadingSessionPage: React.FC = () => {
         </div>
         {/* Progress Column */}
         <div className="w-full lg:w-80 flex-shrink-0">
-          <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-1 gap-2 sm:gap-4">
             {/* Students */}
-            <div className="rounded-xl bg-blue-100 shadow p-4 flex flex-col items-center">
-              <span className="text-blue-700 font-bold text-lg mb-1 flex items-center gap-2"><UserGroupIcon className="h-5 w-5 text-blue-500" />Students</span>
-              <div className="flex flex-wrap gap-2 justify-center">
+            <div className="rounded-lg sm:rounded-xl bg-blue-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
+              <span className="text-blue-700 font-bold text-sm sm:text-base lg:text-lg mb-1 flex items-center gap-1 sm:gap-2">
+                <UserGroupIcon className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500" />
+                <span className="hidden sm:inline">Students</span>
+                <span className="sm:hidden">Students</span>
+              </span>
+              <div className="flex flex-wrap gap-1 sm:gap-2 justify-center">
                 {currentSession?.students.map((student: string, idx: number) => (
-                  <span key={idx} className="inline-flex items-center gap-2 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-200 text-blue-800 shadow-sm">
-                    {studentNames[student] || student}
+                  <span key={idx} className="inline-flex items-center gap-1 sm:gap-2 px-1.5 sm:px-2 py-0.5 rounded-full text-xs font-medium bg-blue-200 text-blue-800">
+                    <span className="truncate max-w-[60px] sm:max-w-none">{studentNames[student] || student}</span>
                     {completedStudents[student] && (
-                      <span className="ml-1 inline-flex items-center px-2 py-0.5 rounded-full bg-green-200 text-green-800 text-[10px] font-semibold">
-                        Completed
+                      <span className="ml-1 inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full bg-green-200 text-green-800 text-[10px] font-semibold">
+                        ✓
                       </span>
                     )}
                   </span>
@@ -1189,34 +1193,34 @@ const ReadingSessionPage: React.FC = () => {
               </div>
             </div>
             {/* Words Read */}
-            <div className="rounded-xl bg-blue-100 shadow p-4 flex flex-col items-center">
-              <span className="text-blue-700 font-bold text-lg">Words Read</span>
-              <span className="text-2xl font-extrabold text-blue-700 mt-1">{wordsRead}</span>
+            <div className="rounded-lg sm:rounded-xl bg-blue-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
+              <span className="text-blue-700 font-bold text-xs sm:text-sm lg:text-lg">Words Read</span>
+              <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-blue-700 mt-1">{wordsRead}</span>
             </div>
             {/* Miscues */}
-            <div className="rounded-xl bg-red-100 shadow p-2 sm:p-3 md:p-4 flex flex-row md:flex-col items-center justify-between text-xs sm:text-sm md:text-base mb-1">
-              <span className="text-red-700 font-bold">Miscues</span>
-              <span className="text-xl font-extrabold text-red-700">{miscues}</span>
+            <div className="rounded-lg sm:rounded-xl bg-red-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
+              <span className="text-red-700 font-bold text-xs sm:text-sm lg:text-lg">Miscues</span>
+              <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-red-700 mt-1">{miscues}</span>
             </div>
             {/* Oral Reading Score */}
-            <div className="rounded-xl bg-yellow-100 shadow p-2 sm:p-3 md:p-4 flex flex-row md:flex-col items-center justify-between text-xs sm:text-sm md:text-base mb-1">
-              <span className="text-yellow-700 font-bold">Oral Reading Score</span>
-              <span className="text-xl font-extrabold text-yellow-700">{oralReadingScore}%</span>
+            <div className="rounded-lg sm:rounded-xl bg-yellow-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
+              <span className="text-yellow-700 font-bold text-xs sm:text-sm lg:text-lg">Oral Reading Score</span>
+              <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-yellow-700 mt-1">{oralReadingScore}%</span>
             </div>
             {/* Reading Speed */}
-            <div className="rounded-xl bg-green-100 shadow p-2 sm:p-3 md:p-4 flex flex-row md:flex-col items-center justify-between text-xs sm:text-sm md:text-base mb-1">
-              <span className="text-green-700 font-bold">Reading Speed</span>
-              <span className="text-xl font-extrabold text-green-700">{readingSpeedWPM} WPM</span>
+            <div className="rounded-lg sm:rounded-xl bg-green-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
+              <span className="text-green-700 font-bold text-xs sm:text-sm lg:text-lg">Reading Speed</span>
+              <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-green-700 mt-1">{readingSpeedWPM} WPM</span>
             </div>
             {/* Elapsed */}
-            <div className="rounded-xl bg-yellow-100 shadow p-4 flex flex-col items-center">
-              <span className="text-yellow-700 font-bold text-lg">Elapsed</span>
-              <span className="text-2xl font-extrabold text-yellow-700 mt-1">{formatElapsedTime(elapsedTime)}</span>
+            <div className="rounded-lg sm:rounded-xl bg-yellow-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
+              <span className="text-yellow-700 font-bold text-xs sm:text-sm lg:text-lg">Elapsed</span>
+              <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-yellow-700 mt-1">{formatElapsedTime(elapsedTime)}</span>
             </div>
             {/* Book */}
-            <div className="rounded-xl bg-indigo-100 shadow p-4 flex flex-col items-center">
-              <span className="text-indigo-700 font-bold text-lg">Book</span>
-              <span className="text-lg font-semibold text-indigo-700 mt-1">{currentSession?.book}</span>
+            <div className="rounded-lg sm:rounded-xl bg-indigo-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center col-span-2 lg:col-span-1">
+              <span className="text-indigo-700 font-bold text-xs sm:text-sm lg:text-lg">Book</span>
+              <span className="text-sm sm:text-base lg:text-lg font-semibold text-indigo-700 mt-1 text-center truncate w-full">{currentSession?.book}</span>
             </div>
           </div>
         </div>
@@ -1224,94 +1228,107 @@ const ReadingSessionPage: React.FC = () => {
 
       {/* Session Controls */}
       {!isCompleted && (
-      <section className="w-full px-4 sm:px-8 pb-8">
-        <div className="bg-white/80 rounded-3xl shadow-xl border border-blue-100 p-8 flex flex-col items-center gap-6">
+      <section className="w-full px-4 sm:px-8 pb-8 relative z-10">
+        <div className="bg-white/80 rounded-2xl lg:rounded-3xl border border-blue-100 p-4 sm:p-6 lg:p-8 flex flex-col items-center gap-4 sm:gap-6">
           {/* Language selector + STT Provider/Vosk status badge */}
-          <div className="w-full flex justify-between items-center gap-2 -mt-4 -mb-2">
+          <div className="w-full flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 -mt-2 -mb-2">
             <div className="flex items-center gap-2">
-              <label htmlFor="recognition-language" className="text-sm font-semibold text-blue-900">Recognition language</label>
+              <label htmlFor="recognition-language" className="text-xs sm:text-sm font-semibold text-blue-900">Language:</label>
               <select
                 id="recognition-language"
                 value={storyLanguage}
                 onChange={(e) => setStoryLanguage(e.target.value as 'english' | 'tagalog')}
-                className="text-sm px-2 py-1 rounded-md border border-blue-200 bg-white text-blue-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                className="text-xs sm:text-sm px-2 py-1 rounded-md border border-blue-200 bg-white text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-300"
               >
                 <option value="english">English</option>
                 <option value="tagalog">Tagalog</option>
               </select>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
               {/* Always show Vosk status for Tagalog stories */}
               {storyLanguage === 'tagalog' && (
-                <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold ${voskStatus === 'connected' ? 'bg-green-100 text-green-800' : voskStatus === 'connecting' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
-                  <span className={`w-2 h-2 rounded-full ${voskStatus === 'connected' ? 'bg-green-500' : voskStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'}`}></span>
-                  {voskStatus === 'connected' ? 'Vosk (Tagalog) connected' : voskStatus === 'connecting' ? 'Vosk (Tagalog) connecting…' : 'Vosk (Tagalog) disconnected'}
+                <span className={`inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold ${voskStatus === 'connected' ? 'bg-green-100 text-green-800' : voskStatus === 'connecting' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+                  <span className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${voskStatus === 'connected' ? 'bg-green-500' : voskStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'}`}></span>
+                  <span className="hidden sm:inline">{voskStatus === 'connected' ? 'Vosk (Tagalog) connected' : voskStatus === 'connecting' ? 'Vosk (Tagalog) connecting…' : 'Vosk (Tagalog) disconnected'}</span>
+                  <span className="sm:hidden">{voskStatus === 'connected' ? 'Vosk' : voskStatus === 'connecting' ? 'Vosk...' : 'Vosk'}</span>
                 </span>
               )}
               {/* If we fell back, show a small fallback label */}
               {storyLanguage === 'tagalog' && sttProvider === 'webspeech' && (
-                <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                  Fallback: Web Speech
+                <span className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                  <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500"></span>
+                  <span className="hidden sm:inline">Fallback: Web Speech</span>
+                  <span className="sm:hidden">Web Speech</span>
                 </span>
               )}
               {/* For English */}
               {storyLanguage !== 'tagalog' && sttProvider === 'webspeech' && (
-                <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                  Web Speech
+                <span className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                  <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500"></span>
+                  <span className="hidden sm:inline">Web Speech</span>
+                  <span className="sm:hidden">Web Speech</span>
                 </span>
               )}
             </div>
           </div>
-          <div className="flex items-center gap-4 mb-2">
-            <MicrophoneIcon className="h-7 w-7 text-blue-500" />
-            <h4 className="text-lg font-bold text-blue-900">Session Controls</h4>
+          <div className="flex items-center gap-2 sm:gap-4 mb-2">
+            <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 text-blue-500" />
+            <h4 className="text-base sm:text-lg font-bold text-blue-900">Session Controls</h4>
           </div>
-          <div className="flex flex-row flex-wrap justify-center gap-6 w-full">
+          <div className="flex flex-row flex-wrap justify-center gap-3 sm:gap-4 lg:gap-6 w-full">
             {!isRecording ? (
               <button
                 onClick={handleStartRecording}
-                className="flex items-center gap-2 px-8 py-4 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white text-xl font-bold shadow-lg hover:scale-105 hover:from-blue-600 hover:to-purple-600 transition-all duration-200"
+                className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 hover:from-blue-600 hover:to-purple-600 transition-all duration-200"
                 title="Start Session"
               >
-                <MicrophoneIcon className="h-7 w-7" /> Start
+                <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                <span className="hidden sm:inline">Start</span>
+                <span className="sm:hidden">Start</span>
               </button>
             ) : (
               <>
                 {isPaused ? (
                   <button
                     onClick={handleResumeRecording}
-                    className="flex items-center gap-2 px-8 py-4 rounded-2xl bg-gradient-to-r from-green-400 to-blue-400 text-white text-xl font-bold shadow-lg hover:scale-105 transition-all duration-200"
+                    className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-green-400 to-blue-400 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
                     title="Resume Recording"
                   >
-                    <PlayIcon className="h-7 w-7" /> Resume
+                    <PlayIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                    <span className="hidden sm:inline">Resume</span>
+                    <span className="sm:hidden">Resume</span>
                   </button>
                 ) : (
                   <button
                     onClick={handlePauseRecording}
-                    className="flex items-center gap-2 px-8 py-4 rounded-2xl bg-gradient-to-r from-yellow-400 to-orange-400 text-white text-xl font-bold shadow-lg hover:scale-105 transition-all duration-200"
+                    className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-yellow-400 to-orange-400 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
                     title="Pause Recording"
                   >
-                    <PauseIcon className="h-7 w-7" /> Pause
+                    <PauseIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                    <span className="hidden sm:inline">Pause</span>
+                    <span className="sm:hidden">Pause</span>
                   </button>
                 )}
                 <button
                   onClick={handleStopRecording}
-                  className="flex items-center gap-2 px-8 py-4 rounded-2xl bg-gradient-to-r from-red-500 to-pink-500 text-white text-xl font-bold shadow-lg hover:scale-105 transition-all duration-200"
+                  className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-red-500 to-pink-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
                   title="Stop Recording"
                 >
-                  <StopIcon className="h-7 w-7" /> Stop
+                  <StopIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                  <span className="hidden sm:inline">Stop</span>
+                  <span className="sm:hidden">Stop</span>
                 </button>
               </>
             )}
             {!isCompleted && (
               <button
                 onClick={handleCompleteSession}
-                className="flex items-center gap-2 px-8 py-4 rounded-2xl bg-gradient-to-r from-green-500 to-blue-500 text-white text-xl font-bold shadow-lg hover:scale-105 transition-all duration-200"
+                className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-green-500 to-blue-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
                 title="Complete Session"
               >
-                <ChartBarIcon className="h-7 w-7" /> Complete Session
+                <ChartBarIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                <span className="hidden sm:inline">Complete Session</span>
+                <span className="sm:hidden">Complete</span>
               </button>
             )}
           </div>
@@ -1319,11 +1336,12 @@ const ReadingSessionPage: React.FC = () => {
           {audioUrl && (
             <button
               onClick={handleDownloadAudio}
-              className="mt-6 flex items-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-green-400 to-blue-400 text-white text-lg font-bold shadow-lg hover:scale-105 transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-400"
+              className="mt-4 sm:mt-6 flex items-center gap-1 sm:gap-2 px-4 sm:px-6 py-2 sm:py-3 rounded-full bg-gradient-to-r from-green-400 to-blue-400 text-white text-sm sm:text-base lg:text-lg font-bold hover:scale-105 transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-400"
               title="Download audio recording"
             >
-              <svg xmlns='http://www.w3.org/2000/svg' className='h-6 w-6' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4' /></svg>
-              Download Audio
+              <svg xmlns='http://www.w3.org/2000/svg' className='h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4' /></svg>
+              <span className="hidden sm:inline">Download Audio</span>
+              <span className="sm:hidden">Download</span>
             </button>
           )}
         </div>

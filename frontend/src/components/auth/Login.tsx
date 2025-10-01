@@ -92,7 +92,7 @@ const Login: React.FC<LoginProps> = ({ onSwitchToSignup }) => {
       >
         {/* Dark overlay */}
         <div className="absolute inset-0 bg-black opacity-40"></div>
-        <div className="bg-white rounded-xl shadow-lg p-6 sm:p-8 w-full max-w-md flex flex-col gap-4 relative z-10">
+        <div className="bg-white rounded-xl p-6 sm:p-8 w-full max-w-md flex flex-col gap-4 relative z-10">
           <div className="mb-2 text-center">
             <h2 className="text-2xl font-bold text-blue-700 mb-1">Reset Password</h2>
             <p className="text-gray-500 text-sm">
@@ -164,7 +164,7 @@ const Login: React.FC<LoginProps> = ({ onSwitchToSignup }) => {
     >
       {/* Dark overlay */}
       <div className="absolute inset-0 bg-black opacity-40"></div>
-      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-lg p-6 sm:p-8 w-full max-w-md flex flex-col gap-4 relative z-10">
+      <form onSubmit={handleSubmit} className="bg-white rounded-xl p-6 sm:p-8 w-full max-w-md flex flex-col gap-4 relative z-10">
         <div className="mb-2 text-center">
           <h2 className="text-2xl font-bold text-blue-700 mb-1">Sign In</h2>
           <p className="text-gray-500 text-sm">Welcome back! Please login to your account.</p>

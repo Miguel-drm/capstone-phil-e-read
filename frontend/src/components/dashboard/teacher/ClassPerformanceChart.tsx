@@ -223,7 +223,7 @@ const ClassPerformanceChart: React.FC<ClassPerformanceChartProps> = ({ className
   }, [classNames, classAverages, className, isLoading, visibleClasses]);
 
   return (
-    <div className="bg-white rounded-2xl shadow-md p-4 transition-all duration-300 hover:shadow-lg">
+    <div className="bg-white rounded-2xl p-4 transition-all duration-300">
       <div className="p-4">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 lg:mb-6 space-y-3 sm:space-y-0">
           <div>
@@ -246,13 +246,13 @@ const ClassPerformanceChart: React.FC<ClassPerformanceChartProps> = ({ className
                   onClick={() => toggleClassVisibility(className)}
                   className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 hover:scale-105 ${
                     isVisible 
-                      ? 'bg-gray-100 text-gray-700 shadow-sm' 
+                      ? 'bg-gray-100 text-gray-700' 
                       : 'bg-gray-50 text-gray-400 hover:bg-gray-100'
                   }`}
                 >
                   <div 
                     className={`w-3 h-3 rounded-full transition-all duration-200 ${
-                      isVisible ? 'shadow-sm' : 'opacity-50'
+                      isVisible ? '' : 'opacity-50'
                     }`}
                     style={{ backgroundColor: color }}
                   ></div>

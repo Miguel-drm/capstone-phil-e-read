@@ -37,7 +37,7 @@ const MyChildren: React.FC = () => {
   }, [children, gradeFilter, search]);
 
   return (
-    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+    <div className="bg-white p-6 rounded-2xl border border-gray-100">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
         <h3 className="text-lg font-semibold text-gray-900">My Children</h3>
         <div className="flex items-center gap-2">
@@ -78,7 +78,7 @@ const MyChildren: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map(child => (
-            <div key={child.id} className="group relative overflow-hidden bg-gradient-to-br from-blue-50 to-white border border-blue-100 rounded-2xl p-5 flex flex-col shadow-sm transition-all hover:shadow-md">
+            <div key={child.id} className="group relative overflow-hidden bg-gradient-to-br from-blue-50 to-white border border-blue-100 rounded-2xl p-5 flex flex-col transition-all">
               <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-blue-100/60 blur-2xl group-hover:scale-110 transition-transform" />
               <div className="flex items-center mb-2">
                 <div className="h-12 w-12 rounded-xl bg-white/80 border border-blue-100 flex items-center justify-center text-lg font-bold text-blue-700 mr-3">
@@ -95,7 +95,7 @@ const MyChildren: React.FC = () => {
                 <div className="mt-3 flex gap-2">
                   <button
                     onClick={() => navigate('/parent/reading-practice', { state: { childId: child.id, childName: child.name } })}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg text-white bg-gradient-to-r from-blue-500 to-purple-500 hover:shadow"
+                    className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg text-white bg-gradient-to-r from-blue-500 to-purple-500"
                   >
                     <BookOpenIcon className="h-4 w-4" /> Practice
                   </button>

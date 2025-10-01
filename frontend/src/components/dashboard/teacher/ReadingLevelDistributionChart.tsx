@@ -86,7 +86,7 @@ const ReadingLevelDistributionChart: React.FC = () => {
   }, []);
 
   return (
-    <div className="bg-white rounded-2xl shadow-md p-4 transition-all duration-300 hover:shadow-lg h-full flex flex-col">
+    <div className="bg-white rounded-2xl p-4 transition-all duration-300 h-full flex flex-col">
       <div className="flex-1 flex flex-col justify-between">
        
         <div className="flex-1 flex flex-col justify-center">

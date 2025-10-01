@@ -3,10 +3,13 @@ import { useAuth } from '../../contexts/AuthContext';
 import { studentService, type Student } from '../../services/studentService';
 import { resultService } from '../../services/resultsService';
 import { getUserProfile } from '../../services/authService';
+import { gradeService, type ClassGrade } from '../../services/gradeService';
 
 const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ setIsHeaderDarkened }) => {
   const { currentUser } = useAuth();
   const [students, setStudents] = useState<Student[]>([]);
+  const [classGrades, setClassGrades] = useState<ClassGrade[]>([]);
+  const [selectedClass, setSelectedClass] = useState<string>('');
   const [selectedReport, setSelectedReport] = useState('overview');
   const [selectedPeriod, setSelectedPeriod] = useState('month');
   const [studentMetrics, setStudentMetrics] = useState<Record<string, any>>({});
@@ -29,6 +32,23 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
   const [shareOpen, setShareOpen] = useState(false);
   const [shareStudent, setShareStudent] = useState<Student | null>(null);
   const [parentEmail, setParentEmail] = useState('');
+  
+  // Collapsible class state
+  const [collapsedClasses, setCollapsedClasses] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const fetchClassGrades = async () => {
+      if (!currentUser?.uid) return;
+      try {
+        const fetchedGrades = await gradeService.getGradesByTeacher(currentUser.uid);
+        setClassGrades(fetchedGrades || []);
+      } catch (error) {
+        console.error('Error fetching class grades:', error);
+        setClassGrades([]);
+      }
+    };
+    fetchClassGrades();
+  }, [currentUser?.uid]);
 
   useEffect(() => {
     const fetchStudents = async () => {
@@ -101,8 +121,35 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     if (students.length > 0) fetchResults();
   }, [students]);
 
+  // Group students by class
+  const studentsByClass = useMemo(() => {
+    const grouped: Record<string, Student[]> = {};
+    students.forEach(student => {
+      const className = student.grade || 'Unassigned';
+      if (!grouped[className]) {
+        grouped[className] = [];
+      }
+      grouped[className].push(student);
+    });
+    return grouped;
+  }, [students]);
+
+  // Filter students based on selected class
+  const filteredStudents = useMemo(() => {
+    if (!selectedClass) return students;
+    return students.filter(student => student.grade === selectedClass);
+  }, [students, selectedClass]);
+
+  // Get students to display in the table (filtered by class if selected)
+  const studentsToDisplay = useMemo(() => {
+    if (selectedClass) {
+      return studentsByClass[selectedClass] || [];
+    }
+    return students;
+  }, [selectedClass, studentsByClass, students]);
+
   const classStats = {
-    totalStudents: students.length,
+    totalStudents: filteredStudents.length,
     averageReadingLevel: 2.3,
     totalReadingSessions: 156,
     completedAssessments: 89,
@@ -507,6 +554,30 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     }
   };
 
+  // Toggle class collapse/expand
+  const toggleClassCollapse = (className: string) => {
+    setCollapsedClasses(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(className)) {
+        newSet.delete(className);
+      } else {
+        newSet.add(className);
+      }
+      return newSet;
+    });
+  };
+
+  // Expand all classes
+  const expandAllClasses = () => {
+    setCollapsedClasses(new Set());
+  };
+
+  // Collapse all classes
+  const collapseAllClasses = () => {
+    const allClassNames = Object.keys(studentsByClass);
+    setCollapsedClasses(new Set(allClassNames));
+  };
+
   // Ensure header is not darkened on unmount
   useEffect(() => {
     return () => {
@@ -519,19 +590,20 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     if (!progressOpen) setIsHeaderDarkened?.(false);
   }, [progressOpen, setIsHeaderDarkened]);
 
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Reports & Analytics</h1>
-          <p className="text-gray-600 mt-1">Comprehensive insights into your class performance</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Reports & Analytics</h1>
+          <p className="text-sm sm:text-base text-gray-600 mt-1">Comprehensive insights into your class performance</p>
         </div>
-        <div className="mt-4 sm:mt-0 flex space-x-3">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
           <select
             value={selectedPeriod}
             onChange={(e) => setSelectedPeriod(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm sm:text-base focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="week">This Week</option>
             <option value="month">This Month</option>
@@ -540,38 +612,41 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
           </select>
           <button
             onClick={() => handleExportReport(selectedReport === 'performance' ? 'performance' : 'comprehensive')}
-            className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors"
+            className="bg-gray-600 hover:bg-gray-700 text-white px-3 sm:px-4 py-2 rounded-lg transition-colors text-sm sm:text-base"
           >
-            <i className="fas fa-download mr-2"></i>
-            Export
+            <i className="fas fa-download mr-1 sm:mr-2"></i>
+            <span className="hidden sm:inline">Export</span>
+            <span className="sm:hidden">Export</span>
           </button>
         </div>
       </div>
 
       {/* Report Type Selector */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+      <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4">
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setSelectedReport('overview')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors ${
               selectedReport === 'overview'
                 ? 'bg-blue-100 text-blue-700'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            <i className="fas fa-chart-pie mr-2"></i>
-            Overview
+            <i className="fas fa-chart-pie mr-1 sm:mr-2"></i>
+            <span className="hidden sm:inline">Overview</span>
+            <span className="sm:hidden">Overview</span>
           </button>
           <button
             onClick={() => setSelectedReport('performance')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors ${
               selectedReport === 'performance'
                 ? 'bg-blue-100 text-blue-700'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            <i className="fas fa-user-graduate mr-2"></i>
-            Student Performance
+            <i className="fas fa-user-graduate mr-1 sm:mr-2"></i>
+            <span className="hidden sm:inline">Student Performance</span>
+            <span className="sm:hidden">Performance</span>
           </button>
         </div>
       </div>
@@ -580,77 +655,77 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
       {selectedReport === 'overview' && (
         <div className="space-y-6">
           {/* Key Metrics */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 sm:gap-6">
+            <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
               <div className="flex items-center">
-                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                  <i className="fas fa-users text-blue-600 text-xl"></i>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                  <i className="fas fa-users text-blue-600 text-lg sm:text-xl"></i>
                 </div>
-                <div className="ml-4">
-                  <p className="text-sm text-gray-600">Total Students</p>
-                  <p className="text-2xl font-bold text-gray-900">{classStats.totalStudents}</p>
+                <div className="ml-3 sm:ml-4">
+                  <p className="text-xs sm:text-sm text-gray-600">Total Students</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{classStats.totalStudents}</p>
                 </div>
               </div>
             </div>
             
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
               <div className="flex items-center">
-                <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                  <i className="fas fa-book text-purple-600 text-xl"></i>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                  <i className="fas fa-book text-purple-600 text-lg sm:text-xl"></i>
                 </div>
-                <div className="ml-4">
-                  <p className="text-sm text-gray-600">Avg Reading Level</p>
-                  <p className="text-2xl font-bold text-gray-900">{classStats.averageReadingLevel}</p>
+                <div className="ml-3 sm:ml-4">
+                  <p className="text-xs sm:text-sm text-gray-600">Avg Reading Level</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{classStats.averageReadingLevel}</p>
                 </div>
               </div>
             </div>
             
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
               <div className="flex items-center">
-                <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
-                  <i className="fas fa-clock text-yellow-600 text-xl"></i>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
+                  <i className="fas fa-clock text-yellow-600 text-lg sm:text-xl"></i>
                 </div>
-                <div className="ml-4">
-                  <p className="text-sm text-gray-600">Reading Sessions</p>
-                  <p className="text-2xl font-bold text-gray-900">{classStats.totalReadingSessions}</p>
+                <div className="ml-3 sm:ml-4">
+                  <p className="text-xs sm:text-sm text-gray-600">Reading Sessions</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{classStats.totalReadingSessions}</p>
                 </div>
               </div>
             </div>
             
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
               <div className="flex items-center">
-                <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
-                  <i className="fas fa-clipboard-check text-indigo-600 text-xl"></i>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
+                  <i className="fas fa-clipboard-check text-indigo-600 text-lg sm:text-xl"></i>
                 </div>
-                <div className="ml-4">
-                  <p className="text-sm text-gray-600">Completed Assessments</p>
-                  <p className="text-2xl font-bold text-gray-900">{classStats.completedAssessments}</p>
+                <div className="ml-3 sm:ml-4">
+                  <p className="text-xs sm:text-sm text-gray-600">Completed Assessments</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{classStats.completedAssessments}</p>
                 </div>
               </div>
             </div>
             
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
               <div className="flex items-center">
-                <div className="w-12 h-12 bg-pink-100 rounded-lg flex items-center justify-center">
-                  <i className="fas fa-trending-up text-pink-600 text-xl"></i>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-pink-100 rounded-lg flex items-center justify-center">
+                  <i className="fas fa-trending-up text-pink-600 text-lg sm:text-xl"></i>
                 </div>
-                <div className="ml-4">
-                  <p className="text-sm text-gray-600">Improvement Rate</p>
-                  <p className="text-2xl font-bold text-gray-900">+{classStats.improvementRate}%</p>
+                <div className="ml-3 sm:ml-4">
+                  <p className="text-xs sm:text-sm text-gray-600">Improvement Rate</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900">+{classStats.improvementRate}%</p>
                 </div>
               </div>
             </div>
           </div>
 
           {/* Monthly Progress Chart */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Monthly Progress</h3>
-            <div className="space-y-4">
+          <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
+            <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Monthly Progress</h3>
+            <div className="space-y-3 sm:space-y-4">
               {monthlyData.map((data, index) => (
                 <div key={index} className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-700 w-12">{data.month}</span>
-                  <div className="flex-1 mx-4">
-                    <div className="flex items-center space-x-4">
+                  <span className="text-xs sm:text-sm font-medium text-gray-700 w-10 sm:w-12">{data.month}</span>
+                  <div className="flex-1 mx-2 sm:mx-4">
+                    <div className="flex items-center space-x-2 sm:space-x-4">
                       <div className="flex-1">
                         <div className="flex justify-between text-xs text-gray-600 mb-1">
                           <span>Reading Level</span>
@@ -669,99 +744,238 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
 
       {/* Student Performance Report */}
       {selectedReport === 'performance' && (
-        <div className="space-y-6">
-          <div className="flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-gray-900">Student Performance Report</h2>
-            <div className="flex items-center gap-3">
+        <div className="space-y-4 sm:space-y-6">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 sm:gap-0">
+            <h2 className="text-base sm:text-lg font-semibold text-gray-900">Student Performance Report</h2>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+              <select
+                value={selectedClass}
+                onChange={(e) => setSelectedClass(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm sm:text-base focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="">All Classes</option>
+                {classGrades.map(grade => (
+                  <option key={grade.id} value={grade.name}>{grade.name}</option>
+                ))}
+              </select>
               <select
                 value={selectedStudentIdForISR}
                 onChange={(e) => setSelectedStudentIdForISR(e.target.value)}
-                className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm sm:text-base focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="">Select student…</option>
-                {students.map(s => s.id ? (
+                {filteredStudents.map(s => s.id ? (
                   <option key={s.id} value={s.id}>{s.name.replace(/\|/g,' ')}</option>
                 ) : null)}
               </select>
               <button
                 onClick={() => handleGenerateReport('student-isr')}
                 disabled={!selectedStudentIdForISR}
-                className={`px-4 py-2 rounded-lg transition-colors text-white ${selectedStudentIdForISR ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-400 cursor-not-allowed'}`}
+                className={`px-3 sm:px-4 py-2 rounded-lg transition-colors text-white text-sm sm:text-base ${selectedStudentIdForISR ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-400 cursor-not-allowed'}`}
               >
-                <i className="fas fa-file-alt mr-2"></i>
-                Generate Report
+                <i className="fas fa-file-alt mr-1 sm:mr-2"></i>
+                <span className="hidden sm:inline">Generate Report</span>
+                <span className="sm:hidden">Generate</span>
               </button>
             </div>
           </div>
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+          
+          {/* Collapse/Expand Controls - only show when viewing all classes */}
+          {!selectedClass && Object.keys(studentsByClass).length > 0 && (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-4">
+              <div className="flex gap-2">
+                <button
+                  onClick={expandAllClasses}
+                  className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-green-100 hover:bg-green-200 text-green-700 rounded-lg transition-colors"
+                >
+                  <i className="fas fa-expand-arrows-alt mr-1"></i>
+                  <span className="hidden sm:inline">Expand All</span>
+                  <span className="sm:hidden">Expand</span>
+                </button>
+                <button
+                  onClick={collapseAllClasses}
+                  className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+                >
+                  <i className="fas fa-compress-arrows-alt mr-1"></i>
+                  <span className="hidden sm:inline">Collapse All</span>
+                  <span className="sm:hidden">Collapse</span>
+                </button>
+              </div>
+              <span className="text-xs sm:text-sm text-gray-500">
+                {Object.keys(studentsByClass).length} classes • {collapsedClasses.size} collapsed
+              </span>
+            </div>
+          )}
+          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Student
+                    <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <span className="hidden sm:inline">Class / Student</span>
+                      <span className="sm:hidden">Student</span>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Reading Session Results
+                    <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <span className="hidden sm:inline">Reading Session Results</span>
+                      <span className="sm:hidden">Reading</span>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Test Results
+                    <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <span className="hidden sm:inline">Test Results</span>
+                      <span className="sm:hidden">Tests</span>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Share
                     </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {students.map((student, rowIdx) => (
-                    student.id ? (
-                    <tr key={student.id} className={rowIdx % 2 === 0 ? "bg-white hover:bg-gray-50" : "bg-gray-50 hover:bg-gray-100"}>
-                      <td className="px-6 py-4 whitespace-nowrap flex items-center gap-3">
-                        <span className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-blue-200 text-blue-700 font-bold text-lg shadow">
-                          {student.name.replace(/\|/g, ' ').trim().charAt(0).toUpperCase()}
-                        </span>
-                        <div>
-                          <div className="font-semibold text-gray-900">{student.name.replace(/\|/g, ' ')}</div>
-                          <div className="text-xs text-gray-500">{student.grade || ''}{student.readingLevel ? ` • Level ${student.readingLevel}` : ''}</div>
-                        </div>
-                      </td>
-                      {/* Reading Session Results Column */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {studentReadingResults[student.id as string] && studentReadingResults[student.id as string].length > 0 ? (
+                  {selectedClass ? (
+                    // Show only selected class students
+                    studentsToDisplay.map((student, rowIdx) => (
+                      student.id ? (
+                      <tr key={student.id} className={rowIdx % 2 === 0 ? "bg-white hover:bg-gray-50" : "bg-gray-50 hover:bg-gray-100"}>
+                        <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap flex items-center gap-2 sm:gap-3">
+                          <span className="inline-flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-blue-200 text-blue-700 font-bold text-sm sm:text-lg">
+                            {student.name.replace(/\|/g, ' ').trim().charAt(0).toUpperCase()}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="font-semibold text-gray-900 text-sm sm:text-base truncate">{student.name.replace(/\|/g, ' ')}</div>
+                            <div className="text-xs text-gray-500">{student.readingLevel ? `Level ${student.readingLevel}` : ''}</div>
+                          </div>
+                        </td>
+                        {/* Reading Session Results Column */}
+                        <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
+                          {studentReadingResults[student.id as string] && studentReadingResults[student.id as string].length > 0 ? (
+                            <button
+                              className="bg-blue-100 hover:bg-blue-200 text-blue-700 font-semibold px-2 sm:px-4 py-1 sm:py-2 rounded text-xs sm:text-sm"
+                              onClick={() => handleOpenModal(student, 'reading')}
+                            >
+                              <span className="hidden sm:inline">View ({studentReadingResults[student.id as string].length})</span>
+                              <span className="sm:hidden">({studentReadingResults[student.id as string].length})</span>
+                            </button>
+                          ) : (
+                            <span className="text-gray-400 text-xs sm:text-sm flex items-center gap-1">
+                              <i className="fas fa-info-circle text-xs"></i> 
+                              <span className="hidden sm:inline">No reading session results</span>
+                              <span className="sm:hidden">No results</span>
+                            </span>
+                          )}
+                        </td>
+                        {/* Test Results Column */}
+                        <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
+                          {studentTestResults[student.id as string] && studentTestResults[student.id as string].length > 0 ? (
+                            <button
+                              className="bg-yellow-100 hover:bg-yellow-200 text-yellow-700 font-semibold px-2 sm:px-4 py-1 sm:py-2 rounded text-xs sm:text-sm"
+                              onClick={() => handleOpenModal(student, 'test')}
+                            >
+                              <span className="hidden sm:inline">View ({studentTestResults[student.id as string].length})</span>
+                              <span className="sm:hidden">({studentTestResults[student.id as string].length})</span>
+                            </button>
+                          ) : (
+                            <span className="text-gray-400 text-xs sm:text-sm flex items-center gap-1">
+                              <i className="fas fa-info-circle text-xs"></i> 
+                              <span className="hidden sm:inline">No test results</span>
+                              <span className="sm:hidden">No results</span>
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
                           <button
-                            className="bg-blue-100 hover:bg-blue-200 text-blue-700 font-semibold px-4 py-2 rounded shadow text-sm"
-                            onClick={() => handleOpenModal(student, 'reading')}
+                            className="bg-green-100 hover:bg-green-200 text-green-700 font-semibold px-2 sm:px-4 py-1 sm:py-2 rounded text-xs sm:text-sm"
+                            onClick={() => handleOpenShare(student)}
                           >
-                            View ({studentReadingResults[student.id as string].length})
+                            <span className="hidden sm:inline">Share to Parent</span>
+                            <span className="sm:hidden">Share</span>
                           </button>
-                        ) : (
-                          <span className="text-gray-400 text-sm flex items-center gap-1"><i className="fas fa-info-circle"></i> No reading session results</span>
-                        )}
-                      </td>
-                      {/* Test Results Column */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {studentTestResults[student.id as string] && studentTestResults[student.id as string].length > 0 ? (
-                          <button
-                            className="bg-yellow-100 hover:bg-yellow-200 text-yellow-700 font-semibold px-4 py-2 rounded shadow text-sm"
-                            onClick={() => handleOpenModal(student, 'test')}
-                          >
-                            View ({studentTestResults[student.id as string].length})
-                          </button>
-                        ) : (
-                          <span className="text-gray-400 text-sm flex items-center gap-1"><i className="fas fa-info-circle"></i> No test results</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <button
-                          className="bg-green-100 hover:bg-green-200 text-green-700 font-semibold px-4 py-2 rounded shadow text-sm"
-                          onClick={() => handleOpenShare(student)}
-                        >
-                          Share to Parent
-                        </button>
-                      </td>
-                    </tr>
-                    ) : null
-                  ))}
+                        </td>
+                      </tr>
+                      ) : null
+                    ))
+                  ) : (
+                    // Show all students grouped by class
+                    Object.entries(studentsByClass).map(([className, classStudents]) => {
+                      const isCollapsed = collapsedClasses.has(className);
+                      return (
+                        <React.Fragment key={className}>
+                          {/* Class Header Row */}
+                          <tr className="bg-gray-100 hover:bg-gray-200 cursor-pointer" onClick={() => toggleClassCollapse(className)}>
+                            <td colSpan={4} className="px-3 sm:px-6 py-3">
+                              <div className="flex items-center gap-2">
+                                <i className={`fas fa-chevron-${isCollapsed ? 'right' : 'down'} text-gray-600 transition-transform duration-200 text-sm`}></i>
+                                <i className="fas fa-users text-gray-600 text-sm"></i>
+                                <span className="font-semibold text-gray-800 text-sm sm:text-base">{className}</span>
+                                <span className="text-xs sm:text-sm text-gray-600">({classStudents.length} students)</span>
+                                {isCollapsed && (
+                                  <span className="text-xs text-gray-500 ml-auto hidden sm:inline">Click to expand</span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                          {/* Students in this class - only show if not collapsed */}
+                          {!isCollapsed && classStudents.map((student, rowIdx) => (
+                            student.id ? (
+                            <tr key={student.id} className={rowIdx % 2 === 0 ? "bg-white hover:bg-gray-50" : "bg-gray-50 hover:bg-gray-100"}>
+                              <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap flex items-center gap-2 sm:gap-3">
+                                <span className="inline-flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-blue-200 text-blue-700 font-bold text-sm sm:text-lg">
+                                  {student.name.replace(/\|/g, ' ').trim().charAt(0).toUpperCase()}
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <div className="font-semibold text-gray-900 text-sm sm:text-base truncate">{student.name.replace(/\|/g, ' ')}</div>
+                                  <div className="text-xs text-gray-500">{student.readingLevel ? `Level ${student.readingLevel}` : ''}</div>
+                                </div>
+                              </td>
+                              {/* Reading Session Results Column */}
+                              <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
+                                {studentReadingResults[student.id as string] && studentReadingResults[student.id as string].length > 0 ? (
+                                  <button
+                                    className="bg-blue-100 hover:bg-blue-200 text-blue-700 font-semibold px-2 sm:px-4 py-1 sm:py-2 rounded text-xs sm:text-sm"
+                                    onClick={() => handleOpenModal(student, 'reading')}
+                                  >
+                                    <span className="hidden sm:inline">View ({studentReadingResults[student.id as string].length})</span>
+                                    <span className="sm:hidden">({studentReadingResults[student.id as string].length})</span>
+                                  </button>
+                                ) : (
+                                  <span className="text-gray-400 text-xs sm:text-sm flex items-center gap-1">
+                                    <i className="fas fa-info-circle text-xs"></i> 
+                                    <span className="hidden sm:inline">No reading session results</span>
+                                    <span className="sm:hidden">No results</span>
+                                  </span>
+                                )}
+                              </td>
+                              {/* Test Results Column */}
+                              <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
+                                {studentTestResults[student.id as string] && studentTestResults[student.id as string].length > 0 ? (
+                                  <button
+                                    className="bg-yellow-100 hover:bg-yellow-200 text-yellow-700 font-semibold px-2 sm:px-4 py-1 sm:py-2 rounded text-xs sm:text-sm"
+                                    onClick={() => handleOpenModal(student, 'test')}
+                                  >
+                                    <span className="hidden sm:inline">View ({studentTestResults[student.id as string].length})</span>
+                                    <span className="sm:hidden">({studentTestResults[student.id as string].length})</span>
+                                  </button>
+                                ) : (
+                                  <span className="text-gray-400 text-xs sm:text-sm flex items-center gap-1">
+                                    <i className="fas fa-info-circle text-xs"></i> 
+                                    <span className="hidden sm:inline">No test results</span>
+                                    <span className="sm:hidden">No results</span>
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
+                                <button
+                                  className="bg-green-100 hover:bg-green-200 text-green-700 font-semibold px-2 sm:px-4 py-1 sm:py-2 rounded text-xs sm:text-sm"
+                                  onClick={() => handleOpenShare(student)}
+                                >
+                                  <span className="hidden sm:inline">Share to Parent</span>
+                                  <span className="sm:hidden">Share</span>
+                                </button>
+                              </td>
+                            </tr>
+                            ) : null
+                          ))}
+                        </React.Fragment>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -773,7 +987,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
 
       {progressOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-          <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md relative">
+          <div className="bg-white rounded-xl p-8 w-full max-w-md relative">
             <button
               className="absolute top-2 right-2 text-gray-500 hover:text-red-500"
               onClick={() => setProgressOpen(false)}
@@ -804,7 +1018,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
       {/* Modal for viewing all results */}
       {modalOpen && modalStudent && modalType && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
-          <div className="bg-white rounded-2xl shadow-2xl p-10 w-full max-w-3xl relative max-h-[90vh] overflow-y-auto border border-gray-200">
+          <div className="bg-white rounded-2xl p-10 w-full max-w-3xl relative max-h-[90vh] overflow-y-auto border border-gray-200">
             <button
               className="absolute top-4 right-4 text-gray-400 hover:text-red-500 text-2xl font-bold"
               onClick={handleCloseModal}
@@ -860,7 +1074,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                    (modalType === 'reading'
                      ? "bg-blue-50 border-l-8 border-blue-400"
                      : "bg-yellow-50 border-l-8 border-yellow-400"
-                   ) + " p-6 rounded-xl shadow-md flex flex-col gap-2"
+                   ) + " p-6 rounded-xl flex flex-col gap-2"
                  }>
                     <div className="flex items-center gap-3 mb-2">
                       <span className="text-base font-semibold text-gray-700">
@@ -930,7 +1144,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
       {/* Share to Parent Modal */}
       {shareOpen && shareStudent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
-          <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-lg relative border border-gray-200">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-lg relative border border-gray-200">
             <button
               className="absolute top-3 right-4 text-gray-400 hover:text-red-500 text-2xl font-bold"
               onClick={handleCloseShare}

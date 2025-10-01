@@ -37,19 +37,19 @@ const ReportsPage: React.FC = () => {
           <div className="flex gap-2">
             <input type="text" placeholder="Search reports..." className="border border-blue-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white" />
             <button className="px-4 py-2 rounded-xl text-blue-700 bg-white border border-blue-100 hover:bg-blue-50 transition">Filter</button>
-            <button onClick={() => setIsCreateOpen(true)} className="px-4 py-2 rounded-xl text-white bg-gradient-to-r from-blue-500 to-purple-500 shadow hover:shadow-md">Create Report</button>
+            <button onClick={() => setIsCreateOpen(true)} className="px-4 py-2 rounded-xl text-white bg-gradient-to-r from-blue-500 to-purple-500">Create Report</button>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="rounded-2xl p-4 bg-white border border-gray-100 shadow-sm"><div className="text-xs text-gray-500">Total Sessions</div><div className="text-2xl font-extrabold text-blue-700 mt-1">12</div></div>
-        <div className="rounded-2xl p-4 bg-white border border-gray-100 shadow-sm"><div className="text-xs text-gray-500">Avg. Score</div><div className="text-2xl font-extrabold text-green-700 mt-1">86%</div></div>
-        <div className="rounded-2xl p-4 bg-white border border-gray-100 shadow-sm"><div className="text-xs text-gray-500">Avg. WPM</div><div className="text-2xl font-extrabold text-yellow-700 mt-1">92</div></div>
-        <div className="rounded-2xl p-4 bg-white border border-gray-100 shadow-sm"><div className="text-xs text-gray-500">This Week</div><div className="text-2xl font-extrabold text-purple-700 mt-1">3 sessions</div></div>
+        <div className="rounded-2xl p-4 bg-white border border-gray-100"><div className="text-xs text-gray-500">Total Sessions</div><div className="text-2xl font-extrabold text-blue-700 mt-1">12</div></div>
+        <div className="rounded-2xl p-4 bg-white border border-gray-100"><div className="text-xs text-gray-500">Avg. Score</div><div className="text-2xl font-extrabold text-green-700 mt-1">86%</div></div>
+        <div className="rounded-2xl p-4 bg-white border border-gray-100"><div className="text-xs text-gray-500">Avg. WPM</div><div className="text-2xl font-extrabold text-yellow-700 mt-1">92</div></div>
+        <div className="rounded-2xl p-4 bg-white border border-gray-100"><div className="text-xs text-gray-500">This Week</div><div className="text-2xl font-extrabold text-purple-700 mt-1">3 sessions</div></div>
       </div>
 
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Share Report to Teacher</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
@@ -94,14 +94,14 @@ const ReportsPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border border-gray-100 p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-3">Saved Reports</h3>
         <div className="rounded-xl border border-dashed border-gray-200 p-8 text-center text-gray-500">No reports available yet.</div>
       </div>
 
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center">
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 w-full max-w-2xl p-6">
+          <div className="bg-white rounded-2xl border border-gray-100 w-full max-w-2xl p-6">
             <div className="flex items-center justify-between mb-4">
               <h4 className="text-lg font-semibold text-gray-900">Create Report</h4>
               <button onClick={() => setIsCreateOpen(false)} className="text-gray-500 hover:text-gray-700">✕</button>

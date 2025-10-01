@@ -63,7 +63,7 @@ export default function QuickActions() {
   );
 
   return (
-    <div className="bg-white rounded-lg shadow-sm p-4 md:p-6">
+    <div className="bg-white rounded-lg p-4 md:p-6">
       <h3 className="text-base md:text-lg font-semibold text-[#2C3E50] mb-4 md:mb-6">Quick Actions</h3>
       <div className="grid grid-cols-2 gap-3 md:gap-4">
         <Item color="text-[#3498DB]" icon="fas fa-book-reader" title="Start Reading" onClick={handleStartReading} />

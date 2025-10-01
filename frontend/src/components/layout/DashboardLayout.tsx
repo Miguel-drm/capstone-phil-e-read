@@ -200,7 +200,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
             {/* Upcoming Sessions Modal (global) */}
             {showSessionsModal && (
               <div className="fixed inset-0 z-50 flex justify-end items-start bg-black bg-opacity-10">
-                <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-sm mt-20 mr-8 relative h-[32rem] flex flex-col">
+                <div className="bg-white rounded-xl p-6 w-full max-w-sm mt-20 mr-8 relative h-[32rem] flex flex-col">
                   <button
                     className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-xl"
                     onClick={() => setShowSessionsModal(false)}
@@ -230,7 +230,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
           {showBackToTop && (
             <button
               onClick={scrollToTop}
-              className="fixed bottom-6 right-6 z-50 w-12 h-12 md:w-14 md:h-14 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out flex items-center justify-center group"
+              className="fixed bottom-6 right-6 z-50 w-12 h-12 md:w-14 md:h-14 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full transition-all duration-300 ease-in-out flex items-center justify-center group"
               aria-label="Back to top"
               title="Back to top"
             >

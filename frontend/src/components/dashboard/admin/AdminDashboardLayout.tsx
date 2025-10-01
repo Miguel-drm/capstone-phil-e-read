@@ -8,7 +8,7 @@ const AdminDashboardLayout: React.FC = () => {
       <AdminSidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Admin Header - Placeholder */}
-        <header className="bg-white shadow py-4 px-6 flex items-center justify-between">
+        <header className="bg-white py-4 px-6 flex items-center justify-between">
           <h1 className="text-xl font-semibold text-gray-800">Admin Panel</h1>
           {/* Add more header content like user info, logout, etc. */}
         </header>

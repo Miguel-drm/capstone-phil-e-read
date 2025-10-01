@@ -57,7 +57,7 @@ const StatsCards: React.FC<StatsCardsProps> = ({ stats }) => {
       {/* Stats Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {stats.map((stat, index) => (
-          <div key={index} className="group bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 border border-gray-100 overflow-hidden">
+          <div key={index} className="group bg-white rounded-xl transition-all duration-300 border border-gray-100 overflow-hidden">
             <div className="p-4">
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">

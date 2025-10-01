@@ -244,7 +244,7 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
       {/* Modal for Upcoming Sessions */}
       {showSessionsModal && (
         <div className="fixed inset-0 z-50 flex justify-end items-start bg-black bg-opacity-10">
-          <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-sm mt-8 mr-8 relative h-[32rem] flex flex-col">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm mt-8 mr-8 relative h-[32rem] flex flex-col">
             <button
               className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-xl"
               onClick={() => setShowSessionsModal(false)}
@@ -267,7 +267,6 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
             data={chartData}
             grades={grades}
             students={students}
-            isLoading={isLoading}
           />
         </div>
         {/* Class Performance and Reading Level Distribution side by side */}

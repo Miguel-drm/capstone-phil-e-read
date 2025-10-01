@@ -81,7 +81,6 @@
 }
 
 .story-container:hover {
-  @apply shadow-md;
 }
 
 /* Enhanced Word Layout Styles */
@@ -96,7 +95,6 @@
 
 .word-item:hover {
   transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .word-item:active {
@@ -118,7 +116,6 @@
   background: linear-gradient(135deg, #3b82f6, #1d4ed8);
   color: white;
   font-weight: 600;
-  box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
   transform: scale(1.05);
 }
 

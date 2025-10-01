@@ -91,13 +91,13 @@ const AdminDashboard: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
         <h2 className="text-2xl font-bold text-gray-900">Admin Dashboard</h2>
         <div className="flex gap-2 flex-wrap">
-          <button className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg shadow transition-all duration-150" onClick={() => setShowAnnouncement(true)}>Send Announcement</button>
+          <button className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg transition-all duration-150" onClick={() => setShowAnnouncement(true)}>Send Announcement</button>
         </div>
       </div>
       {/* Send Announcement Modal */}
       {showAnnouncement && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+          <div className="bg-white rounded-lg w-full max-w-md p-6">
             <h2 className="text-xl font-semibold text-gray-800 mb-4 text-center">Send Announcement</h2>
             <p className="text-gray-600 mb-8 text-center">[Announcement form goes here]</p>
             <div className="flex justify-end space-x-3">
@@ -118,19 +118,19 @@ const AdminDashboard: React.FC = () => {
         <>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {/* Overview Cards */}
-          <div className="bg-white p-6 rounded-lg shadow-sm">
+          <div className="bg-white p-6 rounded-lg">
             <h3 className="text-lg font-medium text-gray-900">Total Users</h3>
             <p className="mt-2 text-3xl font-bold text-blue-600">{totalUsers}</p>
           </div>
-          <div className="bg-white p-6 rounded-lg shadow-sm">
+          <div className="bg-white p-6 rounded-lg">
             <h3 className="text-lg font-medium text-gray-900">Total Teachers</h3>
             <p className="mt-2 text-3xl font-bold text-green-600">{totalTeachers}</p>
           </div>
-          <div className="bg-white p-6 rounded-lg shadow-sm">
+          <div className="bg-white p-6 rounded-lg">
             <h3 className="text-lg font-medium text-gray-900">Total Parents</h3>
             <p className="mt-2 text-3xl font-bold text-purple-600">{totalParents}</p>
           </div>
-          <div className="bg-white p-6 rounded-lg shadow-sm">
+          <div className="bg-white p-6 rounded-lg">
             <h3 className="text-lg font-medium text-gray-900">Total Students</h3>
             <p className="mt-2 text-3xl font-bold text-orange-600">{totalStudents}</p>
           </div>
@@ -153,7 +153,7 @@ const AdminDashboard: React.FC = () => {
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* User Growth Over Time */}
-          <div className="bg-white p-6 rounded-lg shadow-md flex flex-col">
+          <div className="bg-white p-6 rounded-lg flex flex-col">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">User Growth Over Time</h3>
             <Line
               data={{
@@ -180,7 +180,7 @@ const AdminDashboard: React.FC = () => {
           </div>
 
           {/* Average Comprehension by Grade */}
-          <div className="bg-white p-6 rounded-lg shadow-md flex flex-col">
+          <div className="bg-white p-6 rounded-lg flex flex-col">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Average Comprehension by Grade</h3>
             <Bar
               data={{
@@ -203,7 +203,7 @@ const AdminDashboard: React.FC = () => {
           </div>
 
           {/* User Role Breakdown */}
-          <div className="bg-white p-6 rounded-lg shadow-md flex flex-col">
+          <div className="bg-white p-6 rounded-lg flex flex-col">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">User Role Breakdown</h3>
             <Pie
               data={{
@@ -227,7 +227,7 @@ const AdminDashboard: React.FC = () => {
 
         {/* Recent Registrations Widget */}
         <div className="mt-8">
-          <div className="bg-white p-6 rounded-lg shadow-md">
+          <div className="bg-white p-6 rounded-lg">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Registrations</h3>
             <table className="min-w-full text-sm">
               <thead>
