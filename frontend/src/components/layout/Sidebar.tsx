@@ -100,8 +100,13 @@ const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const sidebarClasses = `
+<<<<<<< HEAD
     fixed top-0 left-0 z-[60] h-screen
     transition-all duration-300 ease-in-out overflow-x-hidden
+=======
+    fixed top-0 left-0 z-[30] h-screen
+    transition-all duration-300 ease-in-out overflow-x-hidden z-1000
+>>>>>>> 8f40653346f8312436bc08ed8571dc08de24748d
     ${isMobile
       ? `w-full max-w-xs ${isOpen ? 'translate-x-0' : '-translate-x-full'}`
       : isCollapsed
@@ -134,7 +139,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             
           </div>
           {/* Navigation Menu */}
-          <nav className="flex-1 overflow-y-auto py-4 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent">
+          <nav className="flex-1 overflow-y-auto py-4 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent z-1000">
             <ul className="space-y-1 px-2">
               {navItems.map((item) => {
                 return (
