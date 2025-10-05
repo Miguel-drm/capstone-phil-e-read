@@ -15,8 +15,10 @@ import {
   calculateWordsRead,
   formatElapsedTime
 } from '@/utils/readingMetrics';
-import { studentService, type Student } from '@/services/studentService';
+import { studentService } from '@/services/studentService';
 import Swal from 'sweetalert2';
+import { db } from '@/config/firebase';
+import { collection, getDocs } from 'firebase/firestore';
 
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -35,7 +37,7 @@ const ReadingSessionPage: React.FC = () => {
   const [isPaused, setIsPaused] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [pdfContent, setPdfContent] = useState<string>('');
-  const [isLoadingPdf, setIsLoadingPdf] = useState(false);
+  const [isLoadingPdf, setIsLoadingPdf] = useState(false); // used in PDF fetch display logic
   const [pdfError, setPdfError] = useState<string | null>(null);
 
   // Audio recording state
@@ -54,13 +56,9 @@ const ReadingSessionPage: React.FC = () => {
   const [voskStatus, setVoskStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const [wordsRead, setWordsRead] = useState(0);
   const [storyLanguage, setStoryLanguage] = useState<'english' | 'tagalog'>('english');
-  const [readingSpeed, setReadingSpeed] = useState(0); // WPM
-  const [accuracy, setAccuracy] = useState(0); // %
+  // Derived metrics are calculated from elapsed time and transcript
 
-  // Add debug state
-  const [debugSpokenWords, setDebugSpokenWords] = useState<string[]>([]);
-  const [debugStoryWords, setDebugStoryWords] = useState<string[]>([]);
-  const [debugStoryText, setDebugStoryText] = useState('');
+  // Debug state removed
 
   // Add miscues state
   const [miscues, setMiscues] = useState(0);
@@ -164,8 +162,7 @@ const ReadingSessionPage: React.FC = () => {
     setIsPaused(false);
     setTranscript('');
     setWordsRead(0);
-    setReadingSpeed(0);
-    setAccuracy(0);
+    // reset derived metrics
     setElapsedTime(0);
     setAudioBlob(null);
     setAudioUrl(null);
@@ -186,7 +183,7 @@ const ReadingSessionPage: React.FC = () => {
           setAudioUrl(URL.createObjectURL(audioBlob));
         };
         mediaRecorder.start();
-      }).catch(err => {
+      }).catch(() => {
         alert('Microphone access denied or not available.');
         setIsRecording(false);
       });
@@ -461,22 +458,18 @@ const ReadingSessionPage: React.FC = () => {
     if (recognitionRef.current) recognitionRef.current.start();
   };
 
-  // Update reading speed as time passes
+  // Update elapsed time as time passes
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (isRecording && !isPaused) {
       interval = setInterval(() => {
-        setElapsedTime((prev: number) => {
-          const next = prev + 1;
-          setReadingSpeed(next > 0 ? Math.round((wordsRead / (next / 60))) : 0);
-          return next;
-        });
+        setElapsedTime((prev: number) => prev + 1);
       }, 1000);
     }
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isRecording, isPaused, wordsRead]);
+  }, [isRecording, isPaused]);
 
   const loadPdfContent = async (pdfUrl: string) => {
     try {
@@ -665,160 +658,7 @@ const ReadingSessionPage: React.FC = () => {
     navigate(-1);
   };
 
-  const renderStoryContent = () => {
-    if (isLoadingPdf || isLoading) {
-      return (
-        <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
-        </div>
-      );
-    }
-
-    // Show text content if available (this is the primary content we want to display)
-    if (storyText && storyText.trim().length > 0) {
-      // Split text into paragraphs and process each word
-      const paragraphs = storyText.split('\n\n').filter(p => p.trim().length > 0);
-      
-      return (
-        <div className="story-container bg-white rounded-lg border border-gray-200">
-          <div className="p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-semibold text-gray-900">Story Content</h3>
-              <div className="flex items-center space-x-4 text-sm text-gray-500">
-                <span className="flex items-center">
-                  <BookOpenIcon className="h-4 w-4 mr-1" />
-                  {words.length} words
-                </span>
-                <span>•</span>
-                <span>{paragraphs.length} paragraphs</span>
-              </div>
-            </div>
-            <div className="relative">
-              <div className="max-h-96 overflow-y-auto pr-4 custom-scrollbar">
-                <div className="prose prose-lg max-w-none">
-                  <div className="space-y-6">
-                    {paragraphs.map((paragraph, paragraphIndex) => {
-                      const wordsInParagraph = paragraph.trim().split(/\s+/);
-                      return (
-                        <div key={paragraphIndex} className="mb-6 last:mb-0">
-                          <p className="text-gray-800 leading-relaxed flex flex-wrap gap-y-2">
-                            {wordsInParagraph.map((word, wordIndex) => {
-                              // Calculate the global word index for highlighting
-                              const globalWordIndex = paragraphs
-                                .slice(0, paragraphIndex)
-                                .reduce((acc, p) => acc + p.trim().split(/\s+/).length, 0) + wordIndex;
-                              const isCurrentWord = currentWordIndex === globalWordIndex;
-                              return (
-                                <span
-                                  key={`${paragraphIndex}-${wordIndex}`}
-                                  className={
-                                    `inline-block mr-2 mb-1 px-2 py-1 rounded font-serif text-base transition-all duration-150 ` +
-                                    (isCurrentWord
-                                      ? 'bg-blue-600 text-white font-bold scale-105'
-                                      : 'bg-gray-100 text-gray-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer')
-                                  }
-                                >
-                                  {word}
-                                </span>
-                              );
-                            })}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-              {/* Scroll indicator */}
-              <div className="absolute right-2 top-0 bottom-0 w-1 bg-gray-200 rounded-full">
-                <div className="w-1 bg-blue-500 rounded-full transition-all duration-300" 
-                     style={{ height: '20%' }}></div>
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // Show PDF content if available and no text content
-    if (pdfContent && pdfContent.trim().length > 0) {
-      const paragraphs = pdfContent.split('\n\n').filter(p => p.trim().length > 0);
-      
-      return (
-        <div className="story-container bg-white rounded-lg border border-gray-200">
-          <div className="p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-semibold text-gray-900">Story Content</h3>
-              <div className="flex items-center space-x-2 text-sm text-gray-500">
-                <span>{words.length} words</span>
-              </div>
-            </div>
-            <div className="relative">
-              <div className="max-h-96 overflow-y-auto pr-4 custom-scrollbar">
-                <div className="prose prose-lg max-w-none">
-                  <div className="space-y-6">
-                    {paragraphs.map((paragraph, paragraphIndex) => {
-                      const wordsInParagraph = paragraph.trim().split(/\s+/);
-                      return (
-                        <div key={paragraphIndex} className="mb-6 last:mb-0">
-                          <p className="text-gray-800 leading-relaxed flex flex-wrap gap-y-2">
-                            {wordsInParagraph.map((word, wordIndex) => {
-                              const globalWordIndex = paragraphs
-                                .slice(0, paragraphIndex)
-                                .reduce((acc, p) => acc + p.trim().split(/\s+/).length, 0) + wordIndex;
-                              const isCurrentWord = currentWordIndex === globalWordIndex;
-                              return (
-                                <span
-                                  key={`${paragraphIndex}-${wordIndex}`}
-                                  className={
-                                    `inline-block mr-2 mb-1 px-2 py-1 rounded font-serif text-base transition-all duration-150 ` +
-                                    (isCurrentWord
-                                      ? 'bg-blue-600 text-white font-bold scale-105'
-                                      : 'bg-gray-100 text-gray-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer')
-                                  }
-                                >
-                                  {word}
-                                </span>
-                              );
-                            })}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // Show error if no content is available
-    if ((pdfError || error) && !storyText) {
-      // Only show error if there is no text content fallback
-      return (
-        <div className="text-center p-8 bg-white rounded-lg shadow-sm border border-gray-200">
-          <XCircleIcon className="h-12 w-12 text-red-500 mx-auto mb-4" />
-          <div className="text-red-600 mb-4">{pdfError || error}</div>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-          >
-            Retry
-          </button>
-        </div>
-      );
-    }
-
-    // No content available
-    return (
-      <div className="text-center p-8 bg-white rounded-lg shadow-sm border border-gray-200">
-        <BookOpenIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-        <p className="text-gray-600">No story content available</p>
-      </div>
-    );
-  };
+  // Legacy helper removed
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -834,26 +674,17 @@ const ReadingSessionPage: React.FC = () => {
     };
   }, [isRecording, isPaused]);
 
-  const [isAlphanumericArr, setIsAlphanumericArr] = useState<boolean[]>([]);
+  // const [isAlphanumericArr, setIsAlphanumericArr] = useState<boolean[]>([]);
   useEffect(() => {
     if (storyText && storyText.trim().length > 0) {
-      setDebugStoryText(storyText);
-      const { displayWords, normalizedWords, isAlphanumeric } = splitAndNormalizeWords(storyText);
+      const { displayWords } = splitAndNormalizeWords(storyText);
       setWords(displayWords);
-      setDebugStoryWords(normalizedWords);
-      setIsAlphanumericArr(isAlphanumeric);
       console.log('DEBUG: Loaded storyText:', storyText);
     } else if (pdfContent && pdfContent.trim().length > 0) {
-      setDebugStoryText(pdfContent);
-      const { displayWords, normalizedWords, isAlphanumeric } = splitAndNormalizeWords(pdfContent);
+      const { displayWords } = splitAndNormalizeWords(pdfContent);
       setWords(displayWords);
-      setDebugStoryWords(normalizedWords);
-      setIsAlphanumericArr(isAlphanumeric);
       console.log('DEBUG: Loaded pdfContent:', pdfContent);
     } else {
-      setDebugStoryText('');
-      setDebugStoryWords([]);
-      setIsAlphanumericArr([]);
       console.warn('DEBUG: No storyText or pdfContent loaded');
     }
   }, [storyText, pdfContent]);
@@ -905,6 +736,10 @@ const ReadingSessionPage: React.FC = () => {
   const [studentNames, setStudentNames] = useState<{ [id: string]: string }>({});
   const [completedStudents, setCompletedStudents] = useState<{ [id: string]: boolean }>({});
 
+  // Quiz: resolve matching test automatically and student mapping
+  const [tests, setTests] = useState<{ id: string; testName: string; storyId?: string; storyTitle?: string }[]>([]);
+  const [resolvedTestId, setResolvedTestId] = useState<string>('');
+
   // Fetch student names when currentSession changes
   useEffect(() => {
     const fetchNames = async () => {
@@ -926,6 +761,34 @@ const ReadingSessionPage: React.FC = () => {
     };
     fetchNames();
   }, [currentSession]);
+
+  // Fetch available tests (admin-authored)
+  useEffect(() => {
+    const loadTests = async () => {
+      try {
+        const qs = await getDocs(collection(db, 'tests'));
+        const list: { id: string; testName: string; storyId?: string; storyTitle?: string }[] = [];
+        qs.forEach(d => {
+          const data = d.data() as any;
+          list.push({ id: d.id, testName: data?.testName || 'Untitled Test', storyId: data?.storyId, storyTitle: data?.storyTitle || data?.book || data?.linkedStoryTitle });
+        });
+        setTests(list);
+      } catch (e) {
+        // silent fail; button will remain disabled if no tests
+      }
+    };
+    loadTests();
+  }, []);
+
+  // Resolve the matching test for the story linked to this session
+  useEffect(() => {
+    if (!currentSession) return;
+    const storyKey = (currentSession.book || '').toString().trim();
+    if (!storyKey) return;
+    // Try to match by exact storyId (if present) or by title fields
+    const match = tests.find(t => (t.storyId && (t.storyId === currentSession.book)) || (t.storyTitle && t.storyTitle.toLowerCase() === storyKey.toLowerCase()) || (t.testName && t.testName.toLowerCase().includes(storyKey.toLowerCase())));
+    if (match) setResolvedTestId(match.id);
+  }, [tests, currentSession]);
 
   if (isLoading) {
     return (
@@ -1040,11 +903,7 @@ const ReadingSessionPage: React.FC = () => {
     a.remove();
   };
 
-  function formatTime(elapsedTime: number): string {
-    const minutes = Math.floor(elapsedTime / 60);
-    const seconds = elapsedTime % 60;
-    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-  }
+  // formatTime helper removed (unused)
 
   // In the rendering, highlight only if the display word is the current real word
   // To do this, map realWords to their positions in the display words array
@@ -1115,6 +974,8 @@ const ReadingSessionPage: React.FC = () => {
                 <span>{words.length} words</span>
                 <span className="hidden sm:inline">•</span>
                 <span>{storyText ? storyText.split('\n\n').length : pdfContent.split('\n\n').length} paragraphs</span>
+                {isLoadingPdf && <span className="hidden sm:inline">•</span>}
+                {isLoadingPdf && <span>Loading PDF…</span>}
               </div>
             </div>
             <div className="max-h-[20rem] sm:max-h-[30rem] lg:max-h-[38rem] overflow-y-auto custom-scrollbar prose prose-sm sm:prose-base lg:prose-xl prose-blue bg-white/60 rounded-lg sm:rounded-xl p-4 sm:p-6 lg:p-8 text-sm sm:text-base lg:text-[1.35rem] leading-relaxed tracking-wide">
@@ -1347,6 +1208,37 @@ const ReadingSessionPage: React.FC = () => {
         </div>
       </section>
       )}
+    {/* Bottom Quiz Button */}
+    <div className="w-full px-4 sm:px-8 py-4 mt-auto bg-white/80 border-t border-blue-100">
+      <div className="max-w-6xl mx-auto">
+        <button
+          onClick={() => {
+            if (!currentSession) return;
+            // choose student deterministically: first completed, else first in list
+            const completedIds = Object.keys(completedStudents).filter(id => completedStudents[id]);
+            const studentId = (currentSession.students.length === 1)
+              ? currentSession.students[0]
+              : (completedIds[0] || currentSession.students[0]);
+            const studentName = studentNames[studentId] || studentId;
+            if (!resolvedTestId) {
+              alert('No test found for this story.');
+              return;
+            }
+            if (!isCompleted) {
+              alert('Please complete the reading session first.');
+              return;
+            }
+            navigate(`/student/test/${resolvedTestId}` as any, {
+              state: { studentId, studentName, teacherId: currentSession.teacherId }
+            });
+          }}
+          disabled={!isCompleted || !resolvedTestId}
+          className={`w-full py-4 rounded-2xl text-white font-bold text-lg transition-all duration-200 ${(!isCompleted || !resolvedTestId) ? 'bg-gray-300 cursor-not-allowed' : 'bg-gradient-to-r from-indigo-500 to-blue-500 hover:from-indigo-600 hover:to-blue-600 hover:scale-[1.01]'} `}
+        >
+          Quiz
+        </button>
+      </div>
+    </div>
     </div>
   );
 };
