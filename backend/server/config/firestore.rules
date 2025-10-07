@@ -78,6 +78,20 @@ service cloud.firestore {
       allow write: if isAuthenticated() && isAdmin();
     }
 
+    // Teacher scoped data
+    match /teachers/{teacherId} {
+      allow read: if isAuthenticated() && (request.auth.uid == teacherId || isAdmin());
+      allow create, update: if isAuthenticated() && (request.auth.uid == teacherId || isAdmin());
+      allow delete: if isAuthenticated() && isAdmin();
+
+      // Realtime activity feed under a teacher
+      match /activities/{activityId} {
+        allow read: if isAuthenticated() && (request.auth.uid == teacherId || isAdmin());
+        allow create: if isAuthenticated() && (request.auth.uid == teacherId || isAdmin());
+        allow update, delete: if isAuthenticated() && (request.auth.uid == teacherId || isAdmin());
+      }
+    }
+
     // Reading Sessions collection rules
     match /readingSessions/{sessionId} {
       function isSessionOwner() {

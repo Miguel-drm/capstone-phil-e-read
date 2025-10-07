@@ -70,7 +70,8 @@ const AdminDashboard: React.FC = () => {
         setError(null);
         const teachers = await getTeachersCount();
         const parents = await getParentsCount();
-        const students = await studentService.getTotalStudentsCount();
+        // Count only active (non-archived) students for dashboard metrics
+        const students = await studentService.getActiveStudentsCount();
         setTotalTeachers(teachers);
         setTotalParents(parents);
         setTotalStudents(students);

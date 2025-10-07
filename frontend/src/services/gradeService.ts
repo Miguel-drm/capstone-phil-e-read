@@ -119,6 +119,40 @@ class GradeService {
     }
   }
 
+  // Get grades (both active and archived) by teacher
+  async getGradesByTeacherAll(teacherId: string): Promise<ClassGrade[]> {
+    try {
+      const q = query(collection(db, this.collectionName), where('teacherId', '==', teacherId));
+      const querySnapshot = await getDocs(q);
+      const results = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as ClassGrade[];
+      // Sort on client to avoid composite index requirement
+      results.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      return results;
+    } catch (error) {
+      console.error('Error getting all grades by teacher:', error);
+      throw new Error('Failed to fetch teacher grades');
+    }
+  }
+
+  // Realtime subscription to a teacher's grades (studentCount updates live)
+  subscribeToTeacherGrades(teacherId: string, onChange: (grades: ClassGrade[]) => void, onError?: (err: any) => void) {
+    try {
+      const q = query(collection(db, this.collectionName), where('teacherId', '==', teacherId));
+      const unsub = onSnapshot(q, (snap) => {
+        const gs = snap.docs.map(d => ({ id: d.id, ...d.data() })) as ClassGrade[];
+        gs.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        onChange(gs);
+      }, (err) => {
+        console.warn('subscribeToTeacherGrades permission or network issue:', err?.message || err);
+        if (onError) onError(err);
+      });
+      return unsub;
+    } catch (e) {
+      console.warn('subscribeToTeacherGrades failed to start:', e);
+      return () => {};
+    }
+  }
+
   // Get a specific class grade by ID
   async getGradeById(gradeId: string): Promise<ClassGrade | null> {
     try {
@@ -359,6 +393,91 @@ class GradeService {
         });
       }
       throw new Error('Failed to fetch students in grade');
+    }
+  }
+
+  // Archive a grade: mark as inactive and archive all linked students (flag on student docs). Keep links intact.
+  async archiveGrade(gradeId: string): Promise<void> {
+    try {
+      const gradeRef = doc(db, this.collectionName, gradeId);
+      // Archive each student in this grade
+      const studentsRef = collection(gradeRef, this.studentsSubcollection);
+      const snap = await getDocs(studentsRef);
+      if (!snap.empty) {
+        const batch = writeBatch(db);
+        for (const d of snap.docs) {
+          const sid = (d.data() as any).studentId as string;
+          if (sid) {
+            const studentDocRef = doc(db, StudentServiceModule.studentService.getCollectionName(), sid);
+            batch.update(studentDocRef, { archived: true, updatedAt: serverTimestamp() });
+          }
+        }
+        await batch.commit();
+      }
+      // Mark grade as inactive and set archivedAt (keep studentCount as is for archive view)
+      await updateDoc(gradeRef, { isActive: false, updatedAt: serverTimestamp(), archivedAt: serverTimestamp() });
+    } catch (error) {
+      console.error('Error archiving grade:', error);
+      throw new Error('Failed to archive class grade');
+    }
+  }
+
+  // Restore an archived grade (mark active again)
+  async restoreGrade(gradeId: string): Promise<void> {
+    try {
+      const gradeRef = doc(db, this.collectionName, gradeId);
+      // Un-archive each student in this grade
+      const studentsRef = collection(gradeRef, this.studentsSubcollection);
+      const snap = await getDocs(studentsRef);
+      if (!snap.empty) {
+        const batch = writeBatch(db);
+        for (const d of snap.docs) {
+          const sid = (d.data() as any).studentId as string;
+          if (sid) {
+            const studentDocRef = doc(db, StudentServiceModule.studentService.getCollectionName(), sid);
+            batch.update(studentDocRef, { archived: false, updatedAt: serverTimestamp() });
+          }
+        }
+        await batch.commit();
+      }
+      await updateDoc(gradeRef, { isActive: true, updatedAt: serverTimestamp(), restoredAt: serverTimestamp() });
+    } catch (error) {
+      console.error('Error restoring grade:', error);
+      throw new Error('Failed to restore class grade');
+    }
+  }
+
+  // Permanently delete an archived class and all linked student documents
+  async deleteArchivedGradeAndStudents(gradeId: string): Promise<void> {
+    try {
+      const gradeRef = doc(db, this.collectionName, gradeId);
+      const studentsRef = collection(gradeRef, this.studentsSubcollection);
+      const snap = await getDocs(studentsRef);
+      // Delete students in main collection
+      if (!snap.empty) {
+        const batch = writeBatch(db);
+        for (const d of snap.docs) {
+          const sid = (d.data() as any).studentId as string;
+          if (sid) {
+            const studentDocRef = doc(db, StudentServiceModule.studentService.getCollectionName(), sid);
+            batch.delete(studentDocRef);
+          }
+        }
+        await batch.commit();
+      }
+      // Delete all links under grade
+      let linksSnap = await getDocs(studentsRef);
+      while (!linksSnap.empty) {
+        const batch = writeBatch(db);
+        linksSnap.forEach(s => batch.delete(s.ref));
+        await batch.commit();
+        linksSnap = await getDocs(studentsRef);
+      }
+      // Delete grade itself
+      await deleteDoc(gradeRef);
+    } catch (error) {
+      console.error('Error deleting archived grade and students:', error);
+      throw new Error('Failed to delete archived class and students');
     }
   }
 
