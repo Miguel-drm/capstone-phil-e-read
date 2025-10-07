@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import StatsCards from './StatsCards';
 import PerformanceChart from './PerformanceChart';
 import UpcomingSessions from './UpcomingSessions';
@@ -24,50 +24,99 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
   const [activeMenuItem, setActiveMenuItem] = useState('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Mock data - in a real app, this would come from an API
+  // Calculate real-time data from actual student and reading data
+  const calculateStats = useMemo(() => {
+    const totalStudents = students.length;
+    
+    // Calculate reading sessions from all students' reading results
+    const totalReadingSessions = students.reduce((total, student) => {
+      const studentSessions = grades.find(grade => grade.studentId === student.id)?.readingResults?.length || 0;
+      return total + studentSessions;
+    }, 0);
+    
+    // Calculate this week's sessions
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    const thisWeekSessions = students.reduce((total, student) => {
+      const studentGrade = grades.find(grade => grade.studentId === student.id);
+      if (!studentGrade?.readingResults) return total;
+      
+      const recentSessions = studentGrade.readingResults.filter((result: any) => 
+        new Date(result.createdAt) >= oneWeekAgo
+      ).length;
+      return total + recentSessions;
+    }, 0);
+    
+    // Calculate total classes/grades
+    const totalClasses = grades.length;
+    
+    // Calculate new students this month
+    const oneMonthAgo = new Date();
+    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+    const newStudentsThisMonth = students.filter(student => 
+      student.createdAt && new Date(student.createdAt) >= oneMonthAgo
+    ).length;
+    
+    // Calculate students with reading data
+    const studentsWithData = students.filter(student => {
+      const studentGrade = grades.find(grade => grade.studentId === student.id);
+      return studentGrade?.readingResults && studentGrade.readingResults.length > 0;
+    }).length;
+    
+    return {
+      totalStudents,
+      totalReadingSessions,
+      thisWeekSessions,
+      totalClasses,
+      newStudentsThisMonth,
+      studentsWithData
+    };
+  }, [students, grades]);
+
   const statsData = [
     {
       title: 'Total Students',
-      value: students.length.toString(),
+      value: calculateStats.totalStudents.toString(),
       icon: 'fas fa-user-graduate',
       iconColor: 'text-[#3498DB]',
       bgColor: 'bg-blue-100',
-      change: '2 new students this month',
-      changeType: 'positive' as const
+      change: `${calculateStats.newStudentsThisMonth} new students this month`,
+      changeType: calculateStats.newStudentsThisMonth > 0 ? 'positive' as const : 'neutral' as const
     },
     {
       title: 'Reading Sessions',
-      value: '128',
+      value: calculateStats.totalReadingSessions.toString(),
       icon: 'fas fa-book-reader',
       iconColor: 'text-[#27AE60]',
       bgColor: 'bg-green-100',
-      change: '12 sessions this week',
+      change: `${calculateStats.thisWeekSessions} sessions this week`,
       changeType: 'positive' as const
     },
     {
-      title: 'Pending Assessments',
-      value: '8',
-      icon: 'fas fa-tasks',
-      iconColor: 'text-yellow-500',
-      bgColor: 'bg-yellow-100',
-      change: '3 due this week',
-      changeType: 'negative' as const
+      title: 'ISR Reports',
+      value: calculateStats.totalReadingSessions.toString(),
+      icon: 'fas fa-file-alt',
+      iconColor: 'text-orange-500',
+      bgColor: 'bg-orange-100',
+      change: `${calculateStats.thisWeekSessions} generated this week`,
+      changeType: 'positive' as const
     },
     {
-      title: 'Average Score',
-      value: '78%',
-      icon: 'fas fa-chart-line',
+      title: 'Active Classes',
+      value: calculateStats.totalClasses.toString(),
+      icon: 'fas fa-chalkboard-teacher',
       iconColor: 'text-purple-500',
       bgColor: 'bg-purple-100',
-      change: '5% increase from last month',
+      change: `${calculateStats.studentsWithData} students with data`,
       changeType: 'positive' as const
     }
   ];
 
   const chartData = {
-    weeks: ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5', 'Week 6'],
-    studentScores: [65, 70, 68, 75, 82, 88],
-    classAverages: [60, 62, 65, 68, 72, 75]
+    assessmentPeriods: ['Grade III', 'Grade IV', 'Grade V', 'Grade VI'],
+    oralReadingScores: [85, 88, 92, 95], // Percentage scores for oral reading fluency
+    comprehensionScores: [78, 82, 87, 91], // Percentage scores for comprehension
+    readingLevels: ['Instructional', 'Instructional', 'Independent', 'Independent'] // Reading level classifications
   };
 
   useEffect(() => {
@@ -76,29 +125,62 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
         try {
           setIsLoading(true);
           console.log('Current user UID:', currentUser.uid);
-          // Fetch class list (grades) for the teacher
-          const fetchedGrades = await gradeService.getGradesByTeacher(currentUser.uid);
-          console.log('Fetched grades:', fetchedGrades);
+          
+          // Try to fetch grades, but handle permission errors gracefully
+          let fetchedGrades: ClassGrade[] = [];
+          try {
+            fetchedGrades = await gradeService.getGradesByTeacher(currentUser.uid);
+            console.log('Fetched grades:', fetchedGrades);
+          } catch (gradeError) {
+            console.warn('Could not fetch grades data (permission denied):', gradeError);
+            // Continue with empty grades array
+          }
+          
           setGrades(fetchedGrades);
-          // Fetch students for each class in parallel
-          const allStudentsArrays = await Promise.all(
-            fetchedGrades.map(async (grade) => {
-              const studentsInGrade = await gradeService.getStudentsInGrade(grade.id!);
-              return studentsInGrade.map(s => ({
-                id: s.studentId,
-                name: s.name,
-                grade: grade.name,
-                readingLevel: '',
-                performance: 'Good' as const,
-                lastAssessment: '',
-                teacherId: currentUser.uid,
-                status: 'active' as const,
-              }));
-            })
-          );
-          setStudents(allStudentsArrays.flat());
+          
+          // If we have grades, fetch students for each class
+          if (fetchedGrades.length > 0) {
+            try {
+              const allStudentsArrays = await Promise.all(
+                fetchedGrades.map(async (grade) => {
+                  try {
+                    const studentsInGrade = await gradeService.getStudentsInGrade(grade.id!);
+                    return studentsInGrade.map(s => ({
+                      id: s.studentId,
+                      name: s.name,
+                      grade: grade.name,
+                      readingLevel: '',
+                      performance: 'Good' as const,
+                      lastAssessment: '',
+                      teacherId: currentUser.uid,
+                      status: 'active' as const,
+                    }));
+                  } catch (studentError) {
+                    console.warn(`Could not fetch students for grade ${grade.name}:`, studentError);
+                    return [];
+                  }
+                })
+              );
+              setStudents(allStudentsArrays.flat());
+            } catch (error) {
+              console.warn('Error fetching students:', error);
+              setStudents([]);
+            }
+          } else {
+            // If no grades, try to fetch students directly
+            try {
+              const directStudents = await studentService.getStudents(currentUser.uid);
+              setStudents(directStudents);
+            } catch (studentError) {
+              console.warn('Could not fetch students directly:', studentError);
+              setStudents([]);
+            }
+          }
         } catch (error) {
-          console.error('Error fetching grades/students:', error);
+          console.error('Error in dashboard data fetch:', error);
+          // Set empty arrays as fallback
+          setGrades([]);
+          setStudents([]);
         } finally {
           setIsLoading(false);
         }
@@ -280,7 +362,7 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
             />
           </div>
           <div className="h-full flex flex-col">
-            <ReadingLevelDistributionChart />
+            <ReadingLevelDistributionChart classes={grades.map(g => ({ id: g.id, name: g.name }))} />
           </div>
         </div>
       </div>

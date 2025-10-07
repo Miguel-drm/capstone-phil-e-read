@@ -24,8 +24,15 @@ export default function RecentActivity() {
 
   useEffect(() => {
     if (!currentUser?.uid) return;
-    const unsub = subscribeToRecentActivities(currentUser.uid, setItems);
-    return () => unsub();
+    
+    // Temporarily disable activities to avoid permission errors
+    // TODO: Re-enable when Firestore rules are deployed
+    console.log('Activities feature temporarily disabled due to permission restrictions');
+    setItems([]);
+    
+    // Uncomment this when rules are deployed:
+    // const unsub = subscribeToRecentActivities(currentUser.uid, setItems);
+    // return () => unsub();
   }, [currentUser?.uid]);
 
   return (
