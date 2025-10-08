@@ -236,7 +236,7 @@ const Students: React.FC = () => {
                               title="Archive"
                               onClick={async () => {
                                 const sid = (student.id || student.studentId)!;
-                                await StudentServiceModule.studentService.batchSetArchived([sid], true);
+                                await StudentServiceModule.studentService.batchSetArchived([sid], true, true); // archivedByAdmin = true
                                 // Remove from grade roster and update count
                                 try {
                                   const grade = grades.find(g => g.name === student.grade);

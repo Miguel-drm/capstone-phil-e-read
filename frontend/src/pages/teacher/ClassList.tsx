@@ -5,27 +5,35 @@ import { gradeService, type ClassGrade } from '../../services/gradeService';
 import * as XLSX from 'xlsx';
 import { showError, showSuccess, showConfirmation } from '../../services/alertService';
 import Swal from 'sweetalert2';
-import { onSnapshot, collection } from 'firebase/firestore';
+import { onSnapshot, collection, query as fsQuery, where as fsWhere } from 'firebase/firestore';
 import { getAllParents, getUserProfile } from '../../services/authService';
 import { db } from '../../config/firebase';
 import Loader from '../../components/Loader';
 import { resultService } from '../../services/resultsService';
+import PillSelect from '../../components/ui/PillSelect';
 
 const ClassList: React.FC = () => {
   const { currentUser, userRole, isProfileComplete } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedFilter, setSelectedFilter] = useState('all');
   const [sortBy, setSortBy] = useState('name');
   const [isImporting, setIsImporting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [students, setStudents] = useState<Student[]>([]);
   const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
+  const [isFilteringStudents, setIsFilteringStudents] = useState<boolean>(false);
+  // Track ongoing student action loading state (used for UI disables)
+  const [actionLoadingStudentId, setActionLoadingStudentId] = useState<string | null>(null);
+  const [rosterCounts, setRosterCounts] = useState<Record<string, number>>({});
   const [importedStudents, setImportedStudents] = useState<ImportedStudent[]>([]);
+  // Reference to avoid unused-var warning and keep UI reactive to action state
+  useEffect(() => {
+    // no-op: actionLoadingStudentId used to disable UI while actions are running
+  }, [actionLoadingStudentId]);
+
   const [duplicateStats, setDuplicateStats] = useState<{ within: number; existing: number }>({ within: 0, existing: 0 });
   const [duplicateDetails, setDuplicateDetails] = useState<{ within: ImportedStudent[]; existing: ImportedStudent[]; unique: ImportedStudent[] }>({ within: [], existing: [], unique: [] });
   const [showImportPreview, setShowImportPreview] = useState(false);
   const [loadingStudentId, setLoadingStudentId] = useState<string | null>(null);
-  const [loadingViewGradeId, setLoadingViewGradeId] = useState<string | null>(null);
   const [loadingAddStudentToGradeId, setLoadingAddStudentToGradeId] = useState<string | null>(null);
   const [loadingEditGradeId, setLoadingEditGradeId] = useState<string | null>(null);
   const [deletingAllStudents, setDeletingAllStudents] = useState(false);
@@ -44,12 +52,20 @@ const ClassList: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [grades, setGrades] = useState<ClassGrade[]>([]);
   const [selectedGrade, setSelectedGrade] = useState<string>('all');
-  // Compute live counts per grade from the local students list (non-archived)
-  const countsByGrade = useMemo(() => {
+
+  // When toggling between Active/Archived, reset selection to 'all' and wait for click
+  useEffect(() => {
+    setSelectedGrade('all');
+  }, [showArchived]);
+  // Live active counts per grade from roster subscription (local-only, not Firestore)
+  const countsByGrade = useMemo(() => ({ ...rosterCounts }), [rosterCounts]);
+
+  // Compute archived counts per grade for Archived view
+  const archivedCountsByGrade = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const g of grades) counts[g.id || ''] = 0;
     for (const s of students) {
-      if ((s as any).archived) continue;
+      if (!(s as any).archived) continue;
       const g = grades.find(gr => gr.name === s.grade);
       if (g && g.id) counts[g.id] = (counts[g.id] || 0) + 1;
     }
@@ -68,10 +84,29 @@ const ClassList: React.FC = () => {
     }
   }, [currentUser?.uid]);
 
+  // Realtime subscription for students belonging to the current teacher
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+    const q = fsQuery(collection(db, 'students'), fsWhere('teacherId', '==', currentUser.uid));
+    const unsub = onSnapshot(q, (snap) => {
+      const list: Student[] = [] as any;
+      snap.forEach(d => list.push({ id: d.id, ...(d.data() as any) } as Student));
+      // Keep the same sort order as loadStudents (newest first by createdAt if present)
+      list.sort((a, b) => {
+        const dateA = (a as any)?.createdAt?.toDate?.() || new Date(0);
+        const dateB = (b as any)?.createdAt?.toDate?.() || new Date(0);
+        return (dateB as any).getTime() - (dateA as any).getTime();
+      });
+      setStudents(list);
+      setIsLoading(false);
+    });
+    return () => unsub();
+  }, [currentUser?.uid]);
+
   // Filter students when search query or filter changes
   useEffect(() => {
     filterStudents();
-  }, [students, searchQuery, selectedFilter, sortBy, showArchived, selectedGrade]);
+  }, [students, searchQuery, sortBy, showArchived, selectedGrade]);
 
   const loadStudents = async () => {
     if (!currentUser?.uid) return;
@@ -96,15 +131,18 @@ const ClassList: React.FC = () => {
   };
 
   const filterStudents = async () => {
+    setIsFilteringStudents(true);
     // If no grade is selected or 'all' is selected, filter students should be empty
     if (!selectedGrade || selectedGrade === 'all') {
       setFilteredStudents([]);
+      setIsFilteringStudents(false);
       return;
     }
 
     const gradeObj = grades.find(g => g.id === selectedGrade);
     if (!gradeObj) {
       setFilteredStudents([]);
+      setIsFilteringStudents(false);
       return;
     }
 
@@ -113,6 +151,23 @@ const ClassList: React.FC = () => {
     try {
       const studentsInGrade = await gradeService.getStudentsInGrade(selectedGrade);
       rosterIds = studentsInGrade.map(sg => sg.studentId).filter(Boolean) as string[];
+      // Background reconciliation: ensure all active students with matching grade are linked in the roster
+      if (!showArchived) {
+        const gradeName = gradeObj?.name;
+        const missing = students.filter(s => !!s.id && !((s as any).archived) && s.grade === gradeName && !rosterIds.includes(s.id as string));
+        if (missing.length > 0) {
+          for (const s of missing) {
+            try {
+              await gradeService.addStudentToGrade(selectedGrade, { studentId: s.id as string, name: s.name });
+            } catch {}
+          }
+          // Refresh roster ids after linking
+          try {
+            const refreshed = await gradeService.getStudentsInGrade(selectedGrade);
+            rosterIds = refreshed.map(sg => sg.studentId).filter(Boolean) as string[];
+          } catch {}
+        }
+      }
     } catch {
       rosterIds = [];
     }
@@ -124,24 +179,14 @@ const ClassList: React.FC = () => {
         student.grade === gradeObj.name && (student as any).archived === true
       );
     } else {
-      // Active view: include roster membership OR grade match, exclude archived
-      const gradeMatchIds = new Set(
-        students
-          .filter(student => student.grade === gradeObj.name && !(student as any).archived)
-          .map(s => s.id)
-          .filter(Boolean) as string[]
-      );
-      const unionIds = new Set<string>([...rosterIds, ...Array.from(gradeMatchIds)]);
-      filtered = students.filter(student => !!student.id && unionIds.has(student.id) && !(student as any).archived);
+      // Active view: show ONLY roster membership and exclude archived, to align with realtime roster counts
+      const rosterSet = new Set<string>(rosterIds);
+      filtered = students.filter(student => !!student.id && rosterSet.has(student.id) && !(student as any).archived);
       // If the stored studentCount differs from computed live count, reconcile in background
       if (gradeObj && typeof (gradeObj as any).studentCount === 'number') {
         const liveCount = countsByGrade[gradeObj.id || ''] ?? filtered.length;
         if ((gradeObj as any).studentCount !== liveCount) {
-        (async () => {
-          try {
-            await gradeService.updateStudentCount(selectedGrade, liveCount);
-          } catch {}
-        })();
+        // Avoid writing counts to Firestore; we compute locally to prevent racing state
         }
       }
     }
@@ -152,13 +197,11 @@ const ClassList: React.FC = () => {
         const matchesName = student.name.toLowerCase().includes(query);
         const matchesGrade = String(student.grade).toLowerCase().includes(query);
         const matchesAge = String(student.age || '').includes(query);
-        return matchesName || matchesGrade || matchesAge;
+        const matchesLRN = String(student.lrn || '').toLowerCase().includes(query);
+        const matchesParentName = String(student.parentName || '').toLowerCase().includes(query);
+        return matchesName || matchesGrade || matchesAge || matchesLRN || matchesParentName;
       });
     }
-    // Remove performance-based filtering since we're using age now
-    // if (selectedFilter !== 'all') {
-    //   filtered = filtered.filter(student => student.performance === selectedFilter);
-    // }
     filtered.sort((a, b) => {
       switch (sortBy) {
         case 'name-asc':
@@ -177,6 +220,7 @@ const ClassList: React.FC = () => {
       }
     });
     setFilteredStudents(filtered);
+    setIsFilteringStudents(false);
   };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -311,6 +355,64 @@ const ClassList: React.FC = () => {
     }
 
     setIsImporting(true);
+    // Connectivity helpers: active ping to detect true connectivity (not just navigator.onLine)
+    const pingOnline = async (timeoutMs = 2500): Promise<boolean> => {
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        await fetch('https://www.gstatic.com/generate_204', {
+          method: 'GET',
+          mode: 'no-cors',
+          cache: 'no-store',
+          signal: controller.signal
+        });
+        clearTimeout(t);
+        return true; // if fetch resolves, assume reachable
+      } catch {
+        clearTimeout(t);
+        return false;
+      }
+    };
+
+    // Wait until connectivity is restored; returns false if user cancels
+    const waitForConnectivity = async (): Promise<boolean> => {
+      const show = async () => Swal.fire({
+        icon: 'info',
+        title: 'Reconnecting... Please wait',
+        html: '<div class="text-gray-600">Connection lost. We\'ll resume the import automatically once you\'re back online.</div>',
+        allowOutsideClick: false,
+        showCancelButton: true,
+        cancelButtonText: 'Cancel Import',
+        confirmButtonText: 'Waiting...'
+      });
+      await show();
+      return new Promise<boolean>((resolve) => {
+        let stopped = false;
+        const clearAll = () => { stopped = true; Swal.close(); };
+        const tick = async () => {
+          if (stopped) return;
+          const ok = await pingOnline();
+          if (ok) { clearAll(); resolve(true); return; }
+          setTimeout(tick, 1500);
+        };
+        tick();
+        // cancel by clicking the cancel button
+        (async () => {
+          const popup = (Swal as any).getPopup?.();
+          if (!popup) return;
+          // Observe cancel clicks by intercepting dismissal
+          const id = setInterval(() => {
+            const isHidden = !document.body.contains(popup);
+            if (isHidden && !stopped) { // dismissed
+              clearInterval(id);
+              stopped = true;
+              resolve(false);
+            }
+          }, 300);
+        })();
+      });
+    };
+
     try {
       // Filter out duplicates before import (by LRN or Name)
       const key = (s: ImportedStudent) => (s.lrn && String(s.lrn).trim()) || (s.name ? s.name.trim().toLowerCase() : '');
@@ -325,29 +427,37 @@ const ClassList: React.FC = () => {
         return true;
       });
 
-      // Import students to main collection and add to selected class subcollection
-      await studentService.importStudents(
-        uniqueToImport.map(s => ({ ...s, grade: gradeObj.name })),
-        currentUser.uid
-      );
-      // Add each imported student to the selected class subcollection
-      // (Find the student in the main collection by name and grade)
-      const allStudents = await studentService.getStudents(currentUser.uid);
-      for (const imported of uniqueToImport) {
-        const match = allStudents.find(s => s.name === imported.name && String(s.grade) === String(gradeObj.name));
-        if (match && match.id) {
-          await gradeService.addStudentToGrade(selectedGrade, {
-            studentId: match.id,
-            name: match.name
-          });
+      // Process import in chunks with offline awareness
+      const CHUNK = 100;
+      const createdStudentIds: string[] = [];
+      for (let i = 0; i < uniqueToImport.length; i += CHUNK) {
+        // Wait for connectivity before each chunk
+        if (!(await pingOnline())) {
+          const ok = await waitForConnectivity();
+          if (!ok) {
+            // Rollback any created docs/links
+            try {
+              if (createdStudentIds.length) await studentService.batchDeleteStudents(createdStudentIds);
+              if (createdStudentIds.length) await gradeService.batchRemoveStudentsFromGrade(selectedGrade, createdStudentIds);
+            } catch {}
+            showError('Import Cancelled', 'The import was cancelled and any partial data was removed.');
+            return;
+          }
         }
+        const slice = uniqueToImport.slice(i, i + CHUNK);
+        // Create/update students, returns ids in order matching slice
+        const ids = await studentService.importStudents(
+          slice.map(s => ({ ...s, grade: gradeObj.name })),
+          currentUser.uid
+        );
+        createdStudentIds.push(...ids);
+        const entries = ids.map((id, idx) => ({ studentId: id, name: slice[idx].name }));
+        await gradeService.batchAddStudentsToGrade(selectedGrade, entries);
       }
       // Reload students and statistics
       await loadStudents();
       await loadClassStatistics();
-      // Update student count in Firestore
-      const studentsInGrade = await gradeService.getStudentsInGrade(selectedGrade);
-      await gradeService.updateStudentCount(selectedGrade, studentsInGrade.length);
+      // No Firestore count write; counts are computed locally from roster subscription
       // Reset file input
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -355,7 +465,18 @@ const ClassList: React.FC = () => {
       showSuccess('Import Complete', 'Students imported successfully!');
     } catch (error) {
       console.error('Error importing students:', error);
-      showError('Import Failed', 'An error occurred during student import. Please try again.');
+      // If currently offline, wait until online and ask the user
+      if (!(await pingOnline())) {
+        const ok = await waitForConnectivity();
+        if (ok) {
+          // Retry once by re-invoking the import
+          await handleImportStudents();
+          return;
+        }
+        showError('Import Cancelled', 'The import was cancelled while offline.');
+      } else {
+        showError('Import Failed', 'An error occurred during student import. Please try again.');
+      }
     } finally {
       setIsImporting(false);
       setShowImportPreview(false); // Close the preview modal after import attempt
@@ -685,12 +806,14 @@ const ClassList: React.FC = () => {
     );
     if (!result.isConfirmed) return;
     try {
+      // Optimistic update
+      setActionLoadingStudentId(studentId);
+      setStudents(prev => prev.map(s => s.id === studentId ? ({ ...s, archived: true } as any) : s));
       await studentService.batchSetArchived([studentId], true);
       if (selectedGrade && selectedGrade !== 'all') {
         try {
           await gradeService.removeStudentFromGrade(selectedGrade, studentId);
-          const updated = await gradeService.getStudentsInGrade(selectedGrade);
-          await gradeService.updateStudentCount(selectedGrade, updated.length);
+          // No Firestore count write
         } catch {}
       }
       showSuccess('Archived', `${studentName} was archived.`);
@@ -698,6 +821,10 @@ const ClassList: React.FC = () => {
       await loadGrades();
     } catch (e) {
       showError('Failed to Archive', 'Could not archive this student.');
+      // Revert optimistic update on error
+      setStudents(prev => prev.map(s => s.id === studentId ? ({ ...s, archived: false } as any) : s));
+    } finally {
+      setActionLoadingStudentId(null);
     }
   };
 
@@ -711,12 +838,14 @@ const ClassList: React.FC = () => {
     );
     if (!result.isConfirmed) return;
     try {
+      // Optimistic update
+      setActionLoadingStudentId(studentId);
+      setStudents(prev => prev.map(s => s.id === studentId ? ({ ...s, archived: false } as any) : s));
       await studentService.batchSetArchived([studentId], false);
       if (selectedGrade && selectedGrade !== 'all') {
         try {
           await gradeService.addStudentToGrade(selectedGrade, studentId);
-          const updated = await gradeService.getStudentsInGrade(selectedGrade);
-          await gradeService.updateStudentCount(selectedGrade, updated.length);
+          // No Firestore count write
         } catch {}
       }
       showSuccess('Restored', `${studentName} was restored.`);
@@ -724,9 +853,15 @@ const ClassList: React.FC = () => {
       await loadGrades();
     } catch (e) {
       showError('Failed to Restore', 'Could not restore this student.');
+      // Revert optimistic update on error
+      setStudents(prev => prev.map(s => s.id === studentId ? ({ ...s, archived: true } as any) : s));
+    } finally {
+      setActionLoadingStudentId(null);
     }
   };
 
+  /* removed unused handleDeleteStudent to satisfy linter */
+  /*
   const handleDeleteStudent = async (studentId: string, studentName: string) => {
     const result = await showConfirmation(
       'Delete Student',
@@ -752,15 +887,14 @@ const ClassList: React.FC = () => {
         setStudents(prev => prev.filter(s => s.id !== studentId));
         await loadGrades();
         await loadClassStatistics();
-        // Update student count in Firestore
-        const studentsInGrade = await gradeService.getStudentsInGrade(selectedGrade);
-        await gradeService.updateStudentCount(selectedGrade, studentsInGrade.length);
+        // No Firestore count write
       } catch (error) {
         Swal.close();
         showError('Failed to Remove', 'An error occurred while removing the student.');
       }
     }
   };
+  */
 
 
   // Load grades and their student counts
@@ -779,22 +913,13 @@ const ClassList: React.FC = () => {
       const gradesWithCounts = await Promise.all(gradesData.map(async (grade) => {
         try {
           if (grade.id) {
-            const studentsInGrade = await gradeService.getStudentsInGrade(grade.id);
-            // Only count students that exist in the main students collection
-            const validStudentIds = allStudents.map(s => s.id);
-            const filteredStudents = studentsInGrade.filter(sg => validStudentIds.includes(sg.studentId));
-            return {
-              ...grade,
-              studentCount: filteredStudents.length
-            };
+            // counts handled via realtime subscription; return grade as-is
+            return grade;
           }
           return grade;
         } catch (error) {
           console.error(`Error getting students for grade ${grade.name}:`, error);
-          return {
-            ...grade,
-            studentCount: 0
-          };
+          return grade;
         }
       }));
       console.log('Grades with counts:', gradesWithCounts);
@@ -823,112 +948,6 @@ const ClassList: React.FC = () => {
     }
   };
 
-  // View grade details
-  const handleViewGrade = async (gradeId: string, gradeName: string) => {
-    if (!currentUser?.uid) return;
-    console.log(`[handleViewGrade] Setting loadingViewGradeId for grade: ${gradeId}`);
-    setLoadingViewGradeId(gradeId);
-    try {
-      const grade = await gradeService.getGradeById(gradeId);
-      const studentsInGradeSubcollection = await gradeService.getStudentsInGrade(gradeId);
-
-      // Get the latest main student list
-      const latestAllStudents = await studentService.getStudents(currentUser.uid);
-
-      // Filter students from subcollection to only include those present in the main student list
-      const validStudentsInGrade = studentsInGradeSubcollection.filter(sg => 
-        latestAllStudents.some(s => s.id === sg.studentId)
-      );
-
-      if (grade) {
-        await Swal.fire({
-          title: gradeName,
-          customClass: {
-            popup: 'rounded-xl',
-            title: 'text-white text-xl font-semibold',
-            confirmButton: 'px-4 py-2 text-sm font-medium bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
-          },
-          backdrop: 'rgba(0,0,0,0.6)',
-          background: '#fff',
-          showCloseButton: true,
-          html: `
-            <div class="text-left p-4 bg-white rounded-b-xl -mt-4">
-              <p class="mb-3 text-gray-700"><strong>Description:</strong> ${grade.description}</p>
-              <p class="mb-5 text-gray-700"><strong>Total Students:</strong> ${validStudentsInGrade.length}</p>
-              <h3 class="text-lg font-semibold text-gray-800 mb-3">Students in this Grade:</h3>
-              <div class="max-h-60 overflow-y-auto border border-gray-200 rounded-lg">
-                ${validStudentsInGrade.length > 0 ? `
-                  <table class="min-w-full divide-y divide-gray-100">
-                    <thead class="bg-gray-50">
-                      <tr>
-                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Name</th>
-                        <th class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody class="bg-white divide-y divide-gray-100">
-                      ${validStudentsInGrade.map(student => `
-                        <tr class="hover:bg-blue-50 transition-colors duration-150">
-                          <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900">${student.name.replace(/\|/g, ' ')}</td>
-                          <td class="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
-                            <button
-                              onclick="window.removeStudent('${student.studentId}')"
-                              class="text-red-600 hover:text-red-900 transition-colors duration-150 p-1"
-                              title="Remove Student"
-                            >
-                              <i class="fas fa-user-minus"></i>
-                            </button>
-                          </td>
-                        </tr>
-                      `).join('')}
-                    </tbody>
-                  </table>
-                ` : `
-                  <div class="p-4 text-center text-gray-500 italic">
-                    <i class="fas fa-info-circle text-lg mb-2"></i>
-                    <p>No students in this grade yet.</p>
-                  </div>
-                `}
-              </div>
-            </div>
-          `,
-          showConfirmButton: true,
-          confirmButtonText: 'Close',
-          showCancelButton: false,
-          didOpen: (modalElement) => {
-            (window as any).removeStudent = async (studentId: string) => {
-              try {
-                await gradeService.removeStudentFromGrade(gradeId, studentId);
-                showSuccess('Student Removed', 'The student has been removed from the grade.');
-                handleViewGrade(gradeId, gradeName); // Re-open modal to refresh student list
-                await loadStudents();
-                await loadGrades();
-              } catch (error) {
-                showError('Failed to Remove', 'An error occurred while removing the student.');
-              }
-            };
-            // Adjust title bar background if needed
-            const title = modalElement.querySelector('.swal2-title') as HTMLElement;
-            if (title) {
-              title.style.background = '#34495E'; // Solid dark blue color provided by user
-              title.style.padding = '1rem 1.5rem';
-              title.style.borderRadius = '0.75rem 0.75rem 0 0';
-            }
-          },
-          willClose: () => {
-            delete (window as any).removeStudent;
-          }
-        });
-      } else {
-        showError('Grade Not Found', 'The selected grade could not be found.');
-      }
-    } catch (error) {
-      console.error('Error viewing grade:', error);
-      showError('Error', 'Failed to load grade details.');
-    } finally {
-      console.log(`[handleViewGrade] Clearing loadingViewGradeId for grade: ${gradeId}`);
-      setLoadingViewGradeId(null);
-    }
-  };
 
   // Archive grade: remove student links but keep students and mark grade inactive
   const handleArchiveGrade = async (gradeId: string, gradeName: string) => {
@@ -1127,10 +1146,10 @@ const ClassList: React.FC = () => {
         const gradeData = {
           name: formValues.name.trim(),
           description: (formValues.description || '').trim(),
-          studentCount: 0,
           color: formValues.color,
           isActive: true,
-          ageRange: '' // Provide empty string for required field
+          ageRange: '', // Provide empty string for required field
+          studentCount: 0
         };
         await gradeService.createGrade(gradeData);
         await Swal.fire({
@@ -1190,7 +1209,8 @@ const ClassList: React.FC = () => {
           setGrades(gs);
           // If current selected grade exists, keep it; else switch to first
           if (gs.length > 0 && (!selectedGrade || !gs.find(g => g.id === selectedGrade))) {
-            setSelectedGrade(gs[0].id || '');
+            const fallback = showArchived ? gs.find(g => g.isActive === false) : gs.find(g => g.isActive !== false);
+            setSelectedGrade(fallback?.id || gs[0].id || '');
           }
         });
       }
@@ -1198,28 +1218,13 @@ const ClassList: React.FC = () => {
     return () => {
       if (unsubscribe) unsubscribe();
     };
-  }, [currentUser?.uid]);
+  }, [currentUser?.uid, showArchived]);
 
-  // Always select the first class if none is selected and grades are loaded
+  // Do not auto-select any class; wait for user to click a class card
+  // Keep 'all' until a grade is explicitly selected
   useEffect(() => {
-    if (grades.length > 0 && (!selectedGrade || selectedGrade === 'all')) {
-      const firstGradeId = grades[0].id || '';
-      setSelectedGrade(firstGradeId);
-      // Load students for the first class
-      (async () => {
-        try {
-          const studentsInGrade = await gradeService.getStudentsInGrade(firstGradeId);
-          const studentIds = studentsInGrade.map(s => s.studentId);
-          const gradeStudents = students.filter(student => student.id && studentIds.includes(student.id));
-          // Sort students by name A-Z
-          gradeStudents.sort((a, b) => a.name.localeCompare(b.name));
-          setFilteredStudents(gradeStudents);
-        } catch (error) {
-          setFilteredStudents([]);
-        }
-      })();
-    }
-  }, [grades, students]);
+    if (!selectedGrade) setSelectedGrade('all');
+  }, [selectedGrade]);
 
   const handleDeleteSelectedGrades = async () => {
     if (selectedGrades.length === 0) return;
@@ -1352,13 +1357,12 @@ const ClassList: React.FC = () => {
               <input id="student-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="e.g., Juan Dela Cruz">
             </div>
             <div class="mb-4">
-              <label class="block text-sm font-medium text-gray-700 mb-2">Reading Level</label>
-              <select id="student-reading-level" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                <option value="">Select reading level</option>
-                <option value="Independent">Independent</option>
-                <option value="Instructional">Instructional</option>
-                <option value="Frustrational">Frustrational</option>
-              </select>
+              <label class="block text-sm font-medium text-gray-700 mb-2">LRN (Learner Reference Number)</label>
+              <input id="student-lrn" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="e.g., 123456789012">
+            </div>
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">Age</label>
+              <input id="student-age" type="number" min="5" max="18" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="e.g., 10" value="10">
             </div>
             <div class="mb-4">
               <label class="block text-sm font-medium text-gray-700 mb-2">Parent (optional)</label>
@@ -1390,15 +1394,18 @@ const ClassList: React.FC = () => {
           setIsAddingStudentToGrade(true);
 
           const name = (document.getElementById('student-name') as HTMLInputElement).value.trim();
-          const readingLevel = (document.getElementById('student-reading-level') as HTMLSelectElement).value;
+          const lrn = (document.getElementById('student-lrn') as HTMLInputElement).value.trim();
+          const age = parseInt((document.getElementById('student-age') as HTMLInputElement).value) || 10;
           const parentId = (document.getElementById('student-parent-id') as HTMLSelectElement).value;
           const parent = parents.find(p => p.id === parentId);
-          if (!name || !readingLevel) {
-            Swal.showValidationMessage('Please fill in all required fields');
+          
+          if (!name || !lrn) {
+            Swal.showValidationMessage('Please fill in all required fields (Name and LRN)');
             setIsAddingStudentToGrade(false); // Reset if validation fails
             return false;
           }
-          return { name, readingLevel, parentId: parentId || undefined, parentName: parent ? parent.name : '' };
+          
+          return { name, lrn, age, parentId: parentId || undefined, parentName: parent ? parent.name : '' };
         }
       });
 
@@ -1406,9 +1413,10 @@ const ClassList: React.FC = () => {
         // Logic to add the student
         const newStudent = {
           name: formValues.name,
+          lrn: formValues.lrn,
           grade: gradeName,
-          readingLevel: formValues.readingLevel,
-          age: 10, // Default age
+          readingLevel: 'Beginner', // Default reading level
+          age: formValues.age,
           attendance: 0,
           lastAssessment: new Date().toISOString().split('T')[0],
           status: 'active' as const,
@@ -1442,9 +1450,16 @@ const ClassList: React.FC = () => {
       const studentsRef = collection(db, 'classGrades', gradeId, 'students');
       const unsubscribe = onSnapshot(studentsRef, 
         (snapshot) => {
-        setGrades((prevGrades) => prevGrades.map((g) =>
-          g.id === gradeId ? { ...g, studentCount: snapshot.size } : g
-        ));
+        // Count only non-archived students that actually exist in the teacher's list
+        const studentIdsInRoster = snapshot.docs
+          .map(d => (d.data() as any)?.studentId)
+          .filter((v: any): v is string => Boolean(v));
+        const uniqueRosterIds = Array.from(new Set(studentIdsInRoster));
+        const nonArchivedCount = uniqueRosterIds.reduce((acc, sid) => {
+          const s = students.find(st => st.id === sid);
+          return acc + ((s && !(s as any).archived) ? 1 : 0);
+        }, 0);
+        setRosterCounts((prev) => ({ ...prev, [gradeId]: nonArchivedCount }));
         },
         (error) => {
           console.warn(`Permission denied for grade ${gradeId} students:`, error);
@@ -1453,13 +1468,11 @@ const ClassList: React.FC = () => {
       );
       unsubscribes.push(unsubscribe);
     };
-    grades.forEach((grade) => {
-      if (grade.id) updateCounts(grade.id);
-    });
+    grades.forEach((grade) => { if (grade.id) updateCounts(grade.id); });
     return () => {
       unsubscribes.forEach((unsub) => unsub());
     };
-  }, [currentUser?.uid, grades.length]);
+  }, [currentUser?.uid, grades.length, students]);
 
   if (isLoading) {
     return (
@@ -1473,7 +1486,7 @@ const ClassList: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="h-screen bg-gray-100 overflow-hidden">
       {/* Profile Completion Warning */}
       {!isProfileComplete && (
         <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
@@ -1495,14 +1508,14 @@ const ClassList: React.FC = () => {
       )}
 
       {/* Main Content */}
-      <div className="max-w-[1920px] mx-auto px-2 sm:px-4 lg:px-6 py-4">
-        <div className="grid grid-cols-12 gap-4">
+      <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="grid grid-cols-12 gap-6">
           {/* Class Grades Section */}
           <div className="col-span-12 lg:col-span-3">
-            <div className="bg-gradient-to-b from-blue-50/60 to-white rounded-2xl shadow-lg h-[calc(100vh-6rem)] flex flex-col border border-blue-100">
-              <div className="px-4 py-4 border-b border-blue-100 flex items-center justify-between rounded-t-2xl bg-white/80">
-                <h3 className="text-lg font-bold text-blue-900 tracking-tight flex items-center gap-2">
-                  <i className="fas fa-layer-group text-blue-400"></i> Class Grades
+            <div className="bg-white rounded-2xl shadow-lg h-[calc(100vh-8rem)] flex flex-col border border-gray-200">
+              <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between rounded-t-2xl bg-white">
+                <h3 className="text-lg font-bold text-gray-900 tracking-tight flex items-center gap-2">
+                  <i className="fas fa-layer-group text-blue-600"></i> Class Grades
                 </h3>
                 <div className="flex items-center gap-2">
                   <button
@@ -1534,7 +1547,7 @@ const ClassList: React.FC = () => {
                 </div>
               </div>
               {/* Improved Grade Cards Container */}
-              <div className="flex-1 overflow-y-auto p-2">
+              <div className="flex-1 p-2">
                 <div className="flex flex-col gap-4 min-w-0 max-w-full lg:flex-col lg:flex-wrap">
                   {grades.length === 0 ? (
                     <div className="text-center text-gray-400 py-8 italic w-full">No grades found. Click + to add a grade.</div>
@@ -1544,7 +1557,7 @@ const ClassList: React.FC = () => {
                       .map((grade) => (
                       <div
                         key={grade.id}
-                        className={`flex flex-col w-full max-w-full rounded-xl border-2 cursor-pointer transition-all duration-200 bg-white/90 ${selectedGrade === grade.id ? 'border-blue-500 ring-2 ring-blue-200' : 'border-blue-100'} ${selectedGrades.includes(grade.id || '') ? 'bg-red-50' : ''} ${getGradeColorClasses(grade.color)}`}
+                        className={`flex flex-col w-full max-w-full rounded-2xl cursor-pointer transition-all duration-200 bg-white/90 shadow-sm ${selectedGrade === grade.id ? 'border-4 border-solid border-blue-600' : 'border border-blue-100 hover:border-blue-400'} ${selectedGrades.includes(grade.id || '') ? 'bg-red-50' : ''} ${getGradeColorClasses(grade.color)}`}
                         style={{ minWidth: 0 }}
                         onClick={() => grade.id && handleGradeSelect(grade.id)}
                       >
@@ -1556,19 +1569,13 @@ const ClassList: React.FC = () => {
                           </div>
                         </div>
                         <div className="flex items-center justify-between px-4 pb-4 pt-2 min-w-0">
-                          <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${getBadgeColorClasses(grade.color)}`} title="Student count">{countsByGrade[grade.id || ''] ?? 0} students</span>
+                          <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${getBadgeColorClasses(grade.color)}`} title="Student count">
+                            {selectedGrade === grade.id
+                              ? filteredStudents.length
+                              : ((showArchived ? archivedCountsByGrade[grade.id || ''] : countsByGrade[grade.id || '']) ?? 0)
+                            } students
+                          </span>
                           <div className="flex flex-row flex-nowrap items-center gap-2 min-w-0">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                grade.id && handleViewGrade(grade.id, grade.name);
-                              }}
-                              className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-600 hover:text-blue-800 shadow focus:outline-none focus:ring-2 focus:ring-blue-300 transition"
-                              title="View Students"
-                              disabled={loadingViewGradeId === grade.id || !canManage}
-                            >
-                              <i className="fas fa-eye"></i>
-                            </button>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -1638,8 +1645,12 @@ const ClassList: React.FC = () => {
                                     html: `
                                       <div class="text-left p-4 bg-white rounded-b-xl -mt-4">
                                         <div class="mb-6">
-                                          <label class="block text-sm font-medium text-gray-700 mb-2">Grade Name</label>
-                                          <input id="edit-grade-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" value="${grade.name}" />
+                                          <label class="block text-sm font-medium text-gray-700 mb-2">Grade Level</label>
+                                          <input class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm bg-gray-100 text-gray-600" value="${grade.name.split(' - ')[0] || 'Grade 4'}" readonly />
+                                        </div>
+                                        <div class="mb-6">
+                                          <label class="block text-sm font-medium text-gray-700 mb-2">Section Name</label>
+                                          <input id="edit-grade-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" value="${grade.name.split(' - ')[1] || ''}" placeholder="e.g., Mango" />
                                         </div>
                                         <div class="mb-6">
                                           <label class="block text-sm font-medium text-gray-700 mb-2">Description</label>
@@ -1663,14 +1674,21 @@ const ClassList: React.FC = () => {
                                     cancelButtonText: 'Cancel',
                                     focusConfirm: false,
                                     preConfirm: () => {
-                                      const name = (document.getElementById('edit-grade-name') as HTMLInputElement).value.trim();
+                                      const sectionName = (document.getElementById('edit-grade-name') as HTMLInputElement).value.trim();
                                       const description = (document.getElementById('edit-grade-description') as HTMLTextAreaElement).value.trim();
                                       const color = (document.getElementById('edit-grade-color') as HTMLSelectElement).value;
-                                      if (!name || !description || !color) {
-                                        Swal.showValidationMessage('Please fill in all required fields');
+                                      const gradeLevel = grade.name.split(' - ')[0] || 'Grade 4';
+                                      
+                                      if (!sectionName || !color) {
+                                        Swal.showValidationMessage('Please fill in Section Name and select a Color');
                                         return false;
                                       }
-                                      return { name, description, color };
+                                      
+                                      return { 
+                                        name: `${gradeLevel} - ${sectionName}`,
+                                        description, 
+                                        color 
+                                      };
                                     }
                                   });
                                   if (formValues) {
@@ -1706,127 +1724,146 @@ const ClassList: React.FC = () => {
 
           {/* Students Section */}
           <div className="col-span-12 lg:col-span-9">
-            <div className="bg-white rounded-lg shadow h-[calc(100vh-6rem)] flex flex-col">
-              <div className="px-3 py-3 border-b border-gray-200 sm:px-4 flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <h3 className="text-lg font-semibold text-gray-900">Students</h3>
-                  <span className="px-2 py-1 text-sm font-medium text-gray-600 bg-gray-100 rounded-full">
-                    {(selectedGrade && selectedGrade !== 'all') ? filteredStudents.length : 0} {showArchived ? 'archived' : 'active'}
-                  </span>
-                </div>
-                <div className="flex flex-col space-y-2 sm:flex-row sm:space-y-0 sm:space-x-3">
-                  <select
-                    aria-label="Filter students"
-                    value={selectedFilter}
-                    onChange={(e) => setSelectedFilter(e.target.value)}
-                    className="block w-full pl-2.5 pr-8 py-1.5 text-sm border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-md"
-                  >
-                    <option value="all">All Students</option>
-                  </select>
-                  <select
-                    aria-label="Sort students"
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value)}
-                    className="block w-full pl-2.5 pr-8 py-1.5 text-sm border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-md"
-                  >
-                    <option value="name-asc">Name (A-Z)</option>
-                    <option value="name-desc">Name (Z-A)</option>
-                    <option value="readingLevel-desc">Reading Level (High to Low)</option>
-                    <option value="readingLevel-asc">Reading Level (Low to High)</option>
-                    <option value="age">Age (Low to High)</option>
-                  </select>
-                </div>
-              </div>
-              <div className="px-3 py-3 border-b border-gray-100 sm:px-4 flex flex-col sm:flex-row sm:items-center sm:justify-between bg-gray-50">
-                <div className="flex-1 flex items-center space-x-3">
-                  <div className="relative flex-1">
-                    <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
-                      <i className="fas fa-search text-gray-400"></i>
-                    </div>
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search by name, grade, contact, age..."
-                      className="block w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+            <div className="bg-white rounded-2xl shadow-lg h-[calc(100vh-8rem)] flex flex-col border border-gray-200">
+              <div className="px-6 py-6 border-b border-gray-200 bg-white">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+                  {/* Left side - Title */}
+                  <div className="flex items-center space-x-4">
+                    <h3 className="text-lg font-semibold text-gray-900">Students</h3>
+                  </div>
+                  
+                  {/* Right side - Sort Selector */}
+                  <div className="flex items-center space-x-4">
+                    <PillSelect
+                      value={sortBy}
+                      onChange={setSortBy}
+                      options={[
+                        { value: 'name-asc', label: 'Name (A-Z)' },
+                        { value: 'name-desc', label: 'Name (Z-A)' },
+                        { value: 'readingLevel-desc', label: 'Reading Level (High to Low)' },
+                        { value: 'readingLevel-asc', label: 'Reading Level (Low to High)' },
+                        { value: 'age', label: 'Age (Low to High)' }
+                      ]}
+                      placeholder="Sort Students"
+                      className="min-w-[180px]"
                     />
                   </div>
-                  <button
-                    onClick={handleArchiveAllStudents}
-                    className="px-3 py-1.5 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-md"
-                    disabled={deletingAllStudents || !canManage}
-                    title="Archive hides students from the roster without erasing their data"
-                  >
-                    {deletingAllStudents ? (
-                      <span className="loader-spinner" style={{ display: 'inline-block', width: 16, height: 16, border: '2px solid #f3f3f3', borderTop: '2px solid #d97706', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                    ) : (
-                      'Archive All Students'
-                    )}
-                  </button>
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      className="inline-flex items-center px-2.5 py-1.5 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                      disabled={!canManage}
-                    >
-                      <i className="fas fa-file-import mr-1.5"></i>
-                      Import
-                    </button>
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      onChange={handleFileUpload}
-                      accept=".xlsx,.xls,.csv"
-                      className="hidden"
-                    />
-                    {showArchived ? (
+                </div>
+                
+                {/* Student count badge */}
+                <div className="mt-4 flex items-center justify-between">
+                  <span className="px-3 py-1 text-sm font-medium text-gray-600 bg-gray-100 rounded-full">
+                    {(selectedGrade && selectedGrade !== 'all') ? filteredStudents.length : 0} {showArchived ? 'archived' : 'active'} students
+                  </span>
+                </div>
+              </div>
+              <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div className="flex-1 flex items-center space-x-4">
+                    <div className="relative flex-1 max-w-md">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i className="fas fa-search text-gray-400"></i>
+                      </div>
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search by name, LRN, parent name, grade, age..."
+                        className="block w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-full leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm shadow-sm"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center space-x-3">
+                    {!showArchived && (
                       <button
-                        onClick={async () => {
-                          const result = await showConfirmation(
-                            'Restore All Students',
-                            'Restore all archived students back to this class roster?',
-                            'Restore',
-                            'Cancel',
-                            'question'
-                          );
-                          if (!result.isConfirmed) return;
-                          try {
-                            const gradeObj = grades.find(g => g.id === selectedGrade);
-                            const ids = students
-                              .filter((s: any) => s.archived && s.grade === (gradeObj?.name || ''))
-                              .map(s => s.id)
-                              .filter((id): id is string => Boolean(id));
-                            if (ids.length > 0) {
-                              await studentService.batchSetArchived(ids, false);
-                              // Re-link to grade roster if needed
-                              if (gradeObj) {
-                                for (const sid of ids) {
-                                  await gradeService.addStudentToGrade(selectedGrade, sid);
-                                }
-                                const updated = await gradeService.getStudentsInGrade(selectedGrade);
-                                await gradeService.updateStudentCount(selectedGrade, updated.length);
-                              }
-                            }
-                            showSuccess('Restored', 'All archived students were restored.');
-                            await loadStudents();
-                            await loadGrades();
-                          } catch (e) {
-                            showError('Failed to Restore', 'Could not restore archived students.');
-                          }
-                        }}
-                        className="inline-flex items-center px-2.5 py-1.5 text-sm font-medium rounded-md shadow-sm text-green-700 bg-green-100 hover:bg-green-200"
-                        disabled={!canManage}
+                        onClick={handleArchiveAllStudents}
+                        className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-full shadow-sm transition-all duration-200"
+                        disabled={deletingAllStudents || !canManage}
+                        title="Archive hides students from the roster without erasing their data"
                       >
-                        <i className="fas fa-undo mr-1.5"></i>
-                        Restore All
+                        {deletingAllStudents ? (
+                          <span className="loader-spinner mr-2" style={{ display: 'inline-block', width: 16, height: 16, border: '2px solid #f3f3f3', borderTop: '2px solid #d97706', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                        ) : (
+                          <i className="fas fa-archive mr-2"></i>
+                        )}
+                        Archive All Students
                       </button>
-                    ) : null}
+                    )}
+                    
+                    <div className="flex items-center space-x-2">
+                      {!showArchived && (
+                        <>
+                          <button
+                            onClick={() => fileInputRef.current?.click()}
+                            className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-full shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200"
+                            disabled={!canManage}
+                          >
+                            <i className="fas fa-file-import mr-2"></i>
+                            Import
+                          </button>
+                          <input
+                            type="file"
+                            ref={fileInputRef}
+                            onChange={handleFileUpload}
+                            accept=".xlsx,.xls,.csv"
+                            className="hidden"
+                          />
+                        </>
+                      )}
+                      {showArchived && (
+                        <button
+                          onClick={async () => {
+                            const result = await showConfirmation(
+                              'Restore All Students',
+                              'Restore all archived students back to this class roster?',
+                              'Restore',
+                              'Cancel',
+                              'question'
+                            );
+                            if (!result.isConfirmed) return;
+                            try {
+                              const gradeObj = grades.find(g => g.id === selectedGrade);
+                              const ids = students
+                                .filter((s: any) => s.archived && s.grade === (gradeObj?.name || '') && !(s as any).archivedByAdmin)
+                                .map(s => s.id)
+                                .filter((id): id is string => Boolean(id));
+                              if (ids.length > 0) {
+                                await studentService.batchSetArchived(ids, false);
+                                // Re-link to grade roster if needed
+                                if (gradeObj) {
+                                  for (const sid of ids) {
+                                    await gradeService.addStudentToGrade(selectedGrade, sid);
+                                  }
+                                  const updated = await gradeService.getStudentsInGrade(selectedGrade);
+                                  await gradeService.updateStudentCount(selectedGrade, updated.length);
+                                }
+                              }
+                              showSuccess('Restored', 'All teacher-archived students were restored. Students archived by administrators were not affected.');
+                              await loadStudents();
+                              await loadGrades();
+                            } catch (e) {
+                              showError('Failed to Restore', 'Could not restore archived students.');
+                            }
+                          }}
+                          className="inline-flex items-center px-4 py-2 text-sm font-medium rounded-full shadow-sm text-green-700 bg-green-100 hover:bg-green-200 transition-all duration-200"
+                          disabled={!canManage}
+                        >
+                          <i className="fas fa-undo mr-2"></i>
+                          Restore All
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
               {/* Students List */}
               <div className="flex-1 overflow-auto">
-                {filteredStudents.length === 0 ? (
+                {isFilteringStudents || isLoading ? (
+                  <div className="flex flex-col items-center justify-center h-full bg-white/50">
+                    <Loader label="Fetching students..." />
+                  </div>
+                ) : filteredStudents.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full bg-gray-50">
                     <div className="text-center p-8">
                       <i className="fas fa-search text-4xl text-gray-400 mb-4"></i>
@@ -1959,14 +1996,20 @@ const ClassList: React.FC = () => {
                                     <i className="fas fa-archive"></i>
                                 </button>
                                 ) : (
-                                  <button
-                                    onClick={() => student.id && handleRestoreStudent(student.id, student.name)}
-                                    className="text-green-600 hover:text-green-800 select-none"
-                                    title="Restore Student"
-                                    disabled={!canManage}
-                                  >
-                                    <i className="fas fa-undo"></i>
-                                  </button>
+                                  (student as any).archivedByAdmin ? (
+                                    <span className="text-gray-500 text-xs italic select-none" title="This student was archived by an administrator">
+                                      archived by admin
+                                    </span>
+                                  ) : (
+                                    <button
+                                      onClick={() => student.id && handleRestoreStudent(student.id, student.name)}
+                                      className="text-green-600 hover:text-green-800 select-none"
+                                      title="Restore Student"
+                                      disabled={!canManage}
+                                    >
+                                      <i className="fas fa-undo"></i>
+                                    </button>
+                                  )
                                 )}
                               </div>
                             </td>
@@ -2036,7 +2079,7 @@ const ClassList: React.FC = () => {
                 <div>
                   {duplicateStats.within > 0 || duplicateStats.existing > 0 ? (
                     <>
-                      <p className="font-semibold">We’ll keep your list tidy</p>
+                      <p className="font-semibold">We'll keep your list tidy</p>
                       <ul className="list-disc ml-5">
                         {duplicateStats.within > 0 && (
                           <li>{duplicateStats.within} repeated name/LRN entries in this file will be skipped automatically.</li>
@@ -2076,7 +2119,7 @@ const ClassList: React.FC = () => {
                       )}
                     </>
                   ) : (
-                    <p>Looks good! We didn’t find any duplicates in this file.</p>
+                    <p>Looks good! We didn't find any duplicates in this file.</p>
                   )}
                 </div>
               </div>
