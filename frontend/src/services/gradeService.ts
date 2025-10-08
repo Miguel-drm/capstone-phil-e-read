@@ -11,7 +11,6 @@ import {
   orderBy,
   Timestamp,
   serverTimestamp,
-  collectionGroup,
   writeBatch,
   onSnapshot
 } from 'firebase/firestore';
@@ -349,6 +348,43 @@ class GradeService {
     }
   }
 
+  // Batch add many students to a grade roster (skips existing), batched writes
+  async batchAddStudentsToGrade(gradeId: string, entries: { studentId: string; name: string }[]): Promise<void> {
+    const gradeRef = doc(db, this.collectionName, gradeId);
+    const studentsRef = collection(gradeRef, this.studentsSubcollection);
+    const BATCH_SIZE = 400;
+    // Build set of existing studentIds in roster to avoid duplicates
+    const existingSnap = await getDocs(studentsRef);
+    const existing = new Set<string>(existingSnap.docs.map(d => (d.data() as any).studentId).filter(Boolean));
+    const toAdd = entries.filter(e => e.studentId && !existing.has(e.studentId));
+    for (let i = 0; i < toAdd.length; i += BATCH_SIZE) {
+      const batch = writeBatch(db);
+      for (const e of toAdd.slice(i, i + BATCH_SIZE)) {
+        const ref = doc(studentsRef);
+        batch.set(ref, { studentId: e.studentId, name: e.name, gradeId, addedAt: serverTimestamp() });
+      }
+      await batch.commit();
+    }
+  }
+
+  // Batch remove many students from a grade roster
+  async batchRemoveStudentsFromGrade(gradeId: string, studentIds: string[]): Promise<void> {
+    const gradeRef = doc(db, this.collectionName, gradeId);
+    const studentsRef = collection(gradeRef, this.studentsSubcollection);
+    const BATCH_SIZE = 400;
+    for (const sid of studentIds) {
+      const qy = query(studentsRef, where('studentId', '==', sid));
+      const snap = await getDocs(qy);
+      if (snap.empty) continue;
+      const docs = snap.docs;
+      for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+        const batch = writeBatch(db);
+        for (const d of docs.slice(i, i + BATCH_SIZE)) batch.delete(d.ref);
+        await batch.commit();
+      }
+    }
+  }
+
   // Remove a student from a grade
   async removeStudentFromGrade(gradeId: string, studentId: string): Promise<void> {
     try {
@@ -400,21 +436,55 @@ class GradeService {
   async archiveGrade(gradeId: string): Promise<void> {
     try {
       const gradeRef = doc(db, this.collectionName, gradeId);
-      // Archive each student in this grade
+
+      // Read grade to get its name for fallback query
+      const gradeDoc = await getDoc(gradeRef);
+      const gradeData = gradeDoc.exists() ? (gradeDoc.data() as any) : null;
+      const gradeName: string | undefined = gradeData?.name;
+
+      // 1) Archive students linked in the class roster (authoritative membership)
       const studentsRef = collection(gradeRef, this.studentsSubcollection);
-      const snap = await getDocs(studentsRef);
-      if (!snap.empty) {
-        const batch = writeBatch(db);
-        for (const d of snap.docs) {
+      const rosterSnap = await getDocs(studentsRef);
+
+      // We'll collect student ids to avoid duplicate updates if they also match the grade-name query below
+      const studentIdsToArchive = new Set<string>();
+      if (!rosterSnap.empty) {
+        for (const d of rosterSnap.docs) {
           const sid = (d.data() as any).studentId as string;
-          if (sid) {
-            const studentDocRef = doc(db, StudentServiceModule.studentService.getCollectionName(), sid);
-            batch.update(studentDocRef, { archived: true, updatedAt: serverTimestamp() });
+          if (sid) studentIdsToArchive.add(sid);
+        }
+      }
+
+      // 2) Fallback: also archive any student whose `grade` field equals this class name
+      // This handles legacy rows that may not be linked in the roster subcollection.
+      if (gradeName) {
+        try {
+          const q = query(
+            collection(db, StudentServiceModule.studentService.getCollectionName()),
+            where('grade', '==', gradeName)
+          );
+          const byNameSnap = await getDocs(q);
+          for (const d of byNameSnap.docs) {
+            const sid = d.id;
+            if (sid) studentIdsToArchive.add(sid);
           }
+        } catch (e) {
+          // Non-fatal; proceed with whatever we have from roster
+          console.warn('archiveGrade: fallback grade-name query failed:', (e as any)?.message || e);
+        }
+      }
+
+      // Batch update all collected students
+      if (studentIdsToArchive.size > 0) {
+        const batch = writeBatch(db);
+        for (const sid of studentIdsToArchive) {
+          const studentDocRef = doc(db, StudentServiceModule.studentService.getCollectionName(), sid);
+          batch.update(studentDocRef, { archived: true, archivedByAdmin: true, updatedAt: serverTimestamp() });
         }
         await batch.commit();
       }
-      // Mark grade as inactive and set archivedAt (keep studentCount as is for archive view)
+
+      // 3) Mark grade as inactive and set archivedAt (keep studentCount for archive view)
       await updateDoc(gradeRef, { isActive: false, updatedAt: serverTimestamp(), archivedAt: serverTimestamp() });
     } catch (error) {
       console.error('Error archiving grade:', error);
@@ -426,20 +496,50 @@ class GradeService {
   async restoreGrade(gradeId: string): Promise<void> {
     try {
       const gradeRef = doc(db, this.collectionName, gradeId);
-      // Un-archive each student in this grade
+
+      // Read grade to get its name for fallback query
+      const gradeDoc = await getDoc(gradeRef);
+      const gradeData = gradeDoc.exists() ? (gradeDoc.data() as any) : null;
+      const gradeName: string | undefined = gradeData?.name;
+
+      // 1) Collect students linked in the class roster
       const studentsRef = collection(gradeRef, this.studentsSubcollection);
-      const snap = await getDocs(studentsRef);
-      if (!snap.empty) {
-        const batch = writeBatch(db);
-        for (const d of snap.docs) {
+      const rosterSnap = await getDocs(studentsRef);
+      const studentIdsToRestore = new Set<string>();
+      if (!rosterSnap.empty) {
+        for (const d of rosterSnap.docs) {
           const sid = (d.data() as any).studentId as string;
-          if (sid) {
-            const studentDocRef = doc(db, StudentServiceModule.studentService.getCollectionName(), sid);
-            batch.update(studentDocRef, { archived: false, updatedAt: serverTimestamp() });
+          if (sid) studentIdsToRestore.add(sid);
+        }
+      }
+
+      // 2) Fallback: also include any students whose `grade` equals this class name
+      if (gradeName) {
+        try {
+          const q = query(
+            collection(db, StudentServiceModule.studentService.getCollectionName()),
+            where('grade', '==', gradeName)
+          );
+          const byNameSnap = await getDocs(q);
+          for (const d of byNameSnap.docs) {
+            const sid = d.id;
+            if (sid) studentIdsToRestore.add(sid);
           }
+        } catch (e) {
+          console.warn('restoreGrade: fallback grade-name query failed:', (e as any)?.message || e);
+        }
+      }
+
+      // Batch unarchive
+      if (studentIdsToRestore.size > 0) {
+        const batch = writeBatch(db);
+        for (const sid of studentIdsToRestore) {
+          const studentDocRef = doc(db, StudentServiceModule.studentService.getCollectionName(), sid);
+          batch.update(studentDocRef, { archived: false, updatedAt: serverTimestamp() });
         }
         await batch.commit();
       }
+
       await updateDoc(gradeRef, { isActive: true, updatedAt: serverTimestamp(), restoredAt: serverTimestamp() });
     } catch (error) {
       console.error('Error restoring grade:', error);

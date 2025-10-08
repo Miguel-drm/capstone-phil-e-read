@@ -28,6 +28,7 @@ export interface Student {
   parentName?: string;
   status: 'active' | 'pending' | 'inactive';
   teacherId: string;
+  archivedByAdmin?: boolean;
   createdAt?: any;
   updatedAt?: any;
 }
@@ -405,7 +406,7 @@ class StudentService {
   }
 
   // Batch archive/unarchive multiple students
-  async batchSetArchived(studentIds: string[], archived: boolean): Promise<void> {
+  async batchSetArchived(studentIds: string[], archived: boolean, archivedByAdmin: boolean = false): Promise<void> {
     const auth = getAuth();
     if (!auth.currentUser) throw new Error('No authenticated user');
     const BATCH_SIZE = 400;
@@ -414,7 +415,14 @@ class StudentService {
       const chunk = studentIds.slice(i, i + BATCH_SIZE);
       for (const studentId of chunk) {
         const studentRef = doc(db, this.collectionName, studentId);
-        batch.update(studentRef, { archived, updatedAt: serverTimestamp() });
+        const updateData: any = { archived, updatedAt: serverTimestamp() };
+        if (archived && archivedByAdmin) {
+          updateData.archivedByAdmin = true;
+        } else if (!archived) {
+          // When unarchiving, remove the archivedByAdmin flag
+          updateData.archivedByAdmin = false;
+        }
+        batch.update(studentRef, updateData);
       }
       await batch.commit();
     }
