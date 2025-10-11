@@ -23,10 +23,19 @@ export async function logActivity(teacherId: string, activity: Omit<ActivityItem
 export function subscribeToRecentActivities(teacherId: string, onUpdate: (items: ActivityItem[]) => void): Unsubscribe {
   const col = collection(db, 'teachers', teacherId, 'activities');
   const q = query(col, orderBy('createdAt', 'desc'), limit(20));
-  return onSnapshot(q, (snap) => {
-    const items: ActivityItem[] = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
-    onUpdate(items);
-  });
+  return onSnapshot(q, 
+    (snap) => {
+      const items: ActivityItem[] = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+      onUpdate(items);
+    },
+    (error) => {
+      console.warn('Permission denied for activities - disabling real-time updates:', error);
+      // Return empty array on permission error and don't retry
+      onUpdate([]);
+      // Return a no-op unsubscribe function since we can't listen
+      return () => {};
+    }
+  );
 }
 
 

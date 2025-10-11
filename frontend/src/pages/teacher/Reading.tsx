@@ -156,22 +156,36 @@ const Reading: React.FC = () => {
             </div>
             <div class="mb-6">
               <label class="block text-sm font-medium text-gray-700 mb-2">Class/Grade</label>
+              <div class="relative">
               <select 
                 id="session-grade" 
-                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  class="w-full appearance-none border border-gray-300 rounded-lg px-3 py-2 pr-10 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
               >
                 <option value="">Select a class</option>
                 ${grades.map(grade => `
                   <option value="${grade.id}">${grade.name}</option>
                 `).join('')}
               </select>
+                <span class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500">
+                  <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                    <path fillRule="evenodd" d="M10 12a1 1 0 01-.707-.293l-4-4a1 1 0 111.414-1.414L10 9.586l3.293-3.293a1 1 0 111.414 1.414l-4 4A1 1 0 0110 12z" clipRule="evenodd" />
+                  </svg>
+                </span>
+              </div>
             </div>
             </div>
             
             <!-- Right side - Students (50% width) -->
             <div class="w-1/2">
               <h3 class="text-lg font-semibold text-gray-700 mb-2">Select Student</h3>
-              <input id="student-search" placeholder="Search student..." class="w-full mb-3 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+              <div class="relative mb-3">
+                <input id="student-search" placeholder="Search student..." class="w-full px-3 py-2 pl-10 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white" />
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <svg class="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                  </svg>
+                </div>
+              </div>
               <div id="student-display" class="space-y-2 max-h-72 overflow-auto border border-gray-200 rounded-md p-2">
                 <p class="text-sm text-gray-500 italic text-center">Choose a class to list students</p>
               </div>
@@ -355,266 +369,14 @@ const Reading: React.FC = () => {
     });
   };
 
-  // Legacy per-student handlers were used in the old list view; not used in card grid
-  // Keeping minimal no-op to avoid refactoring large blocks while grid is active
-  const handleStudentProceed = (_studentId: string, _studentName: string, sessionId: string) => {
-    if (!sessionId) return;
-    navigate(`/teacher/reading-session/${sessionId}`);
-  };
 
-  const handleStudentEdit = async (studentId: string, studentName: string) => {
-    try {
-      // Get the current student data
-      const student = await studentService.getStudent(studentId);
-      if (!student) {
-        await Swal.fire('Error', 'Student not found', 'error');
-        return;
-      }
 
-      // Show edit form using SweetAlert2
-      const { value: formValues } = await Swal.fire({
-        title: 'Edit Student',
-        html: `
-          <div class="text-left space-y-4">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Student Name</label>
-              <input 
-                id="edit-name" 
-                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
-                value="${student.name}"
-                placeholder="Enter student name"
-              >
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Grade</label>
-              <select 
-                id="edit-grade" 
-                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">Select a grade</option>
-                ${grades.map(grade => `
-                  <option value="${grade.name}" ${grade.name === student.grade ? 'selected' : ''}>${grade.name}</option>
-                `).join('')}
-              </select>
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Reading Level</label>
-              <select 
-                id="edit-reading-level" 
-                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="Beginner" ${student.readingLevel === 'Beginner' ? 'selected' : ''}>Beginner</option>
-                <option value="Intermediate" ${student.readingLevel === 'Intermediate' ? 'selected' : ''}>Intermediate</option>
-                <option value="Advanced" ${student.readingLevel === 'Advanced' ? 'selected' : ''}>Advanced</option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Performance</label>
-              <select 
-                id="edit-performance" 
-                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="Excellent" ${student.performance === 'Excellent' ? 'selected' : ''}>Excellent</option>
-                <option value="Good" ${student.performance === 'Good' ? 'selected' : ''}>Good</option>
-                <option value="Needs Improvement" ${student.performance === 'Needs Improvement' ? 'selected' : ''}>Needs Improvement</option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
-              <select 
-                id="edit-status" 
-                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="active" ${student.status === 'active' ? 'selected' : ''}>Active</option>
-                <option value="pending" ${student.status === 'pending' ? 'selected' : ''}>Pending</option>
-                <option value="inactive" ${student.status === 'inactive' ? 'selected' : ''}>Inactive</option>
-              </select>
-            </div>
-          </div>
-        `,
-        showCancelButton: true,
-        confirmButtonText: 'Update Student',
-        cancelButtonText: 'Cancel',
-        focusConfirm: false,
-        backdrop: 'rgba(0,0,0,0.6)',
-        customClass: {
-          popup: 'rounded-lg shadow-xl w-full max-w-md',
-          title: 'text-xl font-semibold text-gray-900',
-          confirmButton: 'bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md',
-          cancelButton: 'bg-white hover:bg-gray-50 text-gray-700 font-medium py-2 px-4 rounded-md border border-gray-300'
-        },
-        preConfirm: () => {
-          const name = (document.getElementById('edit-name') as HTMLInputElement).value;
-          const grade = (document.getElementById('edit-grade') as HTMLSelectElement).value;
-          const readingLevel = (document.getElementById('edit-reading-level') as HTMLSelectElement).value;
-          const performance = (document.getElementById('edit-performance') as HTMLSelectElement).value;
-          const status = (document.getElementById('edit-status') as HTMLSelectElement).value;
-
-          if (!name || !grade || !readingLevel || !performance || !status) {
-            Swal.showValidationMessage('Please fill in all fields');
-            return false;
-          }
-
-          return {
-            name,
-            grade,
-            readingLevel,
-            performance,
-            status
-          };
-        }
-      });
-
-      if (formValues) {
-        // Update the student
-        await studentService.updateStudent(studentId, formValues);
-        
-        // Reload students to reflect changes
-        await loadStudents();
-        
-        await Swal.fire({
-          icon: 'success',
-          title: 'Student Updated!',
-          text: `${studentName} has been updated successfully.`,
-          timer: 2000,
-          showConfirmButton: false
-        });
-      }
-    } catch (error) {
-      console.error('Error editing student:', error);
-      await Swal.fire({
-        icon: 'error',
-        title: 'Error',
-        text: 'Failed to update student. Please try again.',
-      });
-    }
-  };
-
-  const handleStudentDelete = async (studentName: string, sessionId: string) => {
-    try {
-      // Show confirmation dialog
-      const result = await Swal.fire({
-        title: 'Remove Student from Session',
-        text: `Are you sure you want to remove ${studentName} from this reading session? This will not delete the student from your class list.`,
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonColor: '#d33',
-        cancelButtonColor: '#3085d6',
-        confirmButtonText: 'Yes, remove from session!',
-        cancelButtonText: 'Cancel',
-        backdrop: 'rgba(0,0,0,0.6)',
-        customClass: {
-          popup: 'rounded-lg shadow-xl',
-          title: 'text-xl font-semibold text-gray-900',
-          confirmButton: 'bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-md',
-          cancelButton: 'bg-white hover:bg-gray-50 text-gray-700 font-medium py-2 px-4 rounded-md border border-gray-300'
-        }
-      });
-
-      if (result.isConfirmed) {
-        // Show loading
-        Swal.fire({
-          title: 'Removing...',
-          text: 'Please wait while we remove the student from the session.',
-          allowOutsideClick: false,
-          didOpen: () => {
-            Swal.showLoading();
-          }
-        });
-
-        // Remove the student from the session only
-        await readingSessionService.removeStudentFromSession(sessionId, studentName);
-        
-        // Reload sessions to reflect changes
-        await loadSessions();
-        
-        await Swal.fire({
-          icon: 'success',
-          title: 'Student Removed!',
-          text: `${studentName} has been removed from this reading session.`,
-          timer: 2000,
-          showConfirmButton: false
-        });
-      }
-    } catch (error) {
-      console.error('Error removing student from session:', error);
-      await Swal.fire({
-        icon: 'error',
-        title: 'Error',
-        text: error instanceof Error ? error.message : 'Failed to remove student from session. Please try again.',
-      });
-    }
-  };
 
   const handleOpenSession = (sessionId: string) => {
     if (!sessionId) return;
     navigate(`/teacher/reading-session/${sessionId}`);
   };
 
-  // Student Card Component (currently not used in card grid view)
-  const StudentCard: React.FC<{
-    student: { id: string; name: string };
-    status: 'pending' | 'completed';
-    onProceed: () => void;
-    onEdit: () => void;
-    onDelete: () => void;
-  }> = ({ student, status, onProceed, onEdit, onDelete }) => {
-    const [isExpanded, setIsExpanded] = useState(false);
-
-    return (
-      <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm hover:shadow-md hover:border-blue-200 transition">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-7 h-7 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center">
-              <i className="fas fa-user text-[11px]"></i>
-            </div>
-            <span className="text-sm font-medium text-gray-800 truncate">{student.name}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className={`px-2.5 py-0.5 text-[11px] font-semibold rounded-full ${
-              status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-            }`}>
-              {status === 'completed' ? 'Completed' : 'Pending'}
-            </span>
-            <button
-              onClick={() => setIsExpanded(!isExpanded)}
-              className="text-gray-400 hover:text-gray-600"
-              aria-label="Toggle actions"
-            >
-              <i className={`fas fa-chevron-${isExpanded ? 'up' : 'down'} text-xs`}></i>
-            </button>
-          </div>
-        </div>
-        {isExpanded && (
-          <div className="mt-2 pt-2 border-t border-gray-100">
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={onProceed}
-                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] bg-blue-500 text-white rounded hover:bg-blue-600"
-              >
-                <i className="fas fa-play text-[10px]"></i>
-                Proceed
-              </button>
-              <button
-                onClick={onEdit}
-                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] bg-yellow-500 text-white rounded hover:bg-yellow-600"
-              >
-                <i className="fas fa-edit text-[10px]"></i>
-                Edit
-              </button>
-              <button
-                onClick={onDelete}
-                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] bg-red-500 text-white rounded hover:bg-red-600"
-              >
-                <i className="fas fa-trash text-[10px]"></i>
-                Delete
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex flex-col items-center py-2 sm:py-6">

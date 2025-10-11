@@ -5,11 +5,14 @@ import { PencilSquareIcon } from '@heroicons/react/24/solid';
 import type { Student } from '../../services/studentService';
 import ReactDOM from 'react-dom';
 import Loader from '../../components/Loader';
+import Swal from 'sweetalert2';
+import { useAuth } from '../../contexts/AuthContext';
 
 // Add this type for merged student data
 export type MergedStudent = Student & { studentId?: string };
 
 const Students: React.FC = () => {
+  const { userRole } = useAuth();
   const [students, setStudents] = useState<MergedStudent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -18,6 +21,7 @@ const Students: React.FC = () => {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [parents, setParents] = useState<{ id: string; displayName?: string; email?: string }[]>([]);
   const [deletingStudentId, setDeletingStudentId] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState<boolean>(false);
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -29,7 +33,8 @@ const Students: React.FC = () => {
 
         if (selectedGradeId === 'all') {
           const allStudents = await StudentServiceModule.studentService.getAllStudents();
-          setStudents(allStudents.map(s => ({ ...s })) as MergedStudent[]);
+          const filtered = allStudents.filter(s => showArchived ? (s as any).archived : !(s as any).archived);
+          setStudents(filtered.map(s => ({ ...s })) as MergedStudent[]);
         } else if (selectedGradeId) {
           // Find the grade name for the selectedGradeId
           const gradeObj = grades.find(g => g.id === selectedGradeId);
@@ -40,7 +45,7 @@ const Students: React.FC = () => {
           }
           // Fetch all students and filter by grade name
           const allStudents = await StudentServiceModule.studentService.getAllStudents();
-          const filtered = allStudents.filter(s => s.grade === gradeName);
+          const filtered = allStudents.filter(s => s.grade === gradeName).filter(s => showArchived ? (s as any).archived : !(s as any).archived);
           setStudents(filtered.map(s => ({ ...s })) as MergedStudent[]);
         }
       } catch (err) {
@@ -51,7 +56,7 @@ const Students: React.FC = () => {
       }
     };
     fetchInitialData();
-  }, [selectedGradeId]);
+  }, [selectedGradeId, showArchived]);
 
   useEffect(() => {
     // Fetch parents for linking
@@ -67,6 +72,28 @@ const Students: React.FC = () => {
   };
 
   const handleDeleteStudent = async (student: MergedStudent) => {
+    if (userRole !== 'admin') return;
+    const { value, isConfirmed } = await Swal.fire({
+      icon: 'warning',
+      title: 'Delete Student',
+      html: `<div class="text-left">
+        <p class="mb-2">This will permanently remove <b>${student.name}</b> and their progress.</p>
+        <p class="mb-2">Type <b>Delete</b> to confirm.</p>
+      </div>`,
+      input: 'text',
+      inputPlaceholder: 'Type Delete',
+      showCancelButton: true,
+      confirmButtonText: 'Delete',
+      confirmButtonColor: '#dc2626',
+      preConfirm: (val) => {
+        if ((val || '').trim().toLowerCase() !== 'delete') {
+          Swal.showValidationMessage('Please type Delete to confirm');
+          return false;
+        }
+        return val;
+      }
+    });
+    if (!isConfirmed) return;
     setDeletingStudentId(student.studentId ?? student.id ?? '');
     await StudentServiceModule.studentService.deleteStudent((student.studentId ?? student.id ?? ''));
     setStudents(prev => prev.filter(s => (s.studentId || s.id) !== (student.studentId || student.id)));
@@ -121,6 +148,10 @@ const Students: React.FC = () => {
           <div className="flex justify-between mb-4 items-center">
             <h2 className="text-2xl font-bold text-gray-800">Grades and Sections</h2>
             <div className="flex items-center space-x-4">
+              <label className="inline-flex items-center text-sm text-gray-600">
+                <input type="checkbox" className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} />
+                Show Archived
+              </label>
               <select
                 value={selectedGradeId}
                 onChange={handleGradeChange}
@@ -143,7 +174,7 @@ const Students: React.FC = () => {
                 <PencilSquareIcon className="w-5 h-5" />
               </button>
               <span className="px-2 py-1 text-sm font-medium text-gray-600 bg-gray-100 rounded-full">
-                {students.length} students
+                {students.length} {showArchived ? 'archived' : 'active'}
               </span>
             </div>
           </div>
@@ -162,6 +193,7 @@ const Students: React.FC = () => {
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Linked Parent</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Performance</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -175,6 +207,62 @@ const Students: React.FC = () => {
                         <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{student.parentName || '-'}</td>
                       <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{student.status}</td>
                       <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{student.performance}</td>
+                      <td className="px-4 py-2 whitespace-nowrap text-right text-sm">
+                        {showArchived ? (
+                          <button
+                            className="text-green-600 hover:text-green-800"
+                            title="Restore"
+                            onClick={async () => {
+                              const sid = (student.id || student.studentId)!;
+                              await StudentServiceModule.studentService.batchSetArchived([sid], false);
+                              // Re-link to the correct grade roster by matching grade name
+                              try {
+                                const grade = grades.find(g => g.name === student.grade);
+                                if (grade) {
+                                  await gradeService.addStudentToGrade(grade.id!, sid);
+                                  const updated = await gradeService.getStudentsInGrade(grade.id!);
+                                  await gradeService.updateStudentCount(grade.id!, updated.length);
+                                }
+                              } catch {}
+                              setStudents(prev => prev.filter(s => (s.id || s.studentId) !== (student.id || student.studentId)));
+                            }}
+                          >
+                            <i className="fas fa-undo" />
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              className="text-amber-600 hover:text-amber-800 mr-3"
+                              title="Archive"
+                              onClick={async () => {
+                                const sid = (student.id || student.studentId)!;
+                                await StudentServiceModule.studentService.batchSetArchived([sid], true, true); // archivedByAdmin = true
+                                // Remove from grade roster and update count
+                                try {
+                                  const grade = grades.find(g => g.name === student.grade);
+                                  if (grade) {
+                                    await gradeService.removeStudentFromGrade(grade.id!, sid);
+                                    const updated = await gradeService.getStudentsInGrade(grade.id!);
+                                    await gradeService.updateStudentCount(grade.id!, updated.length);
+                                  }
+                                } catch {}
+                                setStudents(prev => prev.filter(s => (s.id || s.studentId) !== (student.id || student.studentId)));
+                              }}
+                            >
+                              <i className="fas fa-archive" />
+                            </button>
+                            {userRole === 'admin' && (
+                              <button
+                                className="text-red-600 hover:text-red-800"
+                                title="Delete Permanently"
+                                onClick={() => handleDeleteStudent(student)}
+                              >
+                                <i className="fas fa-trash" />
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </td>
                     </tr>
                     );
                   })}

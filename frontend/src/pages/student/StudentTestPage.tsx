@@ -85,6 +85,7 @@ const StudentTestPage: React.FC = () => {
   const gapTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [savingResult, setSavingResult] = useState(false);
   const [showSavedModal, setShowSavedModal] = useState(false);
+  const [teacherName, setTeacherName] = useState<string>('');
   const { userRole, currentUser } = useAuth();
 
   // Ensure studentId and studentName are present
@@ -94,6 +95,26 @@ const StudentTestPage: React.FC = () => {
       navigate(-1);
     }
   }, [studentId, studentName, navigate]);
+
+  // Fetch teacher name
+  useEffect(() => {
+    const fetchTeacherName = async () => {
+      if (!teacherId) return;
+      try {
+        const teacherDoc = await getDoc(doc(db, 'users', teacherId));
+        if (teacherDoc.exists()) {
+          const teacherData = teacherDoc.data();
+          setTeacherName(teacherData.displayName || teacherData.name || 'Unknown Teacher');
+        } else {
+          setTeacherName('Unknown Teacher');
+        }
+      } catch (error) {
+        console.error('Error fetching teacher name:', error);
+        setTeacherName('Unknown Teacher');
+      }
+    };
+    fetchTeacherName();
+  }, [teacherId]);
 
   useEffect(() => {
     const fetchTest = async () => {
@@ -377,8 +398,8 @@ const StudentTestPage: React.FC = () => {
         {showConfetti && <Confetti />}
         {/* Celebration Modal */}
         {submitted && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-            <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12 max-w-2xl w-full flex flex-col items-center border-4 border-green-400 relative">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="bg-white rounded-3xl shadow-2xl p-6 md:p-8 max-w-4xl w-full max-h-[90vh] flex flex-col items-center border-4 border-green-400 relative overflow-hidden">
               {/* X Button to close modal */}
               <button
                 className="absolute top-4 right-4 w-10 h-10 rounded-full bg-red-100 hover:bg-red-300 text-red-600 flex items-center justify-center text-2xl font-bold shadow"
@@ -412,45 +433,183 @@ const StudentTestPage: React.FC = () => {
                       className="px-8 py-3 bg-green-500 text-white rounded-xl text-lg font-bold shadow hover:bg-green-600 transition-all"
                       onClick={() => setShowScoreDetails(true)}
                     >
-                      Show My Score
+                      ISR
                     </button>
                   </div>
                 </>
               ) : (
-                <>
-                  <span className="text-5xl mb-2">🎉</span>
-                  <span className="text-3xl md:text-4xl font-extrabold text-green-600 mb-2">Well Done!</span>
-                  <span className="text-2xl md:text-3xl font-extrabold text-yellow-600 mb-2 flex items-center gap-2">
-                    🏆 Score: {score} / {test!.questions.length}
-                  </span>
-                  {/* Comprehension Percentage */}
-                  {typeof score === 'number' && (
-                    <span
-                      className={`text-xl md:text-2xl font-extrabold mb-4 flex items-center gap-2
-                        ${score / test!.questions.length >= 0.8 ? 'text-green-600' : score / test!.questions.length >= 0.5 ? 'text-orange-500' : 'text-red-600'}`}
-                    >
-                      Comprehension: {Math.round((score / test!.questions.length) * 100)}%
-                    </span>
-                  )}
-                  <div className="w-full max-h-80 overflow-y-auto mb-6">
-                    {test!.questions.map((q, idx) => {
-                      const userAnswerIdx = answers[idx];
-                      const correctIdx = q.correctAnswer;
-                      const isCorrect = userAnswerIdx === correctIdx;
-                      return (
-                        <div key={idx} className={`mb-4 p-4 rounded-xl border-2 ${isCorrect ? 'border-green-300 bg-green-50' : 'border-red-300 bg-red-50'}`}> 
-                          <div className="font-bold text-lg mb-2 text-gray-800">Q{idx + 1}: {q.question}</div>
-                          <div className="flex flex-col md:flex-row gap-2 md:gap-6">
-                            <div className={`font-semibold ${isCorrect ? 'text-green-700' : 'text-red-700'}`}>Your answer: {userAnswerIdx !== -1 ? q.choices[userAnswerIdx] : <span className="italic text-gray-400">No answer</span>}</div>
-                            {!isCorrect && (
-                              <div className="font-semibold text-green-700">Correct answer: {q.choices[correctIdx]}</div>
-                            )}
+                <div className="w-full h-full overflow-y-auto">
+                  {/* ISR Form Header */}
+                  <div className="w-full text-center mb-4 sticky top-0 bg-white pb-4 border-b border-gray-200">
+                    <h2 className="text-xl md:text-2xl font-bold text-blue-900 mb-2">Phil-IRI Form 3A, Pahina 4</h2>
+                    <div className="flex flex-col sm:flex-row justify-center gap-2 sm:gap-4 text-xs sm:text-sm">
+                      <div><strong>School:</strong> CCDES</div>
+                      <div><strong>Teacher:</strong> {teacherName || 'Loading...'}</div>
+                      <div><strong>Student:</strong> {studentName || 'N/A'}</div>
+                    </div>
+                  </div>
+
+                  {/* Part A - Comprehension Section */}
+                  <div className="w-full mb-4 p-4 border-2 border-blue-200 rounded-lg bg-blue-50">
+                    <h3 className="text-base font-bold text-blue-900 mb-4">PART A - Comprehension</h3>
+                    
+                    {/* First Row: Reading Time and Rate */}
+                    <div className="flex flex-col sm:flex-row gap-4 mb-4">
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm font-semibold text-blue-800 whitespace-nowrap">Kabuuang Oras ng Pagbasa:</label>
+                        <input 
+                          type="text" 
+                          className="w-12 px-2 py-1 border border-blue-300 rounded text-center font-semibold text-sm"
+                          value={Math.round((test!.questions.length * 2) / 60)} // Estimated reading time in minutes
+                          readOnly
+                        />
+                        <span className="text-sm text-blue-700">minuto</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm font-semibold text-blue-800 whitespace-nowrap">Rate ng Pagbasa:</label>
+                        <input 
+                          type="text" 
+                          className="w-12 px-2 py-1 border border-blue-300 rounded text-center font-semibold text-sm"
+                          value={Math.round((test!.questions.length * 15) / Math.max(1, Math.round((test!.questions.length * 2) / 60)))} // Estimated WPM
+                          readOnly
+                        />
+                        <span className="text-sm text-blue-700">salita /minuto</span>
+                      </div>
+                    </div>
+
+                    {/* Second Row: Questions Section */}
+                    <div className="mb-2">
+                      <label className="block text-sm font-semibold text-blue-800 mb-3">Sagot sa mga Tanong:</label>
+                      <div className="flex flex-col sm:flex-row gap-4">
+                        <div className="flex items-center gap-2">
+                          <label className="text-sm text-blue-700 whitespace-nowrap">Marka:</label>
+                          <input 
+                            type="text" 
+                            className="w-12 px-2 py-1 border border-blue-300 rounded text-center font-semibold text-sm"
+                            value={typeof score === 'number' ? Math.round((score / test!.questions.length) * 100) : 0}
+                            readOnly
+                          />
+                          <span className="text-sm text-blue-700">%</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <label className="text-sm text-blue-700 whitespace-nowrap">Comprehension Level:</label>
+                          <input 
+                            type="text" 
+                            className="w-24 px-2 py-1 border border-blue-300 rounded text-center font-semibold text-sm"
+                            value={typeof score === 'number' ? (score / test!.questions.length >= 0.8 ? 'Independent' : score / test!.questions.length >= 0.5 ? 'Instructional' : 'Frustration') : 'N/A'}
+                            readOnly
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Part B - Word Reading Section */}
+                  <div className="w-full mb-4 p-3 border-2 border-green-200 rounded-lg bg-green-50">
+                    <h3 className="text-base font-bold text-green-900 mb-3">PART B - Word Reading (Pagbasa)</h3>
+                    <div className="mb-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div>
+                          <label className="text-xs font-semibold text-green-800">Seleksyon:</label>
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-green-700">Level:</span>
+                            <input 
+                              type="text" 
+                              className="w-12 px-1 py-1 border border-green-300 rounded text-center text-xs"
+                              value="3A"
+                              readOnly
+                            />
+                            <span className="text-xs text-green-700">Set:</span>
+                            <input 
+                              type="text" 
+                              className="w-12 px-1 py-1 border border-green-300 rounded text-center text-xs"
+                              value="A"
+                              readOnly
+                            />
                           </div>
                         </div>
-                      );
-                    })}
+                      </div>
+                    </div>
+                    
+                    {/* Miscues Table */}
+                    <div className="mb-3 overflow-x-auto">
+                      <table className="w-full border-collapse border border-green-300 text-xs">
+                        <thead>
+                          <tr className="bg-green-200">
+                            <th className="border border-green-300 px-1 py-1 text-left w-8">#</th>
+                            <th className="border border-green-300 px-1 py-1 text-left">Types of Miscues (Uri ng Mali)</th>
+                            <th className="border border-green-300 px-1 py-1 text-left w-16">Number of Miscues</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[
+                            { id: 1, type: 'Mispronunciation (Maling Bigkas)', miscues: 0 },
+                            { id: 2, type: 'Omission (Pagkakaltas)', miscues: 0 },
+                            { id: 3, type: 'Substitution (Pagpapalit)', miscues: 0 },
+                            { id: 4, type: 'Insertion (Pagsisingit)', miscues: 0 },
+                            { id: 5, type: 'Repetition (Pag-uulit)', miscues: 0 },
+                            { id: 6, type: 'Transposition (Pagpapalit ng lugar)', miscues: 0 },
+                            { id: 7, type: 'Reversal (Paglilipat)', miscues: 0 }
+                          ].map((miscue) => (
+                            <tr key={miscue.id}>
+                              <td className="border border-green-300 px-1 py-1 text-center">{miscue.id}</td>
+                              <td className="border border-green-300 px-1 py-1 text-xs">{miscue.type}</td>
+                              <td className="border border-green-300 px-1 py-1 text-center">
+                                <input 
+                                  type="text" 
+                                  className="w-8 px-1 py-0.5 border border-green-300 rounded text-center text-xs"
+                                  value={miscue.miscues}
+                                  readOnly
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Summary Fields */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+                      <div>
+                        <label className="block font-semibold text-green-800 mb-1">Total Miscues (Kabuuan)</label>
+                        <input 
+                          type="text" 
+                          className="w-full px-2 py-1 border border-green-300 rounded text-center font-semibold text-xs"
+                          value="0"
+                          readOnly
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-semibold text-green-800 mb-1">Number of Words in the Passage</label>
+                        <input 
+                          type="text" 
+                          className="w-full px-2 py-1 border border-green-300 rounded text-center font-semibold text-xs"
+                          value={test!.questions.length * 15} // Estimated words
+                          readOnly
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-semibold text-green-800 mb-1">Word Reading Score</label>
+                        <input 
+                          type="text" 
+                          className="w-full px-2 py-1 border border-green-300 rounded text-center font-semibold text-xs"
+                          value={typeof score === 'number' ? Math.round((score / test!.questions.length) * 100) : 0}
+                          readOnly
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-semibold text-green-800 mb-1">Word Reading Level (Antas ng Pagbasa)</label>
+                        <input 
+                          type="text" 
+                          className="w-full px-2 py-1 border border-green-300 rounded text-center font-semibold text-xs"
+                          value={typeof score === 'number' ? (score / test!.questions.length >= 0.8 ? 'Independent' : score / test!.questions.length >= 0.5 ? 'Instructional' : 'Frustration') : 'N/A'}
+                          readOnly
+                        />
+                      </div>
+                    </div>
                   </div>
-                </>
+
+                </div>
               )}
             </div>
           </div>
@@ -511,7 +670,7 @@ const StudentTestPage: React.FC = () => {
                 <button
                   key={cIdx}
                   type="button"
-                  className={`flex items-center gap-6 w-full h-32 rounded-3xl text-3xl font-extrabold shadow-2xl border-4 transition-all duration-200 px-16
+                  className={`flex items-center gap-4 w-full min-h-32 rounded-3xl text-2xl font-extrabold shadow-2xl border-4 transition-all duration-200 px-8 py-6
                     ${isSelected
                       ? 'bg-green-500 border-green-600 text-white ring-4 ring-green-300'
                       : 'bg-blue-400 border-white text-white hover:ring-4 hover:ring-blue-200'}
@@ -520,8 +679,8 @@ const StudentTestPage: React.FC = () => {
                   disabled={submitted}
                   aria-label={`Select answer ${choice}`}
                 >
-                  <span className="text-4xl mr-4" role="img" aria-label="star">⭐</span>
-                  <span className="truncate text-white drop-shadow-lg">{choice}</span>
+                  <span className="text-3xl flex-shrink-0" role="img" aria-label="star">⭐</span>
+                  <span className="text-white drop-shadow-lg text-center leading-tight break-words">{choice}</span>
                 </button>
               );
             })}
