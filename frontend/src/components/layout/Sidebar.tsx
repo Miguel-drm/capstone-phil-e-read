@@ -100,13 +100,10 @@ const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const sidebarClasses = `
-<<<<<<< HEAD
     fixed top-0 left-0 z-[60] h-screen
     transition-all duration-300 ease-in-out overflow-x-hidden
-=======
     fixed top-0 left-0 z-[30] h-screen
     transition-all duration-300 ease-in-out overflow-x-hidden z-1000
->>>>>>> 8f40653346f8312436bc08ed8571dc08de24748d
     ${isMobile
       ? `w-full max-w-xs ${isOpen ? 'translate-x-0' : '-translate-x-full'}`
       : isCollapsed
@@ -126,9 +123,8 @@ const Sidebar: React.FC<SidebarProps> = ({
           <div className="p-4 flex items-center justify-between border-b border-gray-600 bg-gradient-to-r from-[#1A2530] to-[#2C3E50]">
             <div className={`font-bold transition-all duration-300 ${isCollapsed ? 'opacity-0 w-0' : 'opacity-100'}`}>
               <div className="text-lg md:text-xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
-                Phil E-Read
+                Phil I-Ready
               </div>
-              <div className="text-xs text-gray-300">Dashboard</div>
             </div>
             {isCollapsed && (
               <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg flex items-center justify-center">

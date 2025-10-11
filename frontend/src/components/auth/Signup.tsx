@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import backgroundImage from '../../assets/img/bg.png'; // Make sure to place bg.png in src/assets
+import capstoneLogo from '../../assets/img/capstone-logo.png';
 import Swal from 'sweetalert2';
 
 interface SignupProps {
@@ -98,6 +99,7 @@ const Signup: React.FC<SignupProps> = ({ onSwitchToLogin }) => {
       <div className="absolute inset-0 bg-black opacity-40"></div>
       <form onSubmit={handleSubmit} className="bg-white rounded-xl p-6 sm:p-8 w-full max-w-md flex flex-col gap-4 relative z-10">
         <div className="mb-2 text-center">
+          <img src={capstoneLogo} alt="Capstone Logo" className="mx-auto mb-4 h-16 w-auto" />
           <h2 className="text-2xl font-bold text-blue-700 mb-1">Create Account</h2>
           <p className="text-gray-500 text-sm">Join us and start your journey!</p>
         </div>
