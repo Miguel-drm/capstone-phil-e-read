@@ -43,8 +43,16 @@ const ClassPerformanceChart: React.FC<ClassPerformanceChartProps> = ({ className
 
     const resizeHandler = () => chartInstance.current?.resize();
     window.addEventListener('resize', resizeHandler);
+
+    // Observe container size changes (e.g., sidebar collapse)
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && chartRef.current?.parentElement) {
+      observer = new ResizeObserver(() => resizeHandler());
+      observer.observe(chartRef.current.parentElement);
+    }
     return () => {
       window.removeEventListener('resize', resizeHandler);
+      if (observer) observer.disconnect();
       chartInstance.current?.dispose();
       chartInstance.current = null;
     };
@@ -225,13 +233,14 @@ const ClassPerformanceChart: React.FC<ClassPerformanceChartProps> = ({ className
   return (
     <div className="bg-white rounded-2xl p-4 transition-all duration-300">
       <div className="p-4">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 lg:mb-6 space-y-3 sm:space-y-0">
-          <div>
+        <div className="flex flex-col sm:grid sm:grid-cols-3 sm:items-center mb-4 lg:mb-6 space-y-3 sm:space-y-0">
+          <div className="whitespace-nowrap">
             <h3 className="text-base md:text-lg font-semibold text-[#2C3E50]">Class Performance</h3>
             <p className="text-xs md:text-sm text-gray-500 mt-1">Average performance scores by class</p>
           </div>
-          {/* No Show/Hide All button per requirement */}
-          <div className="flex flex-wrap gap-2">
+          <div className="hidden sm:block" />
+          {/* Filter chips aligned right to match student graph right-side controls */}
+          <div className="flex flex-wrap gap-2 sm:justify-self-end">
             {classNames.map((className, index) => {
               const colors = [
                 '#10b981', '#3b82f6', '#f59e0b', '#ef4444', 

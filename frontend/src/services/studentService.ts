@@ -21,12 +21,14 @@ export interface Student {
   grade: string;
   readingLevel: string;
   lrn?: string;
+  age?: number;
   performance: 'Excellent' | 'Good' | 'Needs Improvement';
   lastAssessment: string;
   parentId?: string;
   parentName?: string;
   status: 'active' | 'pending' | 'inactive';
   teacherId: string;
+  archivedByAdmin?: boolean;
   createdAt?: any;
   updatedAt?: any;
 }
@@ -38,6 +40,7 @@ export interface ImportedStudent {
   grade: string;
   readingLevel: string;
   lrn?: string;
+  age?: number;
   performance?: string;
   parentId?: string;
   parentName?: string;
@@ -261,6 +264,7 @@ class StudentService {
             grade: studentData.grade, // Update grade if changed
             readingLevel: studentData.readingLevel, // Update reading level if changed
             lrn: studentData.lrn || null, // Update LRN if changed
+            age: studentData.age || null, // Update age if changed
             performance: studentData.performance || 'Good', // Update performance if changed
             parentId: studentData.parentId || null, // Update parent info
             parentName: studentData.parentName || null, // Update parent info
@@ -274,6 +278,7 @@ class StudentService {
 
           batch.set(docRef, {
             ...studentData,
+            age: studentData.age || null,
             performance: (studentData.performance || 'Good') as const,
             lastAssessment: new Date().toISOString().split('T')[0],
             status: 'active' as const, // Set as active upon import
@@ -400,6 +405,29 @@ class StudentService {
     // NOTE: If you want to clean up grade subcollections, do it in a separate function for performance.
   }
 
+  // Batch archive/unarchive multiple students
+  async batchSetArchived(studentIds: string[], archived: boolean, archivedByAdmin: boolean = false): Promise<void> {
+    const auth = getAuth();
+    if (!auth.currentUser) throw new Error('No authenticated user');
+    const BATCH_SIZE = 400;
+    for (let i = 0; i < studentIds.length; i += BATCH_SIZE) {
+      const batch = writeBatch(db);
+      const chunk = studentIds.slice(i, i + BATCH_SIZE);
+      for (const studentId of chunk) {
+        const studentRef = doc(db, this.collectionName, studentId);
+        const updateData: any = { archived, updatedAt: serverTimestamp() };
+        if (archived && archivedByAdmin) {
+          updateData.archivedByAdmin = true;
+        } else if (!archived) {
+          // When unarchiving, remove the archivedByAdmin flag
+          updateData.archivedByAdmin = false;
+        }
+        batch.update(studentRef, updateData);
+      }
+      await batch.commit();
+    }
+  }
+
   // Get all students (admin use)
   async getAllStudents(): Promise<Student[]> {
     try {
@@ -420,6 +448,23 @@ class StudentService {
     } catch (error) {
       console.error('Error getting total students count:', error);
       throw new Error('Failed to fetch total students count');
+    }
+  }
+
+  // Get count of active (non-archived) students
+  async getActiveStudentsCount(): Promise<number> {
+    try {
+      const q = query(collection(db, this.collectionName));
+      const querySnapshot = await getDocs(q);
+      let count = 0;
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data() as any;
+        if (!data.archived) count += 1;
+      });
+      return count;
+    } catch (error) {
+      console.error('Error getting active students count:', error);
+      throw new Error('Failed to fetch active students count');
     }
   }
 

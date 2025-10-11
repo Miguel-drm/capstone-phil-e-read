@@ -2,12 +2,17 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as echarts from 'echarts';
 import { type Student } from '../../../services/studentService';
 import { type ClassGrade } from '../../../services/gradeService';
+import PillSelect, { type PillOption } from '../../ui/PillSelect';
+import { useAuth } from '../../../contexts/AuthContext';
+import { db } from '../../../config/firebase';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 
 interface PerformanceChartProps {
   data: {
-    weeks: string[];
-    studentScores: number[];
-    classAverages: number[];
+    assessmentPeriods: string[];
+    oralReadingScores: number[];
+    comprehensionScores: number[];
+    readingLevels: string[]; // Independent, Instructional, Frustration
   };
   grades: ClassGrade[];
   students: Student[];
@@ -21,14 +26,88 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, grades, stude
   const [selectedGrade, setSelectedGrade] = useState<string>('');
   const [selectedStudent, setSelectedStudent] = useState<string>('');
   const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
+  const [selectedMetric, setSelectedMetric] = useState<'oral' | 'comprehension' | 'reading-level'>('oral');
+  const { currentUser } = useAuth();
+
+  // realtime computed data
+  const [computedData, setComputedData] = useState<{
+    assessmentPeriods: string[];
+    oralReadingScores: number[];
+    comprehensionScores: number[];
+    readingLevels: number[]; // numeric buckets 1..3 for charting
+  }>({
+    assessmentPeriods: ['Grade III', 'Grade IV', 'Grade V', 'Grade VI'],
+    oralReadingScores: [],
+    comprehensionScores: [],
+    readingLevels: []
+  });
 
   const safeData = {
-    weeks: Array.isArray(data?.weeks) ? data.weeks : [],
-    studentScores: Array.isArray(data?.studentScores) ? data.studentScores : [],
-    classAverages: Array.isArray(data?.classAverages) ? data.classAverages : [],
+    assessmentPeriods: computedData.assessmentPeriods.length ? computedData.assessmentPeriods : (Array.isArray(data?.assessmentPeriods) ? data.assessmentPeriods : []),
+    oralReadingScores: computedData.oralReadingScores.length ? computedData.oralReadingScores : (Array.isArray(data?.oralReadingScores) ? data.oralReadingScores : []),
+    comprehensionScores: computedData.comprehensionScores.length ? computedData.comprehensionScores : (Array.isArray(data?.comprehensionScores) ? data.comprehensionScores : []),
+    readingLevels: computedData.readingLevels.length ? computedData.readingLevels : (Array.isArray(data?.readingLevels) ? (data.readingLevels as any as number[]) : []),
   };
   const safeGrades = Array.isArray(grades) ? grades : [];
   const safeStudents = Array.isArray(students) ? students : [];
+
+  // Get current data based on selected metric
+  const getCurrentData = () => {
+    switch (selectedMetric) {
+      case 'oral':
+        return {
+          data: safeData.oralReadingScores,
+          name: 'Oral Reading Fluency',
+          color: '#3b82f6',
+          yAxisMax: 100,
+          yAxisMin: 0,
+          formatter: '{value}%'
+        };
+      case 'comprehension':
+        return {
+          data: safeData.comprehensionScores,
+          name: 'Comprehension Score',
+          color: '#10b981',
+          yAxisMax: 100,
+          yAxisMin: 0,
+          formatter: '{value}%'
+        };
+      case 'reading-level':
+        return {
+          data: safeData.readingLevels.map(level => {
+            switch (level) {
+              case 'Independent': return 3;
+              case 'Instructional': return 2;
+              case 'Frustration': return 1;
+              default: return 0;
+            }
+          }),
+          name: 'Reading Level',
+          color: '#f59e0b',
+          yAxisMax: 3,
+          yAxisMin: 0,
+          formatter: (value: number) => {
+            switch (value) {
+              case 3: return 'Independent';
+              case 2: return 'Instructional';
+              case 1: return 'Frustration';
+              default: return '';
+            }
+          }
+        };
+      default:
+        return {
+          data: safeData.oralReadingScores,
+          name: 'Oral Reading Fluency',
+          color: '#3b82f6',
+          yAxisMax: 100,
+          yAxisMin: 0,
+          formatter: '{value}%'
+        };
+    }
+  };
+
+  const currentMetric = getCurrentData();
 
   // Default to first grade if available
   useEffect(() => {
@@ -52,6 +131,84 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, grades, stude
     }
     setSelectedStudent('');
   }, [selectedGrade, safeStudents, safeGrades]);
+
+  // Realtime subscription to results for selected filters -> compute data arrays
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+    const labels = ['Grade III', 'Grade IV', 'Grade V', 'Grade VI'];
+    const labelIndex = (gradeName: string | undefined): number => {
+      if (!gradeName) return -1;
+      const upper = gradeName.toUpperCase();
+      if (upper.includes('III')) return 0;
+      if (upper.includes('IV')) return 1;
+      if (upper.includes('V ')) return 2; // space to avoid VI
+      if (upper.endsWith(' V')) return 2;
+      if (upper.includes('VI')) return 3;
+      return -1;
+    };
+
+    const gradeIdToName = new Map<string, string>();
+    (Array.isArray(grades) ? grades : []).forEach(g => { if (g.id) gradeIdToName.set(g.id, g.name); });
+
+    const conditions = [where('teacherId', '==', currentUser.uid)];
+    if (selectedStudent) conditions.push(where('studentId', '==', selectedStudent));
+    else if (selectedGrade) conditions.push(where('gradeId', '==', selectedGrade));
+
+    const col = collection(db, 'readingResults');
+    const q = query(col, ...conditions);
+    const unsub = onSnapshot(q, (snap) => {
+      const oralSums = [0,0,0,0];
+      const oralCounts = [0,0,0,0];
+      const compSums = [0,0,0,0];
+      const compCounts = [0,0,0,0];
+      const levelSums = [0,0,0,0];
+      const levelCounts = [0,0,0,0];
+      snap.forEach(ds => {
+        const d: any = ds.data();
+        const gName = d.gradeName || gradeIdToName.get(d.gradeId) || '';
+        const idx = labelIndex(gName);
+        if (idx < 0) return;
+        const accuracy: number | undefined = d.oralReadingScore ?? d.accuracy ?? d.score;
+        if (typeof accuracy === 'number') {
+          oralSums[idx] += Math.max(0, Math.min(100, accuracy));
+          oralCounts[idx] += 1;
+        }
+        const comp: number | undefined = d.comprehension ?? (typeof d.correctAnswers === 'number' && typeof d.totalQuestions === 'number' && d.totalQuestions > 0 ? (d.correctAnswers / d.totalQuestions) * 100 : undefined);
+        if (typeof comp === 'number') {
+          compSums[idx] += Math.max(0, Math.min(100, comp));
+          compCounts[idx] += 1;
+        }
+        // reading level mapping
+        const levelName: string | undefined = d.readingLevel || d.level || d.readingLevelName;
+        let levelVal: number | undefined;
+        if (typeof levelName === 'string') {
+          const name = levelName.toLowerCase();
+          if (name.startsWith('independent')) levelVal = 3;
+          else if (name.startsWith('instruction')) levelVal = 2;
+          else levelVal = 1;
+        } else if (typeof accuracy === 'number') {
+          if (accuracy >= 97) levelVal = 3; else if (accuracy >= 90) levelVal = 2; else levelVal = 1;
+        }
+        if (typeof levelVal === 'number') {
+          levelSums[idx] += levelVal;
+          levelCounts[idx] += 1;
+        }
+      });
+
+      const avg = (s: number[], c: number[], max=100) => s.map((v,i)=> c[i] ? Number((v/c[i]).toFixed(2)) : 0);
+      setComputedData({
+        assessmentPeriods: labels,
+        oralReadingScores: avg(oralSums, oralCounts),
+        comprehensionScores: avg(compSums, compCounts),
+        readingLevels: avg(levelSums, levelCounts, 3)
+      });
+    }, (err) => {
+      console.warn('PerformanceChart subscribe error:', err);
+      setComputedData({ assessmentPeriods: labels, oralReadingScores: [], comprehensionScores: [], readingLevels: [] });
+    });
+
+    return () => unsub();
+  }, [currentUser?.uid, selectedGrade, selectedStudent, grades]);
 
   useEffect(() => {
     if (chartRef.current) {
@@ -82,7 +239,7 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, grades, stude
           }
         },
         legend: {
-          data: ['Average Score', 'Class Average'],
+          data: [currentMetric.name],
           textStyle: {
             fontSize: 12,
             color: '#6b7280'
@@ -100,7 +257,7 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, grades, stude
         xAxis: {
           type: 'category',
           boundaryGap: false,
-          data: safeData.weeks,
+          data: safeData.assessmentPeriods,
           axisLabel: {
             fontSize: 11,
             color: '#6b7280',
@@ -117,12 +274,12 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, grades, stude
         },
         yAxis: {
           type: 'value',
-          max: 100,
-          min: 0,
+          max: currentMetric.yAxisMax,
+          min: currentMetric.yAxisMin,
           axisLabel: {
             fontSize: 11,
             color: '#6b7280',
-            formatter: '{value}%'
+            formatter: typeof currentMetric.formatter === 'function' ? currentMetric.formatter : currentMetric.formatter
           },
           axisLine: {
             show: false
@@ -139,18 +296,18 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, grades, stude
         },
         series: [
           {
-            name: 'Average Score',
+            name: currentMetric.name,
             type: 'line',
-            data: safeData.studentScores,
+            data: currentMetric.data,
             smooth: true,
             symbol: 'circle',
             symbolSize: 8,
             lineStyle: {
               width: 3,
-              color: '#3b82f6'
+              color: currentMetric.color
             },
             itemStyle: {
-              color: '#3b82f6',
+              color: currentMetric.color,
               borderWidth: 2,
               borderColor: '#ffffff'
             },
@@ -162,8 +319,8 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, grades, stude
                 x2: 0,
                 y2: 1,
                 colorStops: [
-                  { offset: 0, color: 'rgba(59, 130, 246, 0.2)' },
-                  { offset: 1, color: 'rgba(59, 130, 246, 0.05)' }
+                  { offset: 0, color: `${currentMetric.color}33` },
+                  { offset: 1, color: `${currentMetric.color}0D` }
                 ]
               }
             },
@@ -176,80 +333,107 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, grades, stude
             markLine: targetLine ? {
               data: [{ yAxis: targetLine, name: 'Target' }],
               lineStyle: { color: '#f59e0b', type: 'dashed' },
-              label: { formatter: `Target ${targetLine}%` }
+              label: { formatter: `Target Level ${targetLine}` }
             } : undefined
-          },
-          {
-            name: 'Class Average',
-            type: 'line',
-            data: safeData.classAverages,
-            smooth: true,
-            symbol: 'circle',
-            symbolSize: 8,
-            lineStyle: {
-              width: 3,
-              color: '#10b981'
-            },
-            itemStyle: {
-              color: '#10b981',
-              borderWidth: 2,
-              borderColor: '#ffffff'
-            },
-            areaStyle: {
-              color: {
-                type: 'linear',
-                x: 0,
-                y: 0,
-                x2: 0,
-                y2: 1,
-                colorStops: [
-                  { offset: 0, color: 'rgba(16, 185, 129, 0.2)' },
-                  { offset: 1, color: 'rgba(16, 185, 129, 0.05)' }
-                ]
-              }
-            }
           }
         ]
       };
       chartInstance.current.setOption(option);
+
       const resizeHandler = () => {
         chartInstance.current?.resize();
       };
+
+      // Resize on window size changes
       window.addEventListener('resize', resizeHandler);
+
+      // Also resize when the container's size changes (e.g., sidebar collapse)
+      let observer: ResizeObserver | null = null;
+      if (typeof ResizeObserver !== 'undefined' && chartRef.current?.parentElement) {
+        observer = new ResizeObserver(() => resizeHandler());
+        observer.observe(chartRef.current.parentElement);
+      }
+
       return () => {
         window.removeEventListener('resize', resizeHandler);
+        if (observer) observer.disconnect();
         chartInstance.current?.dispose();
       };
     }
-  }, [data]);
+  }, [data, selectedMetric]);
 
   return (
     <div className="bg-white rounded-2xl p-4 transition-all duration-300">
       <div className="p-4">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 lg:mb-6 space-y-3 sm:space-y-0">
-          <h3 className="text-base md:text-lg font-semibold text-[#2C3E50]">{title ? `Performance - ${title}` : 'Students Performance'}</h3>
-          <div className="flex items-center space-x-2">
-            <select
+        <div className="flex flex-col sm:grid sm:grid-cols-3 sm:items-center mb-4 lg:mb-6 space-y-3 sm:space-y-0">
+          <h3 className="text-base md:text-lg font-semibold text-[#2C3E50] whitespace-nowrap pr-3 flex-shrink-0">{title ? `Reading Progress - ${title}` : 'Student Reading Progress'}</h3>
+          {/* Metric Toggle Buttons - perfectly centered in column 2 */}
+          <div className="flex justify-center sm:justify-center sm:col-start-2">
+            <div role="tablist" aria-label="Metric selector" className="inline-flex items-center bg-gray-100 rounded-full p-1 shadow-inner">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={selectedMetric === 'oral'}
+                onClick={() => setSelectedMetric('oral')}
+                className={`px-3 py-1.5 text-xs rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-400 ${
+                  selectedMetric === 'oral'
+                    ? 'bg-blue-600 text-white shadow'
+                    : 'text-gray-700 hover:text-gray-900 hover:bg-white'
+                }`}
+                title="Show Oral Reading (0-100%)"
+              >
+                Oral Reading
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={selectedMetric === 'comprehension'}
+                onClick={() => setSelectedMetric('comprehension')}
+                className={`px-3 py-1.5 text-xs rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-green-400 ${
+                  selectedMetric === 'comprehension'
+                    ? 'bg-green-600 text-white shadow'
+                    : 'text-gray-700 hover:text-gray-900 hover:bg-white'
+                }`}
+                title="Show Comprehension (0-100%)"
+              >
+                Comprehension
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={selectedMetric === 'reading-level'}
+                onClick={() => setSelectedMetric('reading-level')}
+                className={`px-3 py-1.5 text-xs rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-orange-400 ${
+                  selectedMetric === 'reading-level'
+                    ? 'bg-orange-500 text-white shadow'
+                    : 'text-gray-700 hover:text-gray-900 hover:bg-white'
+                }`}
+                title="Show Reading Level (Independent / Instructional / Frustration)"
+              >
+                Reading Level
+              </button>
+            </div>
+          </div>
+
+          {/* Grade and Student Selectors - always right aligned in column 3 */}
+          <div className="sm:justify-self-end">
+            <div className="inline-flex items-center bg-gray-100 rounded-full p-1 shadow-inner gap-1">
+              <PillSelect
+                ariaLabel="Select Class"
+                options={(safeGrades.length === 0 ? [{ label: 'No Classes', value: '' }] : safeGrades.map(g => ({ label: g.name, value: g.id || '' }))) as PillOption[]}
               value={selectedGrade}
-              onChange={(e) => setSelectedGrade(e.target.value)}
-              className="px-2 py-1 text-xs border rounded-md"
-            >
-              {safeGrades.length === 0 && <option value="">No Classes</option>}
-              {safeGrades.map((grade) => (
-                <option key={grade.id} value={grade.id}>{grade.name}</option>
-              ))}
-            </select>
-            <select
+                onChange={setSelectedGrade}
+                placeholder="No Classes"
+              />
+              <PillSelect
+                ariaLabel="Select Student"
+                options={[{ label: 'Select Student', value: '' }, ...((Array.isArray(filteredStudents) ? filteredStudents : []).map(s => ({ label: s.name.replace(' | ', ' '), value: s.id || '' })))]}
               value={selectedStudent}
-              onChange={(e) => setSelectedStudent(e.target.value)}
-              className="px-2 py-1 text-xs border rounded-md"
+                onChange={setSelectedStudent}
               disabled={!selectedGrade}
-            >
-              <option value="">Select Student</option>
-              {(Array.isArray(filteredStudents) ? filteredStudents : []).map((student) => (
-                <option key={student.id} value={student.id}>{student.name.replace(' | ', ' ')}</option>
-              ))}
-            </select>
+                placeholder="Select Student"
+              />
+            </div>
           </div>
         </div>
         <div ref={chartRef} className="w-full h-64 sm:h-72" />
