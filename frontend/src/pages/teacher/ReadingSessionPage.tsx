@@ -568,12 +568,15 @@ const ReadingSessionPage: React.FC = () => {
 
         setCurrentSession(sessionData);
 
-        // Get all stories firsts
-        const stories = await UnifiedStoryService.getInstance().getStories({});
-        console.log('All stories:', stories);
+        // Get all stories first and ensure it's always an array in prod builds
+        const storiesResp = await UnifiedStoryService.getInstance().getStories({});
+        const stories: Story[] = Array.isArray(storiesResp)
+          ? storiesResp
+          : (Array.isArray((storiesResp as any)?.data) ? (storiesResp as any).data : []);
+        console.log('All stories (normalized array):', stories);
 
         // Extract story by _id or title for compatibility
-        const story = stories.find((s: Story) => s._id === sessionData.book || s.title === sessionData.book);
+        const story = stories.find((s: Story) => s && (s._id === sessionData.book || s.title === sessionData.book));
 
         if (!story || !story._id) {
           throw new Error('Story not found');

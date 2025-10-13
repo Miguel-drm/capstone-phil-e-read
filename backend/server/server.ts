@@ -41,8 +41,11 @@ const audioUpload = multer({ storage: multer.memoryStorage() });
 // Middleware
 app.use(cors({
   origin: isProduction
-    ? 'https://phileread-api.onrender.com'
-    : '*',
+    ? ['https://phileread-frontend.onrender.com']
+    : ['http://localhost:5173', 'http://localhost:5174'],
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization'],
+  credentials: false
 }));
 app.use(express.json());
 
@@ -99,7 +102,7 @@ app.use(express.json());
 
         // Fix pdfUrl and categories for each story
         const baseUrl = isProduction
-          ? 'https://phil-e-read-1.onrender.com'
+          ? 'https://phileread-api.onrender.com'
           : `http://localhost:${PORT}`;
 
         const fixedStories = stories.map(story => {
