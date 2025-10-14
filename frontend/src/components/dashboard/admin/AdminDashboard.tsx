@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getTeachersCount, getParentsCount } from '../../../services/authService';
 import { studentService } from '../../../services/studentService';
 import StatsCards from '@/components/dashboard/teacher/StatsCards';
@@ -7,10 +8,73 @@ import { db } from '@/config/firebase';
 import * as echarts from 'echarts';
 import PillSelect from '../../ui/PillSelect';
 
+// Robust Firestore date parser: supports Timestamp, {seconds,nanoseconds}, millis, ISO string, Date
+const parseFirestoreDate = (value: any): Date | null => {
+  if (!value) return null;
+  try {
+    // Firestore Timestamp
+    if (typeof value?.toDate === 'function') {
+      const d = value.toDate();
+      return Number.isNaN(d?.getTime()) ? null : d;
+    }
+    // { seconds, nanoseconds }
+    if (typeof value === 'object' && typeof value.seconds === 'number') {
+      const ms = value.seconds * 1000 + (typeof value.nanoseconds === 'number' ? Math.floor(value.nanoseconds / 1e6) : 0);
+      const d = new Date(ms);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    // Milliseconds number
+    if (typeof value === 'number') {
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    // ISO/string
+    if (typeof value === 'string') {
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    // Date instance
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime()) ? null : value;
+    }
+  } catch (_e) {
+    return null;
+  }
+  return null;
+};
+
+// Get year and month in a specific IANA timezone (default Asia/Manila)
+const getYearMonthInTimeZone = (date: Date, timeZone: string = 'Asia/Manila'): { year: number; month0: number } => {
+  // Fallback approach using toLocaleString to avoid rare Intl edge-cases
+  const localString = date.toLocaleString('en-US', { timeZone });
+  const local = new Date(localString);
+  const year = local.getFullYear();
+  const month0 = local.getMonth(); // 0-based
+  return { year, month0 };
+};
+
+// Get YYYY, MM (1-12), DD in specific timezone
+const getYMDInTimeZone = (date: Date, timeZone: string = 'Asia/Manila'): { y: number; m1: number; d: number } => {
+  const y = parseInt(new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric' }).format(date), 10);
+  const m1 = parseInt(new Intl.DateTimeFormat('en-US', { timeZone, month: '2-digit' }).format(date), 10);
+  const d = parseInt(new Intl.DateTimeFormat('en-US', { timeZone, day: '2-digit' }).format(date), 10);
+  return { y, m1, d };
+};
+
+// Day difference in given timezone based on local midnights
+const daysDiffInTimeZone = (later: Date, earlier: Date, timeZone: string = 'Asia/Manila'): number => {
+  const n = getYMDInTimeZone(later, timeZone);
+  const e = getYMDInTimeZone(earlier, timeZone);
+  const laterUTC = Date.UTC(n.y, n.m1 - 1, n.d);
+  const earlierUTC = Date.UTC(e.y, e.m1 - 1, e.d);
+  return Math.floor((laterUTC - earlierUTC) / (24 * 60 * 60 * 1000));
+};
+
 const dateRanges = [
   { label: 'Last 7 Days', value: '7d' },
   { label: 'Last 30 Days', value: '30d' },
-  { label: 'This Year', value: 'year' },
+  { label: 'This School Year', value: 'year' },
+  { label: 'Last School Year', value: 'lastYear' },
   { label: 'All Time', value: 'all' },
 ];
 
@@ -19,11 +83,16 @@ const UserGrowthChart: React.FC<{
   selectedRange: keyof typeof userGrowthData;
   selectedYear: number;
   userGrowthMonthly: number[];
+  userGrowthLastYear: number[];
+  userGrowth7Days: number[];
+  userGrowth30Days: number[];
+  userGrowthAllTime: number[];
   userGrowthData: typeof userGrowthData;
   yearOptions: number[];
+  lastUpdated: Date;
   onRangeChange: (range: keyof typeof userGrowthData) => void;
   onYearChange: (year: number) => void;
-}> = ({ selectedRange, selectedYear, userGrowthMonthly, userGrowthData, yearOptions, onRangeChange, onYearChange }) => {
+}> = ({ selectedRange, selectedYear, userGrowthMonthly, userGrowthLastYear, userGrowth7Days, userGrowth30Days, userGrowthAllTime, userGrowthData, yearOptions, lastUpdated, onRangeChange, onYearChange }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts | null>(null);
 
@@ -31,18 +100,77 @@ const UserGrowthChart: React.FC<{
     if (!chartRef.current) return;
     chartInstance.current = echarts.init(chartRef.current);
     
-    const labels = selectedRange === 'year' 
-      ? ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map(m => `${m} ${selectedYear}`)
-      : userGrowthData[selectedRange].labels;
+    let labels: string[];
+    let data: number[];
     
-    const data = selectedRange === 'year' 
-      ? userGrowthMonthly 
-      : userGrowthData[selectedRange].data as number[];
+    switch (selectedRange) {
+      case 'year':
+        // Generate real-time labels based on selected year - Elementary school year starts in June
+        labels = ['Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May'].map(m => {
+          // June to December = selectedYear (2025), January to May = selectedYear + 1 (2026)
+          const year = ['Jun','Jul','Aug','Sep','Oct','Nov','Dec'].includes(m) ? selectedYear : selectedYear + 1;
+          return `${m} ${year}`;
+        });
+        console.log('Real-time chart data - Labels:', labels, 'Data:', userGrowthMonthly);
+        data = userGrowthMonthly;
+        break;
+      case 'lastYear':
+        labels = ['Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May'].map(m => {
+          // June to December = selectedYear - 1 (2024), January to May = selectedYear (2025)
+          const year = ['Jun','Jul','Aug','Sep','Oct','Nov','Dec'].includes(m) ? selectedYear - 1 : selectedYear;
+          return `${m} ${year}`;
+        });
+        data = userGrowthLastYear;
+        break;
+      case '7d':
+        labels = Array.from({ length: 7 }, (_, i) => {
+          const date = new Date();
+          date.setDate(date.getDate() - (6 - i));
+          return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        });
+        data = userGrowth7Days;
+        break;
+      case '30d':
+        labels = Array.from({ length: 30 }, (_, i) => {
+          const date = new Date();
+          date.setDate(date.getDate() - (29 - i));
+          return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        });
+        data = userGrowth30Days;
+        break;
+      case 'all':
+        // Generate dynamic labels from 2022 to current school year (Asia/Manila, Jun-May)
+        const currentDate = new Date();
+        const startYear = 2022;
+        const { year: nowYear, month0: nowMonth } = getYearMonthInTimeZone(currentDate, 'Asia/Manila');
+        const currentSchoolYearStart = nowMonth >= 5 ? nowYear : nowYear - 1;
+        const yearsCount = currentSchoolYearStart - startYear + 1;
+        labels = Array.from({ length: yearsCount }, (_, i) => (startYear + i).toString());
+        data = userGrowthAllTime;
+        break;
+      default:
+        // No fallback to mock data - use empty arrays if no real data
+        labels = [];
+        data = [];
+    }
 
     const option = {
       backgroundColor: 'transparent',
       title: {
-        text: 'User Growth Over Time',
+        text: (() => {
+          switch (selectedRange) {
+            case 'year': return `User Growth - School Year ${selectedYear}-${selectedYear + 1}`;
+            case 'lastYear': return `User Growth - School Year ${selectedYear - 1}-${selectedYear}`;
+            case '7d': return 'User Growth - Last 7 Days';
+            case '30d': return 'User Growth - Last 30 Days';
+            case 'all': 
+              const currentDate = new Date();
+              const startYear = 2022;
+              const currentSchoolYearStart = currentDate.getMonth() >= 5 ? currentDate.getFullYear() : currentDate.getFullYear() - 1;
+              return `User Growth - All Time (${startYear}-${currentSchoolYearStart})`;
+            default: return 'User Growth Over Time';
+          }
+        })(),
         left: 'center',
         top: 10,
         textStyle: { fontSize: 16, fontWeight: '600', color: '#2C3E50' }
@@ -70,7 +198,13 @@ const UserGrowthChart: React.FC<{
       },
       yAxis: {
         type: 'value',
-        axisLabel: { fontSize: 11, color: '#6b7280' },
+        min: 0,
+        minInterval: 1, // force whole-number ticks (0,1,2,3,...)
+        axisLabel: {
+          fontSize: 11,
+          color: '#6b7280',
+          formatter: (val: number) => `${Math.round(val)}`
+        },
         axisLine: { show: false },
         axisTick: { show: false },
         splitLine: { lineStyle: { color: '#f3f4f6', type: 'dashed' } }
@@ -98,7 +232,27 @@ const UserGrowthChart: React.FC<{
   return (
     <div className="bg-white rounded-2xl p-4 transition-all duration-300">
       <div className="flex items-center justify-between mb-3">
-        <div className="font-semibold text-[#2C3E50] text-sm sm:text-base">User Growth Over Time</div>
+        <div className="flex flex-col">
+          <div className="font-semibold text-[#2C3E50] text-sm sm:text-base">
+            {(() => {
+            switch (selectedRange) {
+              case 'year': return `User Growth - School Year ${selectedYear}-${selectedYear + 1}`;
+              case 'lastYear': return `User Growth - School Year ${selectedYear - 1}-${selectedYear}`;
+              case '7d': return 'User Growth - Last 7 Days';
+              case '30d': return 'User Growth - Last 30 Days';
+              case 'all': 
+                const currentDate = new Date();
+                const startYear = 2022;
+                const currentSchoolYearStart = currentDate.getMonth() >= 7 ? currentDate.getFullYear() : currentDate.getFullYear() - 1;
+                return `User Growth - All Time (${startYear}-${currentSchoolYearStart})`;
+              default: return 'User Growth Over Time';
+            }
+            })()}
+          </div>
+          <div className="text-xs text-gray-500 mt-1">
+            Last updated: {lastUpdated.toLocaleTimeString()}
+          </div>
+        </div>
         <div className="flex items-center gap-2">
           <PillSelect
             options={dateRanges.map(range => ({ label: range.label, value: range.value }))}
@@ -108,10 +262,10 @@ const UserGrowthChart: React.FC<{
           />
           {selectedRange === 'year' && (
             <PillSelect
-              options={yearOptions.map(y => ({ label: y.toString(), value: y.toString() }))}
+              options={yearOptions.map(y => ({ label: `${y}-${y+1}`, value: y.toString() }))}
               value={selectedYear.toString()}
               onChange={(value) => onYearChange(parseInt(value, 10))}
-              placeholder="Select Year"
+              placeholder="Select School Year"
             />
           )}
         </div>
@@ -176,7 +330,13 @@ const GradeMetricsChart: React.FC<{
       yAxis: {
         type: 'value',
         max: gradeMetric === 'comprehension' ? 100 : gradeMetric === 'readingLevel' ? 50 : undefined,
-        axisLabel: { fontSize: 11, color: '#6b7280' },
+        min: 0,
+        minInterval: gradeMetric === 'comprehension' ? 10 : 1,
+        axisLabel: {
+          fontSize: 11,
+          color: '#6b7280',
+          formatter: (val: number) => `${Math.round(val)}`
+        },
         axisLine: { show: false },
         axisTick: { show: false },
         splitLine: { lineStyle: { color: '#f3f4f6', type: 'dashed' } }
@@ -237,16 +397,16 @@ const UserRoleBreakdownChart: React.FC<{ roleCounts: { teachers: number; parents
       name: 'Teachers', 
       count: roleCounts.teachers || 0, 
       color: '#3b82f6',
-      lightColor: '#dbeafe',
-      darkColor: '#1e40af',
+      lightColor: '#e0e7ff',
+      darkColor: '#1d4ed8',
       percentage: total > 0 ? ((roleCounts.teachers / total) * 100).toFixed(1) : '0'
     },
     { 
       name: 'Parents', 
       count: roleCounts.parents || 0, 
       color: '#8b5cf6',
-      lightColor: '#ede9fe',
-      darkColor: '#6d28d9',
+      lightColor: '#f3e8ff',
+      darkColor: '#5b21b6',
       percentage: total > 0 ? ((roleCounts.parents / total) * 100).toFixed(1) : '0'
     },
     { 
@@ -254,7 +414,7 @@ const UserRoleBreakdownChart: React.FC<{ roleCounts: { teachers: number; parents
       count: roleCounts.students || 0, 
       color: '#f59e0b',
       lightColor: '#fef3c7',
-      darkColor: '#d97706',
+      darkColor: '#c2410c',
       percentage: total > 0 ? ((roleCounts.students / total) * 100).toFixed(1) : '0'
     }
   ];
@@ -271,7 +431,7 @@ const UserRoleBreakdownChart: React.FC<{ roleCounts: { teachers: number; parents
     : largestSegment;
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 h-full flex flex-col">
+    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 h-full flex flex-col hover:shadow-md transition-shadow duration-300">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -289,57 +449,84 @@ const UserRoleBreakdownChart: React.FC<{ roleCounts: { teachers: number; parents
         {/* Donut Chart */}
         <div className="flex-1 flex items-center justify-center">
           <div className="relative w-48 h-48">
-            <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-              {/* Background circle */}
+            <svg className="w-full h-full" viewBox="0 0 100 100">
+              {/* Background circle - lower z-index */}
               <circle
                 cx="50"
                 cy="50"
-                r="40"
+                r="35"
                 fill="none"
                 stroke="#f3f4f6"
-                strokeWidth="8"
+                strokeWidth="6"
+                strokeLinecap="butt"
+                style={{ zIndex: 1 }}
               />
               
-              {/* Data segments */}
+              {/* Data segments as paths - higher z-index */}
               {data.map((segment, index) => {
                 const startAngle = data.slice(0, index).reduce((acc, curr) => 
                   acc + (curr.count / total) * 360, 0
                 );
+                const endAngle = startAngle + (segment.count / total) * 360;
                 const isSelected = selectedSegment === segment.name.toLowerCase();
+                const isLargestSegment = segment.count === Math.max(...data.map(d => d.count));
+                const shouldHighlight = isSelected || (!selectedSegment && isLargestSegment);
+                
+                // Convert angles to radians
+                const startRad = (startAngle - 90) * Math.PI / 180;
+                const endRad = (endAngle - 90) * Math.PI / 180;
+                
+                // Calculate path coordinates
+                const x1 = 50 + 35 * Math.cos(startRad);
+                const y1 = 50 + 35 * Math.sin(startRad);
+                const x2 = 50 + 35 * Math.cos(endRad);
+                const y2 = 50 + 35 * Math.sin(endRad);
+                
+                const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+                
+                const pathData = [
+                  `M ${x1} ${y1}`,
+                  `A 35 35 0 ${largeArcFlag} 1 ${x2} ${y2}`
+                ].join(" ");
                 
                 return (
-                  <circle
+                  <path
                     key={segment.name}
-                    cx="50"
-                    cy="50"
-                    r="40"
+                    d={pathData}
                     fill="none"
-                    stroke={isSelected ? segment.color : segment.lightColor}
-                    strokeWidth="8"
-                    strokeDasharray={`${(segment.count / total) * 251.2} 251.2`}
-                    strokeDashoffset={-startAngle * 0.698}
+                    stroke={shouldHighlight ? segment.color : segment.lightColor}
+                    strokeWidth="6"
+                    strokeLinecap="butt"
                     className={`cursor-pointer transition-all duration-200 ${
-                      isSelected ? 'opacity-100' : 'opacity-80 hover:opacity-100'
+                      shouldHighlight ? 'opacity-100' : 'opacity-50 hover:opacity-70'
                     }`}
                     onClick={() => setSelectedSegment(segment.name.toLowerCase() as any)}
-                    style={{
-                      filter: isSelected ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' : 'none'
-                    }}
+                    style={{ zIndex: 10 }}
                   />
                 );
               })}
             </svg>
             
             {/* Center text */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <div 
+              className="absolute inset-0 flex flex-col items-center justify-center cursor-pointer"
+              onClick={() => setSelectedSegment(null)}
+              title="Click to reset selection"
+            >
               <div 
-                className="text-2xl font-bold"
+                className="text-3xl font-bold mb-1"
                 style={{ color: displaySegment.color }}
               >
                 {displaySegment.percentage}%
               </div>
-              <div className="text-xs text-gray-600 text-center">
+              <div 
+                className="text-sm font-medium text-center"
+                style={{ color: displaySegment.color }}
+              >
                 {displaySegment.count} {displaySegment.name}
+              </div>
+              <div className="text-xs text-gray-500 text-center mt-1">
+                of {total} total
               </div>
             </div>
           </div>
@@ -355,11 +542,11 @@ const UserRoleBreakdownChart: React.FC<{ roleCounts: { teachers: number; parents
               <div
                 key={segment.name}
                 onClick={() => setSelectedSegment(segment.name.toLowerCase() as any)}
-                className={`flex items-center justify-between p-4 rounded-xl cursor-pointer transition-all duration-200 ${
+                className={`flex items-center justify-between p-4 rounded-xl cursor-pointer transition-all duration-300 ${
                   isSelected 
-                    ? 'ring-2 ring-offset-1' 
-                    : 'hover:bg-gray-50'
-                } ${isTopPerformer ? 'border-2' : 'border'}`}
+                    ? 'ring-2 ring-offset-2 shadow-md' 
+                    : 'hover:shadow-sm hover:bg-gray-50'
+                } border`}
                 style={{
                   backgroundColor: isSelected ? segment.lightColor : 'white',
                   borderColor: isSelected ? segment.color : '#e5e7eb'
@@ -400,12 +587,13 @@ const UserRoleBreakdownChart: React.FC<{ roleCounts: { teachers: number; parents
                   </div>
                   
                   {/* Mini progress bar */}
-                  <div className="w-16 bg-gray-200 rounded-full h-2">
+                  <div className="w-20 bg-gray-200 rounded-full h-2 overflow-hidden">
                     <div
-                      className="h-full rounded-full transition-all duration-500"
+                      className="h-full rounded-full transition-all duration-700 ease-out"
                       style={{ 
                         width: `${segment.percentage}%`,
-                        backgroundColor: segment.color
+                        backgroundColor: segment.color,
+                        boxShadow: isSelected ? `0 0 8px ${segment.color}40` : 'none'
                       }}
                     />
                   </div>
@@ -571,6 +759,12 @@ const LearningAnalyticsWidget: React.FC<{ metrics: any }> = ({ metrics }) => (
 
 // Quick Actions Widget
 const QuickActionsWidget: React.FC = () => {
+  const navigate = useNavigate();
+
+  const go = (path: string) => {
+    console.log('Navigating to:', path);
+    navigate(path);
+  };
 
   const actions = [
     {
@@ -583,8 +777,8 @@ const QuickActionsWidget: React.FC = () => {
       hoverColor: 'hover:bg-blue-100',
       iconColor: 'text-blue-600',
       onClick: () => {
-        // Navigate to user management or open modal
         console.log('Add User clicked');
+        go('/admin/teachers');
       }
     },
     {
@@ -597,8 +791,8 @@ const QuickActionsWidget: React.FC = () => {
       hoverColor: 'hover:bg-green-100',
       iconColor: 'text-green-600',
       onClick: () => {
-        // Navigate to content management
         console.log('Add Content clicked');
+        go('/admin/resources');
       }
     },
     {
@@ -611,8 +805,8 @@ const QuickActionsWidget: React.FC = () => {
       hoverColor: 'hover:bg-purple-100',
       iconColor: 'text-purple-600',
       onClick: () => {
-        // Open announcement modal
         console.log('Send Notice clicked');
+        go('/admin/reports');
       }
     },
     {
@@ -625,8 +819,8 @@ const QuickActionsWidget: React.FC = () => {
       hoverColor: 'hover:bg-amber-100',
       iconColor: 'text-amber-600',
       onClick: () => {
-        // Open report generation
         console.log('Generate Report clicked');
+        go('/admin/reports');
       }
     },
     {
@@ -639,8 +833,8 @@ const QuickActionsWidget: React.FC = () => {
       hoverColor: 'hover:bg-indigo-100',
       iconColor: 'text-indigo-600',
       onClick: () => {
-        // Navigate to classes management
         console.log('Manage Classes clicked');
+        go('/admin/students');
       }
     },
     {
@@ -653,8 +847,8 @@ const QuickActionsWidget: React.FC = () => {
       hoverColor: 'hover:bg-gray-100',
       iconColor: 'text-gray-600',
       onClick: () => {
-        // Navigate to settings
         console.log('Settings clicked');
+        go('/admin/profile');
       }
     }
   ];
@@ -875,22 +1069,27 @@ const RecentRegistrationsWidget: React.FC = () => {
   );
 };
 
+// Real-time data structure - all data comes from Firebase database
 const userGrowthData = {
   '7d': {
-    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-    data: [60, 62, 64, 66, 68, 70, 72],
+    labels: [], // Will be generated from real dates
+    data: [], // Will be populated from real user registrations
   },
   '30d': {
-    labels: Array.from({ length: 30 }, (_, i) => `Day ${i + 1}`),
-    data: Array.from({ length: 30 }, (_, i) => 40 + i),
+    labels: [], // Will be generated from real dates
+    data: [], // Will be populated from real user registrations
   },
   'year': {
-    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul'],
-    data: [20, 30, 45, 60, 68, 70, 80],
+    labels: [], // Will be generated from real school year
+    data: [], // Will be populated from real user registrations
+  },
+  'lastYear': {
+    labels: [], // Will be generated from real school year
+    data: [], // Will be populated from real user registrations
   },
   'all': {
-    labels: ['2021', '2022', '2023', '2024'],
-    data: [10, 30, 50, 68],
+    labels: [], // Will be generated from real years
+    data: [], // Will be populated from real user registrations
   },
 };
 
@@ -1299,24 +1498,155 @@ const AdminDashboard: React.FC = () => {
     readingLevel: gradeReadingLevel,
   }), [gradeStudents, gradeComprehension, gradeReadingLevel]);
 
-  // Realtime: User growth (per month for selectedYear starting at 2025)
+  // Enhanced real-time user growth tracking with better data processing
   const [userGrowthMonthly, setUserGrowthMonthly] = useState<number[]>(Array(12).fill(0));
+  const [userGrowthLastYear, setUserGrowthLastYear] = useState<number[]>(Array(12).fill(0));
+  const [userGrowth7Days, setUserGrowth7Days] = useState<number[]>(Array(7).fill(0));
+  const [userGrowth30Days, setUserGrowth30Days] = useState<number[]>(Array(30).fill(0));
+  const [userGrowthAllTime, setUserGrowthAllTime] = useState<number[]>([]);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const userUnsubRef = useRef<null | (() => void)>(null);
+
   useEffect(() => {
     if (userUnsubRef.current) userUnsubRef.current();
     const usersRef = collection(db, 'users');
     const unsub = onSnapshot(query(usersRef), (snap) => {
-      const counts = Array(12).fill(0) as number[];
+      const currentDate = new Date();
+      
+      // Initialize arrays for different time periods
+      const currentSchoolYear = Array(12).fill(0);
+      const lastSchoolYear = Array(12).fill(0);
+      const last7Days = Array(7).fill(0);
+      const last30Days = Array(30).fill(0);
+      
+      // Calculate years from 2022 to current school year
+      const startYear = 2022;
+      const currentSchoolYearStart = currentDate.getMonth() >= 7 ? currentDate.getFullYear() : currentDate.getFullYear() - 1;
+      const yearsCount = currentSchoolYearStart - startYear + 1;
+      const allTime = Array(yearsCount).fill(0);
+      
       snap.forEach(d => {
         const data = d.data() as any;
-        const createdAt = data?.createdAt ? new Date(data.createdAt) : undefined;
-        if (!createdAt || Number.isNaN(createdAt.getTime())) return;
-        const y = createdAt.getFullYear();
-        if (y !== selectedYear) return;
-        const m = createdAt.getMonth();
-        if (m >= 0 && m < 12) counts[m]++;
+        const createdAt = parseFirestoreDate(data?.createdAt);
+        if (!createdAt) return;
+        // Prefer updatedAt when it reflects the user's perceived registration day (e.g., profile completed just after midnight)
+        const updatedAt = parseFirestoreDate(data?.updatedAt);
+        let eventDate = createdAt;
+        if (updatedAt) {
+          const createdLocal = getYearMonthInTimeZone(createdAt, 'Asia/Manila');
+          const updatedLocal = getYearMonthInTimeZone(updatedAt, 'Asia/Manila');
+          const diffMs = Math.abs(updatedAt.getTime() - createdAt.getTime());
+          // If updatedAt is within 48 hours and falls in a different local month, treat it as the effective registration month
+          if (diffMs <= 48 * 60 * 60 * 1000 && (createdLocal.month0 !== updatedLocal.month0 || createdLocal.year !== updatedLocal.year)) {
+            eventDate = updatedAt;
+          }
+        }
+        // Use Philippines timezone to avoid UTC offset shifting dates
+        const { year: userYear, month0: userMonth } = getYearMonthInTimeZone(eventDate, 'Asia/Manila');
+        
+        // Current School Year (Jun to May) - Elementary school year starts in June
+        const currentSchoolYearStart = selectedYear;
+        const currentSchoolYearEnd = selectedYear + 1;
+        console.log(`Processing elementary school year: ${currentSchoolYearStart}-${currentSchoolYearEnd}, selectedYear: ${selectedYear}`);
+        
+        console.log(`Checking user: ${userYear}/${userMonth + 1} against school year ${currentSchoolYearStart}-${currentSchoolYearEnd}`);
+        
+        if ((userYear === currentSchoolYearStart && userMonth >= 5) || (userYear === currentSchoolYearEnd && userMonth < 5)) {
+          console.log(`User ${userYear}/${userMonth + 1} matches school year condition (Asia/Manila)`);
+          // Map actual calendar months to school year months correctly (Jun to May)
+          let schoolMonthIndex;
+          if (userMonth >= 5) {
+            // Jun=0, Jul=1, Aug=2, Sep=3, Oct=4, Nov=5, Dec=6
+            schoolMonthIndex = userMonth - 5;
+          } else {
+            // Jan=7, Feb=8, Mar=9, Apr=10, May=11
+            schoolMonthIndex = userMonth + 7;
+          }
+          
+          // Debug: Show the mapping
+          console.log(`Month ${userMonth + 1} (${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][userMonth]}) maps to index ${schoolMonthIndex} (${['Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May'][schoolMonthIndex]})`);
+          if (schoolMonthIndex >= 0 && schoolMonthIndex < 12) {
+            currentSchoolYear[schoolMonthIndex]++;
+            console.log(`User registered in ${userMonth + 1}/${userYear} mapped to school month index ${schoolMonthIndex} (${['Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May'][schoolMonthIndex]})`);
+          }
+        } else {
+          console.log(`User ${userYear}/${userMonth + 1} does NOT match school year condition`);
+        }
+        
+        // Last School Year (Jun to May) - Elementary school year starts in June
+        const lastSchoolYearStart = selectedYear - 1;
+        const lastSchoolYearEnd = selectedYear;
+        
+        if ((userYear === lastSchoolYearStart && userMonth >= 5) || (userYear === lastSchoolYearEnd && userMonth < 5)) {
+          // Map actual calendar months to school year months correctly (Jun to May)
+          let schoolMonthIndex;
+          if (userMonth >= 5) {
+            // Jun=0, Jul=1, Aug=2, Sep=3, Oct=4, Nov=5, Dec=6
+            schoolMonthIndex = userMonth - 5;
+          } else {
+            // Jan=7, Feb=8, Mar=9, Apr=10, May=11
+            schoolMonthIndex = userMonth + 7;
+          }
+          if (schoolMonthIndex >= 0 && schoolMonthIndex < 12) {
+            lastSchoolYear[schoolMonthIndex]++;
+          }
+        }
+        
+        // Last 7 days (timezone-safe day windows)
+        const daysDiff = daysDiffInTimeZone(currentDate, eventDate, 'Asia/Manila');
+        if (daysDiff >= 0 && daysDiff < 7) {
+          last7Days[6 - daysDiff]++;
+        }
+        
+        // Last 30 days (timezone-safe)
+        if (daysDiff >= 0 && daysDiff < 30) {
+          last30Days[29 - daysDiff]++;
+        }
+        
+        // All time (2022 to current school year)
+        if (userYear >= startYear && userYear <= currentSchoolYearStart) {
+          const yearIndex = userYear - startYear;
+          if (yearIndex >= 0 && yearIndex < yearsCount) {
+            allTime[yearIndex]++;
+          }
+        }
       });
-      setUserGrowthMonthly(counts);
+      
+      setUserGrowthMonthly(currentSchoolYear);
+      setUserGrowthLastYear(lastSchoolYear);
+      setUserGrowth7Days(last7Days);
+      setUserGrowth30Days(last30Days);
+      setUserGrowthAllTime(allTime);
+      setLastUpdated(new Date());
+      
+      // Debug: Show final school year array with month labels (Jun to May)
+      console.log('Final currentSchoolYear array:', currentSchoolYear);
+      console.log('Elementary school year months:', ['Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May']);
+      console.log('Array with labels:', currentSchoolYear.map((count, index) => `${['Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May'][index]}: ${count}`));
+      
+      // Log real database data only
+      console.log('Real Firebase User Growth Data:', {
+        last7Days,
+        last30Days,
+        currentSchoolYear,
+        lastSchoolYear,
+        allTime,
+        totalUsers: snap.size,
+        selectedYear,
+        currentDate: currentDate.toISOString()
+      });
+      
+      // Log individual user registrations from Firebase
+      snap.forEach(d => {
+        const data = d.data() as any;
+        const createdAt = parseFirestoreDate(data?.createdAt);
+        if (createdAt) {
+          const userYear = createdAt.getFullYear();
+          const userMonth = createdAt.getMonth();
+          const userDate = createdAt.getDate();
+          console.log(`Firebase User: ${createdAt.toISOString()} (${createdAt.toLocaleDateString()}) - Year: ${userYear}, Month: ${userMonth + 1}, Date: ${userDate}`);
+        }
+      });
     });
     userUnsubRef.current = unsub;
     return () => { if (userUnsubRef.current) userUnsubRef.current(); };
@@ -1444,8 +1774,13 @@ const AdminDashboard: React.FC = () => {
               selectedRange={selectedRange}
               selectedYear={selectedYear}
               userGrowthMonthly={userGrowthMonthly}
+              userGrowthLastYear={userGrowthLastYear}
+              userGrowth7Days={userGrowth7Days}
+              userGrowth30Days={userGrowth30Days}
+              userGrowthAllTime={userGrowthAllTime}
               userGrowthData={userGrowthData}
               yearOptions={yearOptions}
+              lastUpdated={lastUpdated}
               onRangeChange={setSelectedRange}
               onYearChange={setSelectedYear}
             />
