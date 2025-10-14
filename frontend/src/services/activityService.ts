@@ -2,7 +2,7 @@ import { collection, addDoc, serverTimestamp, onSnapshot, query, orderBy, limit 
 import type { Unsubscribe } from 'firebase/firestore';
 import { db } from '../config/firebase';
 
-export type ActivityType = 'reading-session' | 'test' | 'student' | 'export' | 'general';
+export type ActivityType = 'reading-session' | 'test' | 'student' | 'export' | 'general' | 'user-management' | 'content-management' | 'communication' | 'report-generation' | 'class-management' | 'settings';
 
 export interface ActivityItem {
   id?: string;
