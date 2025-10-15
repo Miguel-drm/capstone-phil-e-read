@@ -41,7 +41,8 @@ const Header: React.FC<HeaderProps> = ({
     async function fetchProfileImage() {
       if (!currentUser?.uid) return;
       try {
-        const res = await fetch(`/api/teachers/${currentUser.uid}/profile-image`);
+        const API_BASE = (import.meta as any)?.env?.VITE_API_URL ? String((import.meta as any).env.VITE_API_URL).replace(/\/$/, '') : 'http://localhost:5000';
+        const res = await fetch(`${API_BASE}/api/teachers/${currentUser.uid}/profile-image`);
         const data = await res.json();
         if (data && data.profileImage) {
           setProfileImage(`data:image/png;base64,${data.profileImage}`);

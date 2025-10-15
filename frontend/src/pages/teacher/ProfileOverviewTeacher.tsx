@@ -105,7 +105,8 @@ const ProfileOverviewTeacher: React.FC = () => {
     async function fetchProfileImage() {
       if (!firebaseUid) return;
       try {
-        const res = await axios.get(`/api/teachers/${firebaseUid}/profile-image`);
+        const API_BASE = (import.meta as any)?.env?.VITE_API_URL ? String((import.meta as any).env.VITE_API_URL).replace(/\/$/, '') : 'http://localhost:5000';
+        const res = await axios.get(`${API_BASE}/api/teachers/${firebaseUid}/profile-image`);
         if (res.data && res.data.profileImage) {
           setProfileImage(`data:image/png;base64,${res.data.profileImage}`);
         }
@@ -209,7 +210,8 @@ const ProfileOverviewTeacher: React.FC = () => {
       // 2. Upload the cropped image
       const formData = new FormData();
       formData.append('image', new File([croppedBlob], 'avatar.png', { type: 'image/png' }));
-      const response = await fetch(`/api/teachers/${firebaseUid}/profile-image`, {
+      const API_BASE = (import.meta as any)?.env?.VITE_API_URL ? String((import.meta as any).env.VITE_API_URL).replace(/\/$/, '') : 'http://localhost:5000';
+      const response = await fetch(`${API_BASE}/api/teachers/${firebaseUid}/profile-image`, {
         method: 'POST',
         body: formData,
       });

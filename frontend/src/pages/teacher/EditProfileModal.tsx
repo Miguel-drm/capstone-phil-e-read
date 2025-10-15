@@ -101,7 +101,8 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
     if (!isOpen || !firebaseUid) return;
     async function fetchProfileImage() {
       try {
-        const res = await fetch(`/api/teachers/${firebaseUid}/profile-image`);
+        const API_BASE = (import.meta as any)?.env?.VITE_API_URL ? String((import.meta as any).env.VITE_API_URL).replace(/\/$/, '') : 'http://localhost:5000';
+        const res = await fetch(`${API_BASE}/api/teachers/${firebaseUid}/profile-image`);
         const data = await res.json();
         if (data && data.profileImage) {
           setEditAvatar(`data:image/png;base64,${data.profileImage}`);
@@ -191,7 +192,8 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
         // Upload image
         const formData = new FormData();
         formData.append('image', avatarFile);
-        const response = await fetch(`/api/teachers/${firebaseUid}/profile-image`, {
+        const API_BASE = (import.meta as any)?.env?.VITE_API_URL ? String((import.meta as any).env.VITE_API_URL).replace(/\/$/, '') : 'http://localhost:5000';
+        const response = await fetch(`${API_BASE}/api/teachers/${firebaseUid}/profile-image`, {
           method: 'POST',
           body: formData,
         });

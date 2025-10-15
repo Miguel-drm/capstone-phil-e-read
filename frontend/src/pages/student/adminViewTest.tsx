@@ -197,10 +197,11 @@ const AdminViewTest: React.FC = () => {
           <div className="grid grid-cols-2 gap-6 w-full max-w-7xl mx-auto px-0 mb-8 overflow-visible">
             {test.questions[currentQuestion].choices.map((choice, cIdx) => {
               const isCorrect = cIdx === test.questions[currentQuestion].correctAnswer;
+              const label = String.fromCharCode(65 + cIdx);
               return (
                 <div
                   key={cIdx}
-                  className={`flex items-center gap-6 w-full h-32 rounded-3xl text-3xl font-extrabold shadow-2xl border-4 transition-all duration-200 px-16
+                  className={`flex items-center gap-6 w-full h-32 rounded-3xl text-3xl font-extrabold shadow-2xl border-4 transition-all duration-200 px-10
                     ${showAnswers 
                       ? (isCorrect 
                           ? 'bg-green-500 border-green-600 text-white ring-4 ring-green-300' 
@@ -208,11 +209,10 @@ const AdminViewTest: React.FC = () => {
                       : 'bg-blue-400 border-white text-white'
                     }`}
                 >
-                  <span className="text-4xl mr-4" role="img" aria-label="star">⭐</span>
+                  <span className="flex items-center justify-center w-16 h-16 rounded-full bg-white/90 text-blue-600 shadow-md border-2 border-white">
+                    {label}
+                  </span>
                   <span className="truncate text-white drop-shadow-lg">{choice}</span>
-                  {showAnswers && isCorrect && (
-                    <span className="text-4xl ml-4" role="img" aria-label="check">✅</span>
-                  )}
                 </div>
               );
             })}

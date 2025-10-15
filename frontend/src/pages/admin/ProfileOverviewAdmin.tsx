@@ -36,7 +36,8 @@ const ProfileOverviewAdmin: React.FC = () => {
     async function fetchProfileImage() {
       if (!firebaseUid) return;
       try {
-        const res = await axios.get(`/api/teachers/${firebaseUid}/profile-image`);
+        const API_BASE = (import.meta as any)?.env?.VITE_API_URL ? String((import.meta as any).env.VITE_API_URL).replace(/\/$/, '') : 'http://localhost:5000';
+        const res = await axios.get(`${API_BASE}/api/teachers/${firebaseUid}/profile-image`);
         if (res.data && res.data.profileImage) {
           setProfileImage(`data:image/png;base64,${res.data.profileImage}`);
         }
@@ -111,7 +112,8 @@ const ProfileOverviewAdmin: React.FC = () => {
       // 2. Upload the cropped image
       const formData = new FormData();
       formData.append('image', new File([croppedBlob], 'avatar.png', { type: 'image/png' }));
-      const response = await fetch(`/api/teachers/${firebaseUid}/profile-image`, {
+      const API_BASE = (import.meta as any)?.env?.VITE_API_URL ? String((import.meta as any).env.VITE_API_URL).replace(/\/$/, '') : 'http://localhost:5000';
+      const response = await fetch(`${API_BASE}/api/teachers/${firebaseUid}/profile-image`, {
         method: 'POST',
         body: formData,
       });
@@ -329,20 +331,104 @@ const ProfileOverviewAdmin: React.FC = () => {
         )}
         {activeTab === 'Users' && (
           <div className="bg-white rounded-3xl shadow-2xl p-10 md:p-14 border border-blue-100">
-            <div className="text-lg font-semibold text-gray-800 mb-2">User Management</div>
-            <div className="text-gray-600">Manage teachers, parents, and students from the Users section in the sidebar.</div>
+            <div className="text-lg font-semibold text-gray-800 mb-6">User Management</div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="p-6 bg-blue-50 rounded-xl">
+                <div className="text-2xl font-bold text-blue-600 mb-2">Teachers</div>
+                <div className="text-sm text-gray-600 mb-4">Manage teacher accounts and permissions</div>
+                <button 
+                  onClick={() => window.location.href = '/admin/teachers'}
+                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                >
+                  Manage Teachers
+                </button>
+              </div>
+              <div className="p-6 bg-green-50 rounded-xl">
+                <div className="text-2xl font-bold text-green-600 mb-2">Students</div>
+                <div className="text-sm text-gray-600 mb-4">View and manage student records</div>
+                <button 
+                  onClick={() => window.location.href = '/admin/students'}
+                  className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+                >
+                  Manage Students
+                </button>
+              </div>
+              <div className="p-6 bg-purple-50 rounded-xl">
+                <div className="text-2xl font-bold text-purple-600 mb-2">Parents</div>
+                <div className="text-sm text-gray-600 mb-4">Manage parent accounts and children links</div>
+                <button 
+                  onClick={() => window.location.href = '/admin/parents'}
+                  className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+                >
+                  Manage Parents
+                </button>
+              </div>
+            </div>
           </div>
         )}
         {activeTab === 'System Settings' && (
           <div className="bg-white rounded-3xl shadow-2xl p-10 md:p-14 border border-blue-100">
-            <div className="text-lg font-semibold text-gray-800 mb-2">System Settings</div>
-            <div className="text-gray-600">Configure system-wide settings from the sidebar or contact your developer for advanced options.</div>
+            <div className="text-lg font-semibold text-gray-800 mb-6">System Settings</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="p-6 bg-gray-50 rounded-xl">
+                <div className="text-lg font-semibold text-gray-800 mb-2">Content Management</div>
+                <div className="text-sm text-gray-600 mb-4">Manage stories, resources, and educational content</div>
+                <button 
+                  onClick={() => window.location.href = '/admin/resources'}
+                  className="w-full px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition"
+                >
+                  Manage Content
+                </button>
+              </div>
+              <div className="p-6 bg-orange-50 rounded-xl">
+                <div className="text-lg font-semibold text-gray-800 mb-2">Reports & Analytics</div>
+                <div className="text-sm text-gray-600 mb-4">Access comprehensive reports and system analytics</div>
+                <button 
+                  onClick={() => window.location.href = '/admin/reports'}
+                  className="w-full px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition"
+                >
+                  View Reports
+                </button>
+              </div>
+            </div>
+            <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+              <div className="text-sm text-blue-800">
+                <strong>Advanced Settings:</strong> For system configuration, database management, or technical support, 
+                please contact your system administrator or development team.
+              </div>
+            </div>
           </div>
         )}
         {activeTab === 'Reports' && (
           <div className="bg-white rounded-3xl shadow-2xl p-10 md:p-14 border border-blue-100">
-            <div className="text-lg font-semibold text-gray-800 mb-2">Reports</div>
-            <div className="text-gray-600">Access and generate reports from the Reports section in the sidebar.</div>
+            <div className="text-lg font-semibold text-gray-800 mb-6">Reports & Analytics</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="p-6 bg-green-50 rounded-xl">
+                <div className="text-lg font-semibold text-gray-800 mb-2">📊 Comprehensive Reports</div>
+                <div className="text-sm text-gray-600 mb-4">Generate detailed reports for students, teachers, parents, and performance analytics</div>
+                <button 
+                  onClick={() => window.location.href = '/admin/reports'}
+                  className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+                >
+                  Open Reports
+                </button>
+              </div>
+              <div className="p-6 bg-blue-50 rounded-xl">
+                <div className="text-lg font-semibold text-gray-800 mb-2">📈 Dashboard Analytics</div>
+                <div className="text-sm text-gray-600 mb-4">View real-time analytics and insights on the main dashboard</div>
+                <button 
+                  onClick={() => window.location.href = '/admin/dashboard'}
+                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                >
+                  View Dashboard
+                </button>
+              </div>
+            </div>
+            <div className="mt-6 p-4 bg-yellow-50 rounded-lg">
+              <div className="text-sm text-yellow-800">
+                <strong>Export Options:</strong> All reports support CSV and PDF export formats for easy sharing and record keeping.
+              </div>
+            </div>
           </div>
         )}
         {activeTab === 'Settings' && (

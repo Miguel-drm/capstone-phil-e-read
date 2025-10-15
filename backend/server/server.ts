@@ -126,6 +126,17 @@ app.use(express.json());
       }
     });
 
+    // Lightweight count endpoint for frontend KPI
+    app.get('/api/stories/count', async (_req: Request, res: Response) => {
+      try {
+        const total = await Story.countDocuments({ isActive: true });
+        res.json({ total });
+      } catch (error) {
+        console.error('Error counting stories:', error);
+        res.status(500).json({ error: 'Failed to count stories' });
+      }
+    });
+
     app.get('/api/stories/:id', async (req: Request, res: Response) => {
       try {
         const story = await mongoStoryService.getStoryById(req.params.id);

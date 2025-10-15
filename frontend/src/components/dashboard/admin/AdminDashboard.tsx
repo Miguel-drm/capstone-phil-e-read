@@ -8,6 +8,10 @@ import { db } from '@/config/firebase';
 import * as echarts from 'echarts';
 import PillSelect from '../../ui/PillSelect';
 
+// API base (for MongoDB-backed REST)
+const API_BASE = (import.meta as any)?.env?.VITE_API_URL ? String((import.meta as any).env.VITE_API_URL).replace(/\/$/, '') : '';
+const STORIES_COUNT_URL = (import.meta as any)?.env?.VITE_STORIES_COUNT_URL || (API_BASE ? `${API_BASE}/api/stories/count` : '');
+
 // Robust Firestore date parser: supports Timestamp, {seconds,nanoseconds}, millis, ISO string, Date
 const parseFirestoreDate = (value: any): Date | null => {
   if (!value) return null;
@@ -713,47 +717,107 @@ const SchoolOverviewWidget: React.FC<{ stats: any; onRefresh?: () => void; isLoa
 );
 
 // Learning Analytics Widget
-const LearningAnalyticsWidget: React.FC<{ metrics: any }> = ({ metrics }) => (
+const LearningAnalyticsWidget: React.FC<{ 
+  metrics: any; 
+  topClassLabel: string; 
+  topClassScore: number; 
+  topClassSamples: number; 
+  completionClassFilter: string; 
+  availableClasses: string[]; 
+  onClassFilterChange: (classFilter: string) => void;
+  lastUpdated: Date;
+}> = ({ metrics, topClassLabel, topClassScore, topClassSamples, completionClassFilter, availableClasses, onClassFilterChange, lastUpdated }) => (
   <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-    <h3 className="text-lg font-semibold text-gray-900 mb-6">Learning Analytics</h3>
-
-    <div className="grid grid-cols-2 gap-4 mb-6">
-      {/* Total Books */}
-      <div className="p-4 bg-blue-50 rounded-xl">
-        <div className="text-sm font-medium text-gray-900 mb-1">Total Books</div>
-        <div className="text-2xl font-bold text-blue-600">{metrics.totalBooks}</div>
-      </div>
-
-      {/* Average Reading Time */}
-      <div className="p-4 bg-green-50 rounded-xl">
-        <div className="text-sm font-medium text-gray-900 mb-1">Avg. Reading Time</div>
-        <div className="text-2xl font-bold text-green-600">{metrics.averageReadingTime}min</div>
-      </div>
-
-      {/* Completion Rate */}
-      <div className="p-4 bg-purple-50 rounded-xl">
-        <div className="text-sm font-medium text-gray-900 mb-1">Completion Rate</div>
-        <div className="text-2xl font-bold text-purple-600">{metrics.completionRate}%</div>
-      </div>
-
-      {/* Top Performers */}
-      <div className="p-4 bg-amber-50 rounded-xl">
-        <div className="text-sm font-medium text-gray-900 mb-1">Top Performers</div>
-        <div className="text-2xl font-bold text-amber-600">{metrics.topPerformers}</div>
+    <div className="flex items-center justify-between mb-4">
+      <h3 className="text-lg font-semibold text-gray-900">Learning Analytics</h3>
+      <div className="flex items-center gap-1 text-xs text-gray-500">
+        <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />
+        <span>Live</span>
       </div>
     </div>
 
-    {/* Struggling Students Alert */}
-    {metrics.strugglingStudents > 0 && (
-      <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
+    {/* Class Filter for Completion Rate */}
+    {availableClasses.length > 0 && (
+      <div className="mb-4">
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-          <span className="text-sm font-medium text-red-800">
-            {metrics.strugglingStudents} students need attention
-          </span>
-        </div>
+          <span className="text-sm text-gray-600">Completion Rate:</span>
+          <select 
+            value={completionClassFilter} 
+            onChange={(e) => onClassFilterChange(e.target.value)}
+            className="text-sm border border-gray-300 rounded px-2 py-1 bg-white"
+          >
+            <option value="all">All Classes</option>
+            {availableClasses.map(cls => (
+              <option key={cls} value={cls}>{cls}</option>
+            ))}
+          </select>
+      </div>
       </div>
     )}
+
+    {/* KPI strip */}
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Total Stories */}
+      <a className="group p-4 rounded-lg border hover:shadow-sm transition-colors bg-white" href="#/admin/resources" title="View stories">
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-gray-500">Total Stories</div>
+          <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">📖</div>
+      </div>
+        <div className="mt-2 text-2xl font-bold text-blue-600">{metrics.totalBooks}</div>
+      </a>
+
+      {/* Avg. Reading Time */}
+      <a className="group p-4 rounded-lg border hover:shadow-sm transition-colors bg-white" href="#/admin/reports" title="View reading sessions">
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-gray-500">Avg. Reading Time</div>
+          <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">⏱️</div>
+      </div>
+        <div className="mt-2 text-2xl font-bold text-emerald-600">{metrics.averageReadingTime}min</div>
+      </a>
+
+      {/* Completion Rate with progress */}
+      <a className="group p-4 rounded-lg border hover:shadow-sm transition-colors bg-white" href="#/admin/reports" title="View completion details">
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-gray-500">Completion Rate</div>
+          <div className="w-8 h-8 rounded-full bg-violet-100 text-violet-600 flex items-center justify-center">✅</div>
+      </div>
+        <div className="mt-2 text-2xl font-bold text-violet-600">{metrics.completionRate}%</div>
+        <div className="mt-2 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+          <div className="h-full bg-violet-500" style={{ width: `${Math.min(100, Math.max(0, metrics.completionRate))}%` }} />
+    </div>
+        <div className="mt-1 text-[10px] text-gray-500">Goal 85%</div>
+      </a>
+
+      {/* Top performers with CTA */}
+      <a className="group p-4 rounded-lg border hover:shadow-sm transition-colors bg-white" href="#/admin/reports" title="Open leaderboard">
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-gray-500">Top Performer (Class)</div>
+          <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center">🏅</div>
+      </div>
+        <div className="mt-2 text-base font-bold text-amber-600 truncate" title={topClassLabel}>{topClassLabel !== '—' ? topClassLabel : '—'}</div>
+        {topClassLabel !== '—' && (
+          <div className="mt-1 text-xs text-amber-600">
+            {topClassScore}% avg (n={topClassSamples})
+          </div>
+        )}
+        <div className="mt-1 text-[10px] text-amber-700">View leaderboard →</div>
+      </a>
+    </div>
+
+    {/* Alert */}
+    {metrics.strugglingStudents > 0 && (
+      <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center gap-2">
+        <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+            {metrics.strugglingStudents} students need attention
+      </div>
+    )}
+
+    {/* Last Updated */}
+    <div className="mt-4 pt-3 border-t border-gray-100">
+      <div className="text-xs text-gray-500">
+        Last updated: {lastUpdated.toLocaleTimeString()}
+      </div>
+    </div>
   </div>
 );
 
@@ -806,7 +870,7 @@ const QuickActionsWidget: React.FC = () => {
       iconColor: 'text-purple-600',
       onClick: () => {
         console.log('Send Notice clicked');
-        go('/admin/reports');
+        go('/admin/students');
       }
     },
     {
@@ -1130,6 +1194,12 @@ const AdminDashboard: React.FC = () => {
     strugglingStudents: 0,
     topPerformers: 0
   });
+  const [topClassLabel, setTopClassLabel] = useState<string>('—');
+  const [topClassScore, setTopClassScore] = useState<number>(0);
+  const [topClassSamples, setTopClassSamples] = useState<number>(0);
+  const [completionClassFilter, setCompletionClassFilter] = useState<string>('all');
+  const [availableClasses, setAvailableClasses] = useState<string[]>([]);
+  const [analyticsLastUpdated, setAnalyticsLastUpdated] = useState<Date>(new Date());
 
   useEffect(() => {
     const fetchCounts = async () => {
@@ -1148,8 +1218,7 @@ const AdminDashboard: React.FC = () => {
         // Fetch real-time school overview data
         await fetchSchoolOverviewData();
         
-        // Update learning metrics with real data
-        await fetchLearningMetrics();
+        // Learning metrics are now real-time via onSnapshot; no manual fetch needed
         
       } catch (err) {
         console.error('Failed to fetch dashboard counts:', err);
@@ -1412,37 +1481,240 @@ const AdminDashboard: React.FC = () => {
     return Math.ceil(totalParents * basePercentage);
   };
 
-  // Fetch real-time learning metrics
-  const fetchLearningMetrics = async () => {
+  // Real-time learning metrics (resources + readingResults collections)
+  useEffect(() => {
+    if (storiesEffectInitializedRef.current) return;
+    storiesEffectInitializedRef.current = true;
+    const unsubs: Array<() => void> = [];
     try {
-      // Use mock data to avoid permission issues
-      // In a real implementation, these would come from Firebase with proper permissions
-      const totalBooks = 45; // Mock book count
-      const averageReadingTime = 25; // Default average
-      const completionRate = 75; // Default completion rate
-      const strugglingStudents = Math.floor((totalStudents || 0) * 0.1); // 10% struggling
-      const topPerformers = Math.floor((totalStudents || 0) * 0.2); // 20% top performers
-      
-      setLearningMetrics({
-        totalBooks,
-        averageReadingTime,
-        completionRate,
-        strugglingStudents,
-        topPerformers
+      // Stories count from MongoDB API (single correct endpoint, configurable) with Firebase fallback
+      const fetchStoriesCount = async (): Promise<boolean> => {
+        if (isFetchingStoriesRef.current) return false;
+        isFetchingStoriesRef.current = true;
+        let updated = false;
+        // Try a list of REST candidates (env, api base, current origin, localhost:5000)
+        const candidates: string[] = [];
+        if (STORIES_COUNT_URL) candidates.push(String(STORIES_COUNT_URL));
+        if ((import.meta as any)?.env?.VITE_API_URL) {
+          const base = String((import.meta as any).env.VITE_API_URL).replace(/\/$/, '');
+          candidates.push(`${base}/api/stories/count`);
+        }
+        try { candidates.push(`${window.location.origin.replace(/\/$/, '')}/api/stories/count`); } catch {}
+        candidates.push('http://localhost:5000/api/stories/count');
+
+        for (const url of candidates) {
+          if (updated) break;
+          try {
+            console.log('[LearningAnalytics] Trying REST stories count at:', url);
+            const res = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } });
+            if (!res.ok) continue;
+            const data = await res.json().catch(() => null);
+            if (data && typeof (data as any).total === 'number') {
+              console.log('[LearningAnalytics] Using REST stories count:', (data as any).total);
+              setLearningMetrics((prev) => ({ ...prev, totalBooks: (data as any).total }));
+              updated = true;
+              break;
+            }
+            if (typeof data === 'number') {
+              console.log('[LearningAnalytics] Using REST stories count (number body):', data);
+              setLearningMetrics((prev) => ({ ...prev, totalBooks: data }));
+              updated = true;
+              break;
+            }
+            const header = res.headers.get('x-total-count');
+            if (header) {
+              const total = parseInt(header, 10);
+              if (!Number.isNaN(total)) {
+                console.log('[LearningAnalytics] Using REST stories count (x-total-count):', total);
+                setLearningMetrics((prev) => ({ ...prev, totalBooks: total }));
+                updated = true;
+                break;
+              }
+            }
+          } catch (_e) {
+            // keep trying next candidate
+          }
+        }
+
+        if (!updated && !storiesFallbackDisabledRef.current && !STORIES_COUNT_URL) {
+          try {
+            const { collection, onSnapshot } = await import('firebase/firestore');
+            const { db } = await import('@/config/firebase');
+            // Prefer 'resources' collection
+            const unsub = onSnapshot(
+              collection(db, 'resources'),
+              (snap) => {
+                console.log('[LearningAnalytics] Using Firestore resources snapshot.size =', snap.size);
+                setLearningMetrics((prev) => ({ ...prev, totalBooks: snap.size }));
+              },
+              (err) => {
+                if ((err as any)?.code === 'permission-denied') {
+                  console.warn('Firestore resources read denied — disabling Firebase fallback for Total Stories.');
+                  storiesFallbackDisabledRef.current = true;
+                } else {
+                  console.warn('Firestore resources fallback error:', err);
+                }
+              }
+            );
+            unsubs.push(unsub);
+            updated = true;
+          } catch (_e) {
+            // Try 'stories' as an alternative collection name
+            try {
+              const { collection, onSnapshot } = await import('firebase/firestore');
+              const { db } = await import('@/config/firebase');
+              const unsub2 = onSnapshot(
+                collection(db, 'stories'),
+                (snap) => {
+                  console.log('[LearningAnalytics] Using Firestore stories snapshot.size =', snap.size);
+                  setLearningMetrics((prev) => ({ ...prev, totalBooks: snap.size }));
+                },
+                (err) => {
+                  if ((err as any)?.code === 'permission-denied') {
+                    console.warn('Firestore stories read denied — disabling Firebase fallback for Total Stories.');
+                    storiesFallbackDisabledRef.current = true;
+                  } else {
+                    console.warn('Firestore stories fallback error:', err);
+                  }
+                }
+              );
+              unsubs.push(unsub2);
+              updated = true;
+            } catch {
+              // Firestore not available or blocked
+            }
+          }
+        }
+
+        isFetchingStoriesRef.current = false;
+        return updated;
+      };
+
+      const prime = async () => { await fetchStoriesCount(); };
+      prime();
+      const poll = setInterval(fetchStoriesCount, 15000);
+      const onFocus = () => { fetchStoriesCount(); };
+      window.addEventListener('focus', onFocus);
+      unsubs.push(() => { clearInterval(poll); window.removeEventListener('focus', onFocus); });
+
+      // We still avoid a live onSnapshot on resources to reduce permission noise; count is polled.
+
+      // Reading results: derive avg reading time, completion rate, top performers
+      const resultsUnsub = onSnapshot(query(collection(db, 'readingResults')),
+      (snap) => {
+        // Avg Reading Time: average duration for completed sessions only
+        let completedSessions = 0;
+        let completedDurationSum = 0;
+
+        // Completion Rate: percentage of students who have at least one completed session
+        const studentToHasCompleted: Record<string, boolean> = {};
+        const studentToClass: Record<string, string> = {};
+
+        // Top Performer (Class): choose class with highest average comprehension (min 3 completed sessions)
+        const classCompSum: Record<string, number> = {};
+        const classCompCnt: Record<string, number> = {};
+
+        snap.forEach((doc) => {
+          const data = doc.data() as any;
+          const status = String(data?.status || '').toLowerCase();
+          const isCompleted = status.includes('complete');
+
+          const studentId = String(data?.studentId || data?.studentID || data?.student || '');
+          const className = String(data?.className || data?.class || data?.gradeName || data?.grade || '').trim();
+          if (studentId) studentToClass[studentId] = className || studentToClass[studentId] || '';
+
+          if (isCompleted) {
+            // avg time
+            const duration = typeof data?.durationMinutes === 'number'
+              ? data.durationMinutes
+              : (typeof data?.readingTime === 'number' ? data.readingTime : undefined);
+            if (typeof duration === 'number' && !Number.isNaN(duration)) {
+              completedDurationSum += duration;
+              completedSessions++;
+            }
+
+            // completion by unique students
+            if (studentId) studentToHasCompleted[studentId] = true;
+
+            // class performance via comprehension/score
+            const comprehension = typeof data?.comprehension === 'number'
+              ? data.comprehension
+              : (typeof data?.score === 'number' ? data.score : undefined);
+            if (typeof comprehension === 'number' && comprehension >= 0 && comprehension <= 100) {
+              const key = className || 'Unspecified Class';
+              classCompSum[key] = (classCompSum[key] || 0) + comprehension;
+              classCompCnt[key] = (classCompCnt[key] || 0) + 1;
+            }
+          }
+        });
+
+        const averageReadingTime = completedSessions > 0 ? Math.round(completedDurationSum / completedSessions) : 0;
+
+        // Completion denominator = total unique students in system (from students collection snapshot in roleCounts) if available, else unique students seen in results
+        const uniqueStudentsInResults = Object.keys(studentToClass).length;
+        const denom = roleCounts.students > 0 ? roleCounts.students : uniqueStudentsInResults;
+        const completionNumerator = Object.keys(studentToHasCompleted).length;
+        const completionRate = denom > 0 ? Math.round((completionNumerator / denom) * 100) : 0;
+
+        // Determine the top class
+        let topClassLabel = '—';
+        let topClassAvg = 0;
+        let topClassSamples = 0;
+        Object.keys(classCompCnt).forEach((k) => {
+          if (classCompCnt[k] >= 3) { // require minimum samples
+            const avg = classCompSum[k] / classCompCnt[k];
+            if (avg > topClassAvg) {
+              topClassAvg = avg;
+              topClassLabel = `${k}`;
+              topClassSamples = classCompCnt[k];
+            }
+          }
+        });
+
+        // Update available classes for filter
+        const classes = Object.keys(classCompCnt).filter(k => classCompCnt[k] >= 1).sort();
+        setAvailableClasses(classes);
+
+        // Recalculate completion rate based on selected class filter
+        let finalCompletionRate = completionRate;
+        if (completionClassFilter !== 'all' && completionClassFilter !== '') {
+          const classStudents = Object.keys(studentToClass).filter(sid => studentToClass[sid] === completionClassFilter);
+          const classCompleted = classStudents.filter(sid => studentToHasCompleted[sid]).length;
+          finalCompletionRate = classStudents.length > 0 ? Math.round((classCompleted / classStudents.length) * 100) : 0;
+        }
+
+        setLearningMetrics((prev) => ({
+          ...prev,
+          averageReadingTime,
+          completionRate: finalCompletionRate,
+          // Reuse topPerformers field to store a flag count but we'll display label separately
+          topPerformers: topClassLabel === '—' ? 0 : 1,
+        }));
+
+        // Also store the label on a ref so we can render it in the tile
+        setTopClassLabel(topClassLabel);
+        setTopClassScore(Math.round(topClassAvg));
+        setTopClassSamples(topClassSamples);
+        setAnalyticsLastUpdated(new Date());
+      },
+      (err) => {
+        if ((err as any)?.code === 'permission-denied') {
+          console.warn('Firestore readingResults read denied — disabling live analytics.');
+        } else {
+          console.warn('Firestore readingResults listener error:', err);
+        }
       });
-      
-    } catch (error) {
-      console.error('Error fetching learning metrics:', error);
-      // Set fallback data if Firebase query fails
-      setLearningMetrics({
-        totalBooks: 0,
-        averageReadingTime: 0,
-        completionRate: 0,
-        strugglingStudents: 0,
-        topPerformers: 0
-      });
+      unsubs.push(resultsUnsub);
+    } catch (e) {
+      console.error('Realtime learning metrics error:', e);
     }
-  };
+
+    return () => {
+      unsubs.forEach((u) => {
+        try { u(); } catch {}
+      });
+    };
+  }, [totalStudents]);
 
   const overviewStats = useMemo(() => {
     return [
@@ -1506,6 +1778,9 @@ const AdminDashboard: React.FC = () => {
   const [userGrowthAllTime, setUserGrowthAllTime] = useState<number[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const userUnsubRef = useRef<null | (() => void)>(null);
+  const storiesFallbackDisabledRef = useRef<boolean>(false);
+  const storiesEffectInitializedRef = useRef<boolean>(false);
+  const isFetchingStoriesRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (userUnsubRef.current) userUnsubRef.current();
@@ -1765,7 +2040,16 @@ const AdminDashboard: React.FC = () => {
 
           {/* Learning Analytics - full width */}
           <div>
-            <LearningAnalyticsWidget metrics={learningMetrics} />
+            <LearningAnalyticsWidget 
+              metrics={learningMetrics} 
+              topClassLabel={topClassLabel}
+              topClassScore={topClassScore}
+              topClassSamples={topClassSamples}
+              completionClassFilter={completionClassFilter}
+              availableClasses={availableClasses}
+              onClassFilterChange={setCompletionClassFilter}
+              lastUpdated={analyticsLastUpdated}
+            />
           </div>
 
           {/* User Growth Over Time - full width */}
