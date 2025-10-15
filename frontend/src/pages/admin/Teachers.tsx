@@ -5,6 +5,7 @@ import { Menu } from '@headlessui/react';
 import { EllipsisVerticalIcon, FunnelIcon, MagnifyingGlassIcon } from '@heroicons/react/24/solid';
 import ConfirmDeleteModal from '../../components/admin/ConfirmDeleteModal';
 import Loader from '../../components/Loader';
+import { profileImageService } from '../../services/profileImageService';
 
 interface Teacher {
   id: string;
@@ -28,7 +29,7 @@ const Teachers: React.FC = () => {
   const [viewTeacher, setViewTeacher] = useState<Teacher | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterType, setFilterType] = useState<'az' | 'za' | 'newest' | 'oldest'>('az');
-  const [searchOpen, setSearchOpen] = useState(false);
+  // Search is always visible now
   const [searchValue, setSearchValue] = useState('');
 
   const fetchTeachers = async () => {
@@ -36,7 +37,22 @@ const Teachers: React.FC = () => {
     setError(null);
     try {
       const data = await getAllTeachers();
-      setTeachers(data);
+
+      // Fetch profile images from MongoDB for each teacher (by firebase UID)
+      const withImages = await Promise.all(
+        data.map(async (t) => {
+          try {
+            const base64 = await profileImageService.getTeacherProfileImage(t.id);
+            return base64
+              ? { ...t, profileImage: profileImageService.convertBase64ToDataUrl(base64) }
+              : t;
+          } catch {
+            return t;
+          }
+        })
+      );
+
+      setTeachers(withImages);
     } catch (err) {
       setError('Failed to load teachers.');
     } finally {
@@ -68,6 +84,7 @@ const Teachers: React.FC = () => {
     await fetchTeachers();
     handleModalClose();
   };
+
 
   const handleDeleteClick = (teacher: Teacher) => {
     setTeacherToDelete(teacher);
@@ -149,18 +166,9 @@ const Teachers: React.FC = () => {
         <div className="text-gray-500">No teachers found.</div>
       ) : (
           <div className="bg-white rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.12)] p-2 sm:p-6">
-          <div className="flex justify-between mb-4 items-center">
+          <div className="flex justify-between mb-4 items-center relative">
             <h2 className="text-2xl font-bold text-gray-800">Teachers</h2>
-          </div>
-          <div className="overflow-visible">
-            <table className="min-w-full rounded-2xl">
-              <thead>
-                <tr className="bg-white shadow-sm rounded-t-2xl sticky top-0 z-10">
-                  <th className="px-6 py-5 text-left text-sm font-bold text-gray-700 uppercase tracking-wider rounded-tl-2xl border-b border-gray-200">Name</th>
-                  <th className="px-6 py-5 text-left text-sm font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200">School</th>
-                  <th className="px-6 py-5 text-center text-sm font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200">Grade Level</th>
-                  <th className="px-6 py-5 text-right text-sm font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200" colSpan={2}>
-                    <div className="flex justify-end items-center gap-2">
+            <div className="flex items-center gap-2 ml-auto">
               <button
                 className="bg-gray-100 hover:bg-gray-200 text-gray-700 p-2 rounded-full shadow flex items-center justify-center"
                 onClick={() => setFilterOpen(f => !f)}
@@ -168,26 +176,23 @@ const Teachers: React.FC = () => {
               >
                 <FunnelIcon className="w-5 h-5" />
               </button>
-              <button
-                className="bg-gray-100 hover:bg-gray-200 text-gray-700 p-2 rounded-full shadow flex items-center justify-center"
-                onClick={() => setSearchOpen(s => !s)}
+              <span
+                className="bg-gray-100 text-gray-700 p-2 rounded-full shadow flex items-center justify-center"
                 title="Search"
               >
                 <MagnifyingGlassIcon className="w-5 h-5" />
-              </button>
-              {searchOpen && (
+              </span>
+              <div className="ml-2 w-56">
                 <input
                   type="text"
-                          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 transition-all duration-150 ml-2"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400"
                   placeholder="Search by name..."
                   value={searchValue}
                   onChange={e => setSearchValue(e.target.value)}
-                  autoFocus
-                  style={{ minWidth: 180 }}
                 />
-              )}
+              </div>
               {filterOpen && (
-                <div className="absolute right-24 top-12 bg-white border border-gray-200 rounded-lg shadow-lg z-20 w-48">
+                <div className="absolute right-0 top-12 bg-white border border-gray-200 rounded-lg shadow-lg z-20 w-48">
                   <button
                     className={`w-full text-left px-4 py-2 hover:bg-blue-50 ${filterType === 'az' ? 'font-bold text-blue-700' : ''}`}
                     onClick={() => { setFilterType('az'); setFilterOpen(false); }}
@@ -214,9 +219,16 @@ const Teachers: React.FC = () => {
                   </button>
                 </div>
               )}
-              <button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-5 rounded-lg shadow transition-all duration-150">+ Add Teacher</button>
             </div>
-                  </th>
+          </div>
+          <div className="overflow-visible">
+            <table className="min-w-full rounded-2xl">
+              <thead>
+                <tr className="bg-white shadow-sm rounded-t-2xl sticky top-0 z-10">
+                  <th className="px-6 py-5 text-left text-sm font-bold text-gray-700 uppercase tracking-wider rounded-tl-2xl border-b border-gray-200">Name</th>
+                  <th className="px-6 py-5 text-left text-sm font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200">School</th>
+                  <th className="px-6 py-5 text-center text-sm font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200">Grade Level</th>
+                  <th className="px-6 py-5 text-right text-sm font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200" colSpan={2}></th>
                 </tr>
               </thead>
               <tbody>
@@ -288,6 +300,7 @@ const Teachers: React.FC = () => {
           onSaveSuccess={handleSaveSuccess}
         />
       )}
+
 
       <ConfirmDeleteModal
         isOpen={isDeleteModalOpen}

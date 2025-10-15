@@ -4,6 +4,7 @@ import { Menu } from '@headlessui/react';
 import { EllipsisVerticalIcon, FunnelIcon, MagnifyingGlassIcon } from '@heroicons/react/24/solid';
 import ConfirmDeleteModal from '../../components/admin/ConfirmDeleteModal';
 import Loader from '../../components/Loader';
+import { profileImageService } from '../../services/profileImageService';
 
 interface Parent {
   id: string;
@@ -33,7 +34,26 @@ const Parents: React.FC = () => {
     setError(null);
     try {
       const data = await getAllParents();
-      setParents(data);
+
+      // Try to load profile images. If parent-specific endpoint isn't available,
+      // fall back to teacher endpoint (same firebase UID field is used).
+      const withImages = await Promise.all(
+        data.map(async (p) => {
+          try {
+            let base64 = await profileImageService.getParentProfileImage(p.id);
+            if (!base64) {
+              base64 = await profileImageService.getTeacherProfileImage(p.id);
+            }
+            return base64
+              ? { ...p, profileImage: profileImageService.convertBase64ToDataUrl(base64) }
+              : p;
+          } catch {
+            return p;
+          }
+        })
+      );
+
+      setParents(withImages);
     } catch (err) {
       setError('Failed to load parents.');
     } finally {
@@ -89,18 +109,18 @@ const Parents: React.FC = () => {
 
   return (
     <div className="p-8">
-      <div className="bg-white rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.12)] p-2 sm:p-6">
-        <div className="flex justify-between mb-4 items-center">
-          <h2 className="text-2xl font-bold text-gray-800">Parents</h2>
-        </div>
-        {loading ? (
-          <Loader label="Loading parents..." />
-        ) : error ? (
-          <div className="text-red-500">{error}</div>
-        ) : parents.length === 0 ? (
-          <div className="text-gray-500">No parents found.</div>
-        ) : (
-          <div className="overflow-visible">
+      {loading ? (
+        <Loader label="Loading parents..." />
+      ) : error ? (
+        <div className="text-red-500">{error}</div>
+      ) : parents.length === 0 ? (
+        <div className="text-gray-500">No parents found.</div>
+      ) : (
+        <div className="bg-white rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.12)] p-2 sm:p-6">
+          <div className="flex justify-between mb-4 items-center">
+            <h2 className="text-2xl font-bold text-gray-800">Parents</h2>
+          </div>
+            <div className="overflow-visible">
             <table className="min-w-full rounded-2xl">
               <thead>
                 <tr className="bg-white shadow-sm rounded-t-2xl sticky top-0 z-10">
@@ -146,25 +166,16 @@ const Parents: React.FC = () => {
                           </Menu.Item>
                         </Menu.Items>
                       </Menu>
-                      <button
-                        type="button"
-                        className="bg-gray-100 hover:bg-gray-200 text-gray-700 p-2 rounded-full shadow flex items-center justify-center"
-                        aria-label="Search"
-                        onClick={() => setShowSearch((prev) => !prev)}
-                      >
+                      <span className="bg-gray-100 text-gray-700 p-2 rounded-full shadow flex items-center justify-center" aria-label="Search">
                         <MagnifyingGlassIcon className="w-5 h-5" />
-                      </button>
-                      {showSearch && (
-                        <input
-                          type="text"
-                          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 transition-all duration-150 ml-2"
-                          placeholder="Search by name or email..."
-                          value={searchValue}
-                          onChange={e => setSearchValue(e.target.value)}
-                          style={{ minWidth: 180 }}
-                          autoFocus
-                        />
-                      )}
+                      </span>
+                      <input
+                        type="text"
+                        className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 transition-all duration-150 ml-2 w-56"
+                        placeholder="Search by name or email..."
+                        value={searchValue}
+                        onChange={e => setSearchValue(e.target.value)}
+                      />
                     </div>
                   </th>
                 </tr>
@@ -176,7 +187,7 @@ const Parents: React.FC = () => {
                     className="transition-all duration-200 hover:bg-blue-200/70 hover:shadow-2xl hover:-translate-y-1 hover:border-blue-400 border-b border-gray-100 last:border-b-0 group"
                   >
                     <td className="px-6 py-6 whitespace-nowrap flex items-center gap-4">
-                      <span className="w-12 h-12 rounded-full bg-white border border-gray-200 shadow flex items-center justify-center overflow-hidden mr-2">
+                      <span className="w-16 h-16 rounded-full bg-white border border-gray-200 shadow flex items-center justify-center overflow-hidden mr-2">
                         {parent.profileImage ? (
                           <img src={parent.profileImage} alt={parent.displayName || 'Profile'} className="w-full h-full object-cover rounded-full" />
                         ) : null}
@@ -217,8 +228,8 @@ const Parents: React.FC = () => {
               </tbody>
             </table>
           </div>
-        )}
-      </div>
+        </div>
+      )}
       <ConfirmDeleteModal
         isOpen={isDeleteModalOpen}
         onClose={() => { setIsDeleteModalOpen(false); setParentToDelete(null); }}
