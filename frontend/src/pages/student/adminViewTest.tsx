@@ -172,12 +172,23 @@ const AdminViewTest: React.FC = () => {
       </div>
       <div className="fixed top-0 left-0 min-h-screen h-screen w-screen flex flex-col justify-center items-center bg-gradient-to-br from-[#253347] via-[#253347] to-[#b4c5e4] font-[Comic Sans MS, Comic Sans, cursive, sans-serif] overflow-hidden z-40">
         <div className="flex flex-col items-center w-full max-w-5xl mx-auto px-4 py-8 font-[Quicksand,sans-serif] max-h-full overflow-hidden justify-center flex-1">
-          {/* Top row: test name, admin indicator, and question count */}
-          <div className="w-full flex justify-center mb-6">
-            <div className="flex flex-row items-center gap-3 bg-white/30 backdrop-blur rounded-full px-6 py-2 shadow-lg border-2 border-white/40">
-              <span className="text-blue-900 font-bold text-base md:text-lg px-2 py-1 rounded-full bg-blue-100/80 border border-blue-200/60 shadow-sm">{test.testName}</span>
-              <span className="text-red-800 font-bold text-base md:text-lg px-2 py-1 rounded-full bg-red-100/80 border border-red-200/60 shadow-sm">Admin View</span>
-              <span className="text-purple-900 font-bold text-base md:text-lg px-2 py-1 rounded-full bg-purple-100/80 border border-purple-200/60 shadow-sm">{currentQuestion + 1} / {test.questions.length}</span>
+          {/* Professional header: Story | Admin | Progress */}
+          <div className="w-full mb-6">
+            <div className="mx-auto max-w-5xl rounded-xl bg-white/20 backdrop-blur border border-white/30 shadow-md px-4 py-3">
+              <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-4">
+                <div className="min-w-0">
+                  <span className="block text-xs md:text-sm text-white/70">Story</span>
+                  <span className="block text-base md:text-xl font-extrabold text-white whitespace-normal break-words">{test.testName}</span>
+                </div>
+                <div className="min-w-0 col-[2] justify-self-center text-center">
+                  <span className="block text-xs md:text-sm text-white/70">Mode</span>
+                  <span className="block text-base md:text-lg font-bold text-white whitespace-normal break-words">Admin Preview</span>
+                </div>
+                <div className="text-right min-w-[110px] justify-self-end">
+                  <span className="block text-xs md:text-sm text-white/70">Progress</span>
+                  <span className="block text-base md:text-lg font-bold text-white">{currentQuestion + 1} / {test.questions.length}</span>
+                </div>
+              </div>
             </div>
           </div>
           {/* Horizontal progress bar under the top row */}
@@ -193,7 +204,7 @@ const AdminViewTest: React.FC = () => {
             <span className="text-2xl md:text-3xl font-extrabold text-white drop-shadow">{test.questions[currentQuestion].question}</span>
           </div>
 
-          {/* Answers Grid - View Only */}
+          {/* Answers Grid - View Only (mirrors StudentTestPage styles) */}
           <div className="grid grid-cols-2 gap-6 w-full max-w-7xl mx-auto px-0 mb-8 overflow-visible">
             {test.questions[currentQuestion].choices.map((choice, cIdx) => {
               const isCorrect = cIdx === test.questions[currentQuestion].correctAnswer;
@@ -201,7 +212,7 @@ const AdminViewTest: React.FC = () => {
               return (
                 <div
                   key={cIdx}
-                  className={`flex items-center gap-6 w-full h-32 rounded-3xl text-3xl font-extrabold shadow-2xl border-4 transition-all duration-200 px-10
+                  className={`flex items-center gap-5 w-full min-h-32 rounded-3xl text-2xl font-extrabold shadow-2xl border-4 transition-all duration-200 px-8 py-6
                     ${showAnswers 
                       ? (isCorrect 
                           ? 'bg-green-500 border-green-600 text-white ring-4 ring-green-300' 
@@ -209,32 +220,36 @@ const AdminViewTest: React.FC = () => {
                       : 'bg-blue-400 border-white text-white'
                     }`}
                 >
-                  <span className="flex items-center justify-center w-16 h-16 rounded-full bg-white/90 text-blue-600 shadow-md border-2 border-white">
+                  <span className="flex items-center justify-center w-14 h-14 rounded-full bg-white/90 text-blue-600 shadow-md border-2 border-white text-2xl">
                     {label}
                   </span>
-                  <span className="truncate text-white drop-shadow-lg">{choice}</span>
+                  <span className="text-white drop-shadow-lg text-left leading-snug break-words whitespace-normal">{choice}</span>
                 </div>
               );
             })}
           </div>
 
-          {/* Instructions */}
-          <div className="w-full max-w-3xl mx-auto mb-8 p-6 rounded-2xl bg-white/10 backdrop-blur-md shadow-lg border border-white/20">
-            <h3 className="text-xl font-bold text-white mb-4">Test Instructions:</h3>
-            <p className="text-white text-lg leading-relaxed">{test.instructions}</p>
+          {/* Info Section: Instructions + Admin note */}
+          <div className="w-full max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
+            <section className="rounded-2xl bg-white/10 backdrop-blur-md shadow-lg border border-white/20 p-6">
+              <header className="mb-3">
+                <h3 className="text-lg md:text-xl font-bold text-white tracking-wide">Test Instructions</h3>
+              </header>
+              <div className="text-white/90 text-base leading-relaxed whitespace-pre-wrap">
+                {test.instructions}
           </div>
+            </section>
 
-          {/* Admin Info */}
-          <div className="w-full max-w-3xl mx-auto p-4 rounded-xl bg-yellow-100/20 backdrop-blur-md shadow-lg border border-yellow-300/30">
-            <div className="flex items-center gap-2 text-yellow-200">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="text-lg font-semibold">Admin Preview Mode</span>
-            </div>
-            <p className="text-yellow-100 mt-2 text-sm">
-              This is a read-only preview of the test. Students will see this test in an interactive format where they can select answers and submit their responses.
-            </p>
+            <aside className="rounded-2xl bg-white/5 backdrop-blur-md shadow-lg border border-white/15 p-6">
+              <header className="mb-2">
+                <h4 className="text-base md:text-lg font-semibold text-white/90">Admin Preview</h4>
+              </header>
+              <ul className="list-disc list-inside text-white/80 text-sm leading-relaxed space-y-1">
+                <li>Read-only view. Interactions are disabled.</li>
+                <li>Students will answer in an interactive version.</li>
+                <li>Use Next/Previous to browse all questions.</li>
+              </ul>
+            </aside>
           </div>
         </div>
       </div>
