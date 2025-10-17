@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, enableNetwork, disableNetwork, setLogLevel } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import type { Auth } from 'firebase/auth';
 import type { Firestore } from 'firebase/firestore';
@@ -27,5 +27,29 @@ export const db: Firestore = getFirestore(app);
 
 // Initialize Firebase Storage and get a reference to the service
 export const storage: FirebaseStorage = getStorage(app);
+
+// Reduce Firestore console noise in production and during idle teardowns
+try {
+  setLogLevel('error');
+} catch (_) {}
+
+// Pause Firestore network when tab is hidden; resume when visible.
+// This avoids idle watch stream teardown errors and saves bandwidth.
+if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+  const handleVisibility = async () => {
+    try {
+      if (document.hidden) {
+        await disableNetwork(db);
+      } else {
+        await enableNetwork(db);
+      }
+    } catch (_) {}
+  };
+  try {
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleVisibility);
+    window.addEventListener('blur', handleVisibility);
+  } catch (_) {}
+}
 
 export default app; 

@@ -9,7 +9,7 @@ import {
   type UserCredential
 } from 'firebase/auth';
 import { auth, db } from '../config/firebase';
-import { doc, setDoc, getDoc, getDocs, collection, query, where, updateDoc, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, getDocs, collection, query, where, updateDoc, deleteDoc, disableNetwork, enableNetwork, setLogLevel } from 'firebase/firestore';
 
 export type UserRole = 'admin' | 'parent' | 'teacher';
 
@@ -55,6 +55,13 @@ const determineUserRole = (email: string): UserRole => {
   }
 };
 
+// Global suppression window to silence transient Firestore errors during sign-out
+let suppressFsErrorsUntil = 0;
+export const beginSuppressFirestoreErrors = (ms: number) => {
+  suppressFsErrorsUntil = Date.now() + Math.max(0, ms);
+};
+export const shouldSuppressFirestoreError = () => Date.now() < suppressFsErrorsUntil;
+
 // Sign up with email and password
 export const signUp = async (email: string, password: string, displayName?: string): Promise<UserCredential> => {
   try {
@@ -96,7 +103,17 @@ export const signIn = async (email: string, password: string): Promise<UserCrede
 // Sign out
 export const signOutUser = async (): Promise<void> => {
   try {
+    // Temporarily disable Firestore network to prevent snapshot listeners
+    // from emitting permission-denied during the auth transition.
+    beginSuppressFirestoreErrors(3000);
+    try { setLogLevel('silent'); } catch (_) {}
+    try { await disableNetwork(db); } catch (_) {}
     await signOut(auth);
+    // Small delay before re-enabling to allow listeners to fully tear down
+    try { await new Promise(res => setTimeout(res, 250)); } catch (_) {}
+    try { await enableNetwork(db); } catch (_) {}
+    // Restore normal logging shortly after network is back
+    setTimeout(() => { try { setLogLevel('error'); } catch (_) {} }, 500);
   } catch (error) {
     throw error;
   }
@@ -190,6 +207,24 @@ export const getUserProfile = async (): Promise<UserProfile | null> => {
   if (!user) return null;
   
   try {
+    // Short-circuit when clearly offline to avoid noisy errors
+    if (typeof navigator !== 'undefined' && navigator && (navigator as any).onLine === false) {
+      const defaultProfile: UserProfile = {
+        displayName: user.displayName || undefined,
+        email: user.email || undefined,
+        photoURL: user.photoURL || undefined,
+        role: determineUserRole(user.email || ''),
+        phoneNumber: '',
+        gradeLevel: '',
+        school: '',
+        address: '',
+      };
+      return {
+        ...defaultProfile,
+        isProfileComplete: isProfileComplete(defaultProfile),
+      };
+    }
+
     const userDoc = await getDoc(doc(db, 'users', user.uid));
     const userData = userDoc.data();
     console.log('Loaded user profile from Firestore:', userData);
@@ -233,7 +268,15 @@ export const getUserProfile = async (): Promise<UserProfile | null> => {
       banner: userData.banner || undefined,
     };
   } catch (error) {
-    console.error('Error fetching user profile:', error);
+    // Downgrade known offline errors to a warning and return a best-effort profile
+    const code = (error as any)?.code as string | undefined;
+    const message = (error as any)?.message as string | undefined;
+    const isOffline = code === 'unavailable' || (message || '').toLowerCase().includes('offline') || (message || '').toLowerCase().includes('could not reach');
+    if (isOffline) {
+      console.warn('User profile fetch skipped due to offline mode. Falling back to local auth data.');
+    } else {
+      console.error('Error fetching user profile:', error);
+    }
     const defaultProfile: UserProfile = {
       displayName: user.displayName || undefined,
       email: user.email || undefined,

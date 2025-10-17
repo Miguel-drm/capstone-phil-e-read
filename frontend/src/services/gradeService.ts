@@ -15,6 +15,7 @@ import {
   onSnapshot
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { shouldSuppressFirestoreError } from './authService';
 import { getAuth } from 'firebase/auth';
 import * as StudentServiceModule from './studentService'; // Import as a namespace
 
@@ -142,7 +143,20 @@ class GradeService {
         gs.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
         onChange(gs);
       }, (err) => {
-        console.warn('subscribeToTeacherGrades permission or network issue:', err?.message || err);
+        // Suppress noisy warnings fired during/after sign-out. When the auth state
+        // is already signed-out, Firestore listeners may receive a transient
+        // permission error. We ignore these to avoid confusing the user.
+        try {
+          const auth = getAuth();
+          const code = (err as any)?.code as string | undefined;
+          const isSignedOut = !auth.currentUser;
+          if (shouldSuppressFirestoreError() || (isSignedOut && (code === 'permission-denied' || code === 'unauthenticated' || code === 'failed-precondition'))) {
+            return; // silently ignore post-signout listener errors
+          }
+        } catch (_) {
+          // If checking auth fails, fall through to logging below
+        }
+        console.warn('subscribeToTeacherGrades permission or network issue:', (err as any)?.message || err);
         if (onError) onError(err);
       });
       return unsub;

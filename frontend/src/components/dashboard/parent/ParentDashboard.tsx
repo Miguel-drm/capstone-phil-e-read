@@ -401,7 +401,7 @@ const ParentDashboard: React.FC = () => {
           <div className="lg:col-span-2">
             <QuickActionsWidget />
           </div>
-        </div>
+      </div>
 
         {/* Children Overview - full width */}
         <div>
@@ -413,40 +413,40 @@ const ParentDashboard: React.FC = () => {
 
         {/* Children cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {loading ? (
+        {loading ? (
             <div className="col-span-full text-center py-8 text-gray-500">Loading children...</div>
-          ) : children.length === 0 ? (
+        ) : children.length === 0 ? (
             <div className="col-span-full text-center py-8 text-gray-500">No children registered yet</div>
           ) : (
             children.map((child) => (
               <ChildCard key={child.id} child={child} />
             ))
-          )}
-        </div>
+        )}
+      </div>
 
-        {/* Progress Charts per child */}
+      {/* Progress Charts per child */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          {children.length === 0 ? (
-            <PerformanceChart data={mockChartData} grades={mockGrades} students={children} title="All Students" targetLine={85} />
-          ) : (
-            children.map((child) => (
-              <PerformanceChart
-                key={child.id}
-                data={mockChartData}
-                grades={mockGrades}
-                students={[child]}
-                title={child.name}
-                targetLine={85}
-              />
-            ))
-          )}
-        </div>
+        {children.length === 0 ? (
+          <PerformanceChart data={mockChartData} grades={mockGrades} students={children} title="All Students" targetLine={85} />
+        ) : (
+          children.map((child) => (
+            <PerformanceChart
+              key={child.id}
+              data={mockChartData}
+              grades={mockGrades}
+              students={[child]}
+              title={child.name}
+              targetLine={85}
+            />
+          ))
+        )}
+      </div>
 
-        {/* Recent Activity */}
+      {/* Recent Activity */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
-          <div className="space-y-4">
-            <p className="text-gray-500">No recent activity</p>
+        <div className="space-y-4">
+          <p className="text-gray-500">No recent activity</p>
           </div>
         </div>
       </div>

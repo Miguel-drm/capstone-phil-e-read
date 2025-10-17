@@ -1,33 +1,48 @@
-import React, {useEffect, useState, useRef, useMemo} from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { readingSessionService, type ReadingSession } from '@/services/readingSessionService';
-import { resultService } from '@/services/resultsService';
-import { UnifiedStoryService } from '@/services/UnifiedStoryService';
-import type { Story } from '@/types/Story';
-import { ArrowLeftIcon, XCircleIcon, BookOpenIcon, UserGroupIcon, ChartBarIcon, MicrophoneIcon, PlayIcon, PauseIcon, StopIcon } from '@heroicons/react/24/outline';
-import * as pdfjsLib from 'pdfjs-dist';
-import type { TextItem } from 'pdfjs-dist/types/src/display/api';
-import 'pdfjs-dist/build/pdf.worker.entry';
+import React, { useEffect, useState, useRef, useMemo } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import {
+  readingSessionService,
+  type ReadingSession,
+} from "@/services/readingSessionService";
+import { resultService } from "@/services/resultsService";
+import { UnifiedStoryService } from "@/services/UnifiedStoryService";
+import type { Story } from "@/types/Story";
+import {
+  ArrowLeftIcon,
+  XCircleIcon,
+  BookOpenIcon,
+  UserGroupIcon,
+  ChartBarIcon,
+  MicrophoneIcon,
+  PlayIcon,
+  PauseIcon,
+  StopIcon,
+} from "@heroicons/react/24/outline";
+import * as pdfjsLib from "pdfjs-dist";
+import type { TextItem } from "pdfjs-dist/types/src/display/api";
+import "pdfjs-dist/build/pdf.worker.entry";
 import {
   calculateOralReadingScore,
   calculateReadingSpeedWPM,
   calculateMiscues,
   calculateWordsRead,
-  formatElapsedTime
-} from '@/utils/readingMetrics';
-import { studentService } from '@/services/studentService';
-import Swal from 'sweetalert2';
-import { db } from '@/config/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+  formatElapsedTime,
+} from "@/utils/readingMetrics";
+import { studentService } from "@/services/studentService";
+import Swal from "sweetalert2";
+import { db } from "@/config/firebase";
+import { collection, getDocs } from "firebase/firestore";
 
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 const ReadingSessionPage: React.FC = () => {
-  const [storyText, setStoryText] = useState<string>('');
+  const [storyText, setStoryText] = useState<string>("");
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  const [currentSession, setCurrentSession] = useState<ReadingSession | null>(null);
+  const [currentSession, setCurrentSession] = useState<ReadingSession | null>(
+    null
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,7 +51,7 @@ const ReadingSessionPage: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
-  const [pdfContent, setPdfContent] = useState<string>('');
+  const [pdfContent, setPdfContent] = useState<string>("");
   const [isLoadingPdf, setIsLoadingPdf] = useState(false); // used in PDF fetch display logic
   const [pdfError, setPdfError] = useState<string | null>(null);
 
@@ -51,11 +66,17 @@ const ReadingSessionPage: React.FC = () => {
   const scriptNodeRef = useRef<ScriptProcessorNode | null>(null);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const voskSocketRef = useRef<WebSocket | null>(null);
-  const [transcript, setTranscript] = useState('');
-  const [sttProvider, setSttProvider] = useState<'vosk' | 'webspeech' | 'none'>('none');
-  const [voskStatus, setVoskStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const [transcript, setTranscript] = useState("");
+  const [sttProvider, setSttProvider] = useState<"vosk" | "webspeech" | "none">(
+    "none"
+  );
+  const [voskStatus, setVoskStatus] = useState<
+    "disconnected" | "connecting" | "connected"
+  >("disconnected");
   const [wordsRead, setWordsRead] = useState(0);
-  const [storyLanguage, setStoryLanguage] = useState<'english' | 'tagalog'>('english');
+  const [storyLanguage, setStoryLanguage] = useState<"english" | "tagalog">(
+    "english"
+  );
   // Derived metrics are calculated from elapsed time and transcript
 
   // Debug state removed
@@ -65,23 +86,39 @@ const ReadingSessionPage: React.FC = () => {
 
   // Real-time Oral Reading Score (Accuracy) using useMemo
   const oralReadingScore = useMemo(() => {
-    if (words.length === 0) return '0.0';
+    if (words.length === 0) return "0.0";
     const score = calculateOralReadingScore(wordsRead, miscues, words.length);
     return score.toFixed(1);
   }, [wordsRead, miscues, words.length]);
 
   // Reduce noisy debug logs in production
   useEffect(() => {
-    if ((import.meta as any)?.env?.MODE === 'development') {
-      console.debug('wordsRead:', wordsRead, 'miscues:', miscues, 'totalWords:', words.length, 'oralReadingScore:', oralReadingScore);
+    if ((import.meta as any)?.env?.MODE === "development") {
+      console.debug(
+        "wordsRead:",
+        wordsRead,
+        "miscues:",
+        miscues,
+        "totalWords:",
+        words.length,
+        "oralReadingScore:",
+        oralReadingScore
+      );
     }
   }, [wordsRead, miscues, words.length, oralReadingScore]);
 
   // Real-time Reading Speed (WPM)
-  const readingSpeedWPM = elapsedTime > 0 ? calculateReadingSpeedWPM(wordsRead, elapsedTime).toString() : '0';
+  const readingSpeedWPM =
+    elapsedTime > 0
+      ? calculateReadingSpeedWPM(wordsRead, elapsedTime).toString()
+      : "0";
 
   // Helper: Normalize text for comparison (lowercase, remove all non-word characters)
-  const normalize = (text: string) => text.toLowerCase().replace(/[^\w\s]/g, '').trim();
+  const normalize = (text: string) =>
+    text
+      .toLowerCase()
+      .replace(/[^\w\s]/g, "")
+      .trim();
 
   // Helper: Check if a word contains any alphanumeric character
   const isWordAlphanumeric = (word: string) => /[a-zA-Z0-9]/.test(word);
@@ -94,22 +131,44 @@ const ReadingSessionPage: React.FC = () => {
 
   // Helper: Simple Soundex implementation (for browser, no deps)
   function soundex(s: string): string {
-    const a = s.toLowerCase().replace(/[^a-z]/g, '').split('');
-    if (!a.length) return '';
+    const a = s
+      .toLowerCase()
+      .replace(/[^a-z]/g, "")
+      .split("");
+    if (!a.length) return "";
     const f = a.shift()!;
     const codes: { [key: string]: string } = {
-      a: '', e: '', i: '', o: '', u: '', y: '', h: '', w: '',
-      b: '1', f: '1', p: '1', v: '1',
-      c: '2', g: '2', j: '2', k: '2', q: '2', s: '2', x: '2', z: '2',
-      d: '3', t: '3',
-      l: '4',
-      m: '5', n: '5',
-      r: '6'
+      a: "",
+      e: "",
+      i: "",
+      o: "",
+      u: "",
+      y: "",
+      h: "",
+      w: "",
+      b: "1",
+      f: "1",
+      p: "1",
+      v: "1",
+      c: "2",
+      g: "2",
+      j: "2",
+      k: "2",
+      q: "2",
+      s: "2",
+      x: "2",
+      z: "2",
+      d: "3",
+      t: "3",
+      l: "4",
+      m: "5",
+      n: "5",
+      r: "6",
     };
-    let r = f + a.map(c => codes[c] || '').join('');
-    r = r.replace(/(\d)\1+/g, '$1');
-    r = r.replace(/[^a-z\d]/g, '');
-    return (r + '000').slice(0, 4);
+    let r = f + a.map((c) => codes[c] || "").join("");
+    r = r.replace(/(\d)\1+/g, "$1");
+    r = r.replace(/[^a-z\d]/g, "");
+    return (r + "000").slice(0, 4);
   }
 
   // Levenshtein distance implementation
@@ -156,13 +215,13 @@ const ReadingSessionPage: React.FC = () => {
 
   // Start recording and speech recognition
   const handleStartRecording = () => {
-    if (currentSession?.status === 'completed') {
-      alert('This session is already completed. Recording is disabled.');
+    if (currentSession?.status === "completed") {
+      alert("This session is already completed. Recording is disabled.");
       return;
     }
     setIsRecording(true);
     setIsPaused(false);
-    setTranscript('');
+    setTranscript("");
     setWordsRead(0);
     // reset derived metrics
     setElapsedTime(0);
@@ -172,37 +231,44 @@ const ReadingSessionPage: React.FC = () => {
 
     // --- MediaRecorder ---
     if (navigator.mediaDevices && window.MediaRecorder) {
-      navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-        const mediaRecorder = new MediaRecorder(stream);
-        mediaRecorderRef.current = mediaRecorder;
-        const audioChunks: BlobPart[] = [];
-        mediaRecorder.ondataavailable = (e) => {
-          if (e.data.size > 0) audioChunks.push(e.data);
-        };
-        mediaRecorder.onstop = () => {
-          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-          setAudioBlob(audioBlob);
-          setAudioUrl(URL.createObjectURL(audioBlob));
-        };
-        mediaRecorder.start();
-      }).catch(() => {
-        alert('Microphone access denied or not available.');
-        setIsRecording(false);
-      });
+      navigator.mediaDevices
+        .getUserMedia({ audio: true })
+        .then((stream) => {
+          const mediaRecorder = new MediaRecorder(stream);
+          mediaRecorderRef.current = mediaRecorder;
+          const audioChunks: BlobPart[] = [];
+          mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) audioChunks.push(e.data);
+          };
+          mediaRecorder.onstop = () => {
+            const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+            setAudioBlob(audioBlob);
+            setAudioUrl(URL.createObjectURL(audioBlob));
+          };
+          mediaRecorder.start();
+        })
+        .catch(() => {
+          alert("Microphone access denied or not available.");
+          setIsRecording(false);
+        });
     } else {
-      alert('MediaRecorder not supported in this browser.');
+      alert("MediaRecorder not supported in this browser.");
       setIsRecording(false);
     }
 
     // Choose STT path: Vosk (WS) for Tagalog if enabled, else Web Speech
     // Force-try Vosk whenever the story is Tagalog; fallback to Web Speech if Vosk WS fails
-    const useVosk = storyLanguage === 'tagalog';
+    const useVosk = storyLanguage === "tagalog";
     if (useVosk) {
       try {
-        const wsUrl = (import.meta as any)?.env?.VITE_VOSK_WS_URL || 'ws://localhost:2700';
+        const wsUrl =
+          (import.meta as any)?.env?.VITE_VOSK_WS_URL || "ws://localhost:2700";
         const startVosk = async () => {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 48000 } });
-          const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: { channelCount: 1, sampleRate: 48000 },
+          });
+          const ctx = new (window.AudioContext ||
+            (window as any).webkitAudioContext)({ sampleRate: 48000 });
           audioContextRef.current = ctx;
           const src = ctx.createMediaStreamSource(stream);
           sourceNodeRef.current = src;
@@ -227,18 +293,18 @@ const ReadingSessionPage: React.FC = () => {
               }
               const sample = sum / (count || 1);
               const s = Math.max(-1, Math.min(1, sample));
-              result[idx++] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+              result[idx++] = s < 0 ? s * 0x8000 : s * 0x7fff;
             }
             return result;
           };
 
-          setVoskStatus('connecting');
+          setVoskStatus("connecting");
           const ws = new WebSocket(wsUrl);
           voskSocketRef.current = ws;
-          ws.binaryType = 'arraybuffer';
+          ws.binaryType = "arraybuffer";
           ws.onopen = () => {
-            setVoskStatus('connected');
-            setSttProvider('vosk');
+            setVoskStatus("connected");
+            setSttProvider("vosk");
             script.onaudioprocess = (e: AudioProcessingEvent) => {
               const channel = e.inputBuffer.getChannelData(0);
               const pcm16 = downsampleTo16k(channel);
@@ -257,21 +323,29 @@ const ReadingSessionPage: React.FC = () => {
             } catch {}
           };
           ws.onerror = () => {
-            console.warn('Vosk WS error, falling back to Web Speech');
+            console.warn("Vosk WS error, falling back to Web Speech");
             cleanupVosk();
-            setVoskStatus('disconnected');
+            setVoskStatus("disconnected");
             startWebSpeech();
           };
           ws.onclose = () => {
-            setVoskStatus('disconnected');
+            setVoskStatus("disconnected");
           };
         };
 
         const cleanupVosk = () => {
-          try { scriptNodeRef.current?.disconnect(); } catch {}
-          try { sourceNodeRef.current?.disconnect(); } catch {}
-          try { audioContextRef.current?.close(); } catch {}
-          try { voskSocketRef.current?.close(); } catch {}
+          try {
+            scriptNodeRef.current?.disconnect();
+          } catch {}
+          try {
+            sourceNodeRef.current?.disconnect();
+          } catch {}
+          try {
+            audioContextRef.current?.close();
+          } catch {}
+          try {
+            voskSocketRef.current?.close();
+          } catch {}
           scriptNodeRef.current = null;
           sourceNodeRef.current = null;
           audioContextRef.current = null;
@@ -279,31 +353,36 @@ const ReadingSessionPage: React.FC = () => {
         };
 
         const startWebSpeech = () => {
-          const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+          const SpeechRecognition =
+            (window as any).SpeechRecognition ||
+            (window as any).webkitSpeechRecognition;
           if (!SpeechRecognition) {
-            alert('SpeechRecognition not supported in this browser.');
+            alert("SpeechRecognition not supported in this browser.");
             return;
           }
           const recognition = new SpeechRecognition();
           recognitionRef.current = recognition;
           recognition.continuous = true;
           recognition.interimResults = true;
-          const selectRecognitionLang = (lang: 'english' | 'tagalog') => {
-            if (lang === 'tagalog') {
-              const preferred = (navigator.languages || []).map(l => l.toLowerCase());
-              if (preferred.includes('fil-ph')) return 'fil-PH';
-              if (preferred.includes('tl-ph')) return 'tl-PH';
-              return 'fil-PH';
+          const selectRecognitionLang = (lang: "english" | "tagalog") => {
+            if (lang === "tagalog") {
+              const preferred = (navigator.languages || []).map((l) =>
+                l.toLowerCase()
+              );
+              if (preferred.includes("fil-ph")) return "fil-PH";
+              if (preferred.includes("tl-ph")) return "tl-PH";
+              return "fil-PH";
             }
-            return 'en-US';
+            return "en-US";
           };
           recognition.lang = selectRecognitionLang(storyLanguage);
-          setSttProvider('webspeech');
-          let runningTranscript = '';
+          setSttProvider("webspeech");
+          let runningTranscript = "";
           recognition.onresult = (event: any) => {
-            let interim = '';
+            let interim = "";
             for (let i = event.resultIndex; i < event.results.length; ++i) {
-              if (event.results[i].isFinal) runningTranscript += event.results[i][0].transcript + ' ';
+              if (event.results[i].isFinal)
+                runningTranscript += event.results[i][0].transcript + " ";
               else interim += event.results[i][0].transcript;
             }
             setTranscript(runningTranscript + interim);
@@ -314,47 +393,55 @@ const ReadingSessionPage: React.FC = () => {
 
         // try Vosk, fallback to Web Speech
         startVosk().catch(() => {
-          console.warn('Failed to start Vosk, using Web Speech');
+          console.warn("Failed to start Vosk, using Web Speech");
           startWebSpeech();
         });
       } catch {
         // fallback
-        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        const SpeechRecognition =
+          (window as any).SpeechRecognition ||
+          (window as any).webkitSpeechRecognition;
         if (SpeechRecognition) {
           const recognition = new SpeechRecognition();
           recognitionRef.current = recognition;
           recognition.continuous = true;
           recognition.interimResults = true;
-          recognition.lang = 'fil-PH';
-          setSttProvider('webspeech');
-          recognition.onresult = (e: any) => setTranscript(e.results[0][0].transcript || '');
+          recognition.lang = "fil-PH";
+          setSttProvider("webspeech");
+          recognition.onresult = (e: any) =>
+            setTranscript(e.results[0][0].transcript || "");
           recognition.start();
         }
       }
     } else {
       // Web Speech path (default)
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      const SpeechRecognition =
+        (window as any).SpeechRecognition ||
+        (window as any).webkitSpeechRecognition;
       if (SpeechRecognition) {
         const recognition = new SpeechRecognition();
         recognitionRef.current = recognition;
         recognition.continuous = true;
         recognition.interimResults = true;
-        const selectRecognitionLang = (lang: 'english' | 'tagalog') => {
-          if (lang === 'tagalog') {
-            const preferred = (navigator.languages || []).map(l => l.toLowerCase());
-            if (preferred.includes('fil-ph')) return 'fil-PH';
-            if (preferred.includes('tl-ph')) return 'tl-PH';
-            return 'fil-PH';
+        const selectRecognitionLang = (lang: "english" | "tagalog") => {
+          if (lang === "tagalog") {
+            const preferred = (navigator.languages || []).map((l) =>
+              l.toLowerCase()
+            );
+            if (preferred.includes("fil-ph")) return "fil-PH";
+            if (preferred.includes("tl-ph")) return "tl-PH";
+            return "fil-PH";
           }
-          return 'en-US';
+          return "en-US";
         };
         recognition.lang = selectRecognitionLang(storyLanguage);
-        setSttProvider('webspeech');
-        let runningTranscript = '';
+        setSttProvider("webspeech");
+        let runningTranscript = "";
         recognition.onresult = (event: any) => {
-          let interim = '';
+          let interim = "";
           for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) runningTranscript += event.results[i][0].transcript + ' ';
+            if (event.results[i].isFinal)
+              runningTranscript += event.results[i][0].transcript + " ";
             else interim += event.results[i][0].transcript;
           }
           setTranscript(runningTranscript + interim);
@@ -362,7 +449,7 @@ const ReadingSessionPage: React.FC = () => {
         recognition.onerror = (_e: any) => {};
         recognition.start();
       } else {
-        alert('SpeechRecognition not supported in this browser.');
+        alert("SpeechRecognition not supported in this browser.");
       }
     }
   };
@@ -371,15 +458,26 @@ const ReadingSessionPage: React.FC = () => {
   useEffect(() => {
     const rec: any = recognitionRef.current;
     if (!rec) return;
-    const target = (storyLanguage === 'tagalog') ? ((navigator.languages || []).map(l => l.toLowerCase()).includes('fil-ph') ? 'fil-PH' : 'tl-PH') : 'en-US';
+    const target =
+      storyLanguage === "tagalog"
+        ? (navigator.languages || [])
+            .map((l) => l.toLowerCase())
+            .includes("fil-ph")
+          ? "fil-PH"
+          : "tl-PH"
+        : "en-US";
     try {
       if (rec.lang !== target) {
         // Some implementations require restart to apply new language
         const wasRunning = isRecording && !isPaused;
-        try { rec.stop(); } catch {}
+        try {
+          rec.stop();
+        } catch {}
         rec.lang = target;
         if (wasRunning) {
-          try { rec.start(); } catch {}
+          try {
+            rec.start();
+          } catch {}
         }
       }
     } catch {}
@@ -393,53 +491,70 @@ const ReadingSessionPage: React.FC = () => {
       // Stop MediaRecorder
       if (mediaRecorderRef.current) {
         mediaRecorderRef.current.stop();
-        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+        mediaRecorderRef.current.stream
+          .getTracks()
+          .forEach((track) => track.stop());
       }
       // Stop SpeechRecognition
       if (recognitionRef.current) {
         recognitionRef.current.stop();
       }
       // Stop Vosk stream if active
-      try { scriptNodeRef.current?.disconnect(); } catch {}
-      try { sourceNodeRef.current?.disconnect(); } catch {}
-      try { audioContextRef.current?.close(); } catch {}
-      try { voskSocketRef.current?.close(); } catch {}
+      try {
+        scriptNodeRef.current?.disconnect();
+      } catch {}
+      try {
+        sourceNodeRef.current?.disconnect();
+      } catch {}
+      try {
+        audioContextRef.current?.close();
+      } catch {}
+      try {
+        voskSocketRef.current?.close();
+      } catch {}
       scriptNodeRef.current = null;
       sourceNodeRef.current = null;
       audioContextRef.current = null;
       voskSocketRef.current = null;
       // If Tagalog story, optionally send audio to backend Whisper for better transcription
-      const enableServerTranscribe = (import.meta as any)?.env?.VITE_ENABLE_SERVER_TRANSCRIBE === 'true';
-      if (audioBlob && storyLanguage === 'tagalog' && enableServerTranscribe) {
+      const enableServerTranscribe =
+        (import.meta as any)?.env?.VITE_ENABLE_SERVER_TRANSCRIBE === "true";
+      if (audioBlob && storyLanguage === "tagalog" && enableServerTranscribe) {
         try {
           const form = new FormData();
-          form.append('audio', audioBlob, 'audio.webm');
-          form.append('language', 'fil');
-          const resp = await fetch('/api/transcribe', { method: 'POST', body: form });
+          form.append("audio", audioBlob, "audio.webm");
+          form.append("language", "fil");
+          const resp = await fetch("/api/transcribe", {
+            method: "POST",
+            body: form,
+          });
           if (resp.ok) {
             const data = await resp.json();
             if (data?.text) {
               setTranscript(data.text);
             }
           } else {
-            console.warn('Whisper transcription failed');
+            console.warn("Whisper transcription failed");
           }
         } catch (e) {
-          console.warn('Error sending to Whisper:', e);
+          console.warn("Error sending to Whisper:", e);
         }
       }
     } catch (error) {
-      console.error('Failed to stop recording:', error);
+      console.error("Failed to stop recording:", error);
     }
   };
 
   // Wait for MediaRecorder to finalize audio (audioBlob/audioUrl set) with timeout
-  const waitForAudioFinalization = async (timeoutMs: number = 2000): Promise<void> => {
+  const waitForAudioFinalization = async (
+    timeoutMs: number = 2000
+  ): Promise<void> => {
     if (!isRecording && (audioBlob || audioUrl)) return;
     await new Promise<void>((resolve) => {
       const start = Date.now();
       const interval = setInterval(() => {
-        const done = (!!audioBlob || !!audioUrl) || Date.now() - start > timeoutMs;
+        const done =
+          !!audioBlob || !!audioUrl || Date.now() - start > timeoutMs;
         if (done) {
           clearInterval(interval);
           resolve();
@@ -477,8 +592,9 @@ const ReadingSessionPage: React.FC = () => {
     try {
       setIsLoadingPdf(true);
       setPdfError(null);
-      
-      if ((import.meta as any)?.env?.MODE === 'development') console.debug('Fetching PDF from URL:', pdfUrl);
+
+      if ((import.meta as any)?.env?.MODE === "development")
+        console.debug("Fetching PDF from URL:", pdfUrl);
       const response = await fetch(pdfUrl);
       if (!response.ok) {
         // Try to get error details from response
@@ -490,59 +606,79 @@ const ReadingSessionPage: React.FC = () => {
           }
         } catch (parseError) {
           // If we can't parse JSON, use the status text
-          console.warn('Could not parse error response:', parseError);
+          console.warn("Could not parse error response:", parseError);
         }
         throw new Error(errorMessage);
       }
-      
+
       // Get the PDF as an array buffer
       const pdfArrayBuffer = await response.arrayBuffer();
-      if ((import.meta as any)?.env?.MODE === 'development') console.debug('Received array buffer of size:', pdfArrayBuffer.byteLength);
+      if ((import.meta as any)?.env?.MODE === "development")
+        console.debug(
+          "Received array buffer of size:",
+          pdfArrayBuffer.byteLength
+        );
 
       // Check if we received valid PDF data (should start with %PDF-)
       const firstBytes = new Uint8Array(pdfArrayBuffer.slice(0, 5));
       const header = new TextDecoder().decode(firstBytes);
-      if ((import.meta as any)?.env?.MODE === 'development') console.debug('PDF header:', header);
-      if (!header.startsWith('%PDF-')) {
-        throw new Error('Invalid PDF data: Missing PDF header');
+      if ((import.meta as any)?.env?.MODE === "development")
+        console.debug("PDF header:", header);
+      if (!header.startsWith("%PDF-")) {
+        throw new Error("Invalid PDF data: Missing PDF header");
       }
 
       // Load the PDF using PDF.js
       try {
         const loadingTask = pdfjsLib.getDocument({
           data: pdfArrayBuffer,
-          cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+          cMapUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/",
           cMapPacked: true,
         });
-        
+
         const pdf = await loadingTask.promise;
-        if ((import.meta as any)?.env?.MODE === 'development') console.debug('PDF loaded successfully, pages:', pdf.numPages);
-        
-        let fullText = '';
+        if ((import.meta as any)?.env?.MODE === "development")
+          console.debug("PDF loaded successfully, pages:", pdf.numPages);
+
+        let fullText = "";
         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-          if ((import.meta as any)?.env?.MODE === 'development') console.debug('Processing page', pageNum);
+          if ((import.meta as any)?.env?.MODE === "development")
+            console.debug("Processing page", pageNum);
           const page = await pdf.getPage(pageNum);
           const textContent = await page.getTextContent();
           const pageText = textContent.items
-            .filter((item): item is TextItem => 'str' in item)
-            .map(item => item.str)
-            .join(' ');
-          fullText += pageText + '\n\n';
+            .filter((item): item is TextItem => "str" in item)
+            .map((item) => item.str)
+            .join(" ");
+          fullText += pageText + "\n\n";
         }
 
-        if ((import.meta as any)?.env?.MODE === 'development') console.debug('Text extraction complete, text length:', fullText.length);
+        if ((import.meta as any)?.env?.MODE === "development")
+          console.debug(
+            "Text extraction complete, text length:",
+            fullText.length
+          );
         setPdfContent(fullText);
-        
+
         // Split content into words and update state
-        const wordArray = fullText.split(/\s+/).filter((word: string) => word.length > 0);
+        const wordArray = fullText
+          .split(/\s+/)
+          .filter((word: string) => word.length > 0);
         setWords(wordArray);
-        if ((import.meta as any)?.env?.MODE === 'development') console.debug('PDF processing completed. Found', wordArray.length, 'words');
+        if ((import.meta as any)?.env?.MODE === "development")
+          console.debug(
+            "PDF processing completed. Found",
+            wordArray.length,
+            "words"
+          );
       } catch (pdfError) {
-        console.error('Error processing PDF:', pdfError);
+        console.error("Error processing PDF:", pdfError);
         throw pdfError;
       }
     } catch (error) {
-      setPdfError(error instanceof Error ? error.message : 'Failed to load PDF');
+      setPdfError(
+        error instanceof Error ? error.message : "Failed to load PDF"
+      );
       throw error;
     } finally {
       setIsLoadingPdf(false);
@@ -552,100 +688,140 @@ const ReadingSessionPage: React.FC = () => {
   useEffect(() => {
     const fetchSession = async () => {
       if (!sessionId) {
-        console.error('No session ID provided');
-        setError('No session ID provided');
+        console.error("No session ID provided");
+        setError("No session ID provided");
         return;
       }
 
       try {
         setIsLoading(true);
-        if ((import.meta as any)?.env?.MODE === 'development') console.debug('Fetching session with ID:', sessionId);
+        if ((import.meta as any)?.env?.MODE === "development")
+          console.debug("Fetching session with ID:", sessionId);
 
-        const sessionData = await readingSessionService.getSessionById(sessionId);
-        if ((import.meta as any)?.env?.MODE === 'development') console.debug('Session data:', sessionData);
+        const sessionData = await readingSessionService.getSessionById(
+          sessionId
+        );
+        if ((import.meta as any)?.env?.MODE === "development")
+          console.debug("Session data:", sessionData);
 
         if (!sessionData) {
-          throw new Error('Session not found');
+          throw new Error("Session not found");
         }
 
         setCurrentSession(sessionData);
 
         // Get all stories firsts
         const stories = await UnifiedStoryService.getInstance().getStories({});
-        if ((import.meta as any)?.env?.MODE === 'development') console.debug('All stories:', stories);
+        if ((import.meta as any)?.env?.MODE === "development")
+          console.debug("All stories:", stories);
 
         // Extract story by _id or title for compatibility
-        const story = stories.find((s: Story) => s._id === sessionData.book || s.title === sessionData.book);
+        const story = stories.find(
+          (s: Story) =>
+            s._id === sessionData.book || s.title === sessionData.book
+        );
 
         if (!story || !story._id) {
-          throw new Error('Story not found');
+          throw new Error("Story not found");
         }
 
-        if ((import.meta as any)?.env?.MODE === 'development') console.debug('Found matching story:', story);
+        if ((import.meta as any)?.env?.MODE === "development")
+          console.debug("Found matching story:", story);
 
         try {
           // Get the full story details
-          const fullStory = await UnifiedStoryService.getInstance().getStoryById(story._id);
-          
+          const fullStory =
+            await UnifiedStoryService.getInstance().getStoryById(story._id);
+
           if (!fullStory) {
-            throw new Error('Failed to fetch story details');
+            throw new Error("Failed to fetch story details");
           }
 
-          if ((import.meta as any)?.env?.MODE === 'development') console.debug('Full story details:', {
-            id: fullStory._id,
-            title: fullStory.title,
-            language: fullStory.language,
-            hasTextContent: !!fullStory.textContent,
-            textContentLength: fullStory.textContent?.length,
-            textContentPreview: fullStory.textContent?.substring(0, 100)
-          });
+          if ((import.meta as any)?.env?.MODE === "development")
+            console.debug("Full story details:", {
+              id: fullStory._id,
+              title: fullStory.title,
+              language: fullStory.language,
+              hasTextContent: !!fullStory.textContent,
+              textContentLength: fullStory.textContent?.length,
+              textContentPreview: fullStory.textContent?.substring(0, 100),
+            });
 
           // Set story language for speech recognition
           if (fullStory.language) {
             // Convert MongoDB language codes back to our internal format
-            const internalLanguage = fullStory.language === 'none' ? 'tagalog' : 'english';
+            const internalLanguage =
+              fullStory.language === "none" ? "tagalog" : "english";
             setStoryLanguage(internalLanguage);
-            if ((import.meta as any)?.env?.MODE === 'development') console.debug('Story language set to:', internalLanguage, '(from MongoDB code:', fullStory.language, ')');
+            if ((import.meta as any)?.env?.MODE === "development")
+              console.debug(
+                "Story language set to:",
+                internalLanguage,
+                "(from MongoDB code:",
+                fullStory.language,
+                ")"
+              );
           } else {
             // Default to English if no language is specified
-            setStoryLanguage('english');
-            if ((import.meta as any)?.env?.MODE === 'development') console.debug('No language specified, defaulting to English');
+            setStoryLanguage("english");
+            if ((import.meta as any)?.env?.MODE === "development")
+              console.debug("No language specified, defaulting to English");
           }
 
           // Set text content first (this is what we want to display)
-          if (fullStory.textContent && fullStory.textContent.trim().length > 0) {
+          if (
+            fullStory.textContent &&
+            fullStory.textContent.trim().length > 0
+          ) {
             setStoryText(fullStory.textContent.trim());
-            const wordArray = fullStory.textContent.trim().split(/\s+/).filter((word: string) => word.length > 0);
+            const wordArray = fullStory.textContent
+              .trim()
+              .split(/\s+/)
+              .filter((word: string) => word.length > 0);
             setWords(wordArray);
-            if ((import.meta as any)?.env?.MODE === 'development') console.debug('Text content loaded. Found', wordArray.length, 'words');
+            if ((import.meta as any)?.env?.MODE === "development")
+              console.debug(
+                "Text content loaded. Found",
+                wordArray.length,
+                "words"
+              );
           }
 
           // Try to load PDF content as a backup (but don't fail if it doesn't work)
           try {
-            const pdfUrl = UnifiedStoryService.getInstance().getStoryPdfUrl(story._id);
+            const pdfUrl = UnifiedStoryService.getInstance().getStoryPdfUrl(
+              story._id
+            );
             await loadPdfContent(pdfUrl);
-            if ((import.meta as any)?.env?.MODE === 'development') console.debug('PDF content also loaded successfully');
+            if ((import.meta as any)?.env?.MODE === "development")
+              console.debug("PDF content also loaded successfully");
           } catch (pdfError) {
-            console.warn('PDF loading failed, but text content is available:', pdfError);
+            console.warn(
+              "PDF loading failed, but text content is available:",
+              pdfError
+            );
             // Don't throw error here since we have text content
             // Set a flag to indicate PDF failed
-            setPdfError(pdfError instanceof Error ? pdfError.message : 'PDF loading failed');
+            setPdfError(
+              pdfError instanceof Error
+                ? pdfError.message
+                : "PDF loading failed"
+            );
           }
-
         } catch (error) {
-          console.error('Error fetching story content:', error);
+          console.error("Error fetching story content:", error);
           if (error instanceof Error) {
             throw new Error(`Failed to load story content: ${error.message}`);
           } else {
-            throw new Error('Failed to load story content: Unknown error');
+            throw new Error("Failed to load story content: Unknown error");
           }
         }
       } catch (error: any) {
-        console.error('Error details:', {
+        console.error("Error details:", {
           message: error.message,
           code: error.code,
           stack: error.stack,
-          response: error.response?.data
+          response: error.response?.data,
         });
         setError(error.message);
       } finally {
@@ -681,14 +857,17 @@ const ReadingSessionPage: React.FC = () => {
     if (storyText && storyText.trim().length > 0) {
       const { displayWords } = splitAndNormalizeWords(storyText);
       setWords(displayWords);
-      if ((import.meta as any)?.env?.MODE === 'development') console.debug('Loaded storyText');
+      if ((import.meta as any)?.env?.MODE === "development")
+        console.debug("Loaded storyText");
     } else if (pdfContent && pdfContent.trim().length > 0) {
       const { displayWords } = splitAndNormalizeWords(pdfContent);
       setWords(displayWords);
-      if ((import.meta as any)?.env?.MODE === 'development') console.debug('Loaded pdfContent');
+      if ((import.meta as any)?.env?.MODE === "development")
+        console.debug("Loaded pdfContent");
     } else {
       // No content yet (initial fetch); avoid noisy warnings in production
-      if ((import.meta as any)?.env?.MODE === 'development') console.debug('No storyText or pdfContent loaded yet');
+      if ((import.meta as any)?.env?.MODE === "development")
+        console.debug("No storyText or pdfContent loaded yet");
     }
   }, [storyText, pdfContent]);
 
@@ -697,7 +876,7 @@ const ReadingSessionPage: React.FC = () => {
 
   // When loading storyText/pdfContent, extract real words for matching
   useEffect(() => {
-    let text = '';
+    let text = "";
     if (storyText && storyText.trim().length > 0) {
       text = storyText;
     } else if (pdfContent && pdfContent.trim().length > 0) {
@@ -715,11 +894,11 @@ const ReadingSessionPage: React.FC = () => {
     if (!transcript || !realWords.length) return;
     const transcriptWords = transcript.split(/\s+/).filter(Boolean);
     const idx = calculateWordsRead(transcriptWords, realWords, isWordMatch);
-      if ((import.meta as any)?.env?.MODE === 'development') {
-        console.debug('Transcript:', transcriptWords);
-        console.debug('Real words:', realWords);
-        console.debug('Words read:', idx);
-      }
+    if ((import.meta as any)?.env?.MODE === "development") {
+      console.debug("Transcript:", transcriptWords);
+      console.debug("Real words:", realWords);
+      console.debug("Words read:", idx);
+    }
     setCurrentWordIndex(idx);
     setWordsRead(idx);
   }, [transcript, realWords]);
@@ -733,17 +912,28 @@ const ReadingSessionPage: React.FC = () => {
   useEffect(() => {
     if (!transcript || !realWords.length) return;
     const transcriptWords = transcript.split(/\s+/).filter(Boolean);
-    const miscuesCount = calculateMiscues(transcriptWords, realWords, isWordMatch);
-    if ((import.meta as any)?.env?.MODE === 'development') console.debug('Miscues:', miscuesCount);
+    const miscuesCount = calculateMiscues(
+      transcriptWords,
+      realWords,
+      isWordMatch
+    );
+    if ((import.meta as any)?.env?.MODE === "development")
+      console.debug("Miscues:", miscuesCount);
     setMiscues(miscuesCount);
   }, [transcript, realWords]);
 
-  const [studentNames, setStudentNames] = useState<{ [id: string]: string }>({});
-  const [completedStudents, setCompletedStudents] = useState<{ [id: string]: boolean }>({});
+  const [studentNames, setStudentNames] = useState<{ [id: string]: string }>(
+    {}
+  );
+  const [completedStudents, setCompletedStudents] = useState<{
+    [id: string]: boolean;
+  }>({});
 
   // Quiz: resolve matching test automatically and student mapping
-  const [tests, setTests] = useState<{ id: string; testName: string; storyId?: string; storyTitle?: string }[]>([]);
-  const [resolvedTestId, setResolvedTestId] = useState<string>('');
+  const [tests, setTests] = useState<
+    { id: string; testName: string; storyId?: string; storyTitle?: string }[]
+  >([]);
+  const [resolvedTestId, setResolvedTestId] = useState<string>("");
 
   // Fetch student names when currentSession changes
   useEffect(() => {
@@ -771,11 +961,22 @@ const ReadingSessionPage: React.FC = () => {
   useEffect(() => {
     const loadTests = async () => {
       try {
-        const qs = await getDocs(collection(db, 'tests'));
-        const list: { id: string; testName: string; storyId?: string; storyTitle?: string }[] = [];
-        qs.forEach(d => {
+        const qs = await getDocs(collection(db, "tests"));
+        const list: {
+          id: string;
+          testName: string;
+          storyId?: string;
+          storyTitle?: string;
+        }[] = [];
+        qs.forEach((d) => {
           const data = d.data() as any;
-          list.push({ id: d.id, testName: data?.testName || 'Untitled Test', storyId: data?.storyId, storyTitle: data?.storyTitle || data?.book || data?.linkedStoryTitle });
+          list.push({
+            id: d.id,
+            testName: data?.testName || "Untitled Test",
+            storyId: data?.storyId,
+            storyTitle:
+              data?.storyTitle || data?.book || data?.linkedStoryTitle,
+          });
         });
         setTests(list);
       } catch (e) {
@@ -788,10 +989,17 @@ const ReadingSessionPage: React.FC = () => {
   // Resolve the matching test for the story linked to this session
   useEffect(() => {
     if (!currentSession) return;
-    const storyKey = (currentSession.book || '').toString().trim();
+    const storyKey = (currentSession.book || "").toString().trim();
     if (!storyKey) return;
     // Try to match by exact storyId (if present) or by title fields
-    const match = tests.find(t => (t.storyId && (t.storyId === currentSession.book)) || (t.storyTitle && t.storyTitle.toLowerCase() === storyKey.toLowerCase()) || (t.testName && t.testName.toLowerCase().includes(storyKey.toLowerCase())));
+    const match = tests.find(
+      (t) =>
+        (t.storyId && t.storyId === currentSession.book) ||
+        (t.storyTitle &&
+          t.storyTitle.toLowerCase() === storyKey.toLowerCase()) ||
+        (t.testName &&
+          t.testName.toLowerCase().includes(storyKey.toLowerCase()))
+    );
     if (match) setResolvedTestId(match.id);
   }, [tests, currentSession]);
 
@@ -828,7 +1036,7 @@ const ReadingSessionPage: React.FC = () => {
     );
   }
 
-  const isCompleted = (currentSession?.status as any) === 'completed';
+  const isCompleted = (currentSession?.status as any) === "completed";
 
   const handleCompleteSession = async () => {
     if (!sessionId || !currentSession) return;
@@ -841,8 +1049,8 @@ const ReadingSessionPage: React.FC = () => {
       }
 
       // Update session status to completed
-      await readingSessionService.updateSessionStatus(sessionId, 'completed');
-      
+      await readingSessionService.updateSessionStatus(sessionId, "completed");
+
       // Save detailed results to the new results collection
       for (const studentId of currentSession.students) {
         const readingSessionResult = {
@@ -852,8 +1060,8 @@ const ReadingSessionPage: React.FC = () => {
           gradeId: currentSession.gradeId,
           studentId, // <-- Add this field
           teacherId: currentSession.teacherId,
-          type: 'reading-session' as const,
-          
+          type: "reading-session" as const,
+
           // Reading metrics
           wordsRead: wordsRead,
           totalWords: words.length,
@@ -861,48 +1069,47 @@ const ReadingSessionPage: React.FC = () => {
           oralReadingScore: parseFloat(oralReadingScore),
           readingSpeed: parseInt(readingSpeedWPM),
           elapsedTime: elapsedTime,
-          
+
           // Additional data
           transcript: transcript,
           audioUrl: audioUrl || undefined,
           storyUrl: currentSession.storyUrl,
-          
+
           // Timestamps
-          sessionDate: new Date()
+          sessionDate: new Date(),
         };
         await resultService.createReadingSessionResult(readingSessionResult);
-        setCompletedStudents(prev => ({ ...prev, [studentId]: true }));
+        setCompletedStudents((prev) => ({ ...prev, [studentId]: true }));
       }
-      
+
       // Update local state
       setCurrentSession({
         ...currentSession,
-        status: 'completed'
+        status: "completed",
       });
 
       // Show SweetAlert2 success popup
       await Swal.fire({
-        icon: 'success',
-        title: 'Session Completed!',
-        text: 'All data has been saved successfully.',
-        confirmButtonText: 'OK',
+        icon: "success",
+        title: "Session Completed!",
+        text: "All data has been saved successfully.",
+        confirmButtonText: "OK",
       });
-      
+
       // Optionally navigate back to sessions list
       // navigate('/teacher/reading');
-      
     } catch (error) {
-      console.error('Failed to complete session:', error);
-      alert('Failed to complete session. Please try again.');
+      console.error("Failed to complete session:", error);
+      alert("Failed to complete session. Please try again.");
     }
   };
 
   // Download audio handler
   const handleDownloadAudio = () => {
     if (!audioBlob || !audioUrl) return;
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = audioUrl;
-    a.download = `${currentSession?.title || 'audio-recording'}.webm`;
+    a.download = `${currentSession?.title || "audio-recording"}.webm`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -913,7 +1120,10 @@ const ReadingSessionPage: React.FC = () => {
   // In the rendering, highlight only if the display word is the current real word
   // To do this, map realWords to their positions in the display words array
   // We'll build a mapping from real word index to display word index
-  function getDisplayWordIndexForRealWord(realWordIdx: number, displayWords: string[]): number {
+  function getDisplayWordIndexForRealWord(
+    realWordIdx: number,
+    displayWords: string[]
+  ): number {
     let count = 0;
     for (let i = 0; i < displayWords.length; i++) {
       if (/\w+/.test(displayWords[i])) {
@@ -939,16 +1149,22 @@ const ReadingSessionPage: React.FC = () => {
               <span className="hidden sm:inline">Back</span>
             </button>
             <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-blue-900 truncate">
-              {currentSession?.title || 'Reading Session'}
+              {currentSession?.title || "Reading Session"}
             </h1>
           </div>
           {currentSession && (
-            <span className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-full text-sm sm:text-base font-semibold transition-all duration-200
-              ${currentSession.status === 'completed' ? 'bg-green-100 text-green-700' :
-                currentSession.status === 'in-progress' ? 'bg-blue-100 text-blue-700 animate-pulse' :
-                'bg-yellow-100 text-yellow-700'}`}
+            <span
+              className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-full text-sm sm:text-base font-semibold transition-all duration-200
+              ${
+                currentSession.status === "completed"
+                  ? "bg-green-100 text-green-700"
+                  : currentSession.status === "in-progress"
+                  ? "bg-blue-100 text-blue-700 animate-pulse"
+                  : "bg-yellow-100 text-yellow-700"
+              }`}
             >
-              {currentSession.status.charAt(0).toUpperCase() + currentSession.status.slice(1)}
+              {currentSession.status.charAt(0).toUpperCase() +
+                currentSession.status.slice(1)}
             </span>
           )}
         </div>
@@ -959,7 +1175,10 @@ const ReadingSessionPage: React.FC = () => {
         <div className="w-full flex justify-center mb-4">
           <div className="bg-yellow-100 border border-yellow-300 rounded-lg px-6 py-3 flex items-center gap-3 shadow text-lg">
             <span className="font-semibold text-yellow-800">Mic heard:</span>
-            <span className="font-mono text-yellow-900 text-xl font-bold">{transcript.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || '-'}</span>
+            <span className="font-mono text-yellow-900 text-xl font-bold">
+              {transcript.trim().split(/\s+/).filter(Boolean).slice(-1)[0] ||
+                "-"}
+            </span>
           </div>
         </div>
       )}
@@ -970,61 +1189,98 @@ const ReadingSessionPage: React.FC = () => {
         <div className="flex-1">
           <div className="relative bg-white/80 rounded-2xl lg:rounded-3xl border border-blue-100 p-4 sm:p-6 lg:p-10 overflow-hidden max-h-[40rem] lg:max-h-[48rem]">
             {/* Progress Bar */}
-            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 rounded-t-3xl animate-pulse" style={{ width: `${Math.min((currentWordIndex / words.length) * 100, 100)}%` }}></div>
+            <div
+              className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 rounded-t-3xl animate-pulse"
+              style={{
+                width: `${Math.min(
+                  (currentWordIndex / words.length) * 100,
+                  100
+                )}%`,
+              }}
+            ></div>
             <div className="mb-4 sm:mb-6 lg:mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
               <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-blue-900 flex items-center gap-2">
-                <BookOpenIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 text-blue-500" /> Story Content
+                <BookOpenIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 text-blue-500" />{" "}
+                Story Content
               </h3>
               <div className="flex items-center gap-3 sm:gap-6 text-sm sm:text-base lg:text-lg text-blue-700">
                 <span>{words.length} words</span>
                 <span className="hidden sm:inline">•</span>
-                <span>{storyText ? storyText.split('\n\n').length : pdfContent.split('\n\n').length} paragraphs</span>
+                <span>
+                  {storyText
+                    ? storyText.split("\n\n").length
+                    : pdfContent.split("\n\n").length}{" "}
+                  paragraphs
+                </span>
                 {isLoadingPdf && <span className="hidden sm:inline">•</span>}
                 {isLoadingPdf && <span>Loading PDF…</span>}
               </div>
             </div>
             <div className="max-h-[20rem] sm:max-h-[30rem] lg:max-h-[38rem] overflow-y-auto custom-scrollbar prose prose-sm sm:prose-base lg:prose-xl prose-blue bg-white/60 rounded-lg sm:rounded-xl p-4 sm:p-6 lg:p-8 text-sm sm:text-base lg:text-[1.35rem] leading-relaxed tracking-wide">
-              {(storyText || pdfContent) ? (
-                (storyText ? storyText : pdfContent).split('\n\n').filter(p => p.trim().length > 0).map((paragraph, paragraphIndex, paragraphs) => {
-                  const wordsInParagraph = paragraph.trim().split(/\s+/);
-                  return (
-                    <div key={paragraphIndex} className="mb-4 sm:mb-6 lg:mb-8 last:mb-0">
-                      <p className="text-gray-800 leading-relaxed flex flex-wrap gap-y-1 sm:gap-y-2 lg:gap-y-3">
-                        {wordsInParagraph.map((word, wordIndex) => {
-                          const globalWordIndex = paragraphs
-                            .slice(0, paragraphIndex)
-                            .reduce((acc, p) => acc + p.trim().split(/\s+/).length, 0) + wordIndex;
-                          const isCurrentWord = getDisplayWordIndexForRealWord(currentWordIndex, wordsInParagraph) === globalWordIndex;
-                          const isSpecialChar = !/\w+/.test(word);
-                          return (
-                            <span
-                              key={`${paragraphIndex}-${wordIndex}`}
-                            className={
-                              isSpecialChar
-                                ? 'inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none not-allowed'
-                                : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl transition-all duration-200 ` +
-                                  (isCurrentWord
-                                    ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold scale-105 sm:scale-110 animate-pulse'
-                                    : 'bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer')
-                            }
-                            style={isCurrentWord ? { boxShadow: '0 0 8px 2px #a5b4fc' } : {}}
-                            >
-                              {word}
-                            </span>
-                          );
-                        })}
-                      </p>
-                    </div>
-                  );
-                })
+              {storyText || pdfContent ? (
+                (storyText ? storyText : pdfContent)
+                  .split("\n\n")
+                  .filter((p) => p.trim().length > 0)
+                  .map((paragraph, paragraphIndex, paragraphs) => {
+                    const wordsInParagraph = paragraph.trim().split(/\s+/);
+                    return (
+                      <div
+                        key={paragraphIndex}
+                        className="mb-4 sm:mb-6 lg:mb-8 last:mb-0"
+                      >
+                        <p className="text-gray-800 leading-relaxed flex flex-wrap gap-y-1 sm:gap-y-2 lg:gap-y-3">
+                          {wordsInParagraph.map((word, wordIndex) => {
+                            const globalWordIndex =
+                              paragraphs
+                                .slice(0, paragraphIndex)
+                                .reduce(
+                                  (acc, p) =>
+                                    acc + p.trim().split(/\s+/).length,
+                                  0
+                                ) + wordIndex;
+                            const isCurrentWord =
+                              getDisplayWordIndexForRealWord(
+                                currentWordIndex,
+                                wordsInParagraph
+                              ) === globalWordIndex;
+                            const isSpecialChar = !/\w+/.test(word);
+                            return (
+                              <span
+                                key={`${paragraphIndex}-${wordIndex}`}
+                                className={
+                                  isSpecialChar
+                                    ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none not-allowed"
+                                    : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl transition-all duration-200 ` +
+                                      (isCurrentWord
+                                        ? "bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold scale-105 sm:scale-110 animate-pulse"
+                                        : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
+                                }
+                                style={
+                                  isCurrentWord
+                                    ? { boxShadow: "0 0 8px 2px #a5b4fc" }
+                                    : {}
+                                }
+                              >
+                                {word}
+                              </span>
+                            );
+                          })}
+                        </p>
+                      </div>
+                    );
+                  })
               ) : (
-                <div className="text-center text-gray-400 py-12">No story content available</div>
+                <div className="text-center text-gray-400 py-12">
+                  No story content available
+                </div>
               )}
             </div>
             {(pdfError || error) && !storyText && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/80 rounded-3xl shadow-xl z-10">
                 <XCircleIcon className="h-16 w-16 text-red-400 mb-4" />
-                <div className="text-lg text-red-600 mb-4">{pdfError || error}</div>
+                <div className="text-lg text-red-600 mb-4">
+                  {pdfError || error}
+                </div>
                 <button
                   onClick={() => window.location.reload()}
                   className="px-6 py-2 bg-blue-500 text-white rounded-lg shadow hover:bg-blue-600 transition"
@@ -1046,47 +1302,78 @@ const ReadingSessionPage: React.FC = () => {
                 <span className="sm:hidden">Students</span>
               </span>
               <div className="flex flex-wrap gap-1 sm:gap-2 justify-center">
-                {currentSession?.students.map((student: string, idx: number) => (
-                  <span key={idx} className="inline-flex items-center gap-1 sm:gap-2 px-1.5 sm:px-2 py-0.5 rounded-full text-xs font-medium bg-blue-200 text-blue-800">
-                    <span className="truncate max-w-[60px] sm:max-w-none">{studentNames[student] || student}</span>
-                    {completedStudents[student] && (
-                      <span className="ml-1 inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full bg-green-200 text-green-800 text-[10px] font-semibold">
-                        ✓
+                {currentSession?.students.map(
+                  (student: string, idx: number) => (
+                    <span
+                      key={idx}
+                      className="inline-flex items-center gap-1 sm:gap-2 px-1.5 sm:px-2 py-0.5 rounded-full text-xs font-medium bg-blue-200 text-blue-800"
+                    >
+                      <span className="truncate max-w-[60px] sm:max-w-none">
+                        {studentNames[student] || student}
                       </span>
-                    )}
-                  </span>
-                ))}
+                      {completedStudents[student] && (
+                        <span className="ml-1 inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full bg-green-200 text-green-800 text-[10px] font-semibold">
+                          ✓
+                        </span>
+                      )}
+                    </span>
+                  )
+                )}
               </div>
             </div>
             {/* Words Read */}
             <div className="rounded-lg sm:rounded-xl bg-blue-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
-              <span className="text-blue-700 font-bold text-xs sm:text-sm lg:text-lg">Words Read</span>
-              <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-blue-700 mt-1">{wordsRead}</span>
+              <span className="text-blue-700 font-bold text-xs sm:text-sm lg:text-lg">
+                Words Read
+              </span>
+              <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-blue-700 mt-1">
+                {wordsRead}
+              </span>
             </div>
             {/* Miscues */}
             <div className="rounded-lg sm:rounded-xl bg-red-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
-              <span className="text-red-700 font-bold text-xs sm:text-sm lg:text-lg">Miscues</span>
-              <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-red-700 mt-1">{miscues}</span>
+              <span className="text-red-700 font-bold text-xs sm:text-sm lg:text-lg">
+                Miscues
+              </span>
+              <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-red-700 mt-1">
+                {miscues}
+              </span>
             </div>
             {/* Oral Reading Score */}
             <div className="rounded-lg sm:rounded-xl bg-yellow-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
-              <span className="text-yellow-700 font-bold text-xs sm:text-sm lg:text-lg">Oral Reading Score</span>
-              <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-yellow-700 mt-1">{oralReadingScore}%</span>
+              <span className="text-yellow-700 font-bold text-xs sm:text-sm lg:text-lg">
+                Oral Reading Score
+              </span>
+              <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-yellow-700 mt-1">
+                {oralReadingScore}%
+              </span>
             </div>
             {/* Reading Speed */}
             <div className="rounded-lg sm:rounded-xl bg-green-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
-              <span className="text-green-700 font-bold text-xs sm:text-sm lg:text-lg">Reading Speed</span>
-              <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-green-700 mt-1">{readingSpeedWPM} WPM</span>
+              <span className="text-green-700 font-bold text-xs sm:text-sm lg:text-lg">
+                Reading Speed
+              </span>
+              <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-green-700 mt-1">
+                {readingSpeedWPM} WPM
+              </span>
             </div>
             {/* Elapsed */}
             <div className="rounded-lg sm:rounded-xl bg-yellow-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
-              <span className="text-yellow-700 font-bold text-xs sm:text-sm lg:text-lg">Elapsed</span>
-              <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-yellow-700 mt-1">{formatElapsedTime(elapsedTime)}</span>
+              <span className="text-yellow-700 font-bold text-xs sm:text-sm lg:text-lg">
+                Elapsed
+              </span>
+              <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-yellow-700 mt-1">
+                {formatElapsedTime(elapsedTime)}
+              </span>
             </div>
             {/* Book */}
             <div className="rounded-lg sm:rounded-xl bg-indigo-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center col-span-2 lg:col-span-1">
-              <span className="text-indigo-700 font-bold text-xs sm:text-sm lg:text-lg">Book</span>
-              <span className="text-sm sm:text-base lg:text-lg font-semibold text-indigo-700 mt-1 text-center truncate w-full">{currentSession?.book}</span>
+              <span className="text-indigo-700 font-bold text-xs sm:text-sm lg:text-lg">
+                Book
+              </span>
+              <span className="text-sm sm:text-base lg:text-lg font-semibold text-indigo-700 mt-1 text-center truncate w-full">
+                {currentSession?.book}
+              </span>
             </div>
           </div>
         </div>
@@ -1094,159 +1381,221 @@ const ReadingSessionPage: React.FC = () => {
 
       {/* Session Controls */}
       {!isCompleted && (
-      <section className="w-full px-4 sm:px-8 pb-8 relative z-10">
-        <div className="bg-white/80 rounded-2xl lg:rounded-3xl border border-blue-100 p-4 sm:p-6 lg:p-8 flex flex-col items-center gap-4 sm:gap-6">
-          {/* Language selector + STT Provider/Vosk status badge */}
-          <div className="w-full flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 -mt-2 -mb-2">
-            <div className="flex items-center gap-2">
-              <label htmlFor="recognition-language" className="text-xs sm:text-sm font-semibold text-blue-900">Language:</label>
-              <select
-                id="recognition-language"
-                value={storyLanguage}
-                onChange={(e) => setStoryLanguage(e.target.value as 'english' | 'tagalog')}
-                className="text-xs sm:text-sm px-2 py-1 rounded-md border border-blue-200 bg-white text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-300"
-              >
-                <option value="english">English</option>
-                <option value="tagalog">Tagalog</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
-              {/* Always show Vosk status for Tagalog stories */}
-              {storyLanguage === 'tagalog' && (
-                <span className={`inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold ${voskStatus === 'connected' ? 'bg-green-100 text-green-800' : voskStatus === 'connecting' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
-                  <span className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${voskStatus === 'connected' ? 'bg-green-500' : voskStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'}`}></span>
-                  <span className="hidden sm:inline">{voskStatus === 'connected' ? 'Vosk (Tagalog) connected' : voskStatus === 'connecting' ? 'Vosk (Tagalog) connecting…' : 'Vosk (Tagalog) disconnected'}</span>
-                  <span className="sm:hidden">{voskStatus === 'connected' ? 'Vosk' : voskStatus === 'connecting' ? 'Vosk...' : 'Vosk'}</span>
-                </span>
-              )}
-              {/* If we fell back, show a small fallback label */}
-              {storyLanguage === 'tagalog' && sttProvider === 'webspeech' && (
-                <span className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                  <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500"></span>
-                  <span className="hidden sm:inline">Fallback: Web Speech</span>
-                  <span className="sm:hidden">Web Speech</span>
-                </span>
-              )}
-              {/* For English */}
-              {storyLanguage !== 'tagalog' && sttProvider === 'webspeech' && (
-                <span className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                  <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500"></span>
-                  <span className="hidden sm:inline">Web Speech</span>
-                  <span className="sm:hidden">Web Speech</span>
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 sm:gap-4 mb-2">
-            <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 text-blue-500" />
-            <h4 className="text-base sm:text-lg font-bold text-blue-900">Session Controls</h4>
-          </div>
-          <div className="flex flex-row flex-wrap justify-center gap-3 sm:gap-4 lg:gap-6 w-full">
-            {!isRecording ? (
-              <button
-                onClick={handleStartRecording}
-                className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 hover:from-blue-600 hover:to-purple-600 transition-all duration-200"
-                title="Start Session"
-              >
-                <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-                <span className="hidden sm:inline">Start</span>
-                <span className="sm:hidden">Start</span>
-              </button>
-            ) : (
-              <>
-                {isPaused ? (
-                  <button
-                    onClick={handleResumeRecording}
-                    className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-green-400 to-blue-400 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
-                    title="Resume Recording"
-                  >
-                    <PlayIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-                    <span className="hidden sm:inline">Resume</span>
-                    <span className="sm:hidden">Resume</span>
-                  </button>
-                ) : (
-                  <button
-                    onClick={handlePauseRecording}
-                    className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-yellow-400 to-orange-400 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
-                    title="Pause Recording"
-                  >
-                    <PauseIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-                    <span className="hidden sm:inline">Pause</span>
-                    <span className="sm:hidden">Pause</span>
-                  </button>
-                )}
-                <button
-                  onClick={handleStopRecording}
-                  className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-red-500 to-pink-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
-                  title="Stop Recording"
+        <section className="w-full px-4 sm:px-8 pb-8 relative z-10">
+          <div className="bg-white/80 rounded-2xl lg:rounded-3xl border border-blue-100 p-4 sm:p-6 lg:p-8 flex flex-col items-center gap-4 sm:gap-6">
+            {/* Language selector + STT Provider/Vosk status badge */}
+            <div className="w-full flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 -mt-2 -mb-2">
+              <div className="flex items-center gap-2">
+                <label
+                  htmlFor="recognition-language"
+                  className="text-xs sm:text-sm font-semibold text-blue-900"
                 >
-                  <StopIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-                  <span className="hidden sm:inline">Stop</span>
-                  <span className="sm:hidden">Stop</span>
+                  Language:
+                </label>
+                <select
+                  id="recognition-language"
+                  value={storyLanguage}
+                  onChange={(e) =>
+                    setStoryLanguage(e.target.value as "english" | "tagalog")
+                  }
+                  className="text-xs sm:text-sm px-2 py-1 rounded-md border border-blue-200 bg-white text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                >
+                  <option value="english">English</option>
+                  <option value="tagalog">Tagalog</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+                {/* Always show Vosk status for Tagalog stories */}
+                {storyLanguage === "tagalog" && (
+                  <span
+                    className={`inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold ${
+                      voskStatus === "connected"
+                        ? "bg-green-100 text-green-800"
+                        : voskStatus === "connecting"
+                        ? "bg-yellow-100 text-yellow-800"
+                        : "bg-red-100 text-red-800"
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${
+                        voskStatus === "connected"
+                          ? "bg-green-500"
+                          : voskStatus === "connecting"
+                          ? "bg-yellow-500"
+                          : "bg-red-500"
+                      }`}
+                    ></span>
+                    <span className="hidden sm:inline">
+                      {voskStatus === "connected"
+                        ? "Vosk (Tagalog) connected"
+                        : voskStatus === "connecting"
+                        ? "Vosk (Tagalog) connecting…"
+                        : "Vosk (Tagalog) disconnected"}
+                    </span>
+                    <span className="sm:hidden">
+                      {voskStatus === "connected"
+                        ? "Vosk"
+                        : voskStatus === "connecting"
+                        ? "Vosk..."
+                        : "Vosk"}
+                    </span>
+                  </span>
+                )}
+                {/* If we fell back, show a small fallback label */}
+                {storyLanguage === "tagalog" && sttProvider === "webspeech" && (
+                  <span className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                    <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500"></span>
+                    <span className="hidden sm:inline">
+                      Fallback: Web Speech
+                    </span>
+                    <span className="sm:hidden">Web Speech</span>
+                  </span>
+                )}
+                {/* For English */}
+                {storyLanguage !== "tagalog" && sttProvider === "webspeech" && (
+                  <span className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                    <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500"></span>
+                    <span className="hidden sm:inline">Web Speech</span>
+                    <span className="sm:hidden">Web Speech</span>
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 sm:gap-4 mb-2">
+              <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 text-blue-500" />
+              <h4 className="text-base sm:text-lg font-bold text-blue-900">
+                Session Controls
+              </h4>
+            </div>
+            <div className="flex flex-row flex-wrap justify-center gap-3 sm:gap-4 lg:gap-6 w-full">
+              {!isRecording ? (
+                <button
+                  onClick={handleStartRecording}
+                  className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 hover:from-blue-600 hover:to-purple-600 transition-all duration-200"
+                  title="Start Session"
+                >
+                  <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                  <span className="hidden sm:inline">Start</span>
+                  <span className="sm:hidden">Start</span>
                 </button>
-              </>
-            )}
-            {!isCompleted && (
+              ) : (
+                <>
+                  {isPaused ? (
+                    <button
+                      onClick={handleResumeRecording}
+                      className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-green-400 to-blue-400 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
+                      title="Resume Recording"
+                    >
+                      <PlayIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                      <span className="hidden sm:inline">Resume</span>
+                      <span className="sm:hidden">Resume</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handlePauseRecording}
+                      className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-yellow-400 to-orange-400 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
+                      title="Pause Recording"
+                    >
+                      <PauseIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                      <span className="hidden sm:inline">Pause</span>
+                      <span className="sm:hidden">Pause</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={handleStopRecording}
+                    className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-red-500 to-pink-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
+                    title="Stop Recording"
+                  >
+                    <StopIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                    <span className="hidden sm:inline">Stop</span>
+                    <span className="sm:hidden">Stop</span>
+                  </button>
+                </>
+              )}
+              {!isCompleted && (
+                <button
+                  onClick={handleCompleteSession}
+                  className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-green-500 to-blue-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
+                  title="Complete Session"
+                >
+                  <ChartBarIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                  <span className="hidden sm:inline">Complete Session</span>
+                  <span className="sm:hidden">Complete</span>
+                </button>
+              )}
+            </div>
+            {/* Download Audio Button (show only if audioUrl exists) */}
+            {audioUrl && (
               <button
-                onClick={handleCompleteSession}
-                className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-green-500 to-blue-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
-                title="Complete Session"
+                onClick={handleDownloadAudio}
+                className="mt-4 sm:mt-6 flex items-center gap-1 sm:gap-2 px-4 sm:px-6 py-2 sm:py-3 rounded-full bg-gradient-to-r from-green-400 to-blue-400 text-white text-sm sm:text-base lg:text-lg font-bold hover:scale-105 transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-400"
+                title="Download audio recording"
               >
-                <ChartBarIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-                <span className="hidden sm:inline">Complete Session</span>
-                <span className="sm:hidden">Complete</span>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"
+                  />
+                </svg>
+                <span className="hidden sm:inline">Download Audio</span>
+                <span className="sm:hidden">Download</span>
               </button>
             )}
           </div>
-          {/* Download Audio Button (show only if audioUrl exists) */}
-          {audioUrl && (
-            <button
-              onClick={handleDownloadAudio}
-              className="mt-4 sm:mt-6 flex items-center gap-1 sm:gap-2 px-4 sm:px-6 py-2 sm:py-3 rounded-full bg-gradient-to-r from-green-400 to-blue-400 text-white text-sm sm:text-base lg:text-lg font-bold hover:scale-105 transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-400"
-              title="Download audio recording"
-            >
-              <svg xmlns='http://www.w3.org/2000/svg' className='h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4' /></svg>
-              <span className="hidden sm:inline">Download Audio</span>
-              <span className="sm:hidden">Download</span>
-            </button>
-          )}
-        </div>
-      </section>
+        </section>
       )}
-    {/* Bottom Quiz Button */}
-    <div className="w-full px-4 sm:px-8 py-4 mt-auto bg-white/80 border-t border-blue-100">
-      <div className="max-w-6xl mx-auto">
-        <button
-          onClick={() => {
-            if (!currentSession) return;
-            // choose student deterministically: first completed, else first in list
-            const completedIds = Object.keys(completedStudents).filter(id => completedStudents[id]);
-            const studentId = (currentSession.students.length === 1)
-              ? currentSession.students[0]
-              : (completedIds[0] || currentSession.students[0]);
-            const studentName = studentNames[studentId] || studentId;
-            if (!resolvedTestId) {
-              alert('No test found for this story.');
-              return;
-            }
-            if (!isCompleted) {
-              alert('Please complete the reading session first.');
-              return;
-            }
-            navigate(`/student/test/${resolvedTestId}` as any, {
-              state: { studentId, studentName, teacherId: currentSession.teacherId }
-            });
-          }}
-          disabled={!isCompleted || !resolvedTestId}
-          className={`w-full py-4 rounded-2xl text-white font-bold text-lg transition-all duration-200 ${(!isCompleted || !resolvedTestId) ? 'bg-gray-300 cursor-not-allowed' : 'bg-gradient-to-r from-indigo-500 to-blue-500 hover:from-indigo-600 hover:to-blue-600 hover:scale-[1.01]'} `}
-        >
-          Quiz
-        </button>
+      {/* Bottom Quiz Button */}
+      <div className="w-full px-4 sm:px-8 py-4 mt-auto bg-white/80 border-t border-blue-100">
+        <div className="max-w-6xl mx-auto">
+          <button
+            onClick={() => {
+              if (!currentSession) return;
+              // choose student deterministically: first completed, else first in list
+              const completedIds = Object.keys(completedStudents).filter(
+                (id) => completedStudents[id]
+              );
+              const studentId =
+                currentSession.students.length === 1
+                  ? currentSession.students[0]
+                  : completedIds[0] || currentSession.students[0];
+              const studentName = studentNames[studentId] || studentId;
+              if (!resolvedTestId) {
+                alert("No test found for this story.");
+                return;
+              }
+              if (!isCompleted) {
+                alert("Please complete the reading session first.");
+                return;
+              }
+              navigate(`/student/test/${resolvedTestId}` as any, {
+                state: {
+                  studentId,
+                  studentName,
+                  teacherId: currentSession.teacherId,
+                },
+              });
+            }}
+            disabled={!isCompleted || !resolvedTestId}
+            className={`w-full py-4 rounded-2xl text-white font-bold text-lg transition-all duration-200 ${
+              !isCompleted || !resolvedTestId
+                ? "bg-gray-300 cursor-not-allowed"
+                : "bg-gradient-to-r from-indigo-500 to-blue-500 hover:from-indigo-600 hover:to-blue-600 hover:scale-[1.01]"
+            } `}
+          >
+            Quiz
+          </button>
+        </div>
       </div>
-    </div>
     </div>
   );
 };
 
 export default ReadingSessionPage;
-
