@@ -2,7 +2,6 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
-import Loader from '../../components/Loader';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface Question {
@@ -77,8 +76,50 @@ const AdminViewTest: React.FC = () => {
   };
 
   if (!test) return (
-    <div className="flex justify-center items-center min-h-screen w-full bg-gradient-to-br from-purple-900 to-fuchsia-700">
-      <Loader label="Loading test..." />
+    <div className="flex justify-center items-center min-h-screen w-full bg-gradient-to-br from-slate-800 via-slate-700 to-slate-600">
+      <div className="flex flex-col items-center justify-center py-8 px-6">
+        {/* Enhanced Square Loading Animation */}
+        <div className="relative mb-8">
+          <div className="grid grid-cols-2 gap-2 w-16 h-16">
+            {[0, 1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="bg-gradient-to-br from-blue-400 to-purple-500 rounded-lg animate-pulse"
+                style={{
+                  animationDelay: `${i * 0.15}s`,
+                  animationDuration: '1.2s'
+                }}
+              />
+            ))}
+          </div>
+          {/* Pulsing Ring */}
+          <div className="absolute inset-0 rounded-lg border-4 border-blue-300 animate-ping opacity-20"></div>
+        </div>
+
+        {/* Loading Text with Typing Animation */}
+        <div className="text-center">
+          <h2 className="text-2xl md:text-3xl font-bold text-white mb-2 animate-pulse">
+            Loading Quiz
+          </h2>
+          <p className="text-blue-200 text-sm md:text-base animate-bounce">
+            Preparing your reading assessment...
+          </p>
+        </div>
+
+        {/* Progress Dots */}
+        <div className="flex space-x-2 mt-6">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="w-3 h-3 bg-blue-400 rounded-full animate-bounce"
+              style={{
+                animationDelay: `${i * 0.2}s`,
+                animationDuration: '1s'
+              }}
+            />
+          ))}
+        </div>
+      </div>
     </div>
   );
 
@@ -208,22 +249,29 @@ const AdminViewTest: React.FC = () => {
           <div className="grid grid-cols-2 gap-6 w-full max-w-7xl mx-auto px-0 mb-8 overflow-visible">
             {test.questions[currentQuestion].choices.map((choice, cIdx) => {
               const isCorrect = cIdx === test.questions[currentQuestion].correctAnswer;
-              const label = String.fromCharCode(65 + cIdx);
+            const label = String.fromCharCode(65 + cIdx);
+            const isSelectedStyle = showAnswers && isCorrect;
               return (
                 <div
                   key={cIdx}
-                  className={`flex items-center gap-5 w-full min-h-32 rounded-3xl text-2xl font-extrabold shadow-2xl border-4 transition-all duration-200 px-8 py-6
+                className={`flex items-center gap-5 w-full min-h-32 rounded-3xl text-2xl font-extrabold shadow-2xl border-4 transition-all duration-200 px-8 py-6
                     ${showAnswers 
                       ? (isCorrect 
-                          ? 'bg-green-500 border-green-600 text-white ring-4 ring-green-300' 
+                        ? 'bg-green-500 border-green-600 text-white ring-4 ring-green-300 shadow-green-500/50' 
                           : 'bg-gray-400 border-gray-500 text-white')
-                      : 'bg-blue-400 border-white text-white'
-                    }`}
-                >
-                  <span className="flex items-center justify-center w-14 h-14 rounded-full bg-white/90 text-blue-600 shadow-md border-2 border-white text-2xl">
-                    {label}
-                  </span>
-                  <span className="text-white drop-shadow-lg text-left leading-snug break-words whitespace-normal">{choice}</span>
+                    : 'bg-blue-500 border-white text-white hover:ring-4 hover:ring-blue-300 hover:shadow-lg'}
+                `}
+              >
+                <span className={`flex items-center justify-center w-14 h-14 rounded-full shadow-md border-2 text-2xl font-bold transition-all duration-300 ${
+                  isSelectedStyle 
+                    ? 'bg-green-600 border-green-700 text-white' 
+                    : 'bg-white border-white text-blue-700 label-shadow'
+                }`}>
+                  {label}
+                </span>
+                <span className="text-white drop-shadow-2xl text-left leading-snug break-words whitespace-normal font-bold text-shadow-lg transition-all duration-300">
+                  {choice}
+                </span>
                 </div>
               );
             })}

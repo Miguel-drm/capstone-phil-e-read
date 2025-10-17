@@ -70,9 +70,11 @@ const ReadingSessionPage: React.FC = () => {
     return score.toFixed(1);
   }, [wordsRead, miscues, words.length]);
 
-  // Debug logging for score and dependencies
+  // Reduce noisy debug logs in production
   useEffect(() => {
-    console.log('wordsRead:', wordsRead, 'miscues:', miscues, 'totalWords:', words.length, 'oralReadingScore:', oralReadingScore);
+    if ((import.meta as any)?.env?.MODE === 'development') {
+      console.debug('wordsRead:', wordsRead, 'miscues:', miscues, 'totalWords:', words.length, 'oralReadingScore:', oralReadingScore);
+    }
   }, [wordsRead, miscues, words.length, oralReadingScore]);
 
   // Real-time Reading Speed (WPM)
@@ -476,7 +478,7 @@ const ReadingSessionPage: React.FC = () => {
       setIsLoadingPdf(true);
       setPdfError(null);
       
-      console.log('Fetching PDF from URL:', pdfUrl);
+      if ((import.meta as any)?.env?.MODE === 'development') console.debug('Fetching PDF from URL:', pdfUrl);
       const response = await fetch(pdfUrl);
       if (!response.ok) {
         // Try to get error details from response
@@ -495,12 +497,12 @@ const ReadingSessionPage: React.FC = () => {
       
       // Get the PDF as an array buffer
       const pdfArrayBuffer = await response.arrayBuffer();
-      console.log('Received array buffer of size:', pdfArrayBuffer.byteLength);
+      if ((import.meta as any)?.env?.MODE === 'development') console.debug('Received array buffer of size:', pdfArrayBuffer.byteLength);
 
       // Check if we received valid PDF data (should start with %PDF-)
       const firstBytes = new Uint8Array(pdfArrayBuffer.slice(0, 5));
       const header = new TextDecoder().decode(firstBytes);
-      console.log('PDF header:', header);
+      if ((import.meta as any)?.env?.MODE === 'development') console.debug('PDF header:', header);
       if (!header.startsWith('%PDF-')) {
         throw new Error('Invalid PDF data: Missing PDF header');
       }
@@ -514,11 +516,11 @@ const ReadingSessionPage: React.FC = () => {
         });
         
         const pdf = await loadingTask.promise;
-        console.log('PDF loaded successfully, pages:', pdf.numPages);
+        if ((import.meta as any)?.env?.MODE === 'development') console.debug('PDF loaded successfully, pages:', pdf.numPages);
         
         let fullText = '';
         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-          console.log('Processing page', pageNum);
+          if ((import.meta as any)?.env?.MODE === 'development') console.debug('Processing page', pageNum);
           const page = await pdf.getPage(pageNum);
           const textContent = await page.getTextContent();
           const pageText = textContent.items
@@ -528,13 +530,13 @@ const ReadingSessionPage: React.FC = () => {
           fullText += pageText + '\n\n';
         }
 
-        console.log('Text extraction complete, text length:', fullText.length);
+        if ((import.meta as any)?.env?.MODE === 'development') console.debug('Text extraction complete, text length:', fullText.length);
         setPdfContent(fullText);
         
         // Split content into words and update state
         const wordArray = fullText.split(/\s+/).filter((word: string) => word.length > 0);
         setWords(wordArray);
-        console.log('PDF processing completed. Found', wordArray.length, 'words');
+        if ((import.meta as any)?.env?.MODE === 'development') console.debug('PDF processing completed. Found', wordArray.length, 'words');
       } catch (pdfError) {
         console.error('Error processing PDF:', pdfError);
         throw pdfError;
@@ -557,10 +559,10 @@ const ReadingSessionPage: React.FC = () => {
 
       try {
         setIsLoading(true);
-        console.log('Fetching session with ID:', sessionId);
+        if ((import.meta as any)?.env?.MODE === 'development') console.debug('Fetching session with ID:', sessionId);
 
         const sessionData = await readingSessionService.getSessionById(sessionId);
-        console.log('Session data:', sessionData);
+        if ((import.meta as any)?.env?.MODE === 'development') console.debug('Session data:', sessionData);
 
         if (!sessionData) {
           throw new Error('Session not found');
@@ -570,7 +572,7 @@ const ReadingSessionPage: React.FC = () => {
 
         // Get all stories firsts
         const stories = await UnifiedStoryService.getInstance().getStories({});
-        console.log('All stories:', stories);
+        if ((import.meta as any)?.env?.MODE === 'development') console.debug('All stories:', stories);
 
         // Extract story by _id or title for compatibility
         const story = stories.find((s: Story) => s._id === sessionData.book || s.title === sessionData.book);
@@ -579,7 +581,7 @@ const ReadingSessionPage: React.FC = () => {
           throw new Error('Story not found');
         }
 
-        console.log('Found matching story:', story);
+        if ((import.meta as any)?.env?.MODE === 'development') console.debug('Found matching story:', story);
 
         try {
           // Get the full story details
@@ -589,7 +591,7 @@ const ReadingSessionPage: React.FC = () => {
             throw new Error('Failed to fetch story details');
           }
 
-          console.log('Full story details:', {
+          if ((import.meta as any)?.env?.MODE === 'development') console.debug('Full story details:', {
             id: fullStory._id,
             title: fullStory.title,
             language: fullStory.language,
@@ -603,11 +605,11 @@ const ReadingSessionPage: React.FC = () => {
             // Convert MongoDB language codes back to our internal format
             const internalLanguage = fullStory.language === 'none' ? 'tagalog' : 'english';
             setStoryLanguage(internalLanguage);
-            console.log('Story language set to:', internalLanguage, '(from MongoDB code:', fullStory.language, ')');
+            if ((import.meta as any)?.env?.MODE === 'development') console.debug('Story language set to:', internalLanguage, '(from MongoDB code:', fullStory.language, ')');
           } else {
             // Default to English if no language is specified
             setStoryLanguage('english');
-            console.log('No language specified, defaulting to English');
+            if ((import.meta as any)?.env?.MODE === 'development') console.debug('No language specified, defaulting to English');
           }
 
           // Set text content first (this is what we want to display)
@@ -615,14 +617,14 @@ const ReadingSessionPage: React.FC = () => {
             setStoryText(fullStory.textContent.trim());
             const wordArray = fullStory.textContent.trim().split(/\s+/).filter((word: string) => word.length > 0);
             setWords(wordArray);
-            console.log('Text content loaded. Found', wordArray.length, 'words');
+            if ((import.meta as any)?.env?.MODE === 'development') console.debug('Text content loaded. Found', wordArray.length, 'words');
           }
 
           // Try to load PDF content as a backup (but don't fail if it doesn't work)
           try {
             const pdfUrl = UnifiedStoryService.getInstance().getStoryPdfUrl(story._id);
             await loadPdfContent(pdfUrl);
-            console.log('PDF content also loaded successfully');
+            if ((import.meta as any)?.env?.MODE === 'development') console.debug('PDF content also loaded successfully');
           } catch (pdfError) {
             console.warn('PDF loading failed, but text content is available:', pdfError);
             // Don't throw error here since we have text content
@@ -679,13 +681,14 @@ const ReadingSessionPage: React.FC = () => {
     if (storyText && storyText.trim().length > 0) {
       const { displayWords } = splitAndNormalizeWords(storyText);
       setWords(displayWords);
-      console.log('DEBUG: Loaded storyText:', storyText);
+      if ((import.meta as any)?.env?.MODE === 'development') console.debug('Loaded storyText');
     } else if (pdfContent && pdfContent.trim().length > 0) {
       const { displayWords } = splitAndNormalizeWords(pdfContent);
       setWords(displayWords);
-      console.log('DEBUG: Loaded pdfContent:', pdfContent);
+      if ((import.meta as any)?.env?.MODE === 'development') console.debug('Loaded pdfContent');
     } else {
-      console.warn('DEBUG: No storyText or pdfContent loaded');
+      // No content yet (initial fetch); avoid noisy warnings in production
+      if ((import.meta as any)?.env?.MODE === 'development') console.debug('No storyText or pdfContent loaded yet');
     }
   }, [storyText, pdfContent]);
 
@@ -712,9 +715,11 @@ const ReadingSessionPage: React.FC = () => {
     if (!transcript || !realWords.length) return;
     const transcriptWords = transcript.split(/\s+/).filter(Boolean);
     const idx = calculateWordsRead(transcriptWords, realWords, isWordMatch);
-    console.log('Transcript:', transcriptWords);
-    console.log('Real words:', realWords);
-    console.log('Words read:', idx);
+      if ((import.meta as any)?.env?.MODE === 'development') {
+        console.debug('Transcript:', transcriptWords);
+        console.debug('Real words:', realWords);
+        console.debug('Words read:', idx);
+      }
     setCurrentWordIndex(idx);
     setWordsRead(idx);
   }, [transcript, realWords]);
@@ -729,7 +734,7 @@ const ReadingSessionPage: React.FC = () => {
     if (!transcript || !realWords.length) return;
     const transcriptWords = transcript.split(/\s+/).filter(Boolean);
     const miscuesCount = calculateMiscues(transcriptWords, realWords, isWordMatch);
-    console.log('Miscues:', miscuesCount);
+    if ((import.meta as any)?.env?.MODE === 'development') console.debug('Miscues:', miscuesCount);
     setMiscues(miscuesCount);
   }, [transcript, realWords]);
 
