@@ -67,7 +67,7 @@ const App: React.FC = () => {
                     <Route path="students" element={<Students />} />
                     <Route path="parents" element={<Parents />} />
                     <Route path="reports" element={<AdminReports />} />
-                    <Route path="profile" element={<AdminProfile />} />
+                    <Route path="profile/*" element={<AdminProfile />} />
                     {/* Add more admin routes here */}
                   </Routes>
                 </DashboardLayout>
@@ -126,7 +126,7 @@ const App: React.FC = () => {
                     <Route path="reading-practice/:storyId" element={<ParentReadingSessionPage />} />
                     <Route path="progress" element={<ProgressPage />} />
                     <Route path="reports" element={<ReportsPage />} />
-                    <Route path="profile" element={<ParentProfilePage />} />
+                    <Route path="profile/*" element={<ParentProfilePage />} />
                     {/* Add more parent routes here */}
                   </Routes>
                 </DashboardLayout>
