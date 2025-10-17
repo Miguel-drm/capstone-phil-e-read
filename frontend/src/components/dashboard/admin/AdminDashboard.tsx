@@ -469,10 +469,11 @@ const UserRoleBreakdownChart: React.FC<{ roleCounts: { teachers: number; parents
               
               {/* Data segments as paths - higher z-index */}
               {data.map((segment, index) => {
+                const safeTotal = total > 0 ? total : 1; // prevent division by zero
                 const startAngle = data.slice(0, index).reduce((acc, curr) => 
-                  acc + (curr.count / total) * 360, 0
+                  acc + ((curr.count || 0) / safeTotal) * 360, 0
                 );
-                const endAngle = startAngle + (segment.count / total) * 360;
+                const endAngle = startAngle + ((segment.count || 0) / safeTotal) * 360;
                 const isSelected = selectedSegment === segment.name.toLowerCase();
                 const isLargestSegment = segment.count === Math.max(...data.map(d => d.count));
                 const shouldHighlight = isSelected || (!selectedSegment && isLargestSegment);
@@ -522,7 +523,7 @@ const UserRoleBreakdownChart: React.FC<{ roleCounts: { teachers: number; parents
                 className="text-3xl font-bold mb-1"
                 style={{ color: displaySegment.color }}
               >
-                {displaySegment.percentage}%
+                {Number.isFinite(displaySegment.percentage) ? displaySegment.percentage : 0}%
               </div>
               <div 
                 className="text-sm font-medium text-center"
@@ -992,7 +993,7 @@ const RecentRegistrationsWidget: React.FC = () => {
           
           setRecentRegistrations(registrations);
           setIsLoading(false);
-        });
+        }, () => { /* ignore permission denied in admin view */ });
 
         return () => unsubscribe();
       } catch (error) {
@@ -1935,10 +1936,10 @@ const AdminDashboard: React.FC = () => {
         if (r === 'teacher') teachers++; else if (r === 'parent') parents++;
       });
       setRoleCounts(prev => ({ ...prev, teachers, parents }));
-    });
+    }, () => {});
     const unsubStudents = onSnapshot(query(collection(db, 'students')), (snap) => {
       setRoleCounts(prev => ({ ...prev, students: snap.size }));
-    });
+    }, () => {});
     return () => { unsubUsers(); unsubStudents(); };
   }, []);
 
@@ -1975,7 +1976,7 @@ const AdminDashboard: React.FC = () => {
         instructional: gradeLabels.map(gl => rlI[gl] || 0),
         independent: gradeLabels.map(gl => rlInd[gl] || 0),
       });
-    });
+    }, () => {});
     const unsubResults = onSnapshot(query(collection(db, 'readingResults')), (snap) => {
       const compSum: Record<string, number> = { 'Grade 3':0, 'Grade 4':0, 'Grade 5':0, 'Grade 6':0 };
       const compCnt: Record<string, number> = { 'Grade 3':0, 'Grade 4':0, 'Grade 5':0, 'Grade 6':0 };
@@ -1992,7 +1993,7 @@ const AdminDashboard: React.FC = () => {
       });
       setGradeComprehension(gradeLabels.map(gl => compCnt[gl] ? Math.round((compSum[gl]/compCnt[gl]) * 10) / 10 : 0));
       setGradeReadingLevel(gradeLabels.map(gl => rlCnt[gl] ? Math.round((rlSum[gl]/rlCnt[gl]) * 10) / 10 : 0));
-    });
+    }, () => {});
     return () => { unsubStudents(); unsubResults(); };
   }, [gradeLabels]);
 
