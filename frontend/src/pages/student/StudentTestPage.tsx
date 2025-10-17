@@ -83,7 +83,7 @@ const StudentTestPage: React.FC = () => {
   const [gapActive, setGapActive] = useState(false);
   const gapTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [savingResult, setSavingResult] = useState(false);
-  const [showSavedModal, setShowSavedModal] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [teacherName, setTeacherName] = useState<string>('');
   const [showSettings, setShowSettings] = useState(false);
   const [musicVolume, setMusicVolume] = useState(0.5);
@@ -95,21 +95,7 @@ const StudentTestPage: React.FC = () => {
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const selectedAnswerRef = useRef<number | null>(null);
 
-  // Restart session: clears answers, resets progress, optionally reshuffles
-  const restartSession = () => {
-    if (!test) return;
-    setAnswers(Array(test.questions.length).fill(-1));
-    setCurrentQuestion(0);
-    setSubmitted(false);
-    setShowConfetti(false);
-    setScore(null);
-    setShowScoreDetails(false);
-    if (test.randomizeAnswers) {
-      setShuffledChoices(test.questions.map(q => getRandomizedChoices(q.choices)));
-    } else {
-      setShuffledChoices(test.questions.map(q => q.choices));
-    }
-  };
+  // Restart session utility removed (unused)
 
   // Ensure studentId and studentName are present
   useEffect(() => {
@@ -240,7 +226,11 @@ const StudentTestPage: React.FC = () => {
 
   // Write to 'recenttests' collection in Firestore
   const writeRecentTest = async (score: number) => {
-    if (!teacherId || !testId || !test) return;
+    const enableRecent = (import.meta as any)?.env?.VITE_ENABLE_RECENTTESTS === 'true';
+    if (!enableRecent) return; // disabled by default to avoid Firestore errors
+    // Only teachers/parents should write this auxiliary collection; silently skip otherwise
+    if (!teacherId || !testId || !test || !studentId) return;
+    if (userRole !== 'teacher' && userRole !== 'parent') return;
     try {
       await addDoc(collection(db, 'recenttests'), {
         teacherId,
@@ -252,7 +242,8 @@ const StudentTestPage: React.FC = () => {
         score,
       });
     } catch (error) {
-      console.error('Error writing recent test:', error);
+      // Do not interrupt quiz if permissions are missing
+      console.warn('Skipping recenttests write (permission or network):', (error as any)?.message || error);
     }
   };
 
@@ -301,9 +292,7 @@ const StudentTestPage: React.FC = () => {
       console.log('Authenticated user:', auth.currentUser.uid, 'Role:', userRole);
       await resultService.createTestResult(testResultData);
       setSavingResult(false);
-      setShowSavedModal(true);
-      setSubmitted(false);
-      setShowScoreDetails(false);
+      setSaveSuccess(true);
     } catch (error) {
       setSavingResult(false);
       console.error('Error saving test result:', error);
@@ -404,8 +393,33 @@ const StudentTestPage: React.FC = () => {
 
   const currentTheme = colorThemes[quizColor as keyof typeof colorThemes] || colorThemes.blue;
 
-  const popSound = new Audio('/sounds/pop.mp3'); // Place pop.mp3 in public/sounds/
-  const playPopSound = () => { popSound.currentTime = 0; popSound.play(); };
+  // Safe click sound: fall back or noop if unsupported/missing
+  const popSoundRef = useRef<HTMLAudioElement | null>(null);
+  if (!popSoundRef.current) {
+    try {
+      const audioEl = new Audio();
+      // Prefer mp3; use an existing asset if custom sound is missing
+      const canMp3 = audioEl.canPlayType('audio/mpeg');
+      if (canMp3) {
+        audioEl.src = '/music/testmusic1.mp3';
+        audioEl.preload = 'auto';
+        audioEl.volume = 0.15;
+        popSoundRef.current = audioEl;
+      } else {
+        popSoundRef.current = null; // unsupported; noop later
+      }
+    } catch {
+      popSoundRef.current = null;
+    }
+  }
+  const playPopSound = () => {
+    const el = popSoundRef.current;
+    if (!el) return;
+    try {
+      el.currentTime = 0;
+      void el.play().catch(() => {});
+    } catch {}
+  };
 
   // Clean up timers on unmount or question change
   useEffect(() => {
@@ -550,6 +564,11 @@ const StudentTestPage: React.FC = () => {
               </div>
               {!showScoreDetails ? (
                 <div className="p-6 md:p-8 overflow-y-auto">
+                  {saveSuccess && (
+                    <div className="mb-4 px-4 py-3 rounded-xl bg-green-50 border border-green-200 text-green-700 font-semibold text-center">
+                      ✅ Test result saved successfully
+                    </div>
+                  )}
                   <div className="flex flex-col items-center gap-4 mb-6">
                     {/* Score Ring */}
                     <div className="relative w-28 h-28">
@@ -565,18 +584,16 @@ const StudentTestPage: React.FC = () => {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <button
-                      className="w-full px-6 py-4 bg-blue-600 text-white rounded-2xl text-base md:text-lg font-bold shadow hover:bg-blue-700 transition-all"
-                      onClick={handleSaveResult}
-                      disabled={savingResult}
+                      className={`w-full px-6 py-4 rounded-2xl text-base md:text-lg font-bold shadow transition-all ${saveSuccess ? 'bg-green-600 text-white cursor-default' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                      onClick={saveSuccess ? undefined : handleSaveResult}
+                      disabled={savingResult || saveSuccess}
                     >
                       {savingResult ? (
                         <>
                           <svg className="animate-spin h-5 w-5 mr-2 inline text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg>
                           Saving...
                         </>
-                      ) : (
-                        'Save Result'
-                      )}
+                      ) : saveSuccess ? 'Saved' : 'Save Result'}
                     </button>
                     <button
                       className="w-full px-6 py-4 bg-violet-600 text-white rounded-2xl text-base md:text-lg font-bold shadow hover:bg-violet-700 transition-all"
@@ -586,15 +603,9 @@ const StudentTestPage: React.FC = () => {
                     </button>
                     <button
                       className="w-full px-6 py-4 bg-emerald-600 text-white rounded-2xl text-base md:text-lg font-bold shadow hover:bg-emerald-700 transition-all"
-                      onClick={restartSession}
+                      onClick={() => navigate('/teacher/Reading')}
                     >
-                      Take another session
-                    </button>
-                    <button
-                      className="w-full px-6 py-4 bg-gray-100 text-gray-900 rounded-2xl text-base md:text-lg font-bold shadow hover:bg-gray-200 transition-all"
-                      onClick={() => navigate(-1)}
-                    >
-                      Back
+                      Back to Reading Sessions
                     </button>
                   </div>
                 </div>
@@ -792,13 +803,13 @@ const StudentTestPage: React.FC = () => {
               <div className="bg-gradient-to-r from-gray-600 to-gray-700 px-6 py-4 text-white">
                 <div className="flex items-center justify-between">
                   <h2 className="text-xl font-bold">Settings</h2>
-                  <button
+              <button
                     className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center text-xl font-bold"
                     onClick={() => setShowSettings(false)}
                     aria-label="Close"
-                  >
+              >
                     ×
-                  </button>
+              </button>
                 </div>
               </div>
               
@@ -922,21 +933,7 @@ const StudentTestPage: React.FC = () => {
           </div>
         )}
 
-        {/* Test Saved Modal */}
-        {showSavedModal && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40">
-            <div className="bg-white rounded-2xl shadow-lg p-8 flex flex-col items-center">
-              <span className="text-4xl mb-4">✅</span>
-              <span className="text-2xl font-bold text-green-700 mb-2">Test Saved</span>
-              <button
-                className="mt-4 px-6 py-2 bg-blue-500 text-white rounded-lg font-bold shadow hover:bg-blue-600 transition-all"
-                onClick={() => setShowSavedModal(false)}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        )}
+        {/* Removed separate saved modal to keep focus on a single modal */}
         <div className="flex flex-col items-center w-full max-w-5xl mx-auto px-4 py-8 font-[Quicksand,sans-serif] max-h-full overflow-hidden justify-center flex-1">
           {/* Professional header: Story | Student | Progress */}
           <div className="w-full mb-6">
@@ -1069,11 +1066,11 @@ const StudentTestPage: React.FC = () => {
         </div>
         
         {/* Countdown at Bottom */}
-        {countdown !== null && countdown > 0 && (
+        {countdown !== null && countdown > 0 && (currentQuestion < test!.questions.length - 1) && (
           <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 z-50">
             <div className="text-white text-lg font-medium bg-black/50 px-4 py-2 rounded-lg backdrop-blur-sm">
               You can change your answer in {countdown} second{countdown !== 1 ? 's' : ''}
-            </div>
+      </div>
           </div>
         )}
       </div>
