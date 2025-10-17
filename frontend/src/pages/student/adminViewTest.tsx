@@ -24,10 +24,13 @@ const AdminViewTest: React.FC = () => {
   const [test, setTest] = useState<Test | null>(null);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [showAnswers, setShowAnswers] = useState(false);
-  const [musicOn, setMusicOn] = useState(false);
+  const [musicOn, setMusicOn] = useState(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const navigate = useNavigate();
   const { userRole } = useAuth();
+  const [showSettings, setShowSettings] = useState(false);
+  const [musicVolume, setMusicVolume] = useState(0.5);
+  const [quizColor, setQuizColor] = useState<'blue' | 'purple' | 'green' | 'orange' | 'pink'>('blue');
 
   // Ensure only admin users can access this page
   useEffect(() => {
@@ -45,6 +48,7 @@ const AdminViewTest: React.FC = () => {
       if (docSnap.exists()) {
         const testData = docSnap.data() as Test;
         setTest(testData);
+        await ensureMusicPlaying();
       }
     };
     fetchTest();
@@ -74,6 +78,91 @@ const AdminViewTest: React.FC = () => {
       setMusicOn(true);
     }
   };
+
+  // Auto start music similar to StudentTestPage
+  const ensureMusicPlaying = async () => {
+    try {
+      if (audioRef.current) {
+        await audioRef.current.play();
+        setMusicOn(true);
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  };
+
+  useEffect(() => {
+    const resumeOnGesture = async () => {
+      const started = await ensureMusicPlaying();
+      if (started) {
+        window.removeEventListener('pointerdown', resumeOnGesture, true);
+        window.removeEventListener('keydown', resumeOnGesture, true);
+      }
+    };
+    window.addEventListener('pointerdown', resumeOnGesture, true);
+    window.addEventListener('keydown', resumeOnGesture, true);
+    return () => {
+      window.removeEventListener('pointerdown', resumeOnGesture, true);
+      window.removeEventListener('keydown', resumeOnGesture, true);
+    };
+  }, []);
+
+  // Set initial audio volume
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = musicVolume;
+    }
+  }, [musicVolume]);
+
+  // Theme settings (match StudentTestPage)
+  const colorThemes = {
+    blue: {
+      primary: 'from-blue-400 to-blue-600',
+      secondary: 'bg-blue-500',
+      accent: 'border-blue-600',
+      ring: 'ring-blue-300',
+      hover: 'hover:bg-blue-600',
+      selected: 'bg-blue-500 border-blue-600 text-white ring-4 ring-blue-300',
+      labelColor: 'text-blue-700'
+    },
+    purple: {
+      primary: 'from-purple-400 to-purple-600',
+      secondary: 'bg-purple-500',
+      accent: 'border-purple-600',
+      ring: 'ring-purple-300',
+      hover: 'hover:bg-purple-600',
+      selected: 'bg-purple-500 border-purple-600 text-white ring-4 ring-purple-300',
+      labelColor: 'text-purple-700'
+    },
+    green: {
+      primary: 'from-green-400 to-green-600',
+      secondary: 'bg-green-500',
+      accent: 'border-green-600',
+      ring: 'ring-green-300',
+      hover: 'hover:bg-green-600',
+      selected: 'bg-green-500 border-green-600 text-white ring-4 ring-green-300',
+      labelColor: 'text-green-700'
+    },
+    orange: {
+      primary: 'from-orange-400 to-orange-600',
+      secondary: 'bg-orange-500',
+      accent: 'border-orange-600',
+      ring: 'ring-orange-300',
+      hover: 'hover:bg-orange-600',
+      selected: 'bg-orange-500 border-orange-600 text-white ring-4 ring-orange-300',
+      labelColor: 'text-orange-700'
+    },
+    pink: {
+      primary: 'from-pink-400 to-pink-600',
+      secondary: 'bg-pink-500',
+      accent: 'border-pink-600',
+      ring: 'ring-pink-300',
+      hover: 'hover:bg-pink-600',
+      selected: 'bg-pink-500 border-pink-600 text-white ring-4 ring-pink-300',
+      labelColor: 'text-pink-700'
+    }
+  } as const;
+  const currentTheme = colorThemes[quizColor];
 
   if (!test) return (
     <div className="flex justify-center items-center min-h-screen w-full bg-gradient-to-br from-slate-800 via-slate-700 to-slate-600">
@@ -142,6 +231,7 @@ const AdminViewTest: React.FC = () => {
           className="flex items-center justify-center w-12 h-12 rounded-full bg-white/30 hover:bg-white/60 text-white shadow-lg transition-all"
           aria-label="Settings"
           title="Settings"
+          onClick={() => setShowSettings(true)}
         >
           <svg className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
             <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2.5" fill="none" />
@@ -259,13 +349,13 @@ const AdminViewTest: React.FC = () => {
                       ? (isCorrect 
                         ? 'bg-green-500 border-green-600 text-white ring-4 ring-green-300 shadow-green-500/50' 
                           : 'bg-gray-400 border-gray-500 text-white')
-                    : 'bg-blue-500 border-white text-white hover:ring-4 hover:ring-blue-300 hover:shadow-lg'}
+                    : `${currentTheme.secondary} border-white text-white hover:ring-4 hover:${currentTheme.ring} hover:shadow-lg`}
                 `}
               >
                 <span className={`flex items-center justify-center w-14 h-14 rounded-full shadow-md border-2 text-2xl font-bold transition-all duration-300 ${
                   isSelectedStyle 
                     ? 'bg-green-600 border-green-700 text-white' 
-                    : 'bg-white border-white text-blue-700 label-shadow'
+                    : `bg-white border-white ${currentTheme.labelColor} label-shadow`
                 }`}>
                   {label}
                 </span>
@@ -302,6 +392,42 @@ const AdminViewTest: React.FC = () => {
         </div>
       </div>
       <audio ref={audioRef} src="/music/testmusic1.mp3" loop preload="auto" />
+
+      {/* Settings Modal (same as StudentTestPage, simplified) */}
+      {showSettings && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-hidden">
+            <div className="bg-gradient-to-r from-gray-600 to-gray-700 px-6 py-4 text-white flex items-center justify-between">
+              <h2 className="text-xl font-bold">Settings</h2>
+              <button className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30" onClick={() => setShowSettings(false)} aria-label="Close">×</button>
+            </div>
+            <div className="p-6 space-y-6">
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-semibold text-gray-800">Music Volume</h3>
+                  <div className="px-3 py-1 bg-gradient-to-r from-blue-500 to-purple-600 text-white text-sm font-bold rounded-full">{Math.round(musicVolume * 100)}%</div>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <button onClick={() => setMusicVolume(0)} className={`w-10 h-10 rounded-xl ${musicVolume===0?'bg-red-500 text-white':'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>0</button>
+                  <input type="range" min="0" max="1" step="0.05" value={musicVolume} onChange={(e)=>setMusicVolume(parseFloat(e.target.value))} className="flex-1" />
+                  <button onClick={() => setMusicVolume(1)} className={`w-10 h-10 rounded-xl ${musicVolume===1?'bg-green-500 text-white':'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>100</button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-3">Quiz Color Theme</label>
+                <div className="grid grid-cols-3 gap-3">
+                  {Object.entries(colorThemes).map(([color, theme]) => (
+                    <button key={color} onClick={()=>setQuizColor(color as any)} className={`p-3 rounded-xl border-2 ${quizColor===color? `${theme.secondary} ${theme.accent} text-white ring-2 ${theme.ring}`:'bg-gray-100 border-gray-300 text-gray-700 hover:bg-gray-200'}`}>
+                      <div className={`w-8 h-8 rounded-full mx-auto mb-2 bg-gradient-to-br ${theme.primary}`}></div>
+                      <span className="text-xs font-medium capitalize">{color}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

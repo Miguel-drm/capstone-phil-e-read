@@ -126,7 +126,7 @@ const ParentProfileWidget: React.FC<{
 
     <div className="mt-4 pt-4 border-t border-gray-200">
       <div className="text-xs text-gray-500">
-        Last login: {new Date().toLocaleDateString()}
+        Last login: {formatDateHuman(new Date())}
       </div>
     </div>
   </div>
@@ -197,7 +197,7 @@ const ChildrenOverviewWidget: React.FC<{
 
     <div className="mt-4 pt-4 border-t border-gray-200">
       <div className="text-xs text-gray-500">
-        Last updated: {new Date().toLocaleTimeString()}
+        Last updated: {formatDateHuman(new Date())}
       </div>
     </div>
   </div>

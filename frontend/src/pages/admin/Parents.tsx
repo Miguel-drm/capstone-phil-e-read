@@ -35,15 +35,12 @@ const Parents: React.FC = () => {
     try {
       const data = await getAllParents();
 
-      // Try to load profile images. If parent-specific endpoint isn't available,
-      // fall back to teacher endpoint (same firebase UID field is used).
+      // Load profile images using the teacher endpoint (shared UID).
+      // Avoid hitting a non-existent parents profile-image API to prevent 404s in console.
       const withImages = await Promise.all(
         data.map(async (p) => {
           try {
-            let base64 = await profileImageService.getParentProfileImage(p.id);
-            if (!base64) {
-              base64 = await profileImageService.getTeacherProfileImage(p.id);
-            }
+            const base64 = await profileImageService.getTeacherProfileImage(p.id);
             return base64
               ? { ...p, profileImage: profileImageService.convertBase64ToDataUrl(base64) }
               : p;

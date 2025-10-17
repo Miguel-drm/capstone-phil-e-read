@@ -39,6 +39,11 @@ const Reports: React.FC = () => {
   });
   const [dateRange, setDateRange] = useState('all');
   const [isExporting, setIsExporting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortKey, setSortKey] = useState<string>('');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   useEffect(() => {
     fetchReportData();
@@ -170,7 +175,7 @@ const Reports: React.FC = () => {
   const exportToCSV = async () => {
     setIsExporting(true);
     try {
-      const data = reportData[activeTab as keyof ReportData] as any[];
+      const data = sanitizeData(reportData[activeTab as keyof ReportData] as any[]);
       if (!data || data.length === 0) {
         alert('No data to export');
         return;
@@ -196,8 +201,89 @@ const Reports: React.FC = () => {
     window.print();
   };
 
+  const formatDateHuman = (date: Date) => {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfYesterday = new Date(startOfToday);
+    startOfYesterday.setDate(startOfToday.getDate() - 1);
+    const fmt = new Intl.DateTimeFormat(undefined, {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: 'numeric', minute: '2-digit'
+    });
+    if (date >= startOfToday) {
+      const timeFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+      return `Today, ${timeFmt.format(date)}`;
+    }
+    if (date >= startOfYesterday) {
+      const timeFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+      return `Yesterday, ${timeFmt.format(date)}`;
+    }
+    return fmt.format(date);
+  };
+
+  const isDateKey = (key: string) => {
+    const k = key.toLowerCase();
+    return k === 'date' || k.endsWith('date') || k.endsWith('at') || ['createdat','updatedat','lastlogin','lastassessment'].includes(k);
+  };
+
+  const formatCellForKey = (key: string, value: any) => {
+    if (!value && value !== 0) return 'N/A';
+    // Firestore Timestamp like objects
+    if (isDateKey(key) && typeof value === 'object' && value?.toDate) {
+      try { return formatDateHuman(value.toDate()); } catch { return 'N/A'; }
+    }
+    if (isDateKey(key) && value instanceof Date) return formatDateHuman(value);
+    // ISO string or millis number
+    if (isDateKey(key) && (typeof value === 'string' || typeof value === 'number')) {
+      const d = new Date(value);
+      if (!Number.isNaN(d.getTime())) return formatDateHuman(d);
+      return String(value);
+    }
+    return String(value);
+  };
+
+  const isSensitiveKey = (key: string) => {
+    const k = key.toLowerCase();
+    return (
+      k === 'id' ||
+      k.endsWith('id') ||
+      k.endsWith('_id') ||
+      ['uid','userid','teacherid','parentid','studentid','sessionid','storyid','gradeid','docid'].includes(k)
+    );
+  };
+
+  const sanitizeData = (rows: any[]) => {
+    return (rows || []).map(row => {
+      const clean: Record<string, any> = {};
+      Object.keys(row || {}).forEach(key => {
+        if (!isSensitiveKey(key)) clean[key] = row[key];
+      });
+      return clean;
+    });
+  };
+
+  const getPreparedData = () => {
+    const raw = sanitizeData((reportData[activeTab as keyof ReportData] as any[]) || []);
+    // search/filter
+    const q = searchQuery.trim().toLowerCase();
+    let filtered = !q ? raw : raw.filter(row =>
+      Object.values(row).some(v => formatCell(v).toLowerCase().includes(q))
+    );
+    // sort
+    if (sortKey) {
+      const dir = sortDir === 'asc' ? 1 : -1;
+      filtered = [...filtered].sort((a, b) => {
+        const av = formatCell(a[sortKey]);
+        const bv = formatCell(b[sortKey]);
+        if (av === bv) return 0;
+        return av > bv ? dir : -dir;
+      });
+    }
+    return filtered;
+  };
+
   const renderTable = () => {
-    const data = reportData[activeTab as keyof ReportData] as any[];
+    const data = getPreparedData();
     
     if (!data || data.length === 0) {
       return (
@@ -207,39 +293,82 @@ const Reports: React.FC = () => {
       );
     }
 
-    const columns = Object.keys(data[0] || {});
+    const columns = Object.keys(data[0] || {}).filter(c => !isSensitiveKey(c));
     
     return (
-      <div className="overflow-x-auto">
-        <table className="min-w-full bg-white rounded shadow">
-          <thead className="bg-gray-50">
+      <div className="overflow-x-auto rounded-lg border border-gray-200">
+        <table className="min-w-full bg-white">
+          <thead className="bg-gray-50 sticky top-0 z-10">
             <tr>
-              {columns.map(column => (
-                <th key={column} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  {column.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
-                </th>
-              ))}
+              {columns.map(column => {
+                const prettify = (c: string) => {
+                  if (c === 'displayName') return 'Name';
+                  if (c === 'createdAt') return 'Created';
+                  if (c === 'updatedAt') return 'Updated';
+                  if (c === 'lastLogin') return 'Last login';
+                  if (c === 'lastAssessment') return 'Last assessment';
+                  return c.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase());
+                };
+                const label = prettify(column);
+                const active = sortKey === column;
+                return (
+                  <th
+                    key={column}
+                    className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer select-none"
+                    onClick={() => {
+                      if (sortKey === column) setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
+                      setSortKey(column);
+                    }}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      {label}
+                      {active && (
+                        <span className="text-gray-400">{sortDir === 'asc' ? '▲' : '▼'}</span>
+                      )}
+                    </span>
+                  </th>
+                );
+              })}
       </tr>
     </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {data.slice(0, 50).map((row, index) => (
-              <tr key={index} className="hover:bg-gray-50">
+          <tbody className="divide-y divide-gray-100">
+            {data.slice((page - 1) * pageSize, page * pageSize).map((row, index) => (
+              <tr key={index} className="hover:bg-blue-50/40">
                 {columns.map(column => (
-                  <td key={column} className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {typeof row[column] === 'object' && row[column]?.toDate 
-                      ? row[column].toDate().toLocaleDateString()
-                      : String(row[column] || 'N/A')}
+                  <td key={column} className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                    {formatCellForKey(column, row[column])}
                   </td>
                 ))}
       </tr>
             ))}
     </tbody>
   </table>
-        {data.length > 50 && (
-          <div className="text-center py-4 text-gray-500">
-            Showing first 50 of {data.length} records
+        <div className="flex items-center justify-between p-3 text-sm text-gray-600">
+          <div>
+            Showing {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, data.length)} of {data.length}
           </div>
-        )}
+          <div className="flex items-center gap-2">
+            <select
+              value={pageSize}
+              onChange={e => { setPageSize(parseInt(e.target.value)); setPage(1); }}
+              className="px-2 py-1 border border-gray-300 rounded"
+            >
+              {[10, 25, 50, 100].map(s => (
+                <option key={s} value={s}>{s}/page</option>
+              ))}
+            </select>
+            <button
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-50"
+              disabled={page === 1}
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+            >Prev</button>
+            <button
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-50"
+              disabled={page * pageSize >= data.length}
+              onClick={() => setPage(p => p + 1)}
+            >Next</button>
+          </div>
+        </div>
       </div>
     );
   };
@@ -339,17 +468,28 @@ const Reports: React.FC = () => {
           </button>
         ))}
       </div>
-        
-        <select 
-          value={dateRange} 
-          onChange={(e) => setDateRange(e.target.value)}
-          className="ml-auto px-3 py-2 border border-gray-300 rounded-md text-sm"
-        >
-          <option value="all">All Time</option>
-          <option value="30d">Last 30 Days</option>
-          <option value="7d">Last 7 Days</option>
-          <option value="today">Today</option>
-        </select>
+        <div className="ml-auto flex items-center gap-2">
+          <div className="hidden md:flex items-center gap-2 bg-white rounded-full border border-gray-200 p-1">
+            {[
+              { v: 'today', l: 'Today' },
+              { v: '7d', l: '7 Days' },
+              { v: '30d', l: '30 Days' },
+              { v: 'all', l: 'All Time' }
+            ].map(opt => (
+              <button
+                key={opt.v}
+                onClick={() => setDateRange(opt.v)}
+                className={`px-3 py-1.5 rounded-full text-sm ${dateRange === opt.v ? 'bg-blue-600 text-white shadow' : 'text-gray-600 hover:bg-gray-100'}`}
+              >{opt.l}</button>
+            ))}
+          </div>
+          <input
+            value={searchQuery}
+            onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
+            placeholder="Search..."
+            className="px-3 py-2 border border-gray-300 rounded-md text-sm w-48"
+          />
+        </div>
       </div>
 
       <div className="bg-white rounded-lg shadow p-6">

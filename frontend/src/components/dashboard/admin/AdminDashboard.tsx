@@ -7,6 +7,7 @@ import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import * as echarts from 'echarts';
 import PillSelect from '../../ui/PillSelect';
+import { formatDateHuman } from '@/utils/date';
 
 // API base (for MongoDB-backed REST)
 const API_BASE = (import.meta as any)?.env?.VITE_API_URL ? String((import.meta as any).env.VITE_API_URL).replace(/\/$/, '') : '';
@@ -254,7 +255,7 @@ const UserGrowthChart: React.FC<{
             })()}
           </div>
           <div className="text-xs text-gray-500 mt-1">
-            Last updated: {lastUpdated.toLocaleTimeString()}
+            Last updated: {formatDateHuman(lastUpdated)}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -710,7 +711,7 @@ const SchoolOverviewWidget: React.FC<{ stats: any; onRefresh?: () => void; isLoa
 
     <div className="mt-4 pt-4 border-t border-gray-200">
       <div className="text-xs text-gray-500">
-        Last updated: {new Date().toLocaleTimeString()}
+        Last updated: {formatDateHuman(new Date())}
       </div>
     </div>
   </div>
@@ -815,7 +816,7 @@ const LearningAnalyticsWidget: React.FC<{
     {/* Last Updated */}
     <div className="mt-4 pt-3 border-t border-gray-100">
       <div className="text-xs text-gray-500">
-        Last updated: {lastUpdated.toLocaleTimeString()}
+        Last updated: {formatDateHuman(lastUpdated)}
       </div>
     </div>
   </div>
@@ -1105,10 +1106,7 @@ const RecentRegistrationsWidget: React.FC = () => {
 
             {/* Minimalist Date */}
             <div className="text-xs text-gray-400">
-              {new Date(registration.date).toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric'
-              })}
+              {formatDateHuman(new Date(registration.date))}
             </div>
           </div>
         ))}

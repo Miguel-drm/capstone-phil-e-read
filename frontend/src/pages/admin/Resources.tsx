@@ -13,6 +13,7 @@ import { UnifiedStoryService } from '../../services/UnifiedStoryService';
 import type { Story } from '../../types/Story';
  
 import { useAuth } from '../../contexts/AuthContext';
+import { formatDateHuman } from '@/utils/date';
 
 type ToggleSwitchProps = {
   checked: boolean;
@@ -563,7 +564,7 @@ const Resources: React.FC = () => {
                             <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">{template.selectedLevel || 'N/A'}</span>
                           </div>
                           <p><i className="fas fa-question-circle mr-2"></i>{template.questions?.length || 0} questions</p>
-                          <p><i className="fas fa-calendar mr-2"></i>Created: {template.createdAt?.toDate ? template.createdAt.toDate().toLocaleDateString() : 'N/A'}</p>
+                          <p><i className="fas fa-calendar mr-2"></i>Created: {template.createdAt?.toDate ? formatDateHuman(template.createdAt.toDate()) : 'N/A'}</p>
                         </div>
                       </div>
                       <div className="mt-4 sm:mt-0 flex flex-col sm:flex-row gap-2">
@@ -624,7 +625,7 @@ const Resources: React.FC = () => {
                       <tr key={test.id || idx} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap"><div className="text-sm font-medium text-gray-900">{test.testName || 'Untitled Test'}</div></td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{test.studentName || '-'}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{test.createdAt?.toDate ? test.createdAt.toDate().toLocaleDateString() : '-'}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{test.createdAt?.toDate ? formatDateHuman(test.createdAt.toDate()) : '-'}</td>
                         <td className="px-6 py-4 whitespace-nowrap"><span className={`px-2 py-1 text-xs font-medium rounded-full ${test.score !== undefined ? (test.score >= 80 ? 'bg-green-100 text-green-800' : test.score >= 50 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800') : 'bg-gray-100 text-gray-800'}`}>{test.score !== undefined ? (test.score >= 80 ? 'Completed' : test.score >= 50 ? 'Partial' : 'Needs Review') : 'N/A'}</span></td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{test.score !== undefined ? `${test.score}%` : '-'}</td>
                       </tr>

@@ -5,6 +5,7 @@ import { studentService, type Student } from '../../services/studentService';
 import { resultService } from '../../services/resultsService';
 import { getUserProfile } from '../../services/authService';
 // import { gradeService } from '../../services/gradeService';
+import { formatDateHuman } from '@/utils/date';
 
 interface ISRObservation {
   wordByWord: boolean;
@@ -290,7 +291,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                 const cInd  = isrData.comprehensionLevel === 'Ind' ? '✓' : '';
                 const cIns  = isrData.comprehensionLevel === 'Ins' ? '✓' : '';
                 const cFr   = isrData.comprehensionLevel === 'Frus' ? '✓' : '';
-                const dateTaken = new Date(isrData.dateTaken).toLocaleDateString();
+                const dateTaken = formatDateHuman(new Date(isrData.dateTaken));
                 return `
                 <tr>
                   <td class="center" style="width:60px">${isStarted}</td>
@@ -434,7 +435,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
         `School: ${schoolName}`,
         `Teacher: ${teacherName}`,
         `Class: ${target || 'All Classes'}`,
-        `Date: ${new Date().toLocaleString()}`,
+        `Date: ${formatDateHuman(new Date())}`,
         '',
         'Please see the attached/printed ISR summary.'
       ];
@@ -571,7 +572,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                         const cInd  = isrData.comprehensionLevel === 'Ind' ? '✓' : '';
                         const cIns  = isrData.comprehensionLevel === 'Ins' ? '✓' : '';
                         const cFr   = isrData.comprehensionLevel === 'Frus' ? '✓' : '';
-                        const dateTaken = new Date(isrData.dateTaken).toLocaleDateString();
+                        const dateTaken = formatDateHuman(new Date(isrData.dateTaken));
                 return `
                 <tr>
                           <td class="center" style="width:60px">${isStarted}</td>
@@ -701,7 +702,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
       if (latestReadingForShare.miscues != null) lines.push(`- Miscues: ${latestReadingForShare.miscues}`);
       if (latestReadingForShare.oralReadingScore != null) lines.push(`- Oral Reading Score: ${latestReadingForShare.oralReadingScore}%`);
       if (latestReadingForShare.readingSpeed != null) lines.push(`- Speed: ${latestReadingForShare.readingSpeed} WPM`);
-      if (latestReadingForShare.createdAt) lines.push(`- Date: ${new Date(latestReadingForShare.createdAt).toLocaleString()}`);
+      if (latestReadingForShare.createdAt) lines.push(`- Date: ${formatDateHuman(new Date(latestReadingForShare.createdAt))}`);
     }
     if (latestTestForShare) {
       lines.push('');
@@ -710,7 +711,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
       if (latestTestForShare.score != null) lines.push(`- Score: ${latestTestForShare.score}`);
       if (latestTestForShare.comprehension != null) lines.push(`- Comprehension: ${latestTestForShare.comprehension}%`);
       if (latestTestForShare.correctAnswers != null && latestTestForShare.totalQuestions != null) lines.push(`- Correct: ${latestTestForShare.correctAnswers}/${latestTestForShare.totalQuestions}`);
-      if (latestTestForShare.createdAt) lines.push(`- Date: ${new Date(latestTestForShare.createdAt).toLocaleString()}`);
+      if (latestTestForShare.createdAt) lines.push(`- Date: ${formatDateHuman(new Date(latestTestForShare.createdAt))}`);
     }
     lines.push('', 'Please contact me if you have any questions about your child\'s reading progress.');
     const body = encodeURIComponent(lines.join('\n'));
@@ -895,7 +896,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                                 {(() => {
                                   const { latestReading, latestTest } = getLatestResults(student.id);
                                     const latestDateStr = latestReading?.createdAt || latestTest?.createdAt
-                                      ? new Date(latestReading?.createdAt || latestTest?.createdAt).toLocaleDateString()
+                                      ? formatDateHuman(new Date(latestReading?.createdAt || latestTest?.createdAt))
                                       : null;
                                     if (latestDateStr) {
                                       return (
