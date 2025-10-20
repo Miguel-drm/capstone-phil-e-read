@@ -1,18 +1,22 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { studentService, type Student } from '../../../services/studentService';
-import { parentService, type Grade, type GradeSection } from '../../../services/parentService';
 import { useNavigate } from 'react-router-dom';
 import { BookOpenIcon, ChartBarIcon, MagnifyingGlassIcon, UserGroupIcon, EnvelopeIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import { db } from '../../../config/firebase';
-import { addDoc, collection, doc as fsDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { addDoc, collection, doc as fsDoc, getDoc, serverTimestamp, onSnapshot, query, where } from 'firebase/firestore';
+
+// Local types to avoid any mock/service fallbacks
+type GradeSection = { id: string; sectionName?: string; name?: string; gradeLevel?: string };
+type Grade = { id: string; name?: string; sections: GradeSection[] };
 
 const MyChildren: React.FC = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
   const [children, setChildren] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [gradeFilter, setGradeFilter] = useState<string>('');
   const [showRequestForm, setShowRequestForm] = useState(false);
   const [requestSent, setRequestSent] = useState(false);
@@ -40,66 +44,64 @@ const MyChildren: React.FC = () => {
   };
 
   useEffect(() => {
-    const fetchChildren = async () => {
-      if (!currentUser?.uid) return;
-      setLoading(true);
-      try {
-        const students = await studentService.getStudentsByParent(currentUser.uid);
-        setChildren(students);
-      } catch (err) {
-        console.warn('Network issue fetching children, using empty array:', err);
-        setChildren([]);
-        setNetworkError(true);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchChildren();
+    if (!currentUser?.uid) return;
+    setLoading(true);
+    const studentsQuery = query(collection(db, studentService.getCollectionName()), where('parentId', '==', currentUser.uid));
+    const unsub = onSnapshot(studentsQuery, (snap) => {
+      const list: Student[] = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })) as Student[];
+      setChildren(list);
+      setNetworkError(false);
+      setLoading(false);
+    }, () => {
+      setChildren([]);
+      setNetworkError(true);
+      setLoading(false);
+    });
+    return () => unsub();
   }, [currentUser?.uid]);
 
-  // Fetch real grades and sections from database
+  // Realtime grades/sections derived from classGrades collection
   useEffect(() => {
-    const fetchGradesAndSections = async () => {
-      setLoadingGrades(true);
-      try {
-        console.log('🔄 Component: Calling parentService.getGradesAndSections()...');
-        const response = await parentService.getGradesAndSections();
-        console.log('✅ Component: Received grades response:', response);
-        console.log('📊 Component: Response grades length:', response.grades?.length);
-        console.log('📊 Component: First grade:', response.grades?.[0]);
-        console.log('Response type:', typeof response);
-        console.log('Response.grades:', response.grades);
-        console.log('Response.grades type:', typeof response.grades);
-        console.log('Response.grades length:', response.grades?.length);
-        if (response.grades && response.grades.length > 0) {
-          console.log('First grade object:', response.grades[0]);
-          console.log('First grade keys:', Object.keys(response.grades[0]));
-        }
-        setAvailableGrades(response.grades);
-        console.log('Set available grades:', response.grades);
-      } catch (error) {
-        console.error('❌ Component: Error fetching grades and sections:', error);
-        console.log('This error should not occur if fallback works properly');
-        console.log('🔥 Component: This should not happen - service should return mock data');
-        // Don't set network error immediately - let the service handle fallback
-        // Don't set empty array - let the service handle fallback
-        // setAvailableGrades([]);
-        // setNetworkError(true); // Commented out to allow service fallback
-      } finally {
-        setLoadingGrades(false);
-      }
-    };
-    
-    fetchGradesAndSections();
+    setLoadingGrades(true);
+    const unsub = onSnapshot(collection(db, 'classGrades'), (snap) => {
+      const gradeLevelToSections = new Map<string, GradeSection[]>();
+      snap.forEach(docSnap => {
+        const data = docSnap.data() as any;
+        const gradeLevel: string | undefined = data.gradeLevel || data.grade || data.gradeName;
+        const sectionName: string | undefined = data.section || data.sectionName || data.name;
+        if (!gradeLevel) return;
+        const s: GradeSection = { id: docSnap.id, sectionName, gradeLevel };
+        const list = gradeLevelToSections.get(gradeLevel) || [];
+        list.push(s);
+        gradeLevelToSections.set(gradeLevel, list);
+      });
+      const grades: Grade[] = Array.from(gradeLevelToSections.entries()).map(([gradeLevel, sections]) => ({
+        id: gradeLevel,
+        name: `Grade ${gradeLevel}`,
+        sections
+      }));
+      setAvailableGrades(grades);
+      setLoadingGrades(false);
+    }, () => {
+      setAvailableGrades([]);
+      setLoadingGrades(false);
+    });
+    return () => unsub();
   }, []);
 
   const grades = useMemo(() => Array.from(new Set(children.map(c => c.grade).filter(Boolean))), [children]);
+
+  // Debounce search for smoother UX
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(searchInput.trim()), 250);
+    return () => clearTimeout(id);
+  }, [searchInput]);
   const filtered = useMemo(() => {
-    return children.filter(c => (
-      (!gradeFilter || c.grade === gradeFilter) &&
-      (!search || (c.name?.toLowerCase().includes(search.toLowerCase())))
-    ));
-  }, [children, gradeFilter, search]);
+    const byGrade = !gradeFilter ? children : children.filter(c => c.grade === gradeFilter);
+    if (!debouncedSearch) return byGrade;
+    const q = debouncedSearch.toLowerCase();
+    return byGrade.filter(c => (c.name || '').toLowerCase().includes(q));
+  }, [children, gradeFilter, debouncedSearch]);
 
   const handleRequestSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -243,21 +245,41 @@ const MyChildren: React.FC = () => {
       )}
       
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
-        <h3 className="text-lg font-semibold text-gray-900">My Children</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-lg font-semibold text-gray-900">My Children</h3>
+          <span className="text-xs px-2 py-0.5 rounded-full border bg-gray-50 text-gray-700">{children.length}</span>
+        </div>
         <div className="flex items-center gap-2">
           <div className="relative">
             <MagnifyingGlassIcon className="h-4 w-4 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
             <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search by name..."
               className="pl-7 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
+          <div className="hidden md:flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setGradeFilter('')}
+              className={`px-3 py-1.5 text-xs rounded-full border ${gradeFilter === '' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}
+              aria-pressed={gradeFilter === ''}
+            >All Grades</button>
+            {grades.map(g => (
+              <button
+                key={g}
+                type="button"
+                onClick={() => setGradeFilter(g as string)}
+                className={`px-3 py-1.5 text-xs rounded-full border ${gradeFilter === g ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}
+                aria-pressed={gradeFilter === g}
+              >{g}</button>
+            ))}
+          </div>
           <select
             value={gradeFilter}
             onChange={(e) => setGradeFilter(e.target.value)}
-            className="px-3 py-2 text-sm border border-gray-200 rounded-xl bg-white"
+            className="md:hidden px-3 py-2 text-sm border border-gray-200 rounded-xl bg-white"
           >
             <option value="">All Grades</option>
             {grades.map(g => (
@@ -273,7 +295,18 @@ const MyChildren: React.FC = () => {
         </div>
       </div>
       {loading ? (
-        <div className="text-gray-500">Loading...</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="rounded-2xl border border-gray-100 p-5 bg-white">
+              <div className="animate-pulse space-y-3">
+                <div className="h-6 w-1/3 bg-gray-200 rounded" />
+                <div className="h-4 w-1/2 bg-gray-200 rounded" />
+                <div className="h-4 w-2/3 bg-gray-200 rounded" />
+                <div className="h-8 w-full bg-gray-100 rounded" />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : children.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12">
           <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center mb-4">
@@ -289,13 +322,21 @@ const MyChildren: React.FC = () => {
             Submit Link Request
           </button>
         </div>
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12">
+          <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mb-3">
+            <MagnifyingGlassIcon className="h-7 w-7 text-gray-400" />
+          </div>
+          <h4 className="text-base font-semibold text-gray-800 mb-1">No matches found</h4>
+          <p className="text-sm text-gray-500">Try adjusting your search or grade filter.</p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map(child => (
-            <div key={child.id} className="group relative overflow-hidden bg-gradient-to-br from-blue-50 to-white border border-blue-100 rounded-2xl p-5 flex flex-col transition-all">
+            <div key={child.id} className="group relative overflow-hidden bg-white border border-gray-200 rounded-2xl p-5 flex flex-col transition-all hover:shadow-sm">
               <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-blue-100/60 blur-2xl group-hover:scale-110 transition-transform" />
               <div className="flex items-center mb-2">
-                <div className="h-12 w-12 rounded-xl bg-white/80 border border-blue-100 flex items-center justify-center text-lg font-bold text-blue-700 mr-3">
+                <div className="h-12 w-12 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center text-lg font-bold text-gray-700 mr-3">
                   {child.name?.[0] || '?'}
                 </div>
                 <div>
@@ -304,18 +345,18 @@ const MyChildren: React.FC = () => {
                 </div>
               </div>
               <div className="flex flex-col gap-1 mt-2">
-                <div className="text-sm"><span className="font-medium text-gray-700">Reading Level:</span> {child.readingLevel}</div>
-                <div className="text-sm"><span className="font-medium text-gray-700">Performance:</span> <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${child.performance === 'Excellent' ? 'bg-green-100 text-green-700' : child.performance === 'Good' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>{child.performance}</span></div>
+                <div className="text-sm flex items-center gap-2"><span className="font-medium text-gray-700">Reading Level:</span> <span className="px-2 py-0.5 rounded-full bg-gray-50 border border-gray-200 text-xs text-gray-700">{child.readingLevel || 'N/A'}</span></div>
+                <div className="text-sm flex items-center gap-2"><span className="font-medium text-gray-700">Performance:</span> <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${child.performance === 'Excellent' ? 'bg-green-100 text-green-700' : child.performance === 'Good' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-800'}`}>{child.performance || '—'}</span></div>
                 <div className="mt-3 flex gap-2">
                   <button
                     onClick={() => navigate('/parent/reading-practice', { state: { childId: child.id, childName: child.name } })}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg text-white bg-gradient-to-r from-blue-500 to-purple-500"
+                    className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg text-white bg-blue-600 hover:bg-blue-700"
                   >
                     <BookOpenIcon className="h-4 w-4" /> Practice
                   </button>
                   <button
                     onClick={() => navigate('/parent/progress', { state: { childId: child.id } })}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg text-blue-700 bg-white border border-blue-100 hover:bg-blue-50"
+                    className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg text-blue-700 bg-white border border-blue-200 hover:bg-blue-50"
                   >
                     <ChartBarIcon className="h-4 w-4" /> Progress
                   </button>
