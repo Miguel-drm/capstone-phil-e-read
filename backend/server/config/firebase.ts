@@ -8,12 +8,12 @@ import type { FirebaseStorage } from 'firebase/storage';
 
 // Your Firebase configuration using environment variables
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDd4q-KKeLgTCXBpDmkHHn6p0qxTVpIqQ0",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "phileread-capstone.firebaseapp.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "phileread-capstone",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "phileread-capstone.firebasestorage.app",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "769182599109",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:769182599109:web:eab22396d978cb211aadac"
+  apiKey: process.env.VITE_FIREBASE_API_KEY || "AIzaSyDd4q-KKeLgTCXBpDmkHHn6p0qxTVpIqQ0",
+  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN || "phileread-capstone.firebaseapp.com",
+  projectId: process.env.VITE_FIREBASE_PROJECT_ID || "phileread-capstone",
+  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || "phileread-capstone.firebasestorage.app",
+  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "769182599109",
+  appId: process.env.VITE_FIREBASE_APP_ID || "1:769182599109:web:eab22396d978cb211aadac"
 };
 
 // Initialize Firebase

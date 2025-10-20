@@ -1,0 +1,17 @@
+// Simplified Firestore Security Rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow all authenticated users to read classGrades
+    match /classGrades/{gradeId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+    
+    // Keep other rules as they were
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
+
