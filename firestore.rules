@@ -3,7 +3,9 @@ service cloud.firestore {
   match /databases/{database}/documents {
     // Helper functions
     function getUserRole() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) ? 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role : 
+        'unknown';
     }
     function isAdmin() { return getUserRole() == 'admin'; }
     function isTeacher() { return getUserRole() == 'teacher'; }
@@ -28,11 +30,8 @@ service cloud.firestore {
 
     // Class Grades collection rules
     match /classGrades/{gradeId} {
-      allow read: if isAuthenticated() && (
-        isTeacher() || 
-        isAdmin() ||
-        (isParent() && resource.data.studentId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.children)
-      );
+      // Allow any authenticated user to read (for parent form)
+      allow read: if isAuthenticated();
       allow create: if isAuthenticated() && (isTeacher() || isAdmin());
       allow update: if isAuthenticated() && (isTeacher() || isAdmin());
       allow delete: if isAuthenticated() && (isTeacher() || isAdmin());
@@ -68,7 +67,8 @@ service cloud.firestore {
 
     // Stories collection rules
     match /stories/{storyId} {
-      allow read: if isAuthenticated() && (isTeacher() || isAdmin());
+      // Allow any authenticated user to read stories (for parent recommendations)
+      allow read: if isAuthenticated();
       allow write: if isAuthenticated() && isAdmin();
     }
 
@@ -168,7 +168,7 @@ match /readingResults/{resultId} {
   );
 }
 
-// Test Results collection rules
+    // Test Results collection rules
 match /testResults/{resultId} {
   function isResultOwner() {
     return request.auth.uid == resource.data.teacherId;
@@ -191,6 +191,50 @@ match /testResults/{resultId} {
     isAdmin()
   );
 }
+
+    // Link Requests collection rules
+    match /linkRequests/{requestId} {
+      // Parents can create link requests
+      allow create: if isAuthenticated() && isParent() && 
+        request.resource.data.parentId == request.auth.uid;
+      
+      // Teachers can read link requests for their classes
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        (isTeacher() && resource.data.teacherId == request.auth.uid) ||
+        (isParent() && resource.data.parentId == request.auth.uid)
+      );
+      
+      // Teachers and admins can update link request status
+      allow update: if isAuthenticated() && (
+        isAdmin() ||
+        (isTeacher() && resource.data.teacherId == request.auth.uid)
+      );
+      
+      // Only admins can delete link requests
+      allow delete: if isAuthenticated() && isAdmin();
+    }
+
+    // Notifications collection rules
+    match /notifications/{notificationId} {
+      // Users can read their own notifications
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      
+      // System can create notifications for users
+      allow create: if isAuthenticated() && (
+        isAdmin() ||
+        (isTeacher() && request.resource.data.userId != request.auth.uid) ||
+        (isParent() && request.resource.data.userId != request.auth.uid)
+      );
+      
+      // Users can update their own notifications (mark as read)
+      allow update: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
+      
+      // Only admins can delete notifications
+      allow delete: if isAuthenticated() && isAdmin();
+    }
 
     // Default rule - deny all other access
     match /{document=**} {

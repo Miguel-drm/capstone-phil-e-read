@@ -10,6 +10,7 @@ import mongoose from 'mongoose';
 import Story, { IStory } from './models/Story.js';
 import GridFSService from './services/gridfsService.js';
 import teacherRoutes from './routes/teacherRoutes.js';
+import parentRoutes from './routes/parentRoutes.js';
 import { resultService } from './services/resultService.js';
 import type { Readable } from 'stream';
 // Removed Node Vosk integration; using external Python Vosk WS instead
@@ -523,6 +524,7 @@ app.use(express.json());
     });
 
     app.use('/api/teachers', teacherRoutes);
+    app.use('/api/parents', parentRoutes);
 
     // Removed OpenAI Whisper transcription route; using external Python Vosk WS instead
 
