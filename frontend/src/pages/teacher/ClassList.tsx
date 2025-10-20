@@ -1123,11 +1123,24 @@ const ClassList: React.FC = () => {
             Swal.showValidationMessage('Please enter Section and select a Color');
             return false;
           }
+          
+          // Extract grade level number from the locked grade level
+          const gradeLevelNumber = parseInt(gradeLevel.match(/\d+/)?.[0] || '0');
+          if (gradeLevelNumber === 0) {
+            Swal.showValidationMessage('Invalid grade level');
+            return false;
+          }
+          
           // Enforce unique section name for this teacher (case-insensitive)
           const normalizedSection = section.toLowerCase();
           const duplicate = grades.some(g => {
+            // Check both old format (name field) and new format (section field)
+            if (g.section) {
+              return g.section.toLowerCase() === normalizedSection;
+            } else {
             const existingSection = getSectionName(g.name).toLowerCase();
             return existingSection === normalizedSection;
+            }
           });
           if (duplicate) {
             Swal.showValidationMessage('Section name already exists. Please choose a different section.');
@@ -1136,7 +1149,9 @@ const ClassList: React.FC = () => {
           // Set loading state here, just before the form is confirmed and API call is expected
           setIsCreatingGrade(true);
           return {
-            name: `${gradeLevel} - ${section}`,
+            name: `${gradeLevel} - ${section}`, // Keep for backward compatibility
+            gradeLevel: gradeLevelNumber,
+            section: section,
             description,
             color
           };
@@ -1145,6 +1160,8 @@ const ClassList: React.FC = () => {
       if (formValues) {
         const gradeData = {
           name: formValues.name.trim(),
+          gradeLevel: formValues.gradeLevel,
+          section: formValues.section.trim(),
           description: (formValues.description || '').trim(),
           color: formValues.color,
           isActive: true,

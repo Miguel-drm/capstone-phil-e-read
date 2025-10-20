@@ -5,140 +5,16 @@ import { type ClassGrade } from '../../../services/gradeService';
 import PerformanceChart from '../teacher/PerformanceChart';
 import { useNavigate } from 'react-router-dom';
 import { BookOpenIcon, UsersIcon, ChartBarIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
-import { profileImageService } from '../../../services/profileImageService';
+import { formatDateHuman } from '@/utils/date';
 
-// Parent Profile Widget - Admin Dashboard Style
-const ParentProfileWidget: React.FC<{ 
-  currentUser: any; 
-  isLoading: boolean; 
-}> = ({ currentUser, isLoading }) => {
-  const [profileImage, setProfileImage] = useState<string | null>(null);
-  const [imageLoading, setImageLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchProfileImage = async () => {
-      if (!currentUser?.uid) return;
-      
-      setImageLoading(true);
-      try {
-        // Try to fetch from parent endpoint first, then fallback to teacher endpoint
-        let imageBase64 = await profileImageService.getParentProfileImage(currentUser.uid);
-        if (!imageBase64) {
-          // Fallback to teacher endpoint if parent doesn't exist
-          imageBase64 = await profileImageService.getTeacherProfileImage(currentUser.uid);
-        }
-        
-        if (imageBase64) {
-          const dataUrl = profileImageService.convertBase64ToDataUrl(imageBase64);
-          setProfileImage(dataUrl);
-        }
-      } catch (error) {
-        console.warn('Failed to fetch profile image:', error);
-      } finally {
-        setImageLoading(false);
-      }
-    };
-
-    fetchProfileImage();
-  }, [currentUser?.uid]);
-
-  return (
-  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-    <div className="flex items-center justify-between mb-6">
-      <h3 className="text-lg font-semibold text-gray-900">Parent Profile</h3>
-      <div className="flex items-center gap-2">
-        <div className="w-2 h-2 rounded-full bg-green-500"></div>
-        <span className="text-sm text-gray-600">Active</span>
-      </div>
-    </div>
-
-    <div className="flex items-center gap-4 mb-6">
-      {/* Profile Image */}
-      <div className="w-16 h-16 rounded-full overflow-hidden bg-gradient-to-br from-green-500 to-blue-600 flex items-center justify-center text-white text-xl font-bold">
-        {isLoading || imageLoading ? (
-          <div className="w-16 h-16 bg-gray-200 rounded-full animate-pulse"></div>
-        ) : profileImage ? (
-          <img 
-            src={profileImage} 
-            alt={currentUser?.displayName || 'Parent'} 
-            className="w-full h-full object-cover"
-            onError={(e) => {
-              // Fallback to initial if image fails to load
-              const target = e.target as HTMLImageElement;
-              target.style.display = 'none';
-              const parent = target.parentElement;
-              if (parent) {
-                parent.innerHTML = currentUser?.displayName?.charAt(0)?.toUpperCase() || 'P';
-              }
-            }}
-          />
-        ) : currentUser?.photoURL || currentUser?.profilePhoto ? (
-          <img 
-            src={currentUser.photoURL || currentUser.profilePhoto} 
-            alt={currentUser?.displayName || 'Parent'} 
-            className="w-full h-full object-cover"
-            onError={(e) => {
-              // Fallback to initial if image fails to load
-              const target = e.target as HTMLImageElement;
-              target.style.display = 'none';
-              const parent = target.parentElement;
-              if (parent) {
-                parent.innerHTML = currentUser?.displayName?.charAt(0)?.toUpperCase() || 'P';
-              }
-            }}
-          />
-        ) : (
-          currentUser?.displayName?.charAt(0)?.toUpperCase() || 'P'
-        )}
-      </div>
-      
-      {/* Profile Info */}
-      <div className="flex-1">
-        {isLoading ? (
-          <div className="space-y-2">
-            <div className="h-6 bg-gray-200 rounded animate-pulse w-3/4"></div>
-            <div className="h-4 bg-gray-200 rounded animate-pulse w-1/2"></div>
-          </div>
-        ) : (
-          <>
-            <h4 className="text-xl font-semibold text-gray-900">
-              {currentUser?.displayName || 'Parent Name'}
-            </h4>
-            <p className="text-sm text-gray-600">
-              {currentUser?.email || 'parent@school.com'}
-            </p>
-          </>
-        )}
-      </div>
-    </div>
-
-    {/* Profile Stats */}
-    <div className="grid grid-cols-2 gap-4">
-      <div className="p-3 bg-green-50 rounded-lg">
-        <div className="text-xs font-medium text-gray-600 mb-1">Role</div>
-        <div className="text-sm font-semibold text-green-600">Parent</div>
-      </div>
-      <div className="p-3 bg-blue-50 rounded-lg">
-        <div className="text-xs font-medium text-gray-600 mb-1">Status</div>
-        <div className="text-sm font-semibold text-blue-600">Active</div>
-      </div>
-    </div>
-
-    <div className="mt-4 pt-4 border-t border-gray-200">
-      <div className="text-xs text-gray-500">
-        Last login: {formatDateHuman(new Date())}
-      </div>
-    </div>
-  </div>
-  );
-};
+// Parent Profile widget removed per request
 
 // Children Overview Widget - Admin Dashboard Style
 const ChildrenOverviewWidget: React.FC<{ 
   children: Student[]; 
   isLoading: boolean; 
 }> = ({ children, isLoading }) => (
-  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 h-full flex flex-col">
     <div className="flex items-center justify-between mb-6">
       <h3 className="text-lg font-semibold text-gray-900">Children Overview</h3>
       <div className="flex items-center gap-2">
@@ -147,7 +23,7 @@ const ChildrenOverviewWidget: React.FC<{
       </div>
     </div>
 
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-2 gap-4 flex-1">
       {/* Total Children */}
       <div className="p-4 bg-blue-50 rounded-xl">
         <div className="text-sm font-medium text-gray-900 mb-1">Total Children</div>
@@ -244,7 +120,7 @@ const QuickActionsWidget: React.FC = () => {
   ];
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 h-full flex flex-col">
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold text-gray-900">Quick Actions</h3>
         <div className="flex items-center gap-2">
@@ -253,7 +129,7 @@ const QuickActionsWidget: React.FC = () => {
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-3 flex-1">
         {actions.map((action) => (
           <button
             key={action.id}
@@ -296,21 +172,7 @@ const mockGrades: ClassGrade[] = [
   },
 ];
 
-const OverviewCard = memo(({ title, value, icon: Icon, accent }: { title: string; value: number | string; icon: React.ElementType; accent: string }) => (
-  <div className="group relative overflow-hidden rounded-2xl bg-white border border-gray-100 transition-all duration-200">
-    <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-r ${accent} pointer-events-none`} />
-    <div className="relative p-5 flex items-center gap-4">
-      <div className="h-12 w-12 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-600 group-hover:bg-white/90 transition-colors">
-        <Icon className="h-6 w-6" />
-      </div>
-      <div className="flex-1">
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">{title}</h3>
-        <p className="mt-1 text-3xl font-extrabold text-gray-900">{value}</p>
-      </div>
-      <ArrowRightIcon className="h-5 w-5 text-gray-300 group-hover:text-gray-600 transition-colors" />
-    </div>
-  </div>
-));
+// (Removed unused OverviewCard to satisfy linter)
 
 const ChildCard = memo(({ child }: { child: Student }) => (
   <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 flex flex-col">
@@ -374,13 +236,13 @@ const ParentDashboard: React.FC = () => {
               <p className="mt-1 text-sm text-blue-700">Track your children’s progress and start a new practice anytime.</p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <button onClick={() => navigate('/parent/reading')} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-white bg-gradient-to-r from-blue-500 to-purple-500 transition">
+              <button aria-label="Start Practice" onClick={() => navigate('/parent/reading')} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-white bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-400 transition">
                 <BookOpenIcon className="h-5 w-5" /> Start Practice
               </button>
-              <button onClick={() => navigate('/parent/reports')} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-blue-700 bg-white border border-blue-100 hover:bg-blue-50 transition">
+              <button aria-label="View Reports" onClick={() => navigate('/parent/reports')} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-blue-700 bg-white border border-blue-100 hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-200 transition">
                 <ChartBarIcon className="h-5 w-5" /> View Reports
               </button>
-              <button onClick={() => navigate('/parent/children')} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-blue-700 bg-white border border-blue-100 hover:bg-blue-50 transition">
+              <button aria-label="Manage Children" onClick={() => navigate('/parent/children')} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-blue-700 bg-white border border-blue-100 hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-200 transition">
                 <UsersIcon className="h-5 w-5" /> Manage Children
               </button>
             </div>
@@ -388,67 +250,409 @@ const ParentDashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* No Children Banner */}
+      {children.length === 0 && !loading && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
+              <UsersIcon className="h-5 w-5 text-blue-600" />
+      </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-medium text-blue-900">No children registered yet</h3>
+              <p className="text-sm text-blue-700">Link a child to your account to start tracking their reading progress.</p>
+        </div>
+            <button 
+              onClick={() => navigate('/parent/children')} 
+              className="px-4 py-2 text-sm font-medium text-blue-700 bg-white border border-blue-200 rounded-lg hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+            >
+              Manage Children
+            </button>
+          </div>
+          </div>
+        )}
+
+
       {/* Main Content Sections - Admin Dashboard Style */}
-      <div className="flex flex-col gap-3">
-        {/* Parent Profile and Quick Actions - top row */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          <div className="lg:col-span-1">
-            <ParentProfileWidget 
-              currentUser={currentUser}
+      <div className="flex flex-col gap-4">
+        {/* Quick Actions and Children Overview - equal height containers */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="flex">
+            <QuickActionsWidget />
+          </div>
+          <div className="flex">
+            <ChildrenOverviewWidget 
+              children={children}
               isLoading={loading}
             />
           </div>
-          <div className="lg:col-span-2">
-            <QuickActionsWidget />
-          </div>
       </div>
 
-        {/* Children Overview - full width */}
-        <div>
-          <ChildrenOverviewWidget 
-            children={children}
-            isLoading={loading}
-          />
-        </div>
+        {/* Children Overview moved above with Quick Actions */}
 
-        {/* Children cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {loading ? (
-            <div className="col-span-full text-center py-8 text-gray-500">Loading children...</div>
-        ) : children.length === 0 ? (
-            <div className="col-span-full text-center py-8 text-gray-500">No children registered yet</div>
-          ) : (
-            children.map((child) => (
+        {/* Children cards - only show if children exist */}
+        {children.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {children.map((child) => (
               <ChildCard key={child.id} child={child} />
-            ))
+            ))}
+          </div>
         )}
-      </div>
 
-      {/* Progress Charts per child */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        {children.length === 0 ? (
-          <PerformanceChart data={mockChartData} grades={mockGrades} students={children} title="All Students" targetLine={85} />
-        ) : (
-          children.map((child) => (
+        {/* Progress Charts per child - only show if children exist */}
+        {children.length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {children.map((child) => (
             <PerformanceChart
               key={child.id}
-              data={mockChartData}
+                data={mockChartData as any}
               grades={mockGrades}
               students={[child]}
               title={child.name}
               targetLine={85}
             />
-          ))
+            ))}
+          </div>
         )}
+
+
+        {/* Recent Activity Feed */}
+        {children.length > 0 && (
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Recent Activity</h3>
+              <button 
+                onClick={() => navigate('/parent/progress')}
+                className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+              >
+                View All
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div className="flex items-center gap-4 p-3 bg-green-50 rounded-lg border border-green-200">
+                <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center">
+                  <BookOpenIcon className="h-5 w-5 text-white" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-gray-900">Reading Session Completed</div>
+                  <div className="text-sm text-gray-600">Emma finished "The Magic Tree" - 15 minutes</div>
+                  <div className="text-xs text-gray-500">2 hours ago</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm font-medium text-green-600">92%</div>
+                  <div className="text-xs text-gray-500">Accuracy</div>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center">
+                  <ChartBarIcon className="h-5 w-5 text-white" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-gray-900">Progress Milestone Reached</div>
+                  <div className="text-sm text-gray-600">Emma improved reading speed by 15%</div>
+                  <div className="text-xs text-gray-500">Yesterday</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm font-medium text-blue-600">+15%</div>
+                  <div className="text-xs text-gray-500">Improvement</div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4 p-3 bg-purple-50 rounded-lg border border-purple-200">
+                <div className="w-10 h-10 bg-purple-500 rounded-full flex items-center justify-center">
+                  <span className="text-white text-lg">🏆</span>
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-gray-900">Achievement Unlocked</div>
+                  <div className="text-sm text-gray-600">"Reading Streak Master" - 5 days in a row!</div>
+                  <div className="text-xs text-gray-500">3 days ago</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm font-medium text-purple-600">5 days</div>
+                  <div className="text-xs text-gray-500">Streak</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Performance Overview - 2 column layout */}
+        {children.length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Quick Stats Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Total Reading Time */}
+              <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
+                    <BookOpenIcon className="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-blue-900">2h 45m</div>
+                    <div className="text-sm text-blue-700">Total Reading Time</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Average Performance */}
+              <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 border border-green-200">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center">
+                    <ChartBarIcon className="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-green-900">87%</div>
+                    <div className="text-sm text-green-700">Average Performance</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Reading Streak */}
+              <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4 border border-purple-200">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-purple-500 rounded-lg flex items-center justify-center">
+                    <span className="text-white font-bold">🔥</span>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-purple-900">5 days</div>
+                    <div className="text-sm text-purple-700">Reading Streak</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Words Per Minute */}
+              <div className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-xl p-4 border border-amber-200">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center">
+                    <span className="text-white font-bold">⚡</span>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-amber-900">65 WPM</div>
+                    <div className="text-sm text-amber-700">Reading Speed</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Learning Tips */}
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Today's Learning Tip</h3>
+              <div className="space-y-4">
+                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center mt-0.5">
+                      <span className="text-white text-sm">💡</span>
+                    </div>
+                    <div>
+                      <div className="font-medium text-gray-900">Encourage Daily Reading</div>
+                      <div className="text-sm text-gray-600 mt-1">
+                        Set aside 15-20 minutes each day for reading practice. Consistency is key to building strong reading skills.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center mt-0.5">
+                      <span className="text-white text-sm">📚</span>
+                    </div>
+                    <div>
+                      <div className="font-medium text-gray-900">Read Together</div>
+                      <div className="text-sm text-gray-600 mt-1">
+                        Take turns reading paragraphs. This helps with comprehension and makes reading more enjoyable.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Achievements & Milestones */}
+        {children.length > 0 && (
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Achievements</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="p-4 bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-xl border border-yellow-200">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-8 h-8 bg-yellow-500 rounded-full flex items-center justify-center">
+                    <span className="text-white text-sm">🏆</span>
+                  </div>
+                  <div className="font-medium text-gray-900">Reading Streak</div>
+                </div>
+                <div className="text-sm text-gray-600">5 days in a row!</div>
+                <div className="text-xs text-gray-500 mt-1">Unlocked 2 days ago</div>
+              </div>
+
+              <div className="p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-xl border border-green-200">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
+                    <span className="text-white text-sm">📈</span>
+                  </div>
+                  <div className="font-medium text-gray-900">Speed Boost</div>
+                </div>
+                <div className="text-sm text-gray-600">15% faster reading</div>
+                <div className="text-xs text-gray-500 mt-1">Achieved yesterday</div>
+              </div>
+
+              <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl border border-blue-200">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+                    <span className="text-white text-sm">⭐</span>
+                  </div>
+                  <div className="font-medium text-gray-900">Perfect Score</div>
+                </div>
+                <div className="text-sm text-gray-600">100% accuracy</div>
+                <div className="text-xs text-gray-500 mt-1">Last session</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Upcoming Tasks & Reminders */}
+        {children.length > 0 && (
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Upcoming Tasks</h3>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                <div className="w-8 h-8 bg-amber-500 rounded-full flex items-center justify-center">
+                  <span className="text-white text-sm">📅</span>
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-gray-900">Daily Reading Practice</div>
+                  <div className="text-sm text-gray-600">Recommended: 20 minutes today</div>
+                </div>
+                <button 
+                  onClick={() => navigate('/parent/reading')}
+                  className="px-3 py-1 text-sm bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 transition-colors"
+                >
+                  Start Now
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+                  <span className="text-white text-sm">📊</span>
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-gray-900">Weekly Progress Review</div>
+                  <div className="text-sm text-gray-600">Due in 2 days - Check Emma's progress</div>
+                </div>
+                <button 
+                  onClick={() => navigate('/parent/reports')}
+                  className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors"
+                >
+                  View Report
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg border border-green-200">
+                <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
+                  <span className="text-white text-sm">📚</span>
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-gray-900">New Stories Available</div>
+                  <div className="text-sm text-gray-600">3 new reading materials added</div>
+                </div>
+                <button 
+                  onClick={() => navigate('/parent/reading')}
+                  className="px-3 py-1 text-sm bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors"
+                >
+                  Explore
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Quick Insights & Recommendations */}
+        {children.length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Insights</h3>
+              <div className="space-y-4">
+                <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                  <div className="flex items-start gap-3">
+                    <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center mt-0.5">
+                      <span className="text-white text-xs">✓</span>
+                    </div>
+                    <div>
+                      <div className="font-medium text-gray-900">Great Progress!</div>
+                      <div className="text-sm text-gray-600">Emma's reading speed improved by 15% this week</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-start gap-3">
+                    <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center mt-0.5">
+                      <span className="text-white text-xs">💡</span>
+                    </div>
+                    <div>
+                      <div className="font-medium text-gray-900">Focus Area</div>
+                      <div className="text-sm text-gray-600">Practice comprehension questions for better understanding</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+                  <div className="flex items-start gap-3">
+                    <div className="w-6 h-6 bg-purple-500 rounded-full flex items-center justify-center mt-0.5">
+                      <span className="text-white text-xs">🎯</span>
+                    </div>
+                    <div>
+                      <div className="font-medium text-gray-900">Next Goal</div>
+                      <div className="text-sm text-gray-600">Aim for 70 WPM reading speed</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
       </div>
 
-      {/* Recent Activity */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Recommendations</h3>
         <div className="space-y-4">
-          <p className="text-gray-500">No recent activity</p>
-          </div>
+                <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
+                  <div className="flex items-start gap-3">
+                    <div className="w-6 h-6 bg-amber-500 rounded-full flex items-center justify-center mt-0.5">
+                      <span className="text-white text-xs">📖</span>
+                    </div>
+                    <div>
+                      <div className="font-medium text-gray-900">Try New Stories</div>
+                      <div className="text-sm text-gray-600">"Adventure Tales" series matches Emma's level</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                  <div className="flex items-start gap-3">
+                    <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center mt-0.5">
+                      <span className="text-white text-xs">⏰</span>
+                    </div>
+                    <div>
+                      <div className="font-medium text-gray-900">Best Practice Time</div>
+                      <div className="text-sm text-gray-600">Emma performs best in the morning (9-11 AM)</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-start gap-3">
+                    <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center mt-0.5">
+                      <span className="text-white text-xs">🎯</span>
+                    </div>
+                    <div>
+                      <div className="font-medium text-gray-900">Focus on Fluency</div>
+                      <div className="text-sm text-gray-600">Practice reading aloud for better pronunciation</div>
+                    </div>
+                  </div>
+                </div>
         </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );

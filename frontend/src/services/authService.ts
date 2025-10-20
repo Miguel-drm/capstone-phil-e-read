@@ -107,13 +107,34 @@ export const signOutUser = async (): Promise<void> => {
     // from emitting permission-denied during the auth transition.
     beginSuppressFirestoreErrors(3000);
     try { setLogLevel('silent'); } catch (_) {}
-    try { await disableNetwork(db); } catch (_) {}
+    
+    // Disable network with better error handling
+    try { 
+      await Promise.race([
+        disableNetwork(db),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2000))
+      ]);
+    } catch (error) {
+      console.debug('Network disable handled during signout:', error);
+    }
+    
     await signOut(auth);
+    
     // Small delay before re-enabling to allow listeners to fully tear down
-    try { await new Promise(res => setTimeout(res, 250)); } catch (_) {}
-    try { await enableNetwork(db); } catch (_) {}
+    try { await new Promise(res => setTimeout(res, 500)); } catch (_) {}
+    
+    // Re-enable network with better error handling
+    try { 
+      await Promise.race([
+        enableNetwork(db),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2000))
+      ]);
+    } catch (error) {
+      console.debug('Network enable handled during signout:', error);
+    }
+    
     // Restore normal logging shortly after network is back
-    setTimeout(() => { try { setLogLevel('error'); } catch (_) {} }, 500);
+    setTimeout(() => { try { setLogLevel('error'); } catch (_) {} }, 1000);
   } catch (error) {
     throw error;
   }
@@ -273,7 +294,7 @@ export const getUserProfile = async (): Promise<UserProfile | null> => {
     const message = (error as any)?.message as string | undefined;
     const isOffline = code === 'unavailable' || (message || '').toLowerCase().includes('offline') || (message || '').toLowerCase().includes('could not reach');
     if (isOffline) {
-      console.warn('User profile fetch skipped due to offline mode. Falling back to local auth data.');
+      // Silently handle offline mode - no console warning needed
     } else {
       console.error('Error fetching user profile:', error);
     }

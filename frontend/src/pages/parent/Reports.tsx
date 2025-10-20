@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { formatDateHuman } from '@/utils/date';
 import { useAuth } from '../../contexts/AuthContext';
 
 const ReportsPage: React.FC = () => {
@@ -8,6 +9,8 @@ const ReportsPage: React.FC = () => {
   const [notes, setNotes] = useState('');
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isLoadingSaved, setIsLoadingSaved] = useState(true);
+  const [savedReports, setSavedReports] = useState<Array<{ id: string; title: string; createdAt: Date }>>([]);
   const [recipient, setRecipient] = useState<'teacher' | 'admin'>('teacher');
   const [subject, setSubject] = useState('Reading Practice Update');
   const [message, setMessage] = useState('');
@@ -26,18 +29,27 @@ const ReportsPage: React.FC = () => {
     return `mailto:${to}?subject=${subjectLine}&body=${body}`;
   }, [teacherEmail, childName, notes, currentUser?.email]);
 
+  // Simulate loading for skeletons (replace with real fetch)
+  React.useEffect(() => {
+    const t = setTimeout(() => {
+      setIsLoadingSaved(false);
+      setSavedReports([]);
+    }, 600);
+    return () => clearTimeout(t);
+  }, []);
+
   return (
     <div className="p-6 space-y-6">
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 border border-gray-100">
-        <div className="px-6 py-6 sm:px-8 sm:py-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="px-4 py-4 sm:px-8 sm:py-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
             <h2 className="text-2xl font-extrabold text-blue-900">Reports</h2>
             <p className="text-sm text-blue-700 mt-1">View analytics, export summaries, or send a report to a teacher/admin.</p>
           </div>
-          <div className="flex gap-2">
-            <input type="text" placeholder="Search reports..." className="border border-blue-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white" />
-            <button className="px-4 py-2 rounded-xl text-blue-700 bg-white border border-blue-100 hover:bg-blue-50 transition">Filter</button>
-            <button onClick={() => setIsCreateOpen(true)} className="px-4 py-2 rounded-xl text-white bg-gradient-to-r from-blue-500 to-purple-500">Create Report</button>
+          <div className="flex flex-wrap items-center gap-2">
+            <input aria-label="Search reports" type="text" placeholder="Search reports..." className="h-9 border border-blue-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-sm" />
+            <button aria-label="Filter" className="h-9 px-3 rounded-lg text-blue-700 bg-white border border-blue-100 hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-200 transition text-sm">Filter</button>
+            <button aria-label="Create Report" onClick={() => setIsCreateOpen(true)} className="h-9 px-3 rounded-lg text-white bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-400 text-sm">Create Report</button>
           </div>
         </div>
       </div>
@@ -46,7 +58,7 @@ const ReportsPage: React.FC = () => {
         <div className="rounded-2xl p-4 bg-white border border-gray-100"><div className="text-xs text-gray-500">Total Sessions</div><div className="text-2xl font-extrabold text-blue-700 mt-1">12</div></div>
         <div className="rounded-2xl p-4 bg-white border border-gray-100"><div className="text-xs text-gray-500">Avg. Score</div><div className="text-2xl font-extrabold text-green-700 mt-1">86%</div></div>
         <div className="rounded-2xl p-4 bg-white border border-gray-100"><div className="text-xs text-gray-500">Avg. WPM</div><div className="text-2xl font-extrabold text-yellow-700 mt-1">92</div></div>
-        <div className="rounded-2xl p-4 bg-white border border-gray-100"><div className="text-xs text-gray-500">This Week</div><div className="text-2xl font-extrabold text-purple-700 mt-1">3 sessions</div></div>
+        <div className="rounded-2xl p-4 bg-white border border-gray-100"><div className="text-xs text-gray-500">Last Updated</div><div className="text-sm font-semibold text-purple-700 mt-1">{formatDateHuman(new Date())}</div></div>
       </div>
 
       <div className="bg-white rounded-lg border border-gray-200 p-6">
@@ -96,7 +108,46 @@ const ReportsPage: React.FC = () => {
 
       <div className="bg-white rounded-2xl border border-gray-100 p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-3">Saved Reports</h3>
-        <div className="rounded-xl border border-dashed border-gray-200 p-8 text-center text-gray-500">No reports available yet.</div>
+        {isLoadingSaved ? (
+          <div className="space-y-3">
+            {[1,2,3].map(i => (
+              <div key={i} className="flex items-center justify-between p-3 border border-gray-100 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-gray-100 animate-pulse" />
+                  <div>
+                    <div className="h-4 w-40 bg-gray-100 rounded animate-pulse mb-1" />
+                    <div className="h-3 w-24 bg-gray-100 rounded animate-pulse" />
+                  </div>
+                </div>
+                <div className="h-8 w-24 bg-gray-100 rounded animate-pulse" />
+              </div>
+            ))}
+          </div>
+        ) : savedReports.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-gray-200 p-8 text-center">
+            <div className="mx-auto w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mb-2">📄</div>
+            <div className="text-gray-800 font-medium">No reports yet</div>
+            <div className="text-gray-500 text-sm">When you generate a report, it will appear here.</div>
+            <div className="mt-3">
+              <button onClick={() => setIsCreateOpen(true)} className="px-4 py-2 rounded-xl text-white bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-400">Create your first report</button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {savedReports.map(r => (
+              <div key={r.id} className="flex items-center justify-between p-3 border border-gray-100 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">📄</div>
+                  <div>
+                    <div className="font-medium text-gray-900">{r.title}</div>
+                    <div className="text-xs text-gray-500">{formatDateHuman(r.createdAt)}</div>
+                  </div>
+                </div>
+                <button className="h-9 px-3 rounded-lg text-blue-700 bg-white border border-blue-100 hover:bg-blue-50">Open</button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {isCreateOpen && (

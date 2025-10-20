@@ -6,6 +6,7 @@ import PillSelect, { type PillOption } from '../../ui/PillSelect';
 import { useAuth } from '../../../contexts/AuthContext';
 import { db } from '../../../config/firebase';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { shouldSuppressFirestoreError } from '../../../services/authService';
 
 interface PerformanceChartProps {
   data: {
@@ -27,7 +28,7 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, grades, stude
   const [selectedStudent, setSelectedStudent] = useState<string>('');
   const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
   const [selectedMetric, setSelectedMetric] = useState<'oral' | 'comprehension' | 'reading-level'>('oral');
-  const { currentUser } = useAuth();
+  const { currentUser, userRole } = useAuth();
 
   // realtime computed data
   const [computedData, setComputedData] = useState<{
@@ -134,8 +135,13 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, grades, stude
 
   // Realtime subscription to results for selected filters -> compute data arrays
   useEffect(() => {
-    if (!currentUser?.uid) return;
     const labels = ['Grade III', 'Grade IV', 'Grade V', 'Grade VI'];
+    // For non-teacher roles (e.g., parents/admin), do not open any Firestore listeners
+    if (userRole && userRole !== 'teacher') {
+      setComputedData({ assessmentPeriods: labels, oralReadingScores: [], comprehensionScores: [], readingLevels: [] });
+      return;
+    }
+    if (!currentUser?.uid) return;
     const labelIndex = (gradeName: string | undefined): number => {
       if (!gradeName) return -1;
       const upper = gradeName.toUpperCase();
@@ -203,12 +209,18 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, grades, stude
         readingLevels: avg(levelSums, levelCounts, 3)
       });
     }, (err) => {
+      const code = (err as any)?.code as string | undefined;
+      if (shouldSuppressFirestoreError() || code === 'permission-denied' || code === 'unauthenticated') {
+        // Quietly fall back to empty data for users without access or during sign-out
+        setComputedData({ assessmentPeriods: labels, oralReadingScores: [], comprehensionScores: [], readingLevels: [] });
+        return;
+      }
       console.warn('PerformanceChart subscribe error:', err);
       setComputedData({ assessmentPeriods: labels, oralReadingScores: [], comprehensionScores: [], readingLevels: [] });
     });
 
     return () => unsub();
-  }, [currentUser?.uid, selectedGrade, selectedStudent, grades]);
+  }, [userRole, currentUser?.uid, selectedGrade, selectedStudent, grades]);
 
   useEffect(() => {
     if (chartRef.current) {

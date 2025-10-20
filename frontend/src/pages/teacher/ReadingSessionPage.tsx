@@ -234,23 +234,23 @@ const ReadingSessionPage: React.FC = () => {
       navigator.mediaDevices
         .getUserMedia({ audio: true })
         .then((stream) => {
-          const mediaRecorder = new MediaRecorder(stream);
-          mediaRecorderRef.current = mediaRecorder;
-          const audioChunks: BlobPart[] = [];
-          mediaRecorder.ondataavailable = (e) => {
-            if (e.data.size > 0) audioChunks.push(e.data);
-          };
-          mediaRecorder.onstop = () => {
+        const mediaRecorder = new MediaRecorder(stream);
+        mediaRecorderRef.current = mediaRecorder;
+        const audioChunks: BlobPart[] = [];
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) audioChunks.push(e.data);
+        };
+        mediaRecorder.onstop = () => {
             const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
-            setAudioBlob(audioBlob);
-            setAudioUrl(URL.createObjectURL(audioBlob));
-          };
-          mediaRecorder.start();
+          setAudioBlob(audioBlob);
+          setAudioUrl(URL.createObjectURL(audioBlob));
+        };
+        mediaRecorder.start();
         })
         .catch(() => {
           alert("Microphone access denied or not available.");
-          setIsRecording(false);
-        });
+        setIsRecording(false);
+      });
     } else {
       alert("MediaRecorder not supported in this browser.");
       setIsRecording(false);
@@ -592,7 +592,7 @@ const ReadingSessionPage: React.FC = () => {
     try {
       setIsLoadingPdf(true);
       setPdfError(null);
-
+      
       if ((import.meta as any)?.env?.MODE === "development")
         console.debug("Fetching PDF from URL:", pdfUrl);
       const response = await fetch(pdfUrl);
@@ -610,7 +610,7 @@ const ReadingSessionPage: React.FC = () => {
         }
         throw new Error(errorMessage);
       }
-
+      
       // Get the PDF as an array buffer
       const pdfArrayBuffer = await response.arrayBuffer();
       if ((import.meta as any)?.env?.MODE === "development")
@@ -635,11 +635,11 @@ const ReadingSessionPage: React.FC = () => {
           cMapUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/",
           cMapPacked: true,
         });
-
+        
         const pdf = await loadingTask.promise;
         if ((import.meta as any)?.env?.MODE === "development")
           console.debug("PDF loaded successfully, pages:", pdf.numPages);
-
+        
         let fullText = "";
         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
           if ((import.meta as any)?.env?.MODE === "development")
@@ -659,7 +659,7 @@ const ReadingSessionPage: React.FC = () => {
             fullText.length
           );
         setPdfContent(fullText);
-
+        
         // Split content into words and update state
         const wordArray = fullText
           .split(/\s+/)
@@ -732,20 +732,20 @@ const ReadingSessionPage: React.FC = () => {
           // Get the full story details
           const fullStory =
             await UnifiedStoryService.getInstance().getStoryById(story._id);
-
+          
           if (!fullStory) {
             throw new Error("Failed to fetch story details");
           }
 
           if ((import.meta as any)?.env?.MODE === "development")
             console.debug("Full story details:", {
-              id: fullStory._id,
-              title: fullStory.title,
-              language: fullStory.language,
-              hasTextContent: !!fullStory.textContent,
-              textContentLength: fullStory.textContent?.length,
+            id: fullStory._id,
+            title: fullStory.title,
+            language: fullStory.language,
+            hasTextContent: !!fullStory.textContent,
+            textContentLength: fullStory.textContent?.length,
               textContentPreview: fullStory.textContent?.substring(0, 100),
-            });
+          });
 
           // Set story language for speech recognition
           if (fullStory.language) {
@@ -1050,7 +1050,7 @@ const ReadingSessionPage: React.FC = () => {
 
       // Update session status to completed
       await readingSessionService.updateSessionStatus(sessionId, "completed");
-
+      
       // Save detailed results to the new results collection
       for (const studentId of currentSession.students) {
         const readingSessionResult = {
@@ -1061,7 +1061,7 @@ const ReadingSessionPage: React.FC = () => {
           studentId, // <-- Add this field
           teacherId: currentSession.teacherId,
           type: "reading-session" as const,
-
+          
           // Reading metrics
           wordsRead: wordsRead,
           totalWords: words.length,
@@ -1069,19 +1069,19 @@ const ReadingSessionPage: React.FC = () => {
           oralReadingScore: parseFloat(oralReadingScore),
           readingSpeed: parseInt(readingSpeedWPM),
           elapsedTime: elapsedTime,
-
+          
           // Additional data
           transcript: transcript,
           audioUrl: audioUrl || undefined,
           storyUrl: currentSession.storyUrl,
-
+          
           // Timestamps
           sessionDate: new Date(),
         };
         await resultService.createReadingSessionResult(readingSessionResult);
         setCompletedStudents((prev) => ({ ...prev, [studentId]: true }));
       }
-
+      
       // Update local state
       setCurrentSession({
         ...currentSession,
@@ -1095,7 +1095,7 @@ const ReadingSessionPage: React.FC = () => {
         text: "All data has been saved successfully.",
         confirmButtonText: "OK",
       });
-
+      
       // Optionally navigate back to sessions list
       // navigate('/teacher/reading');
     } catch (error) {
@@ -1222,17 +1222,17 @@ const ReadingSessionPage: React.FC = () => {
                   .split("\n\n")
                   .filter((p) => p.trim().length > 0)
                   .map((paragraph, paragraphIndex, paragraphs) => {
-                    const wordsInParagraph = paragraph.trim().split(/\s+/);
-                    return (
+                  const wordsInParagraph = paragraph.trim().split(/\s+/);
+                  return (
                       <div
                         key={paragraphIndex}
                         className="mb-4 sm:mb-6 lg:mb-8 last:mb-0"
                       >
-                        <p className="text-gray-800 leading-relaxed flex flex-wrap gap-y-1 sm:gap-y-2 lg:gap-y-3">
-                          {wordsInParagraph.map((word, wordIndex) => {
+                      <p className="text-gray-800 leading-relaxed flex flex-wrap gap-y-1 sm:gap-y-2 lg:gap-y-3">
+                        {wordsInParagraph.map((word, wordIndex) => {
                             const globalWordIndex =
                               paragraphs
-                                .slice(0, paragraphIndex)
+                            .slice(0, paragraphIndex)
                                 .reduce(
                                   (acc, p) =>
                                     acc + p.trim().split(/\s+/).length,
@@ -1243,15 +1243,15 @@ const ReadingSessionPage: React.FC = () => {
                                 currentWordIndex,
                                 wordsInParagraph
                               ) === globalWordIndex;
-                            const isSpecialChar = !/\w+/.test(word);
-                            return (
-                              <span
-                                key={`${paragraphIndex}-${wordIndex}`}
-                                className={
-                                  isSpecialChar
+                          const isSpecialChar = !/\w+/.test(word);
+                          return (
+                            <span
+                              key={`${paragraphIndex}-${wordIndex}`}
+                            className={
+                              isSpecialChar
                                     ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none not-allowed"
-                                    : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl transition-all duration-200 ` +
-                                      (isCurrentWord
+                                : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl transition-all duration-200 ` +
+                                  (isCurrentWord
                                         ? "bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold scale-105 sm:scale-110 animate-pulse"
                                         : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
                                 }
@@ -1260,15 +1260,15 @@ const ReadingSessionPage: React.FC = () => {
                                     ? { boxShadow: "0 0 8px 2px #a5b4fc" }
                                     : {}
                                 }
-                              >
-                                {word}
-                              </span>
-                            );
-                          })}
-                        </p>
-                      </div>
-                    );
-                  })
+                            >
+                              {word}
+                            </span>
+                          );
+                        })}
+                      </p>
+                    </div>
+                  );
+                })
               ) : (
                 <div className="text-center text-gray-400 py-12">
                   No story content available
@@ -1311,12 +1311,12 @@ const ReadingSessionPage: React.FC = () => {
                       <span className="truncate max-w-[60px] sm:max-w-none">
                         {studentNames[student] || student}
                       </span>
-                      {completedStudents[student] && (
-                        <span className="ml-1 inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full bg-green-200 text-green-800 text-[10px] font-semibold">
-                          ✓
-                        </span>
-                      )}
-                    </span>
+                    {completedStudents[student] && (
+                      <span className="ml-1 inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full bg-green-200 text-green-800 text-[10px] font-semibold">
+                        ✓
+                      </span>
+                    )}
+                  </span>
                   )
                 )}
               </div>
@@ -1381,31 +1381,31 @@ const ReadingSessionPage: React.FC = () => {
 
       {/* Session Controls */}
       {!isCompleted && (
-        <section className="w-full px-4 sm:px-8 pb-8 relative z-10">
-          <div className="bg-white/80 rounded-2xl lg:rounded-3xl border border-blue-100 p-4 sm:p-6 lg:p-8 flex flex-col items-center gap-4 sm:gap-6">
-            {/* Language selector + STT Provider/Vosk status badge */}
-            <div className="w-full flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 -mt-2 -mb-2">
-              <div className="flex items-center gap-2">
+      <section className="w-full px-4 sm:px-8 pb-8 relative z-10">
+        <div className="bg-white/80 rounded-2xl lg:rounded-3xl border border-blue-100 p-4 sm:p-6 lg:p-8 flex flex-col items-center gap-4 sm:gap-6">
+          {/* Language selector + STT Provider/Vosk status badge */}
+          <div className="w-full flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 -mt-2 -mb-2">
+            <div className="flex items-center gap-2">
                 <label
                   htmlFor="recognition-language"
                   className="text-xs sm:text-sm font-semibold text-blue-900"
                 >
                   Language:
                 </label>
-                <select
-                  id="recognition-language"
-                  value={storyLanguage}
+              <select
+                id="recognition-language"
+                value={storyLanguage}
                   onChange={(e) =>
                     setStoryLanguage(e.target.value as "english" | "tagalog")
                   }
-                  className="text-xs sm:text-sm px-2 py-1 rounded-md border border-blue-200 bg-white text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                >
-                  <option value="english">English</option>
-                  <option value="tagalog">Tagalog</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
-                {/* Always show Vosk status for Tagalog stories */}
+                className="text-xs sm:text-sm px-2 py-1 rounded-md border border-blue-200 bg-white text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-300"
+              >
+                <option value="english">English</option>
+                <option value="tagalog">Tagalog</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+              {/* Always show Vosk status for Tagalog stories */}
                 {storyLanguage === "tagalog" && (
                   <span
                     className={`inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold ${
@@ -1439,98 +1439,98 @@ const ReadingSessionPage: React.FC = () => {
                         ? "Vosk..."
                         : "Vosk"}
                     </span>
-                  </span>
-                )}
-                {/* If we fell back, show a small fallback label */}
+                </span>
+              )}
+              {/* If we fell back, show a small fallback label */}
                 {storyLanguage === "tagalog" && sttProvider === "webspeech" && (
-                  <span className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                    <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500"></span>
+                <span className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                  <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500"></span>
                     <span className="hidden sm:inline">
                       Fallback: Web Speech
                     </span>
-                    <span className="sm:hidden">Web Speech</span>
-                  </span>
-                )}
-                {/* For English */}
+                  <span className="sm:hidden">Web Speech</span>
+                </span>
+              )}
+              {/* For English */}
                 {storyLanguage !== "tagalog" && sttProvider === "webspeech" && (
-                  <span className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                    <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500"></span>
-                    <span className="hidden sm:inline">Web Speech</span>
-                    <span className="sm:hidden">Web Speech</span>
-                  </span>
-                )}
-              </div>
+                <span className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                  <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500"></span>
+                  <span className="hidden sm:inline">Web Speech</span>
+                  <span className="sm:hidden">Web Speech</span>
+                </span>
+              )}
             </div>
-            <div className="flex items-center gap-2 sm:gap-4 mb-2">
-              <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 text-blue-500" />
+          </div>
+          <div className="flex items-center gap-2 sm:gap-4 mb-2">
+            <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 text-blue-500" />
               <h4 className="text-base sm:text-lg font-bold text-blue-900">
                 Session Controls
               </h4>
-            </div>
-            <div className="flex flex-row flex-wrap justify-center gap-3 sm:gap-4 lg:gap-6 w-full">
-              {!isRecording ? (
-                <button
-                  onClick={handleStartRecording}
-                  className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 hover:from-blue-600 hover:to-purple-600 transition-all duration-200"
-                  title="Start Session"
-                >
-                  <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-                  <span className="hidden sm:inline">Start</span>
-                  <span className="sm:hidden">Start</span>
-                </button>
-              ) : (
-                <>
-                  {isPaused ? (
-                    <button
-                      onClick={handleResumeRecording}
-                      className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-green-400 to-blue-400 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
-                      title="Resume Recording"
-                    >
-                      <PlayIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-                      <span className="hidden sm:inline">Resume</span>
-                      <span className="sm:hidden">Resume</span>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handlePauseRecording}
-                      className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-yellow-400 to-orange-400 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
-                      title="Pause Recording"
-                    >
-                      <PauseIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-                      <span className="hidden sm:inline">Pause</span>
-                      <span className="sm:hidden">Pause</span>
-                    </button>
-                  )}
-                  <button
-                    onClick={handleStopRecording}
-                    className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-red-500 to-pink-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
-                    title="Stop Recording"
-                  >
-                    <StopIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-                    <span className="hidden sm:inline">Stop</span>
-                    <span className="sm:hidden">Stop</span>
-                  </button>
-                </>
-              )}
-              {!isCompleted && (
-                <button
-                  onClick={handleCompleteSession}
-                  className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-green-500 to-blue-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
-                  title="Complete Session"
-                >
-                  <ChartBarIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-                  <span className="hidden sm:inline">Complete Session</span>
-                  <span className="sm:hidden">Complete</span>
-                </button>
-              )}
-            </div>
-            {/* Download Audio Button (show only if audioUrl exists) */}
-            {audioUrl && (
+          </div>
+          <div className="flex flex-row flex-wrap justify-center gap-3 sm:gap-4 lg:gap-6 w-full">
+            {!isRecording ? (
               <button
-                onClick={handleDownloadAudio}
-                className="mt-4 sm:mt-6 flex items-center gap-1 sm:gap-2 px-4 sm:px-6 py-2 sm:py-3 rounded-full bg-gradient-to-r from-green-400 to-blue-400 text-white text-sm sm:text-base lg:text-lg font-bold hover:scale-105 transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-400"
-                title="Download audio recording"
+                onClick={handleStartRecording}
+                className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 hover:from-blue-600 hover:to-purple-600 transition-all duration-200"
+                title="Start Session"
               >
+                <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                <span className="hidden sm:inline">Start</span>
+                <span className="sm:hidden">Start</span>
+              </button>
+            ) : (
+              <>
+                {isPaused ? (
+                  <button
+                    onClick={handleResumeRecording}
+                    className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-green-400 to-blue-400 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
+                    title="Resume Recording"
+                  >
+                    <PlayIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                    <span className="hidden sm:inline">Resume</span>
+                    <span className="sm:hidden">Resume</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={handlePauseRecording}
+                    className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-yellow-400 to-orange-400 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
+                    title="Pause Recording"
+                  >
+                    <PauseIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                    <span className="hidden sm:inline">Pause</span>
+                    <span className="sm:hidden">Pause</span>
+                  </button>
+                )}
+                <button
+                  onClick={handleStopRecording}
+                  className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-red-500 to-pink-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
+                  title="Stop Recording"
+                >
+                  <StopIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                  <span className="hidden sm:inline">Stop</span>
+                  <span className="sm:hidden">Stop</span>
+                </button>
+              </>
+            )}
+            {!isCompleted && (
+              <button
+                onClick={handleCompleteSession}
+                className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-green-500 to-blue-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
+                title="Complete Session"
+              >
+                <ChartBarIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                <span className="hidden sm:inline">Complete Session</span>
+                <span className="sm:hidden">Complete</span>
+              </button>
+            )}
+          </div>
+          {/* Download Audio Button (show only if audioUrl exists) */}
+          {audioUrl && (
+            <button
+              onClick={handleDownloadAudio}
+              className="mt-4 sm:mt-6 flex items-center gap-1 sm:gap-2 px-4 sm:px-6 py-2 sm:py-3 rounded-full bg-gradient-to-r from-green-400 to-blue-400 text-white text-sm sm:text-base lg:text-lg font-bold hover:scale-105 transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-400"
+              title="Download audio recording"
+            >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6"
@@ -1545,55 +1545,55 @@ const ReadingSessionPage: React.FC = () => {
                     d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"
                   />
                 </svg>
-                <span className="hidden sm:inline">Download Audio</span>
-                <span className="sm:hidden">Download</span>
-              </button>
-            )}
-          </div>
-        </section>
+              <span className="hidden sm:inline">Download Audio</span>
+              <span className="sm:hidden">Download</span>
+            </button>
+          )}
+        </div>
+      </section>
       )}
-      {/* Bottom Quiz Button */}
-      <div className="w-full px-4 sm:px-8 py-4 mt-auto bg-white/80 border-t border-blue-100">
-        <div className="max-w-6xl mx-auto">
-          <button
-            onClick={() => {
-              if (!currentSession) return;
-              // choose student deterministically: first completed, else first in list
+    {/* Bottom Quiz Button */}
+    <div className="w-full px-4 sm:px-8 py-4 mt-auto bg-white/80 border-t border-blue-100">
+      <div className="max-w-6xl mx-auto">
+        <button
+          onClick={() => {
+            if (!currentSession) return;
+            // choose student deterministically: first completed, else first in list
               const completedIds = Object.keys(completedStudents).filter(
                 (id) => completedStudents[id]
               );
               const studentId =
                 currentSession.students.length === 1
-                  ? currentSession.students[0]
+              ? currentSession.students[0]
                   : completedIds[0] || currentSession.students[0];
-              const studentName = studentNames[studentId] || studentId;
-              if (!resolvedTestId) {
+            const studentName = studentNames[studentId] || studentId;
+            if (!resolvedTestId) {
                 alert("No test found for this story.");
-                return;
-              }
-              if (!isCompleted) {
+              return;
+            }
+            if (!isCompleted) {
                 alert("Please complete the reading session first.");
-                return;
-              }
-              navigate(`/student/test/${resolvedTestId}` as any, {
+              return;
+            }
+            navigate(`/student/test/${resolvedTestId}` as any, {
                 state: {
                   studentId,
                   studentName,
                   teacherId: currentSession.teacherId,
                 },
-              });
-            }}
-            disabled={!isCompleted || !resolvedTestId}
+            });
+          }}
+          disabled={!isCompleted || !resolvedTestId}
             className={`w-full py-4 rounded-2xl text-white font-bold text-lg transition-all duration-200 ${
               !isCompleted || !resolvedTestId
                 ? "bg-gray-300 cursor-not-allowed"
                 : "bg-gradient-to-r from-indigo-500 to-blue-500 hover:from-indigo-600 hover:to-blue-600 hover:scale-[1.01]"
             } `}
-          >
-            Quiz
-          </button>
-        </div>
+        >
+          Quiz
+        </button>
       </div>
+    </div>
     </div>
   );
 };
