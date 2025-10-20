@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLocation } from 'react-router-dom';
+import NotificationDropdown from '../notifications/NotificationDropdown';
+import { notificationService } from '../../services/notificationService';
 
 interface HeaderProps {
   isMobile: boolean;
@@ -34,6 +36,7 @@ const Header: React.FC<HeaderProps> = ({
     }, 250);
   };
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
 
   // Add state and effect for teacher profile image
   const [profileImage, setProfileImage] = useState<string | null>(null);
@@ -55,6 +58,45 @@ const Header: React.FC<HeaderProps> = ({
     }
     fetchProfileImage();
   }, [currentUser]);
+
+  // Fetch unread notification count
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+
+    const fetchNotificationCount = async () => {
+      try {
+        const count = await notificationService.getUnreadNotificationCount(currentUser.uid);
+        setUnreadNotificationCount(count);
+      } catch (error) {
+        console.debug('Error fetching notification count:', error);
+        // Set to 0 if there's an error (permissions issue)
+        setUnreadNotificationCount(0);
+      }
+    };
+
+    fetchNotificationCount();
+
+    // Set up real-time listener for notifications (with error handling)
+    let unsubscribe: (() => void) | null = null;
+    try {
+      unsubscribe = notificationService.subscribeToNotifications(currentUser.uid, (notifications) => {
+        const unreadCount = notifications.filter(n => !n.isRead).length;
+        setUnreadNotificationCount(unreadCount);
+      });
+    } catch (error) {
+      console.debug('Error setting up notification listener:', error);
+    }
+
+    return () => {
+      try {
+        if (unsubscribe) {
+          unsubscribe();
+        }
+      } catch (error) {
+        console.debug('Error unsubscribing from notifications:', error);
+      }
+    };
+  }, [currentUser?.uid]);
 
   const getPageTitle = () => {
     const pathParts = location.pathname.split('/');
@@ -121,20 +163,22 @@ const Header: React.FC<HeaderProps> = ({
             <div className="relative">
               <button
                 onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
-                className="p-2 rounded-full text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none transition-colors duration-200"
+                className="relative p-2 rounded-full text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none transition-colors duration-200"
               >
                 <span className="sr-only">View notifications</span>
                 <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                 </svg>
+                {unreadNotificationCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                    {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
+                  </span>
+                )}
               </button>
-              {isNotificationsOpen && (
-                <div className="origin-top-right absolute right-0 mt-2 w-80 rounded-md bg-white ring-1 ring-black ring-opacity-5">
-                  <div className="py-1">
-                    <div className="px-4 py-2 text-sm text-gray-700">No new notifications</div>
-                  </div>
-                </div>
-              )}
+              <NotificationDropdown 
+                isOpen={isNotificationsOpen} 
+                onClose={() => setIsNotificationsOpen(false)} 
+              />
             </div>
             {/* Upcoming Sessions Button for larger screens */}
             {!isMobile && onShowSessionsModal && (

@@ -5,6 +5,7 @@ import AuthWrapper from './components/auth/AuthWrapper';
 import RoleBasedRedirect from './components/auth/RoleBasedRedirect';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import DashboardLayout from './components/layout/DashboardLayout';
+import NetworkStatus from './components/NetworkStatus';
 import StoriesManagement from './pages/admin/StoriesManagement';
 import Teachers from './pages/admin/Teachers';
 import Students from './pages/admin/Students';
@@ -33,6 +34,7 @@ import ParentReadingSessionPage from './pages/parent/ParentReadingSessionPage';
 import ReportsPage from './pages/parent/Reports';
 import ParentProfilePage from './pages/parent/Profile';
 import ReadingPractice from './pages/parent/ReadingPractice';
+import ParentNotifications from './pages/parent/Notifications';
 
 import SyncTeacherProfile from './components/SyncTeacherProfile';
 import AdminReports from './pages/admin/Reports';
@@ -123,7 +125,9 @@ const App: React.FC = () => {
                     <Route path="dashboard" element={<ParentDashboardPage />} />
                     <Route path="children" element={<MyChildrenPage />} />
                     <Route path="reading" element={<ReadingPractice />} />
+                    <Route path="reading-practice" element={<ReadingPractice />} />
                     <Route path="reading-practice/:storyId" element={<ParentReadingSessionPage />} />
+                    <Route path="notifications" element={<ParentNotifications />} />
                     <Route path="progress" element={<ProgressPage />} />
                     <Route path="reports" element={<ReportsPage />} />
                     <Route path="profile/*" element={<ParentProfilePage />} />
@@ -140,6 +144,7 @@ const App: React.FC = () => {
           {/* Catch all route */}
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
+        <NetworkStatus />
       </AuthProvider>
     </Router>
   );

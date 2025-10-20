@@ -8,6 +8,7 @@ import {
   PlayIcon,
 } from '@heroicons/react/24/outline';
 import Loader from '../../components/Loader';
+import { formatDateHuman } from '@/utils/date';
 
 const ReadingPractice: React.FC = () => {
   const navigate = useNavigate();
@@ -104,12 +105,17 @@ const ReadingPractice: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex flex-col items-center py-2 sm:py-6">
       <div className="w-full px-2 sm:px-4 md:px-6 lg:px-8 bg-white/90 rounded-2xl shadow-lg p-4 sm:p-8 border border-blue-100">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8 border-b border-blue-100 pb-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 border-b border-blue-100 pb-4">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-blue-900 tracking-tight flex items-center gap-2">
               <i className="fas fa-book-reader text-blue-400"></i> Reading Practice
             </h1>
             <p className="mt-1 text-sm text-gray-500">Choose a story to practice reading with your child</p>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
+              Updated {formatDateHuman(new Date())}
+            </span>
           </div>
         </div>
 

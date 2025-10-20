@@ -10,6 +10,7 @@ import ClassPerformanceChart from './ClassPerformanceChart';
 import ReadingLevelDistributionChart from './ReadingLevelDistributionChart';
 import RecentActivity from './RecentActivity';
 import QuickActions from './QuickActions';
+import PendingLinkRequests from './PendingLinkRequests';
 
 interface TeacherDashboardProps {
   showSessionsModal: boolean;
@@ -343,6 +344,7 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
       
       {/* Main Content Sections */}
       <div className="flex flex-col gap-3 mt-2">
+        <PendingLinkRequests />
         {/* Students Performance - full width */}
         <div>
           <PerformanceChart

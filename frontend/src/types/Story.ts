@@ -1,11 +1,9 @@
-import { ObjectId } from 'mongodb';
-
 export interface Story {
   _id?: string;
   title: string;
   description: string;
   grade: string;
-  pdfFileId?: ObjectId;
+  pdfFileId?: string; // Changed from ObjectId to string for frontend
   pdfUrl?: string;
   pdfData?: string;
   textContent: string;

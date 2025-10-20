@@ -16,6 +16,7 @@ import {
   formatElapsedTime
 } from '@/utils/readingMetrics';
 import { studentService } from '@/services/studentService';
+import { formatDateHuman } from '@/utils/date';
 import Swal from 'sweetalert2';
 
 // Initialize PDF.js worker
@@ -36,7 +37,6 @@ const ReadingSessionPage: React.FC = () => {
   const [isPaused, setIsPaused] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [pdfContent, setPdfContent] = useState<string>('');
-  const [isLoadingPdf, setIsLoadingPdf] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
 
   // Audio recording state
@@ -81,8 +81,6 @@ const ReadingSessionPage: React.FC = () => {
   // Helper: Normalize text for comparison (lowercase, remove all non-word characters)
   const normalize = (text: string) => text.toLowerCase().replace(/[^\w\s]/g, '').trim();
 
-  // Helper: Check if a word contains any alphanumeric character
-  const isWordAlphanumeric = (word: string) => /[a-zA-Z0-9]/.test(word);
 
   // Helper: Extract all readable words (alphanumeric only) from text, skipping punctuation/symbols
   function extractWordsFromText(text: string): string[] {
@@ -448,7 +446,6 @@ const ReadingSessionPage: React.FC = () => {
 
   const loadPdfContent = async (pdfUrl: string) => {
     try {
-      setIsLoadingPdf(true);
       setPdfError(null);
       
       console.log('Fetching PDF from URL:', pdfUrl);
@@ -518,7 +515,7 @@ const ReadingSessionPage: React.FC = () => {
       setPdfError(error instanceof Error ? error.message : 'Failed to load PDF');
       throw error;
     } finally {
-      setIsLoadingPdf(false);
+      // PDF loading completed
     }
   };
 
@@ -823,9 +820,16 @@ const ReadingSessionPage: React.FC = () => {
               <ArrowLeftIcon className="h-5 w-5 mr-2" />
               Back
             </button>
+            <div>
             <h1 className="text-3xl font-extrabold text-blue-900 mb-2">
               {isPracticeMode ? 'Practice Session' : (currentSession?.title || 'Reading Session')}
             </h1>
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
+                  Updated {formatDateHuman(new Date())}
+                </span>
+              </div>
+            </div>
           </div>
           {!isPracticeMode && currentSession && (
             <span className={`ml-4 px-4 py-2 rounded-full text-base font-semibold transition-all duration-200
