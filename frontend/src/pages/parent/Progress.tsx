@@ -5,7 +5,7 @@ import Loader from '../../components/Loader';
 import { formatDateHuman } from '@/utils/date';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../config/firebase';
-import { collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { UserGroupIcon, BookOpenIcon, ChartBarIcon, ClockIcon } from '@heroicons/react/24/outline';
 
 interface ParentChild {
@@ -37,65 +37,37 @@ const ProgressPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [readingResults, setReadingResults] = useState<ReadingResult[]>([]);
   const [selectedChild, setSelectedChild] = useState<string>('');
+  const [benchmark, setBenchmark] = useState<{ avgScore: number; avgAccuracy: number; sessions: number }>({ avgScore: 0, avgAccuracy: 0, sessions: 0 });
 
-  // Fetch parent's children
+  // Fetch parent's children (realtime, from students by parentId)
   useEffect(() => {
-    const fetchChildren = async () => {
-      if (!currentUser?.uid) return;
-
-      try {
-        setLoading(true);
-        
-        // Get parent's children from users collection
-        const usersRef = collection(db, 'users');
-        const parentQuery = query(usersRef, where('uid', '==', currentUser.uid));
-        const parentSnapshot = await getDocs(parentQuery);
-        
-        if (parentSnapshot.empty) {
-          setChildren([]);
-          return;
-        }
-
-        const parentData = parentSnapshot.docs[0].data();
-        const childrenIds = parentData.children || [];
-
-        if (childrenIds.length === 0) {
-          setChildren([]);
-          return;
-        }
-
-        // Get children data from students collection
-        const studentsRef = collection(db, 'students');
-        const childrenQuery = query(studentsRef, where('id', 'in', childrenIds));
-        const childrenSnapshot = await getDocs(childrenQuery);
-        
-        const childrenData: ParentChild[] = childrenSnapshot.docs.map(doc => ({
+    if (!currentUser?.uid) return;
+    setLoading(true);
+    const studentsRef = collection(db, 'students');
+    const qStudents = query(studentsRef, where('parentId', '==', currentUser.uid));
+    const unsub = onSnapshot(qStudents, (snapshot) => {
+      const childrenData: ParentChild[] = snapshot.docs.map(doc => {
+        const d: any = doc.data();
+        return {
           id: doc.id,
-          name: doc.data().name || 'Unknown',
-          grade: doc.data().grade || 'Unknown',
-          readingLevel: doc.data().readingLevel || 'A',
-          performance: doc.data().performance || 'Good',
-          lastAssessment: doc.data().lastAssessment || '',
-          status: doc.data().status || 'active',
-          teacherId: doc.data().teacherId || ''
-        }));
-
-        setChildren(childrenData);
-        
-        // Set first child as selected by default
-        if (childrenData.length > 0) {
-          setSelectedChild(childrenData[0].id);
-        }
-      } catch (error) {
-        console.error('Error fetching children:', error);
-        setChildren([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchChildren();
-  }, [currentUser]);
+          name: d.name || 'Unknown',
+          grade: d.grade || 'Unknown',
+          readingLevel: d.readingLevel || '',
+          performance: d.performance || '',
+          lastAssessment: d.lastAssessment || '',
+          status: d.status || 'active',
+          teacherId: d.teacherId || ''
+        };
+      });
+      setChildren(childrenData);
+      if (!selectedChild && childrenData.length > 0) setSelectedChild(childrenData[0].id);
+      setLoading(false);
+    }, () => {
+      setChildren([]);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, [currentUser?.uid]);
 
   // Fetch reading results for selected child
   useEffect(() => {
@@ -119,6 +91,22 @@ const ProgressPage: React.FC = () => {
     return () => unsubscribe();
   }, [selectedChild]);
 
+  // Benchmark against same grade results (realtime)
+  useEffect(() => {
+    const child = children.find(c => c.id === selectedChild);
+    if (!child || !child.grade) { setBenchmark({ avgScore: 0, avgAccuracy: 0, sessions: 0 }); return; }
+    const resultsRef = collection(db, 'readingResults');
+    const benchQ = query(resultsRef, where('gradeName', '==', child.grade));
+    const unsub = onSnapshot(benchQ, (snapshot) => {
+      const rows = snapshot.docs.map(d => d.data() as any);
+      const scores = rows.map(r => r.oralReadingScore).filter((n: any) => typeof n === 'number') as number[];
+      const comps = rows.map(r => r.comprehension).filter((n: any) => typeof n === 'number') as number[];
+      const avg = (arr: number[]) => arr.length ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.length) : 0;
+      setBenchmark({ avgScore: avg(scores), avgAccuracy: avg(comps), sessions: rows.length });
+    }, () => setBenchmark({ avgScore: 0, avgAccuracy: 0, sessions: 0 }));
+    return () => unsub();
+  }, [selectedChild, children]);
+
   // Calculate metrics from reading results
   const calculateMetrics = () => {
     if (readingResults.length === 0) {
@@ -130,12 +118,12 @@ const ProgressPage: React.FC = () => {
       };
     }
 
-    const validScores = readingResults.filter(r => r.oralReadingScore !== undefined);
+    const validScores = readingResults.filter(r => typeof r.oralReadingScore === 'number');
     const averageScore = validScores.length > 0 
       ? Math.round(validScores.reduce((sum, r) => sum + (r.oralReadingScore || 0), 0) / validScores.length)
       : 0;
 
-    const comprehensionScores = readingResults.filter(r => r.comprehension !== undefined);
+    const comprehensionScores = readingResults.filter(r => typeof r.comprehension === 'number');
     const accuracy = comprehensionScores.length > 0
       ? Math.round(comprehensionScores.reduce((sum, r) => sum + (r.comprehension || 0), 0) / comprehensionScores.length)
       : 0;
@@ -151,36 +139,71 @@ const ProgressPage: React.FC = () => {
   const metrics = calculateMetrics();
   const selectedChildData = children.find(c => c.id === selectedChild);
 
-  // Create chart data from reading results
-  const createChartData = () => {
-    if (readingResults.length === 0) {
-      return {
-        assessmentPeriods: ['No Data'],
-        oralReadingScores: [0],
-        comprehensionScores: [0],
-        readingLevels: ['No Data']
-      };
-    }
-
-    // Sort by date and take last 6 results
-    const sortedResults = readingResults
-      .sort((a, b) => new Date(a.createdAt?.toDate?.() || a.createdAt).getTime() - new Date(b.createdAt?.toDate?.() || b.createdAt).getTime())
-      .slice(-6);
-
-    const periods = sortedResults.map((_, index) => `Session ${index + 1}`);
-    const oralScores = sortedResults.map(r => r.oralReadingScore || 0);
-    const compScores = sortedResults.map(r => r.comprehension || 0);
-    const levels = sortedResults.map(r => r.readingLevel || 'Unknown');
-
-    return {
-      assessmentPeriods: periods,
-      oralReadingScores: oralScores,
-      comprehensionScores: compScores,
-      readingLevels: levels
+  // Derived insights from realtime results
+  const insights = React.useMemo(() => {
+    if (readingResults.length < 2) return { change: 0, trend: 'stable' as 'up'|'down'|'stable', streakDays: 0 };
+    const sorted = [...readingResults].sort((a, b) => {
+      const ad = new Date((a as any).createdAt?.toDate?.() || (a as any).createdAt).getTime();
+      const bd = new Date((b as any).createdAt?.toDate?.() || (b as any).createdAt).getTime();
+      return ad - bd;
+    });
+    const last4 = sorted.slice(-4);
+    const prev4 = sorted.slice(-8, -4);
+    const avg = (arr: typeof sorted) => {
+      const vals = arr.map(r => r.oralReadingScore || 0);
+      return vals.length ? Math.round(vals.reduce((a,b)=>a+b,0)/vals.length) : 0;
     };
-  };
+    const recent = avg(last4);
+    const prior = avg(prev4);
+    const change = recent - prior;
 
-  const chartData = createChartData();
+    // Streak based on consecutive days
+    const dates = sorted
+      .map(r => new Date((r as any).createdAt?.toDate?.() || (r as any).createdAt))
+      .filter(d => !isNaN(d.getTime()))
+      .sort((a,b)=> b.getTime()-a.getTime());
+    let streak = 0;
+    if (dates.length) {
+      let anchor = new Date(dates[0]); anchor.setHours(0,0,0,0); streak = 1;
+      for (let i=1;i<dates.length;i++) {
+        const d = new Date(dates[i]); d.setHours(0,0,0,0);
+        const diff = Math.round((anchor.getTime()-d.getTime())/(1000*60*60*24));
+        if (diff === 1) { streak += 1; anchor = d; } else if (diff === 0) { continue; } else { break; }
+      }
+    }
+    return { change, trend: change > 0 ? 'up' : change < 0 ? 'down' : 'stable', streakDays: streak };
+  }, [readingResults]);
+
+  const levelHistory = React.useMemo(() => {
+    const seen = new Set<string>();
+    return [...readingResults]
+      .sort((a,b)=>{
+        const ad = new Date((a as any).createdAt?.toDate?.() || (a as any).createdAt).getTime();
+        const bd = new Date((b as any).createdAt?.toDate?.() || (b as any).createdAt).getTime();
+        return ad-bd;
+      })
+      .map(r=>({ when: (r as any).createdAt, level: r.readingLevel || '' }))
+      .filter(x=>{
+        if (!x.level) return false; 
+        const key = x.level; if (seen.has(key)) return false; seen.add(key); return true;
+      });
+  }, [readingResults]);
+
+  // Per-child chart data from DB results
+  const chartDataForChild = React.useCallback((childId: string) => {
+    const rows = readingResults.filter(r => r.studentId === childId);
+    if (rows.length === 0) return { assessmentPeriods: [], oralReadingScores: [], comprehensionScores: [], readingLevels: [] };
+    const sorted = rows.sort((a, b) => {
+      const ad = new Date((a as any).createdAt?.toDate?.() || (a as any).createdAt).getTime();
+      const bd = new Date((b as any).createdAt?.toDate?.() || (b as any).createdAt).getTime();
+      return ad - bd;
+    });
+    const labels = sorted.map(r => r.gradeName || r.gradeId || '');
+    const oral = sorted.map(r => Math.max(0, Math.min(100, r.oralReadingScore || 0)));
+    const comp = sorted.map(r => Math.max(0, Math.min(100, r.comprehension || 0)));
+    const levels = sorted.map(r => (r.readingLevel || ''));
+    return { assessmentPeriods: labels, oralReadingScores: oral, comprehensionScores: comp, readingLevels: levels };
+  }, [readingResults]);
 
   if (loading) {
     return (
@@ -266,6 +289,7 @@ const ProgressPage: React.FC = () => {
             <div className="text-xs text-gray-500">Average Score</div>
           </div>
           <div className="text-2xl font-extrabold text-blue-700">{metrics.averageScore}%</div>
+          <div className="text-xs text-gray-500 mt-1">Grade avg: {benchmark.avgScore}%</div>
         </div>
         <div className="rounded-2xl p-4 bg-white border border-gray-100 shadow-sm">
           <div className="flex items-center gap-2 mb-1">
@@ -273,6 +297,7 @@ const ProgressPage: React.FC = () => {
             <div className="text-xs text-gray-500">Accuracy</div>
           </div>
           <div className="text-2xl font-extrabold text-green-700">{metrics.accuracy}%</div>
+          <div className="text-xs text-gray-500 mt-1">Grade avg: {benchmark.avgAccuracy}%</div>
         </div>
         <div className="rounded-2xl p-4 bg-white border border-gray-100 shadow-sm">
           <div className="flex items-center gap-2 mb-1">
@@ -280,13 +305,44 @@ const ProgressPage: React.FC = () => {
             <div className="text-xs text-gray-500">Sessions</div>
           </div>
           <div className="text-2xl font-extrabold text-purple-700">{metrics.sessions}</div>
+          <div className="text-xs text-gray-500 mt-1">Grade total: {benchmark.sessions}</div>
         </div>
         <div className="rounded-2xl p-4 bg-white border border-gray-100 shadow-sm">
           <div className="flex items-center gap-2 mb-1">
             <UserGroupIcon className="w-4 h-4 text-yellow-600" />
             <div className="text-xs text-gray-500">Reading Level</div>
           </div>
-          <div className="text-2xl font-extrabold text-yellow-700">{selectedChildData?.readingLevel || 'A'}</div>
+          <div className="text-2xl font-extrabold text-yellow-700">{selectedChildData?.readingLevel || '—'}</div>
+        </div>
+      </div>
+
+      {/* Insights */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="rounded-2xl p-4 bg-white border border-gray-100 shadow-sm">
+          <div className="text-sm font-semibold text-gray-800 mb-1">Trend</div>
+          <div className={`text-sm ${insights.trend==='up'?'text-green-700':insights.trend==='down'?'text-red-700':'text-gray-700'}`}>
+            {insights.trend==='up' && `Accuracy improved by ${Math.abs(insights.change)}% over recent sessions.`}
+            {insights.trend==='down' && `Accuracy decreased by ${Math.abs(insights.change)}% over recent sessions.`}
+            {insights.trend==='stable' && 'Accuracy is stable across recent sessions.'}
+          </div>
+        </div>
+        <div className="rounded-2xl p-4 bg-white border border-gray-100 shadow-sm">
+          <div className="text-sm font-semibold text-gray-800 mb-1">Reading Streak</div>
+          <div className="text-sm text-gray-700">{insights.streakDays > 0 ? `${insights.streakDays} day${insights.streakDays>1?'s':''} in a row` : 'No current streak'}</div>
+        </div>
+        <div className="rounded-2xl p-4 bg-white border border-gray-100 shadow-sm">
+          <div className="text-sm font-semibold text-gray-800 mb-2">Level History</div>
+          <div className="flex flex-wrap gap-2">
+            {levelHistory.length === 0 ? (
+              <span className="text-xs text-gray-500">No level changes yet</span>
+            ) : (
+              levelHistory.map((h, i) => (
+                <span key={i} className="px-2 py-0.5 rounded-full border text-xs text-gray-700 bg-gray-50">
+                  {h.level}
+                </span>
+              ))
+            )}
+          </div>
         </div>
       </div>
 
@@ -313,27 +369,17 @@ const ProgressPage: React.FC = () => {
             </div>
           </div>
         ) : (
-          children.map((child, index) => {
-            // Get reading results for this specific child
-            const childResults = readingResults.filter(result => result.studentId === child.id);
-            const childChartData = childResults.map(result => ({
-              period: result.assessmentPeriod || 'Current',
-              oralReading: result.oralReadingScore || 0,
-              comprehension: result.comprehension || 0,
-              readingLevel: result.readingLevel || 0
-            }));
-
-            return (
-              <PerformanceChart 
-                key={child.id}
-                data={childChartData} 
-                grades={[]} 
-                students={[child]} 
-                title={child.name} 
-                targetLine={85} 
-              />
-            );
-          })
+          children.map(child => (
+            <PerformanceChart
+              key={child.id}
+              data={chartDataForChild(child.id)}
+              grades={[]}
+              students={[child as unknown as Student]}
+              title={`${child.name}'s Learning Progress`}
+              targetLine={85}
+              showStaticStudentInfo={true}
+            />
+          ))
         )}
       </div>
 
@@ -341,26 +387,27 @@ const ProgressPage: React.FC = () => {
       {readingResults.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Reading Sessions</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {readingResults.slice(-6).reverse().map((result, index) => (
-              <div key={result.id} className="rounded-xl border border-gray-100 p-4">
-                <div className="text-sm font-semibold text-gray-800">Session #{readingResults.length - index}</div>
-                <div className="text-xs text-gray-500 mb-2">
-                  {result.createdAt?.toDate?.() ? 
-                    formatDateHuman(result.createdAt.toDate()) : 
-                    'Date not available'
-                  }
-                </div>
-                <div className="mt-2 flex justify-between text-xs">
-                  <span className="text-blue-700 font-semibold">
-                    Score: {result.oralReadingScore || 0}%
-                  </span>
-                  <span className="text-green-700 font-semibold">
-                    Level: {result.readingLevel || 'Unknown'}
-                  </span>
-                </div>
-              </div>
-            ))}
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-600 border-b">
+                  <th className="py-2 pr-4">Date</th>
+                  <th className="py-2 pr-4">Score</th>
+                  <th className="py-2 pr-4">Comprehension</th>
+                  <th className="py-2 pr-4">Level</th>
+                </tr>
+              </thead>
+              <tbody>
+                {readingResults.slice(-10).reverse().map((r) => (
+                  <tr key={r.id} className="border-b last:border-0">
+                    <td className="py-2 pr-4 text-gray-700">{r.createdAt?.toDate?.() ? formatDateHuman(r.createdAt.toDate()) : '—'}</td>
+                    <td className="py-2 pr-4 text-blue-700 font-semibold">{typeof r.oralReadingScore==='number' ? `${r.oralReadingScore}%` : '—'}</td>
+                    <td className="py-2 pr-4 text-green-700 font-semibold">{typeof r.comprehension==='number' ? `${r.comprehension}%` : '—'}</td>
+                    <td className="py-2 pr-4 text-gray-700">{r.readingLevel || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
