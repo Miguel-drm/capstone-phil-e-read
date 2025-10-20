@@ -14,7 +14,7 @@ import Parents from './pages/admin/Parents';
 // Dashboard Pages
 import AdminDashboardPage from './pages/admin/AdminDashboard';
 import TeacherDashboardPage from './pages/teacher/TeacherDashboard';
-import ParentDashboardPage from './pages/parent/ParentDashboard';
+import ParentDashboard from './components/dashboard/parent/ParentDashboard';
 import MyChildrenPage from './pages/parent/MyChildren';
 
 // Teacher Pages
@@ -122,7 +122,7 @@ const App: React.FC = () => {
               <ProtectedRoute allowedRoles={['parent']}>
                 <DashboardLayout>
                   <Routes>
-                    <Route path="dashboard" element={<ParentDashboardPage />} />
+                    <Route path="dashboard" element={<ParentDashboard />} />
                     <Route path="children" element={<MyChildrenPage />} />
                     <Route path="reading" element={<ReadingPractice />} />
                     <Route path="reading-practice" element={<ReadingPractice />} />

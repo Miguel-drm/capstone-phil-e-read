@@ -290,36 +290,50 @@ const ProgressPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Performance Chart */}
+      {/* Performance Charts for All Children */}
       <div className="grid grid-cols-1 gap-6">
-        {readingResults.length === 0 ? (
+        {children.length === 0 ? (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8">
             <div className="text-center">
               <div className="mx-auto w-16 h-16 rounded-full bg-gray-50 text-gray-400 flex items-center justify-center mb-4">
                 <ChartBarIcon className="w-8 h-8" />
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">No Progress Data Yet</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">No Children Linked Yet</h3>
               <p className="text-gray-600 mb-4">
-                {selectedChildData?.name} hasn't completed any reading sessions yet. 
-                Once they start practicing, you'll see their progress here.
+                You haven't linked any children to your account yet. 
+                Once you link your children, you'll see their progress here.
               </p>
               <button 
-                onClick={() => window.location.href = '/parent/reading-practice'}
+                onClick={() => window.location.href = '/parent/my-children'}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
                 <BookOpenIcon className="w-4 h-4" />
-                Start Reading Practice
+                Link Your Children
               </button>
             </div>
           </div>
         ) : (
-          <PerformanceChart 
-            data={chartData} 
-            grades={[]} 
-            students={[selectedChildData!]} 
-            title={selectedChildData?.name} 
-            targetLine={85} 
-          />
+          children.map((child, index) => {
+            // Get reading results for this specific child
+            const childResults = readingResults.filter(result => result.studentId === child.id);
+            const childChartData = childResults.map(result => ({
+              period: result.assessmentPeriod || 'Current',
+              oralReading: result.oralReadingScore || 0,
+              comprehension: result.comprehension || 0,
+              readingLevel: result.readingLevel || 0
+            }));
+
+            return (
+              <PerformanceChart 
+                key={child.id}
+                data={childChartData} 
+                grades={[]} 
+                students={[child]} 
+                title={child.name} 
+                targetLine={85} 
+              />
+            );
+          })
         )}
       </div>
 
