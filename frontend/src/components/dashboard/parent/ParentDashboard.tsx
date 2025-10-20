@@ -238,15 +238,15 @@ const ChildCard = memo(({ child }: { child: Student }) => {
         <div className="relative">
           <div className="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center text-lg font-bold text-gray-700 mr-3">
         {child.name?.[0] || '?'}
-          </div>
+      </div>
           <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-white ${getStatusColor(child.status)}`}></div>
-        </div>
+      </div>
         <div className="flex-1">
           <div className="font-semibold text-gray-900">{child.name}</div>
           <div className="text-sm text-gray-600 flex items-center gap-1">
             <AcademicCapIcon className="h-4 w-4" />
             {child.grade}
-          </div>
+    </div>
         </div>
       </div>
       
@@ -258,18 +258,18 @@ const ChildCard = memo(({ child }: { child: Student }) => {
           </span>
         </div>
         <div className="text-sm flex items-center gap-2">
-          <span className="font-medium text-gray-700">Performance:</span>
+        <span className="font-medium text-gray-700">Performance:</span>
           <span className={`px-2 py-1 rounded text-xs font-medium ${getPerformanceColor(child.performance)}`}>
             {child.performance || 'Not Available'}
           </span>
-        </div>
       </div>
+    </div>
       
       <div className="mt-3 pt-3 border-t border-gray-200">
         <div className="flex items-center justify-between">
           <span className="text-xs text-gray-500">Click to manage</span>
           <ArrowRightIcon className="h-4 w-4 text-gray-400" />
-    </div>
+  </div>
       </div>
     </div>
   );
@@ -649,13 +649,13 @@ const ParentDashboard: React.FC = () => {
           <>
             {/* Quick Actions and Children Overview */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <QuickActionsWidget />
+            <QuickActionsWidget />
             <ChildrenOverviewWidget 
               children={children}
               isLoading={loading}
               avgPerformancePct={metrics.avgPerformance}
             />
-          </div>
+      </div>
 
             {/* Children Cards */}
             <div className="space-y-4">
@@ -851,24 +851,24 @@ const ParentDashboard: React.FC = () => {
                       tip.category === 'Fluency' ? 'bg-green-50 border-green-200' :
                       'bg-purple-50 border-purple-200'
                     }`}>
-                      <div className="flex items-start gap-3">
+                  <div className="flex items-start gap-3">
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center mt-0.5 ${
                           tip.category === 'Accuracy' ? 'bg-blue-500' :
                           tip.category === 'Fluency' ? 'bg-green-500' :
                           'bg-purple-500'
                         }`}>
                           <LightBulbIcon className="h-4 w-4 text-white" />
-                        </div>
-                        <div>
+                    </div>
+                    <div>
                           <div className="font-medium text-gray-900">{tip.title}</div>
                           <div className="text-sm text-gray-600 mt-1">{tip.description}</div>
-                        </div>
                       </div>
                     </div>
+                  </div>
                   ))}
                 </div>
-              </div>
-            </div>
+                    </div>
+                      </div>
 
             {/* Achievements */}
             <div className="bg-white rounded-lg border p-6">
@@ -882,18 +882,18 @@ const ParentDashboard: React.FC = () => {
                     <TrophyIcon className="h-8 w-8 text-gray-400" />
                     <div className="text-sm text-gray-700 font-medium">No achievements yet</div>
                     <div className="text-xs text-gray-500">Consistent practice unlocks achievements.</div>
-                  </div>
-                </div>
-              )}
+            </div>
+          </div>
+        )}
               {achievements.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {achievements.map((achievement) => (
                     <div key={achievement.id} className={`p-4 rounded-lg border ${
                       achievement.type === 'streak' ? 'bg-yellow-50 border-yellow-200' :
                       achievement.type === 'speed' ? 'bg-green-50 border-green-200' :
                       'bg-blue-50 border-blue-200'
                     }`}>
-                      <div className="flex items-center gap-3 mb-2">
+                <div className="flex items-center gap-3 mb-2">
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
                           achievement.type === 'streak' ? 'bg-yellow-500' :
                           achievement.type === 'speed' ? 'bg-green-500' :
@@ -902,16 +902,16 @@ const ParentDashboard: React.FC = () => {
                           {achievement.type === 'streak' ? <TrophyIcon className="h-4 w-4 text-white" /> :
                            achievement.type === 'speed' ? <ChartBarIcon className="h-4 w-4 text-white" /> :
                            <CheckCircleIcon className="h-4 w-4 text-white" />}
-                        </div>
+                  </div>
                         <div className="font-medium text-gray-900">{achievement.title}</div>
-                      </div>
+                </div>
                       <div className="text-sm text-gray-600">{achievement.description}</div>
                       <div className="text-xs text-gray-500 mt-1">{achievement.date}</div>
-                    </div>
+              </div>
                   ))}
-                </div>
+                  </div>
               )}
-            </div>
+              </div>
 
             {/* Upcoming Tasks */}
             <div className="bg-white rounded-lg border p-6">
@@ -926,9 +926,9 @@ const ParentDashboard: React.FC = () => {
                       <CalendarIcon className="h-8 w-8 text-gray-400" />
                       <div className="text-sm text-gray-700 font-medium">All caught up</div>
                       <div className="text-xs text-gray-500">We’ll suggest next steps based on new activity.</div>
-                    </div>
-                  </div>
-                )}
+            </div>
+          </div>
+        )}
                 {upcomingTasks.map((task) => (
                     <div key={task.id} className={`flex items-center gap-4 p-3 rounded-lg border ${
                       task.priority === 'high' ? 'bg-yellow-50 border-yellow-200' :
@@ -941,13 +941,13 @@ const ParentDashboard: React.FC = () => {
                         'bg-green-500'
                       }`}>
                         <CalendarIcon className="h-4 w-4 text-white" />
-                      </div>
-                      <div className="flex-1">
+                </div>
+                <div className="flex-1">
                         <div className="font-medium text-gray-900">{task.title}</div>
                         <div className="text-sm text-gray-600">{task.description}</div>
-                      </div>
-                      <button 
-                        onClick={() => navigate('/parent/reading')}
+                </div>
+                <button 
+                  onClick={() => navigate('/parent/reading')}
                         className={`px-3 py-1 text-sm rounded-lg transition-colors ${
                           task.priority === 'high' ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' :
                           task.priority === 'medium' ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' :
@@ -955,11 +955,11 @@ const ParentDashboard: React.FC = () => {
                         }`}
                       >
                         {task.action}
-                      </button>
-                    </div>
-                ))}
+                </button>
               </div>
-            </div>
+                ))}
+                </div>
+              </div>
 
             {/* Quick Insights */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -975,52 +975,52 @@ const ParentDashboard: React.FC = () => {
                         <CheckCircleIcon className="h-8 w-8 text-gray-400" />
                         <div className="text-sm text-gray-700 font-medium">No insights yet</div>
                         <div className="text-xs text-gray-500">Start a reading session to see progress here.</div>
-                      </div>
-                    </div>
-                  )}
+            </div>
+          </div>
+        )}
                   {metrics.avgPerformance > 0 && (
-                    <div className="p-3 bg-green-50 rounded-lg border border-green-200">
-                      <div className="flex items-start gap-3">
-                        <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center mt-0.5">
+                <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                  <div className="flex items-start gap-3">
+                    <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center mt-0.5">
                           <CheckCircleIcon className="h-3 w-3 text-white" />
-                        </div>
-                        <div>
+                    </div>
+                    <div>
                           <div className="font-medium text-gray-900">Current Performance</div>
                           <div className="text-sm text-gray-600">Average accuracy: {Math.round(metrics.avgPerformance)}%</div>
-                        </div>
-                      </div>
                     </div>
+                  </div>
+                </div>
                   )}
-                  
+
                   {metrics.avgWpm > 0 && (
-                    <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                      <div className="flex items-start gap-3">
-                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center mt-0.5">
+                <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-start gap-3">
+                    <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center mt-0.5">
                           <ChartBarIcon className="h-3 w-3 text-white" />
-                        </div>
-                        <div>
+                    </div>
+                    <div>
                           <div className="font-medium text-gray-900">Reading Speed</div>
                           <div className="text-sm text-gray-600">Average: {Math.round(metrics.avgWpm)} words per minute</div>
-                        </div>
-                      </div>
                     </div>
+                  </div>
+                </div>
                   )}
-                  
+
                   {metrics.streakDays > 0 && (
-                    <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
-                      <div className="flex items-start gap-3">
-                        <div className="w-6 h-6 bg-purple-500 rounded-full flex items-center justify-center mt-0.5">
+                <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+                  <div className="flex items-start gap-3">
+                    <div className="w-6 h-6 bg-purple-500 rounded-full flex items-center justify-center mt-0.5">
                           <TrophyIcon className="h-3 w-3 text-white" />
-                        </div>
-                        <div>
+                    </div>
+                    <div>
                           <div className="font-medium text-gray-900">Reading Streak</div>
                           <div className="text-sm text-gray-600">{metrics.streakDays} days in a row</div>
-                        </div>
-                      </div>
                     </div>
-                  )}
+                  </div>
                 </div>
+                  )}
               </div>
+      </div>
 
               <div className="bg-white rounded-lg border p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
@@ -1034,7 +1034,7 @@ const ParentDashboard: React.FC = () => {
                         <LightBulbIcon className="h-8 w-8 text-gray-400" />
                         <div className="text-sm text-gray-700 font-medium">No tips yet</div>
                         <div className="text-xs text-gray-500">Tips will appear based on real reading activity.</div>
-                      </div>
+                    </div>
                     </div>
                   )}
                   {learningTips.map((tip) => (
@@ -1043,24 +1043,24 @@ const ParentDashboard: React.FC = () => {
                       tip.category === 'Fluency' ? 'bg-green-50 border-green-200' :
                       'bg-blue-50 border-blue-200'
                     }`}>
-                      <div className="flex items-start gap-3">
+                  <div className="flex items-start gap-3">
                         <div className={`w-6 h-6 rounded-full flex items-center justify-center mt-0.5 ${
                           tip.category === 'Accuracy' ? 'bg-yellow-500' :
                           tip.category === 'Fluency' ? 'bg-green-500' :
                           'bg-blue-500'
                         }`}>
                           <LightBulbIcon className="h-3 w-3 text-white" />
-                        </div>
-                        <div>
+                    </div>
+                    <div>
                           <div className="font-medium text-gray-900">{tip.title}</div>
                           <div className="text-sm text-gray-600">{tip.description}</div>
-                        </div>
-                      </div>
                     </div>
-                  ))}
+                  </div>
                 </div>
-              </div>
-            </div>
+                  ))}
+                    </div>
+                    </div>
+                  </div>
           </>
         )}
       </div>
