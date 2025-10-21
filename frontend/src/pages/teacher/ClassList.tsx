@@ -643,7 +643,68 @@ const ClassList: React.FC = () => {
               .right { text-align:right; }
               .bold { font-weight:600; }
               .u { text-decoration: underline; }
-              .no-print { margin-top: 16px; padding: 8px 12px; background:#2563eb; color:#fff; border:0; border-radius:6px; cursor:pointer; }
+              @media print { 
+                .no-print { display: none; } 
+                body { padding: 12px; padding-bottom: 12px; }
+                .actions { display: none; }
+              }
+              .btn { 
+                margin-top: 0; 
+                padding: 14px 28px; 
+                background: #007AFF; 
+                color: white; 
+                border: 0; 
+                border-radius: 12px; 
+                cursor: pointer; 
+                font-weight: 500;
+                font-size: 15px;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                position: relative;
+                overflow: hidden;
+              }
+              .btn::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+                transition: left 0.5s;
+              }
+              .btn:hover::before {
+                left: 100%;
+              }
+              .btn:hover { 
+                background: #0056CC; 
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0,122,255,0.4), 0 2px 4px rgba(0,0,0,0.1);
+              }
+              .btn:active {
+                transform: translateY(0);
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+              }
+              .actions { 
+                position: fixed; 
+                bottom: 0; 
+                left: 0; 
+                right: 0; 
+                background: rgba(255, 255, 255, 0.95); 
+                backdrop-filter: blur(20px);
+                -webkit-backdrop-filter: blur(20px);
+                padding: 20px; 
+                border-top: 1px solid rgba(0, 0, 0, 0.08); 
+                box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08), 0 -1px 3px rgba(0, 0, 0, 0.1); 
+                display: flex; 
+                gap: 16px; 
+                justify-content: center; 
+                z-index: 1000;
+                border-radius: 20px 20px 0 0;
+              }
+              body { padding-bottom: 100px; }
               .answers { width:100%; border:0; margin-top: 4px; }
               .answers td { border:0; padding: 4px 16px 4px 0; font-size:13px; }
               .ansline { display:inline-block; min-width: 90px; border-bottom: 1px solid #9ca3af; text-align:center; }
@@ -736,7 +797,9 @@ const ClassList: React.FC = () => {
               </tbody>
             </table>
 
-            <button class="no-print" onclick="window.print()">Print</button>
+            <div class="actions no-print">
+              <button class="btn" onclick="window.print()">Print</button>
+            </div>
           </body>
         </html>
       `;
