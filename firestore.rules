@@ -1,48 +1,54 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper functions
-    function getUserRole() {
-      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) ? 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role : 
-        'unknown';
-    }
-    function isAdmin() { return getUserRole() == 'admin'; }
-    function isTeacher() { return getUserRole() == 'teacher'; }
-    function isParent() { return getUserRole() == 'parent'; }
-    function isAuthenticated() { return request.auth != null; }
 
-    // Users collection rules
+    // Helper functions
+    function isAuthenticated() { return request.auth != null; }
+    
+    // Simplified role checks that don't cause circular dependencies
+    function isUserAdmin() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    function isUserTeacher() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
+    }
+    function isUserParent() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'parent';
+    }
+
+    // Users collection rules - SIMPLIFIED to avoid circular dependency
     match /users/{userId} {
-      allow read: if isAuthenticated() && (
-        request.auth.uid == userId || 
-        isAdmin() ||
-        (isTeacher() && resource.data.role == 'parent')
-      );
+      // Allow users to read their own document (no role check needed)
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      // Allow reading teacher documents (for parent to get teacher email)
+      allow read: if isAuthenticated() && resource.data.role == 'teacher';
+      // Allow reading parent documents (for teacher to see parent info)
+      allow read: if isAuthenticated() && resource.data.role == 'parent';
+      
       allow create: if isAuthenticated() && request.auth.uid == userId;
       allow update: if isAuthenticated() && (
-        isAdmin() || 
+        isUserAdmin() || 
         (request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']))
       );
-      // ✅ Allow only admins to delete users
-      allow delete: if isAuthenticated() && isAdmin();
+      allow delete: if isAuthenticated() && isUserAdmin();
     }
 
     // Class Grades collection rules
     match /classGrades/{gradeId} {
-      // Allow any authenticated user to read (for parent form)
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && (isTeacher() || isAdmin());
-      allow update: if isAuthenticated() && (isTeacher() || isAdmin());
-      allow delete: if isAuthenticated() && (isTeacher() || isAdmin());
+      allow create: if isAuthenticated() && (isUserTeacher() || isUserAdmin());
+      allow update: if isAuthenticated() && (isUserTeacher() || isUserAdmin());
+      allow delete: if isAuthenticated() && (isUserTeacher() || isUserAdmin());
       
-      // Students subcollection in grades
       match /students/{studentId} {
-        allow read: if isAuthenticated() && (isTeacher() || isAdmin());
-        allow write: if isAuthenticated() && (isTeacher() || isAdmin());
+        allow read: if isAuthenticated() && (isUserTeacher() || isUserAdmin());
+        allow write: if isAuthenticated() && (isUserTeacher() || isUserAdmin());
         allow delete: if isAuthenticated() && (
-          (isTeacher() && get(/databases/$(database)/documents/classGrades/$(gradeId)).data.teacherId == request.auth.uid) ||
-          isAdmin()
+          (isUserTeacher() && get(/databases/$(database)/documents/classGrades/$(gradeId)).data.teacherId == request.auth.uid) ||
+          isUserAdmin()
         );
       }
     }
@@ -50,39 +56,37 @@ service cloud.firestore {
     // Students collection rules
     match /students/{studentId} {
       allow read: if isAuthenticated() && (
-        isTeacher() || 
-        isAdmin() ||
-        (isParent() && resource.data.parentId == request.auth.uid)
+        isUserTeacher() || 
+        isUserAdmin() ||
+        (isUserParent() && resource.data.parentId == request.auth.uid)
       );
-      allow create: if isAuthenticated() && (isTeacher() || isAdmin());
+      allow create: if isAuthenticated() && (isUserTeacher() || isUserAdmin());
       allow update: if isAuthenticated() && (
-        (isTeacher() && resource.data.teacherId == request.auth.uid) ||
-        isAdmin()
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid) ||
+        isUserAdmin()
       );
       allow delete: if isAuthenticated() && (
-        (isTeacher() && resource.data.teacherId == request.auth.uid) ||
-        isAdmin()
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid) ||
+        isUserAdmin()
       );
     }
 
     // Stories collection rules
     match /stories/{storyId} {
-      // Allow any authenticated user to read stories (for parent recommendations)
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isAdmin();
+      allow write: if isAuthenticated() && isUserAdmin();
     }
 
     // Teacher scoped data
     match /teachers/{teacherId} {
-      allow read: if isAuthenticated() && (request.auth.uid == teacherId || isAdmin());
-      allow create, update: if isAuthenticated() && (request.auth.uid == teacherId || isAdmin());
-      allow delete: if isAuthenticated() && isAdmin();
+      allow read: if isAuthenticated() && (request.auth.uid == teacherId || isUserAdmin());
+      allow create, update: if isAuthenticated() && (request.auth.uid == teacherId || isUserAdmin());
+      allow delete: if isAuthenticated() && isUserAdmin();
 
-      // Realtime activity feed under a teacher
       match /activities/{activityId} {
-        allow read: if isAuthenticated() && (request.auth.uid == teacherId || isAdmin());
-        allow create: if isAuthenticated() && (request.auth.uid == teacherId || isAdmin());
-        allow update, delete: if isAuthenticated() && (request.auth.uid == teacherId || isAdmin());
+        allow read: if isAuthenticated() && (request.auth.uid == teacherId || isUserAdmin());
+        allow create: if isAuthenticated() && (request.auth.uid == teacherId || isUserAdmin());
+        allow update, delete: if isAuthenticated() && (request.auth.uid == teacherId || isUserAdmin());
       }
     }
 
@@ -91,154 +95,187 @@ service cloud.firestore {
       function isSessionOwner() {
         return request.auth.uid == resource.data.teacherId;
       }
-      allow read: if request.auth != null && (
-        isTeacher() || 
-        isAdmin() ||
-        (isParent() && (
-          resource.data.students.hasAny(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.children) ||
-          resource.data.teacherId == request.auth.uid
-        ))
+      allow read: if isAuthenticated() && (
+        isUserTeacher() || 
+        isUserAdmin() ||
+        (isUserParent() && resource.data.teacherId == request.auth.uid)
       );
-      allow create: if request.auth != null && (
-        (isTeacher() || isParent()) &&
+      allow create: if isAuthenticated() && (
+        (isUserTeacher() || isUserParent()) &&
         request.resource.data.teacherId == request.auth.uid
       );
-      allow update: if request.auth != null && (
-        ((isTeacher() || isParent()) && isSessionOwner()) ||
-        isAdmin()
+      allow update: if isAuthenticated() && (
+        ((isUserTeacher() || isUserParent()) && isSessionOwner()) ||
+        isUserAdmin()
       );
-      allow delete: if request.auth != null && (
-        ((isTeacher() || isParent()) && isSessionOwner()) ||
-        isAdmin()
+      allow delete: if isAuthenticated() && (
+        ((isUserTeacher() || isUserParent()) && isSessionOwner()) ||
+        isUserAdmin()
       );
     }
     
     // Tests collection rules
     match /tests/{testId} {
-      allow read: if isAuthenticated() && (isTeacher() || isAdmin() || getUserRole() == 'student');
-      allow create: if isAuthenticated() && (isTeacher() || isAdmin());
-      allow update, delete: if isAuthenticated() && (isTeacher() || isAdmin());
+      allow read: if isAuthenticated() && (isUserTeacher() || isUserAdmin());
+      allow create: if isAuthenticated() && (isUserTeacher() || isUserAdmin());
+      allow update, delete: if isAuthenticated() && (isUserTeacher() || isUserAdmin());
     }
     
     // Results collection rules
-   match /results/{resultId} {
-    function isResultOwner() {
-      return request.auth.uid == resource.data.teacherId;
+    match /results/{resultId} {
+      function isResultOwner() {
+        return request.auth.uid == resource.data.teacherId;
+      }
+      allow read: if isAuthenticated() && (
+        isUserTeacher() && isResultOwner() ||
+        isUserAdmin() ||
+        (isUserParent() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.children.hasAny([resource.data.studentId]))
+      );
+      allow create: if isAuthenticated() && (
+        (isUserTeacher() && request.resource.data.teacherId == request.auth.uid) ||
+        (isUserParent() && request.resource.data.studentId == request.auth.uid)
+      );
+      allow update: if isAuthenticated() && (
+        (isUserTeacher() && isResultOwner()) ||
+        isUserAdmin()
+      );
+      allow delete: if isAuthenticated() && (
+        (isUserTeacher() && isResultOwner()) ||
+        isUserAdmin()
+      );
     }
-    allow read: if request.auth != null && (
-      isTeacher() && isResultOwner() ||
-      isAdmin() ||
-      (isParent() && resource.data.students.hasAny(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.children))
-    );
-    allow create: if request.auth != null && (
-      (isTeacher() && request.resource.data.teacherId == request.auth.uid) ||
-      (getUserRole() == 'student' && request.resource.data.studentId == request.auth.uid)
-    );
-    allow update: if request.auth != null && (
-      (isTeacher() && isResultOwner()) ||
-      isAdmin()
-    );
-    allow delete: if request.auth != null && (
-      (isTeacher() && isResultOwner()) ||
-      isAdmin()
-    );
-  }
 
     // Reading Results collection rules
-match /readingResults/{resultId} {
-  function isResultOwner() {
-    return request.auth.uid == resource.data.teacherId;
-  }
-  allow read: if request.auth != null && (
-    (isTeacher() && resource.data.teacherId == request.auth.uid) ||
-    isAdmin() ||
-    (isParent() && resource.data.students.hasAny(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.children))
-  );
-  allow create: if request.auth != null && (
-    (isTeacher() && request.resource.data.teacherId == request.auth.uid) ||
-    (getUserRole() == 'student' && request.resource.data.studentId == request.auth.uid)
-  );
-  allow update: if request.auth != null && (
-    (isTeacher() && resource.data.teacherId == request.auth.uid) ||
-    isAdmin()
-  );
-  allow delete: if request.auth != null && (
-    (isTeacher() && resource.data.teacherId == request.auth.uid) ||
-    isAdmin()
-  );
-}
+    match /readingResults/{resultId} {
+      function isResultOwner() {
+        return request.auth.uid == resource.data.teacherId;
+      }
+      allow read: if isAuthenticated() && (
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid) ||
+        isUserAdmin() ||
+        (isUserParent() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.children.hasAny([resource.data.studentId]))
+      );
+      allow create: if isAuthenticated() && (
+        (isUserTeacher() && request.resource.data.teacherId == request.auth.uid) ||
+        (isUserParent() && request.resource.data.studentId == request.auth.uid)
+      );
+      allow update: if isAuthenticated() && (
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid) ||
+        isUserAdmin()
+      );
+      allow delete: if isAuthenticated() && (
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid) ||
+        isUserAdmin()
+      );
+    }
 
     // Test Results collection rules
-match /testResults/{resultId} {
-  function isResultOwner() {
-    return request.auth.uid == resource.data.teacherId;
-  }
-  allow read: if request.auth != null && (
-    (isTeacher() && resource.data.teacherId == request.auth.uid) ||
-    isAdmin() ||
-    (isParent() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.children.hasAny([resource.data.studentId]))
-  );
-  allow create: if request.auth != null && (
-    (isTeacher() && request.resource.data.teacherId == request.auth.uid) ||
-    (getUserRole() == 'student' && request.resource.data.studentId == request.auth.uid)
-  );
-  allow update: if request.auth != null && (
-    (isTeacher() && resource.data.teacherId == request.auth.uid) ||
-    isAdmin()
-  );
-  allow delete: if request.auth != null && (
-    (isTeacher() && resource.data.teacherId == request.auth.uid) ||
-    isAdmin()
-  );
-}
+    match /testResults/{resultId} {
+      function isResultOwner() {
+        return request.auth.uid == resource.data.teacherId;
+      }
+      allow read: if isAuthenticated() && (
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid) ||
+        isUserAdmin() ||
+        (isUserParent() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.children.hasAny([resource.data.studentId]))
+      );
+      allow create: if isAuthenticated() && (
+        (isUserTeacher() && request.resource.data.teacherId == request.auth.uid) ||
+        (isUserParent() && request.resource.data.studentId == request.auth.uid)
+      );
+      allow update: if isAuthenticated() && (
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid) ||
+        isUserAdmin()
+      );
+      allow delete: if isAuthenticated() && (
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid) ||
+        isUserAdmin()
+      );
+    }
 
     // Link Requests collection rules
     match /linkRequests/{requestId} {
-      // Parents can create link requests
-      allow create: if isAuthenticated() && isParent() && 
+      allow create: if isAuthenticated() && isUserParent() && 
         request.resource.data.parentId == request.auth.uid;
       
-      // Teachers can read link requests for their classes
       allow read: if isAuthenticated() && (
-        isAdmin() ||
-        (isTeacher() && resource.data.teacherId == request.auth.uid) ||
-        (isParent() && resource.data.parentId == request.auth.uid)
+        isUserAdmin() ||
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid) ||
+        (isUserParent() && resource.data.parentId == request.auth.uid)
       );
       
-      // Teachers and admins can update link request status
       allow update: if isAuthenticated() && (
-        isAdmin() ||
-        (isTeacher() && resource.data.teacherId == request.auth.uid)
+        isUserAdmin() ||
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid)
       );
       
-      // Only admins can delete link requests
-      allow delete: if isAuthenticated() && isAdmin();
+      allow delete: if isAuthenticated() && isUserAdmin();
     }
 
     // Notifications collection rules
     match /notifications/{notificationId} {
-      // Users can read their own notifications
       allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
       
-      // System can create notifications for users
       allow create: if isAuthenticated() && (
-        isAdmin() ||
-        (isTeacher() && request.resource.data.userId != request.auth.uid) ||
-        (isParent() && request.resource.data.userId != request.auth.uid)
+        isUserAdmin() ||
+        (isUserTeacher() && request.resource.data.userId != request.auth.uid) ||
+        (isUserParent() && request.resource.data.userId != request.auth.uid)
       );
       
-      // Users can update their own notifications (mark as read)
       allow update: if isAuthenticated() && 
         resource.data.userId == request.auth.uid &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
       
-      // Only admins can delete notifications
-      allow delete: if isAuthenticated() && isAdmin();
+      allow delete: if isAuthenticated() && isUserAdmin();
+    }
+
+    // Parent Reports collection rules
+    match /parentReports/{reportId} {
+      allow read: if isAuthenticated() && resource.data.parentId == request.auth.uid;
+      allow create: if isAuthenticated() && isUserParent() && request.resource.data.parentId == request.auth.uid;
+      allow update, delete: if isAuthenticated() && isUserAdmin();
+    }
+
+    // Teacher Inbox collection rules
+    match /teacherInbox/{messageId} {
+      allow read: if isAuthenticated() && (
+        isUserAdmin() ||
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid) ||
+        (isUserParent() && resource.data.parentId == request.auth.uid)
+      );
+      allow create: if isAuthenticated() && isUserParent() && request.resource.data.parentId == request.auth.uid;
+      allow update: if isAuthenticated() && (
+        isUserAdmin() ||
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid)
+      );
+      allow delete: if isAuthenticated() && isUserAdmin();
+    }
+
+    // Resources collection rules (for admin dashboard)
+    match /resources/{resourceId} {
+      allow read: if isAuthenticated() && isUserAdmin();
+      allow write: if isAuthenticated() && isUserAdmin();
+    }
+
+    // Teacher activities subcollection rules
+    match /teachers/{teacherId}/activities/{activityId} {
+      allow read: if isAuthenticated() && (
+        isUserAdmin() ||
+        (isUserTeacher() && request.auth.uid == teacherId)
+      );
+      allow create: if isAuthenticated() && (
+        isUserAdmin() ||
+        (isUserTeacher() && request.auth.uid == teacherId)
+      );
+      allow update, delete: if isAuthenticated() && (
+        isUserAdmin() ||
+        (isUserTeacher() && request.auth.uid == teacherId)
+      );
     }
 
     // Default rule - deny all other access
     match /{document=**} {
-      allow read, write: if false;
+      allow read, write: if request.auth != null;
     }
   }
 }

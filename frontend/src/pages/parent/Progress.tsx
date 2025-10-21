@@ -41,9 +41,9 @@ const ProgressPage: React.FC = () => {
 
   // Fetch parent's children (realtime, from students by parentId)
   useEffect(() => {
-    if (!currentUser?.uid) return;
-    setLoading(true);
-    const studentsRef = collection(db, 'students');
+      if (!currentUser?.uid) return;
+        setLoading(true);
+        const studentsRef = collection(db, 'students');
     const qStudents = query(studentsRef, where('parentId', '==', currentUser.uid));
     const unsub = onSnapshot(qStudents, (snapshot) => {
       const childrenData: ParentChild[] = snapshot.docs.map(doc => {
@@ -59,12 +59,12 @@ const ProgressPage: React.FC = () => {
           teacherId: d.teacherId || ''
         };
       });
-      setChildren(childrenData);
+        setChildren(childrenData);
       if (!selectedChild && childrenData.length > 0) setSelectedChild(childrenData[0].id);
       setLoading(false);
     }, () => {
-      setChildren([]);
-      setLoading(false);
+        setChildren([]);
+        setLoading(false);
     });
     return () => unsub();
   }, [currentUser?.uid]);
@@ -91,21 +91,31 @@ const ProgressPage: React.FC = () => {
     return () => unsubscribe();
   }, [selectedChild]);
 
-  // Benchmark against same grade results (realtime)
+  // Local "benchmark" based on the selected child's recent results to avoid cross-student reads
   useEffect(() => {
-    const child = children.find(c => c.id === selectedChild);
-    if (!child || !child.grade) { setBenchmark({ avgScore: 0, avgAccuracy: 0, sessions: 0 }); return; }
-    const resultsRef = collection(db, 'readingResults');
-    const benchQ = query(resultsRef, where('gradeName', '==', child.grade));
-    const unsub = onSnapshot(benchQ, (snapshot) => {
-      const rows = snapshot.docs.map(d => d.data() as any);
-      const scores = rows.map(r => r.oralReadingScore).filter((n: any) => typeof n === 'number') as number[];
-      const comps = rows.map(r => r.comprehension).filter((n: any) => typeof n === 'number') as number[];
-      const avg = (arr: number[]) => arr.length ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.length) : 0;
-      setBenchmark({ avgScore: avg(scores), avgAccuracy: avg(comps), sessions: rows.length });
-    }, () => setBenchmark({ avgScore: 0, avgAccuracy: 0, sessions: 0 }));
-    return () => unsub();
-  }, [selectedChild, children]);
+    if (!readingResults || readingResults.length === 0) {
+      setBenchmark({ avgScore: 0, avgAccuracy: 0, sessions: 0 });
+      return;
+    }
+    const lastN = [...readingResults]
+      .filter(r => typeof r.oralReadingScore === 'number' || typeof r.comprehension === 'number')
+      .sort((a, b) => {
+        const ad = new Date((a as any).createdAt?.toDate?.() || (a as any).createdAt).getTime();
+        const bd = new Date((b as any).createdAt?.toDate?.() || (b as any).createdAt).getTime();
+        return bd - ad;
+      })
+      .slice(0, 10); // recent window
+
+    const scores = lastN.map(r => r.oralReadingScore || 0).filter(n => typeof n === 'number');
+    const comps = lastN.map(r => r.comprehension || 0).filter(n => typeof n === 'number');
+    const avg = (arr: number[]) => arr.length ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.length) : 0;
+
+    setBenchmark({
+      avgScore: avg(scores),
+      avgAccuracy: avg(comps),
+      sessions: lastN.length
+    });
+  }, [readingResults]);
 
   // Calculate metrics from reading results
   const calculateMetrics = () => {
@@ -289,7 +299,7 @@ const ProgressPage: React.FC = () => {
             <div className="text-xs text-gray-500">Average Score</div>
           </div>
           <div className="text-2xl font-extrabold text-blue-700">{metrics.averageScore}%</div>
-          <div className="text-xs text-gray-500 mt-1">Grade avg: {benchmark.avgScore}%</div>
+          <div className="text-xs text-gray-500 mt-1">Recent avg: {benchmark.avgScore}%</div>
         </div>
         <div className="rounded-2xl p-4 bg-white border border-gray-100 shadow-sm">
           <div className="flex items-center gap-2 mb-1">
@@ -297,7 +307,7 @@ const ProgressPage: React.FC = () => {
             <div className="text-xs text-gray-500">Accuracy</div>
           </div>
           <div className="text-2xl font-extrabold text-green-700">{metrics.accuracy}%</div>
-          <div className="text-xs text-gray-500 mt-1">Grade avg: {benchmark.avgAccuracy}%</div>
+          <div className="text-xs text-gray-500 mt-1">Recent avg: {benchmark.avgAccuracy}%</div>
         </div>
         <div className="rounded-2xl p-4 bg-white border border-gray-100 shadow-sm">
           <div className="flex items-center gap-2 mb-1">
@@ -305,7 +315,7 @@ const ProgressPage: React.FC = () => {
             <div className="text-xs text-gray-500">Sessions</div>
           </div>
           <div className="text-2xl font-extrabold text-purple-700">{metrics.sessions}</div>
-          <div className="text-xs text-gray-500 mt-1">Grade total: {benchmark.sessions}</div>
+          <div className="text-xs text-gray-500 mt-1">Recent count: {benchmark.sessions}</div>
         </div>
         <div className="rounded-2xl p-4 bg-white border border-gray-100 shadow-sm">
           <div className="flex items-center gap-2 mb-1">
@@ -370,15 +380,15 @@ const ProgressPage: React.FC = () => {
           </div>
         ) : (
           children.map(child => (
-            <PerformanceChart
-              key={child.id}
+              <PerformanceChart 
+                key={child.id}
               data={chartDataForChild(child.id)}
-              grades={[]}
+                grades={[]} 
               students={[child as unknown as Student]}
               title={`${child.name}'s Learning Progress`}
-              targetLine={85}
+                targetLine={85} 
               showStaticStudentInfo={true}
-            />
+              />
           ))
         )}
       </div>

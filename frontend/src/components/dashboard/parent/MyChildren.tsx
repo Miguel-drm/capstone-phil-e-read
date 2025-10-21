@@ -44,8 +44,8 @@ const MyChildren: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!currentUser?.uid) return;
-    setLoading(true);
+      if (!currentUser?.uid) return;
+      setLoading(true);
     const studentsQuery = query(collection(db, studentService.getCollectionName()), where('parentId', '==', currentUser.uid));
     const unsub = onSnapshot(studentsQuery, (snap) => {
       const list: Student[] = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })) as Student[];
@@ -53,16 +53,16 @@ const MyChildren: React.FC = () => {
       setNetworkError(false);
       setLoading(false);
     }, () => {
-      setChildren([]);
-      setNetworkError(true);
-      setLoading(false);
+        setChildren([]);
+        setNetworkError(true);
+        setLoading(false);
     });
     return () => unsub();
   }, [currentUser?.uid]);
 
   // Realtime grades/sections derived from classGrades collection
   useEffect(() => {
-    setLoadingGrades(true);
+      setLoadingGrades(true);
     const unsub = onSnapshot(collection(db, 'classGrades'), (snap) => {
       const gradeLevelToSections = new Map<string, GradeSection[]>();
       snap.forEach(docSnap => {
@@ -84,7 +84,7 @@ const MyChildren: React.FC = () => {
       setLoadingGrades(false);
     }, () => {
       setAvailableGrades([]);
-      setLoadingGrades(false);
+        setLoadingGrades(false);
     });
     return () => unsub();
   }, []);
@@ -246,7 +246,7 @@ const MyChildren: React.FC = () => {
       
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
         <div className="flex items-center gap-2">
-          <h3 className="text-lg font-semibold text-gray-900">My Children</h3>
+        <h3 className="text-lg font-semibold text-gray-900">My Children</h3>
           <span className="text-xs px-2 py-0.5 rounded-full border bg-gray-50 text-gray-700">{children.length}</span>
         </div>
         <div className="flex items-center gap-2">
