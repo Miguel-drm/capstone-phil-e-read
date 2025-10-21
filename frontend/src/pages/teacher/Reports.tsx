@@ -211,9 +211,66 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
             .observation-table td:last-child { text-align: center; width: 60px; }
             @media print { 
               .no-print { display: none; } 
-              body { padding: 12px; }
+              body { padding: 12px; padding-bottom: 12px; }
+              .actions { display: none; }
             }
-            .btn { margin-top: 16px; padding: 8px 12px; background: #2563eb; color: white; border: 0; border-radius: 6px; cursor: pointer; }
+            .btn { 
+              margin-top: 0; 
+              padding: 14px 28px; 
+              background: #007AFF; 
+              color: white; 
+              border: 0; 
+              border-radius: 12px; 
+              cursor: pointer; 
+              font-weight: 500;
+              font-size: 15px;
+              transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+              box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+              backdrop-filter: blur(10px);
+              -webkit-backdrop-filter: blur(10px);
+              position: relative;
+              overflow: hidden;
+            }
+            .btn::before {
+              content: '';
+              position: absolute;
+              top: 0;
+              left: -100%;
+              width: 100%;
+              height: 100%;
+              background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+              transition: left 0.5s;
+            }
+            .btn:hover::before {
+              left: 100%;
+            }
+            .btn:hover { 
+              background: #0056CC; 
+              transform: translateY(-2px);
+              box-shadow: 0 4px 12px rgba(0,122,255,0.4), 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .btn:active {
+              transform: translateY(0);
+              box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .actions { 
+              position: fixed; 
+              bottom: 0; 
+              left: 0; 
+              right: 0; 
+              background: rgba(255, 255, 255, 0.95); 
+              backdrop-filter: blur(20px);
+              -webkit-backdrop-filter: blur(20px);
+              padding: 20px; 
+              border-top: 1px solid rgba(0, 0, 0, 0.08); 
+              box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08), 0 -1px 3px rgba(0, 0, 0, 0.1); 
+              display: flex; 
+              gap: 16px; 
+              justify-content: center; 
+              z-index: 1000;
+              border-radius: 20px 20px 0 0;
+            }
+            body { padding-bottom: 100px; }
             .center { text-align: center; }
             .language-section { margin-bottom: 16px; }
             .language-option { display: inline-flex; align-items: center; gap: 4px; margin-right: 16px; }
@@ -349,28 +406,64 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
             ${isrData.observations.otherObservations || ''}
           </div>
 
-          <button class="btn no-print" onclick="window.print()">Print Report</button>
+          <div class="actions no-print">
+            <button class="btn" onclick="window.print()">Print Report</button>
+          </div>
         </body>
       </html>
     `;
   };
 
   // ISR Modal Handlers
-  const handleOpenISRModal = (student: Student) => {
+  const handleOpenISRModal = async (student: Student) => {
     setIsrStudent(student);
     setIsrModalOpen(true);
     setIsHeaderDarkened?.(true);
     
-    // Reset observations for new student
-    setIsrObservations({
-      wordByWord: false,
-      lacksExpression: false,
-      hardlyAudible: false,
-      disregardsPunctuation: false,
-      pointsToWords: false,
-      littleAnalysis: false,
-      otherObservations: ''
-    });
+    // Fetch actual observations from database
+    try {
+      const { latestReading } = getLatestResults(student.id || '');
+      if (latestReading) {
+        // Use observations from the latest reading assessment
+        setIsrObservations({
+          wordByWord: latestReading.observations?.wordByWord || false,
+          lacksExpression: latestReading.observations?.lacksExpression || false,
+          hardlyAudible: latestReading.observations?.hardlyAudible || false,
+          disregardsPunctuation: latestReading.observations?.disregardsPunctuation || false,
+          pointsToWords: latestReading.observations?.pointsToWords || false,
+          littleAnalysis: latestReading.observations?.littleAnalysis || false,
+          otherObservations: latestReading.observations?.otherObservations || ''
+        });
+        
+        // Set language from database
+        setIsrLanguage(latestReading.language || 'Filipino');
+      } else {
+        // No data available
+        setIsrObservations({
+          wordByWord: false,
+          lacksExpression: false,
+          hardlyAudible: false,
+          disregardsPunctuation: false,
+          pointsToWords: false,
+          littleAnalysis: false,
+          otherObservations: 'No assessment data available'
+        });
+        setIsrLanguage('Filipino'); // Default language
+      }
+    } catch (error) {
+      console.error('Error fetching observations:', error);
+      // Fallback to empty observations
+      setIsrObservations({
+        wordByWord: false,
+        lacksExpression: false,
+        hardlyAudible: false,
+        disregardsPunctuation: false,
+        pointsToWords: false,
+        littleAnalysis: false,
+        otherObservations: 'Error loading data'
+      });
+      setIsrLanguage('Filipino'); // Default language
+    }
   };
 
   const handleCloseISRModal = () => {
@@ -473,11 +566,73 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
               .language-option { display: inline-flex; align-items: center; gap: 4px; margin-right: 16px; }
               @media print { 
                 .no-print { display: none; } 
-                body { padding: 12px; }
+                body { padding: 12px; padding-bottom: 12px; }
+                .actions { display: none; }
               }
-              .btn { margin-top: 16px; padding: 8px 12px; background: #2563eb; color: white; border: 0; border-radius: 6px; cursor: pointer; }
-              .btn-secondary { background: #059669; }
-              .actions { display:flex; gap:12px; justify-content:center; margin-top:24px; }
+              .btn { 
+                margin-top: 0; 
+                padding: 14px 28px; 
+                background: #007AFF; 
+                color: white; 
+                border: 0; 
+                border-radius: 12px; 
+                cursor: pointer; 
+                font-weight: 500;
+                font-size: 15px;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                position: relative;
+                overflow: hidden;
+              }
+              .btn::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+                transition: left 0.5s;
+              }
+              .btn:hover::before {
+                left: 100%;
+              }
+              .btn:hover { 
+                background: #0056CC; 
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0,122,255,0.4), 0 2px 4px rgba(0,0,0,0.1);
+              }
+              .btn:active {
+                transform: translateY(0);
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+              }
+              .btn-secondary { 
+                background: #34C759; 
+              }
+              .btn-secondary:hover { 
+                background: #28A745; 
+                box-shadow: 0 4px 12px rgba(52,199,89,0.4), 0 2px 4px rgba(0,0,0,0.1);
+              }
+              .actions { 
+                position: fixed; 
+                bottom: 0; 
+                left: 0; 
+                right: 0; 
+                background: rgba(255, 255, 255, 0.95); 
+                backdrop-filter: blur(20px);
+                -webkit-backdrop-filter: blur(20px);
+                padding: 20px; 
+                border-top: 1px solid rgba(0, 0, 0, 0.08); 
+                box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08), 0 -1px 3px rgba(0, 0, 0, 0.1); 
+                display: flex; 
+                gap: 16px; 
+                justify-content: center; 
+                z-index: 1000;
+                border-radius: 20px 20px 0 0;
+              }
+              body { padding-bottom: 100px; }
               .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #111827; color: #fff; padding: 8px 12px; border-radius: 6px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); opacity: 0; transition: opacity .2s ease; }
               .toast.show { opacity: 1; }
           </style>
@@ -986,30 +1141,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Language</label>
-                    <div className="flex gap-4">
-                      <label className="flex items-center">
-              <input
-                          type="radio"
-                          name="language"
-                          value="English"
-                          checked={isrLanguage === 'English'}
-                          onChange={(e) => setIsrLanguage(e.target.value as 'English' | 'Filipino')}
-                          className="mr-2"
-                        />
-                        English
-                      </label>
-                      <label className="flex items-center">
-                        <input
-                          type="radio"
-                          name="language"
-                          value="Filipino"
-                          checked={isrLanguage === 'Filipino'}
-                          onChange={(e) => setIsrLanguage(e.target.value as 'English' | 'Filipino')}
-                          className="mr-2"
-                        />
-                        Filipino
-                      </label>
-            </div>
+                    <div className="text-sm text-gray-900">{isrLanguage}</div>
                   </div>
                 </div>
               </div>
@@ -1057,69 +1189,35 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
               <div className="bg-yellow-50 rounded-lg p-4">
                 <h3 className="text-lg font-semibold text-gray-900 mb-3">Oral Reading Observation Checklist</h3>
                 <div className="space-y-3">
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={isrObservations.wordByWord}
-                      onChange={(e) => setIsrObservations(prev => ({ ...prev, wordByWord: e.target.checked }))}
-                      className="mr-3"
-                    />
+                  <div className="flex items-center">
+                    <span className="mr-3 text-lg">{isrObservations.wordByWord ? '✓' : '☐'}</span>
                     <span className="text-sm">Does word-by-word reading (Nagbabasa nang pa-isa isang salita)</span>
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={isrObservations.lacksExpression}
-                      onChange={(e) => setIsrObservations(prev => ({ ...prev, lacksExpression: e.target.checked }))}
-                      className="mr-3"
-                    />
+                  </div>
+                  <div className="flex items-center">
+                    <span className="mr-3 text-lg">{isrObservations.lacksExpression ? '✓' : '☐'}</span>
                     <span className="text-sm">Lacks expression; reads in a monotonous tone (Walang damdamin; walang pagbabago ang tono)</span>
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={isrObservations.hardlyAudible}
-                      onChange={(e) => setIsrObservations(prev => ({ ...prev, hardlyAudible: e.target.checked }))}
-                      className="mr-3"
-                    />
+                  </div>
+                  <div className="flex items-center">
+                    <span className="mr-3 text-lg">{isrObservations.hardlyAudible ? '✓' : '☐'}</span>
                     <span className="text-sm">Voice is hardly audible (Hindi madaling marinig ang boses)</span>
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={isrObservations.disregardsPunctuation}
-                      onChange={(e) => setIsrObservations(prev => ({ ...prev, disregardsPunctuation: e.target.checked }))}
-                      className="mr-3"
-                    />
+                  </div>
+                  <div className="flex items-center">
+                    <span className="mr-3 text-lg">{isrObservations.disregardsPunctuation ? '✓' : '☐'}</span>
                     <span className="text-sm">Disregards punctuation (Hindi pinapansin ang mga bantas)</span>
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={isrObservations.pointsToWords}
-                      onChange={(e) => setIsrObservations(prev => ({ ...prev, pointsToWords: e.target.checked }))}
-                      className="mr-3"
-                    />
+                  </div>
+                  <div className="flex items-center">
+                    <span className="mr-3 text-lg">{isrObservations.pointsToWords ? '✓' : '☐'}</span>
                     <span className="text-sm">Points to each word with his/her finger (Itinuturo ang bawat salita)</span>
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={isrObservations.littleAnalysis}
-                      onChange={(e) => setIsrObservations(prev => ({ ...prev, littleAnalysis: e.target.checked }))}
-                      className="mr-3"
-                    />
+                  </div>
+                  <div className="flex items-center">
+                    <span className="mr-3 text-lg">{isrObservations.littleAnalysis ? '✓' : '☐'}</span>
                     <span className="text-sm">Employs little or no method of analysis (Bahagya o walang paraan ng pagsusuri)</span>
-                  </label>
+                  </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Other observations: (Ibang Puna)</label>
-                    <textarea
-                      value={isrObservations.otherObservations}
-                      onChange={(e) => setIsrObservations(prev => ({ ...prev, otherObservations: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      rows={3}
-                      placeholder="Enter additional observations..."
-                    />
+                    <div className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 min-h-[80px]">
+                      {isrObservations.otherObservations || 'No additional observations'}
+                    </div>
                   </div>
                 </div>
               </div>
