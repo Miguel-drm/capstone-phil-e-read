@@ -13,7 +13,7 @@ import {
   addDoc,
   serverTimestamp
 } from 'firebase/firestore';
-import { createSafeFirestoreListener, createSafeFirestoreErrorHandler, safeFirestoreOperation } from '../utils/firestoreErrorHandler';
+import { createSafeFirestoreListener, createSafeFirestoreErrorHandler } from '../utils/firestoreErrorHandler';
 
 export interface LinkRequest {
   id: string;
@@ -46,6 +46,26 @@ export interface Notification {
   isRead: boolean;
   createdAt: Timestamp;
   data?: any;
+}
+
+export interface InboxMessage {
+  id: string;
+  type: 'link_request' | 'link_approved' | 'link_rejected' | 'system' | 'alert' | 'info' | 'announcement' | 'parent_report';
+  title: string;
+  message: string;
+  recipientId: string;
+  senderId?: string;
+  senderRole?: 'admin' | 'teacher' | 'parent';
+  senderName?: string;
+  isRead: boolean;
+  isArchived: boolean;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  category: 'link_requests' | 'system_updates' | 'alerts' | 'announcements' | 'general' | 'parent_reports';
+  createdAt: Timestamp;
+  readAt?: Timestamp;
+  archivedAt?: Timestamp;
+  data?: any;
+  expiresAt?: Timestamp;
 }
 
 class NotificationService {
@@ -488,14 +508,14 @@ class NotificationService {
       const lastNameLower = lastName.toLowerCase().trim();
       
       return students.filter(student => {
-        const studentName = student.name?.toLowerCase() || '';
-        const nameParts = studentName.split(' ').map(part => part.trim()).filter(part => part.length > 0);
+        const studentName = (student as any).name?.toLowerCase() || '';
+        const nameParts = studentName.split(' ').map((part: string) => part.trim()).filter((part: string) => part.length > 0);
         
         // More flexible matching - check if any part contains the first name and any part contains the last name
-        const hasFirstName = nameParts.some(part => 
+        const hasFirstName = nameParts.some((part: string) => 
           part.includes(firstNameLower) || firstNameLower.includes(part)
         );
-        const hasLastName = nameParts.some(part => 
+        const hasLastName = nameParts.some((part: string) => 
           part.includes(lastNameLower) || lastNameLower.includes(part)
         );
         
@@ -522,6 +542,226 @@ class NotificationService {
     } catch (error) {
       console.error('Error updating link request with student:', error);
       return false;
+    }
+  }
+
+  // ===== INBOX SYSTEM METHODS =====
+
+  // Get inbox collection name based on user role
+  private getInboxCollection(userRole: string): string {
+    switch (userRole) {
+      case 'admin':
+        return 'adminInbox';
+      case 'teacher':
+        return 'teacherInbox';
+      case 'parent':
+        return 'parentInbox';
+      default:
+        return 'notifications'; // fallback to legacy
+    }
+  }
+
+  // Get inbox messages for a user based on their role
+  async getInboxMessages(userId: string, userRole: string, includeArchived: boolean = false): Promise<InboxMessage[]> {
+    try {
+      const collectionName = this.getInboxCollection(userRole);
+      console.log(`Fetching inbox messages from ${collectionName} for user ${userId}, includeArchived: ${includeArchived}`);
+      
+      let q = query(
+        collection(db, collectionName),
+        where('recipientId', '==', userId),
+        orderBy('createdAt', 'desc')
+      );
+
+      if (!includeArchived) {
+        q = query(
+          collection(db, collectionName),
+          where('recipientId', '==', userId),
+          where('isArchived', '==', false),
+          orderBy('createdAt', 'desc')
+        );
+      }
+
+      const snapshot = await getDocs(q);
+      const messages = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as InboxMessage[];
+      
+      console.log(`Found ${messages.length} messages in ${collectionName}`);
+      return messages;
+    } catch (error) {
+      console.debug('Error fetching inbox messages (trying fallback):', error);
+      
+      // Fallback: Get all messages and filter client-side
+      try {
+        const fallbackQuery = query(
+          collection(db, this.getInboxCollection(userRole)),
+          where('recipientId', '==', userId)
+        );
+        
+        const snapshot = await getDocs(fallbackQuery);
+        let messages = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as InboxMessage[];
+        
+        // Filter and sort client-side
+        if (!includeArchived) {
+          messages = messages.filter(msg => !msg.isArchived);
+        }
+        
+        console.log(`Fallback found ${messages.length} messages`);
+        return messages.sort((a, b) => 
+          b.createdAt.toMillis() - a.createdAt.toMillis()
+        );
+      } catch (fallbackError) {
+        console.debug('Fallback query also failed:', fallbackError);
+        return [];
+      }
+    }
+  }
+
+  // Mark message as read
+  async markMessageAsRead(messageId: string, userRole: string): Promise<boolean> {
+    try {
+      const collectionName = this.getInboxCollection(userRole);
+      const messageRef = doc(db, collectionName, messageId);
+      await updateDoc(messageRef, {
+        isRead: true,
+        readAt: serverTimestamp()
+      });
+      return true;
+    } catch (error) {
+      console.error('Error marking message as read:', error);
+      return false;
+    }
+  }
+
+  // Mark all messages as read for a user
+  async markAllMessagesAsRead(userId: string, userRole: string): Promise<boolean> {
+    try {
+      const messages = await this.getInboxMessages(userId, userRole, false);
+      const unreadMessages = messages.filter(msg => !msg.isRead);
+      
+      const updatePromises = unreadMessages.map(message => 
+        this.markMessageAsRead(message.id, userRole)
+      );
+      
+      await Promise.all(updatePromises);
+      return true;
+    } catch (error) {
+      console.error('Error marking all messages as read:', error);
+      return false;
+    }
+  }
+
+  // Archive a message
+  async archiveMessage(messageId: string, userRole: string): Promise<boolean> {
+    try {
+      const collectionName = this.getInboxCollection(userRole);
+      const messageRef = doc(db, collectionName, messageId);
+      await updateDoc(messageRef, {
+        isArchived: true,
+        archivedAt: serverTimestamp()
+      });
+      return true;
+    } catch (error) {
+      console.error('Error archiving message:', error);
+      return false;
+    }
+  }
+
+  // Get only archived messages for a user
+  async getArchivedMessages(userId: string, userRole: string): Promise<InboxMessage[]> {
+    try {
+      const collectionName = this.getInboxCollection(userRole);
+      console.log(`Fetching archived messages from ${collectionName} for user ${userId}`);
+      
+      const q = query(
+        collection(db, collectionName),
+        where('recipientId', '==', userId),
+        where('isArchived', '==', true),
+        orderBy('createdAt', 'desc')
+      );
+
+      const snapshot = await getDocs(q);
+      const messages = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as InboxMessage[];
+      
+      console.log(`Found ${messages.length} archived messages in ${collectionName}`);
+      return messages;
+    } catch (error) {
+      console.debug('Error fetching archived messages (trying fallback):', error);
+      
+      // Fallback: Get all messages and filter client-side
+      try {
+        const fallbackQuery = query(
+          collection(db, this.getInboxCollection(userRole)),
+          where('recipientId', '==', userId)
+        );
+        
+        const snapshot = await getDocs(fallbackQuery);
+        let messages = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as InboxMessage[];
+        
+        // Filter for archived messages and sort client-side
+        messages = messages.filter(msg => msg.isArchived);
+        
+        console.log(`Fallback found ${messages.length} archived messages`);
+        return messages.sort((a, b) => 
+          b.createdAt.toMillis() - a.createdAt.toMillis()
+        );
+      } catch (fallbackError) {
+        console.debug('Fallback query also failed:', fallbackError);
+        return [];
+      }
+    }
+  }
+
+  // Real-time listener for inbox messages
+  subscribeToInboxMessages(
+    userId: string, 
+    userRole: string, 
+    callback: (messages: InboxMessage[]) => void,
+    includeArchived: boolean = false
+  ) {
+    try {
+      const collectionName = this.getInboxCollection(userRole);
+      let q = query(
+        collection(db, collectionName),
+        where('recipientId', '==', userId),
+        orderBy('createdAt', 'desc')
+      );
+
+      if (!includeArchived) {
+        q = query(
+          collection(db, collectionName),
+          where('recipientId', '==', userId),
+          where('isArchived', '==', false),
+          orderBy('createdAt', 'desc')
+        );
+      } else {
+        // When includeArchived is true, we want only archived messages
+        q = query(
+          collection(db, collectionName),
+          where('recipientId', '==', userId),
+          where('isArchived', '==', true),
+          orderBy('createdAt', 'desc')
+        );
+      }
+
+      const safeCallback = createSafeFirestoreListener<InboxMessage[]>(callback);
+      const safeErrorHandler = createSafeFirestoreErrorHandler();
+
+      return onSnapshot(q, safeCallback, safeErrorHandler);
+    } catch (error) {
+      console.debug('Error setting up inbox messages listener:', error);
+      return () => {};
     }
   }
 }

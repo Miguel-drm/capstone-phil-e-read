@@ -296,23 +296,46 @@ const ReportsPage: React.FC = () => {
     if (!currentUser?.uid || !child?.teacherId) return;
     try {
       setSending(true);
+      
+      // Get parent name for display
+      const parentName = currentUser.displayName || currentUser.email?.split('@')[0] || 'Parent';
+      
+      // Store parent report in teacherInbox collection
       await addDoc(collection(db, 'teacherInbox'), {
-        teacherId: child.teacherId,
-        parentId: currentUser.uid,
-        parentEmail: currentUser.email || '',
-        childId: child.id,
-        childName,
-        reportType,
-        subject: subject.trim() || `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report`,
+        // Core notification fields
+        title: subject.trim() || `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report from Parent`,
         message: message.trim() || '',
+        type: 'parent_report',
+        recipientId: child.teacherId,
+        senderId: currentUser.uid,
+        senderRole: 'parent',
+        senderName: parentName,
+        isRead: false,
+        isArchived: false,
+        priority: reportType === 'issue' ? 'high' : 'medium',
+        category: 'parent_reports',
         createdAt: serverTimestamp(),
-        read: false,
-        status: 'new'
+        
+        // Additional data for context
+        data: {
+          teacherId: child.teacherId,
+          parentId: currentUser.uid,
+          parentEmail: currentUser.email || '',
+          childId: child.id,
+          childName,
+          reportType,
+          subject: subject.trim() || `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report`,
+          status: 'new',
+          parentDisplayName: parentName,
+          reportDate: new Date().toISOString()
+        }
       });
+      
       setSentBanner('Report sent to your child\'s teacher.');
       setTimeout(()=> setSentBanner(null), 3000);
       setMessage('');
     } catch (e) {
+      console.error('Error sending report:', e);
       setSentBanner('Failed to send. Please try again.');
       setTimeout(()=> setSentBanner(null), 3000);
     } finally {
