@@ -246,12 +246,41 @@ export const getUserProfile = async (): Promise<UserProfile | null> => {
       };
     }
 
-    const userDoc = await getDoc(doc(db, 'users', user.uid));
-    const userData = userDoc.data();
-    console.log('Loaded user profile from Firestore:', userData);
+    let userData: any = null;
     
-    if (!userData) {
-      // If no user document exists, create one with default role
+    try {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      userData = userDoc.data();
+      console.log('Loaded user profile from Firestore:', userData);
+      
+      if (!userData) {
+        // If no user document exists, create one with default role
+        const role = determineUserRole(user.email || '');
+        await setDoc(doc(db, 'users', user.uid), {
+          email: user.email,
+          displayName: user.displayName || '',
+          role: role,
+          createdAt: new Date().toISOString()
+        });
+        
+        const initialProfile: UserProfile = {
+          displayName: user.displayName || undefined,
+          email: user.email || undefined,
+          photoURL: user.photoURL || undefined,
+          role: role,
+          phoneNumber: '',
+          gradeLevel: '',
+          school: '',
+          address: '',
+        };
+        return {
+          ...initialProfile,
+          isProfileComplete: isProfileComplete(initialProfile),
+        };
+      }
+    } catch (error) {
+      console.warn('Error reading user profile, creating new one:', error);
+      // If there's a permission error or document doesn't exist, create a new one
       const role = determineUserRole(user.email || '');
       await setDoc(doc(db, 'users', user.uid), {
         email: user.email,
@@ -276,6 +305,7 @@ export const getUserProfile = async (): Promise<UserProfile | null> => {
       };
     }
     
+    // If we get here, userData exists and we can use it
     return {
       displayName: user.displayName || userData.displayName || undefined,
       email: user.email || undefined,
