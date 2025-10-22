@@ -11,7 +11,9 @@ import {
   CalendarIcon,
   EnvelopeIcon,
   ChatBubbleLeftRightIcon,
-  ExclamationTriangleIcon
+  ExclamationTriangleIcon,
+  AcademicCapIcon,
+  BookOpenIcon
 } from '@heroicons/react/24/outline';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -284,8 +286,32 @@ const LinkRequestApprovalModal: React.FC<LinkRequestApprovalModalProps> = ({
                           />
                           <div className="flex-1">
                             <div className="font-medium text-gray-900">{student.name}</div>
-                            <div className="text-sm text-gray-600">
-                              Grade {student.grade} • {student.readingLevel} • {student.performance}
+                            <div className="text-sm text-gray-600 flex items-center gap-3">
+                              <span className="flex items-center gap-1">
+                                <AcademicCapIcon className="h-3 w-3" />
+                                Grade {student.grade}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <BookOpenIcon className="h-3 w-3" />
+                                Level {student.readingLevel}
+                              </span>
+                              <div className="flex items-center gap-1">
+                                <div className={`w-2 h-2 rounded-full ${
+                                  student.performance === 'Excellent' 
+                                    ? 'bg-green-500' 
+                                    : student.performance === 'Good' 
+                                    ? 'bg-blue-500'
+                                    : student.performance === 'Needs Improvement'
+                                    ? 'bg-yellow-500'
+                                    : 'bg-gray-400'
+                                }`}></div>
+                                <span className="text-xs font-medium text-gray-700">
+                                  {student.performance === 'Good' ? 'On Track' : 
+                                   student.performance === 'Excellent' ? 'Advanced' :
+                                   student.performance === 'Needs Improvement' ? 'Support Needed' :
+                                   student.performance}
+                                </span>
+                              </div>
                             </div>
                           </div>
                           {selectedStudentId === student.id && (

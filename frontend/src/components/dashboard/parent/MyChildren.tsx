@@ -34,6 +34,7 @@ const MyChildren: React.FC = () => {
   const [availableSections, setAvailableSections] = useState<GradeSection[]>([]);
   const [loadingSections, setLoadingSections] = useState(false);
   const [networkError, setNetworkError] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<string>('');
 
   // Helper function to capitalize names properly
   const capitalizeName = (name: string): string => {
@@ -64,25 +65,47 @@ const MyChildren: React.FC = () => {
   useEffect(() => {
       setLoadingGrades(true);
     const unsub = onSnapshot(collection(db, 'classGrades'), (snap) => {
+      console.log('📊 Loading classGrades data...', snap.docs.length, 'documents');
       const gradeLevelToSections = new Map<string, GradeSection[]>();
       snap.forEach(docSnap => {
         const data = docSnap.data() as any;
-        const gradeLevel: string | undefined = data.gradeLevel || data.grade || data.gradeName;
-        const sectionName: string | undefined = data.section || data.sectionName || data.name;
-        if (!gradeLevel) return;
-        const s: GradeSection = { id: docSnap.id, sectionName, gradeLevel };
+        console.log('📊 ClassGrade document:', docSnap.id, data);
+        
+        // Extract grade level - convert to string for consistent matching
+        const gradeLevel: string | undefined = data.gradeLevel ? String(data.gradeLevel) : data.grade || data.gradeName;
+        const sectionName: string | undefined = data.section || data.sectionName;
+        
+        console.log('📊 Extracted - gradeLevel:', gradeLevel, 'sectionName:', sectionName);
+        
+        if (!gradeLevel) {
+          console.log('⚠️ Skipping document - no gradeLevel found');
+          return;
+        }
+        
+        const s: GradeSection = { 
+          id: docSnap.id, 
+          sectionName, 
+          gradeLevel,
+          name: data.name // Store the full name for reference
+        };
         const list = gradeLevelToSections.get(gradeLevel) || [];
         list.push(s);
         gradeLevelToSections.set(gradeLevel, list);
       });
+      
+      console.log('📊 GradeLevel to Sections map:', gradeLevelToSections);
+      
       const grades: Grade[] = Array.from(gradeLevelToSections.entries()).map(([gradeLevel, sections]) => ({
         id: gradeLevel,
         name: `Grade ${gradeLevel}`,
         sections
       }));
+      
+      console.log('📊 Final grades array:', grades);
       setAvailableGrades(grades);
       setLoadingGrades(false);
-    }, () => {
+    }, (error) => {
+      console.error('❌ Error loading classGrades:', error);
       setAvailableGrades([]);
         setLoadingGrades(false);
     });
@@ -208,23 +231,28 @@ const MyChildren: React.FC = () => {
   const fetchSectionsForGrade = async (gradeId: string) => {
     setLoadingSections(true);
     try {
-      console.log('Fetching sections for gradeId:', gradeId);
-      console.log('Available grades:', availableGrades);
+      console.log('🔍 Fetching sections for gradeId:', gradeId);
+      console.log('🔍 Available grades:', availableGrades);
       
       // Find the selected grade and get its sections
       const selectedGrade = availableGrades.find(grade => grade.id === gradeId);
-      console.log('Selected grade:', selectedGrade);
+      console.log('🔍 Selected grade:', selectedGrade);
       
-      if (selectedGrade) {
-        console.log('Setting sections:', selectedGrade.sections);
+      if (selectedGrade && selectedGrade.sections) {
+        console.log('✅ Found grade with sections:', selectedGrade.sections.length, 'sections');
+        console.log('✅ Section details:', selectedGrade.sections);
         setAvailableSections(selectedGrade.sections);
+        setDebugInfo(`Found ${selectedGrade.sections.length} sections for grade ${gradeId}`);
       } else {
-        console.log('No grade found, clearing sections');
+        console.log('❌ No grade found or no sections available');
+        console.log('❌ Available grades for debugging:', availableGrades.map(g => ({ id: g.id, name: g.name, sectionsCount: g.sections?.length || 0 })));
         setAvailableSections([]);
+        setDebugInfo(`No grade found for ID: ${gradeId}. Available grades: ${availableGrades.map(g => g.id).join(', ')}`);
       }
     } catch (error) {
-      console.error('Error loading sections:', error);
+      console.error('❌ Error loading sections:', error);
       setAvailableSections([]);
+      setDebugInfo(`Error: ${error}`);
     } finally {
       setLoadingSections(false);
     }
@@ -447,6 +475,8 @@ const MyChildren: React.FC = () => {
                           return grade.name || 'Unknown Grade';
                         };
                         
+                        console.log('🎯 Grade option:', { id: grade.id, name: grade.name, sectionsCount: grade.sections?.length || 0 });
+                        
                         return (
                           <option key={grade.id} value={grade.id}>
                             {getGradeDisplayName()}
@@ -494,6 +524,14 @@ const MyChildren: React.FC = () => {
                           return section.name || 'Unknown Section';
                         };
                         
+                        console.log('📚 Section option:', { 
+                          id: section.id, 
+                          name: section.name, 
+                          sectionName: section.sectionName, 
+                          gradeLevel: section.gradeLevel,
+                          displayName: getSectionDisplayName()
+                        });
+                        
                         return (
                           <option key={section.id} value={section.id}>
                             {getSectionDisplayName()}
@@ -502,7 +540,21 @@ const MyChildren: React.FC = () => {
                       })}
                     </select>
                     {requestData.gradeLevel && !loadingSections && availableSections.length === 0 && (
-                      <p className="text-xs text-gray-500 mt-1">No sections found for this grade level.</p>
+                      <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
+                        <p className="text-yellow-800 font-medium">No sections found for this grade level.</p>
+                        <p className="text-yellow-700 mt-1">Debug info: {debugInfo}</p>
+                        <button 
+                          onClick={() => {
+                            console.log('🔄 Manual refresh triggered');
+                            console.log('Current availableGrades:', availableGrades);
+                            console.log('Current requestData.gradeLevel:', requestData.gradeLevel);
+                            fetchSectionsForGrade(requestData.gradeLevel);
+                          }}
+                          className="mt-1 text-blue-600 hover:text-blue-800 underline"
+                        >
+                          Refresh sections
+                        </button>
+                      </div>
                     )}
                   </div>
                   

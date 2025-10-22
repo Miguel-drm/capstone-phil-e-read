@@ -155,6 +155,52 @@ class NotificationService {
     }
   }
 
+  // Get rejected link requests for a teacher
+  async getRejectedLinkRequests(teacherId: string): Promise<LinkRequest[]> {
+    try {
+      // Try with index first
+      const q = query(
+        collection(db, 'linkRequests'),
+        where('teacherId', '==', teacherId),
+        where('status', '==', 'rejected'),
+        orderBy('reviewedAt', 'desc')
+      );
+      
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as LinkRequest[];
+    } catch (error) {
+      console.debug('Error fetching rejected link requests (trying fallback):', error);
+      
+      // Fallback: Get all link requests for teacher and filter client-side
+      try {
+        const fallbackQuery = query(
+          collection(db, 'linkRequests'),
+          where('teacherId', '==', teacherId),
+          where('status', '==', 'rejected')
+        );
+        
+        const snapshot = await getDocs(fallbackQuery);
+        const requests = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as LinkRequest[];
+        
+        // Sort client-side by reviewedAt or createdAt
+        return requests.sort((a, b) => {
+          const aTime = a.reviewedAt?.toMillis() || a.createdAt.toMillis();
+          const bTime = b.reviewedAt?.toMillis() || b.createdAt.toMillis();
+          return bTime - aTime;
+        });
+      } catch (fallbackError) {
+        console.debug('Fallback query also failed:', fallbackError);
+        return [];
+      }
+    }
+  }
+
   // Get link requests for a parent
   async getParentLinkRequests(parentId: string): Promise<LinkRequest[]> {
     try {
