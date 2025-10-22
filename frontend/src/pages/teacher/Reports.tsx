@@ -6,6 +6,8 @@ import { resultService } from '../../services/resultsService';
 import { getUserProfile } from '../../services/authService';
 // import { gradeService } from '../../services/gradeService';
 import { formatDateHuman } from '@/utils/date';
+import { collection, addDoc, serverTimestamp, getDocs, query, where } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 
 interface ISRObservation {
   wordByWord: boolean;
@@ -28,6 +30,90 @@ interface ISRData {
 
 const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ setIsHeaderDarkened }) => {
   const { currentUser } = useAuth();
+
+  // Helper function to get grade and section from classGrades collection
+  const getGradeAndSectionFromClassGrades = async (className: string) => {
+    console.log(`🔍 [DEBUG] getGradeAndSectionFromClassGrades called with className: "${className}"`);
+    
+    if (!className) {
+      console.log('⚠️ [DEBUG] className is empty, returning N/A');
+      return { grade: 'N/A', section: 'N/A' };
+    }
+    
+    try {
+      // First, let's see ALL documents in classGrades to understand the structure
+      const classGradesRef = collection(db, 'classGrades');
+      const allDocsQuery = query(classGradesRef);
+      const allSnapshot = await getDocs(allDocsQuery);
+      console.log(`🔍 [DEBUG] All documents in classGrades: ${allSnapshot.size} total`);
+      
+      allSnapshot.docs.forEach((doc, index) => {
+        const data = doc.data();
+        console.log(`📄 [DEBUG] Document ${index + 1}:`, {
+          id: doc.id,
+          ...data // Show all fields
+        });
+      });
+      
+      // Now try to find the specific class
+      const q = query(classGradesRef, where('name', '==', className));
+      console.log(`🔍 [DEBUG] Querying classGrades for name: "${className}"`);
+      
+      const snapshot = await getDocs(q);
+      console.log(`🔍 [DEBUG] Query result: ${snapshot.size} documents found`);
+      
+      if (!snapshot.empty) {
+        const classData = snapshot.docs[0].data();
+        console.log('✅ [DEBUG] Found class data:', classData);
+        
+        // Try different field names that might exist
+        const grade = classData.gradeLevel?.toString() || 
+                     classData.grade?.toString() || 
+                     classData.level?.toString() || 
+                     'N/A';
+        const section = classData.section || 
+                       classData.sectionName || 
+                       classData.classSection || 
+                       'N/A';
+        
+        console.log(`✅ [DEBUG] Extracted - Grade: "${grade}", Section: "${section}"`);
+        
+        return { grade, section };
+      }
+      
+      console.log(`❌ [DEBUG] No class found in classGrades for name: "${className}"`);
+      
+      // If not found, try to parse from className as fallback
+      const gradeMatch = className.match(/Grade\s+(\d+)/i);
+      const sectionMatch = className.match(/-\s*(.+)$/);
+      
+      const parsedGrade = gradeMatch ? gradeMatch[1] : 'N/A';
+      const parsedSection = sectionMatch ? sectionMatch[1].trim() : 'N/A';
+      
+      console.log(`🔄 [DEBUG] Fallback parsing - Grade: "${parsedGrade}", Section: "${parsedSection}"`);
+      
+      return {
+        grade: parsedGrade,
+        section: parsedSection
+      };
+    } catch (error) {
+      console.error(`❌ [DEBUG] Error fetching grade and section for class "${className}":`, error);
+      
+      // Fallback to parsing
+      const gradeMatch = className.match(/Grade\s+(\d+)/i);
+      const sectionMatch = className.match(/-\s*(.+)$/);
+      
+      const parsedGrade = gradeMatch ? gradeMatch[1] : 'N/A';
+      const parsedSection = sectionMatch ? sectionMatch[1].trim() : 'N/A';
+      
+      console.log(`🔄 [DEBUG] Error fallback parsing - Grade: "${parsedGrade}", Section: "${parsedSection}"`);
+      
+      return {
+        grade: parsedGrade,
+        section: parsedSection
+      };
+    }
+  };
   const navigate = useNavigate();
   const [students, setStudents] = useState<Student[]>([]);
   // Removed unused classGrades state after redesign to always show all classes
@@ -58,6 +144,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
   const [classReportModalOpen, setClassReportModalOpen] = useState(false);
   const [classReportLoading, setClassReportLoading] = useState(false);
   const [classReportTargetClass, setClassReportTargetClass] = useState<string | null>(null);
+  const [classISRData, setClassISRData] = useState<any[]>([]);
 
   // Share-to-parent modal state
   const [shareOpen, setShareOpen] = useState(false);
@@ -155,11 +242,35 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     return { latestReading, latestTest };
   };
 
-  const getStudentISRData = (student: Student): ISRData => {
+  const getStudentISRData = (student: Student, className?: string): ISRData => {
     const { latestReading, latestTest } = getLatestResults(student.id || '');
     
+    // Get grade and section from classGrades collection if className is provided
+    let studentGrade = student.grade || 'N/A';
+    let studentSection = 'N/A';
+    
+    if (className) {
+      // Try to extract grade and section from className
+      const gradeMatch = className.match(/Grade\s+(\d+)/i);
+      const sectionMatch = className.match(/-\s*(.+)$/);
+      
+      if (gradeMatch) {
+        studentGrade = gradeMatch[1];
+      }
+      if (sectionMatch) {
+        studentSection = sectionMatch[1].trim();
+      }
+    }
+    
+    // Create enhanced student object with proper grade/section
+    const enhancedStudent = {
+      ...student,
+      grade: studentGrade,
+      section: studentSection
+    };
+    
     return {
-      student,
+      student: enhancedStudent,
       readingLevel: determineReadingLevel(latestReading?.oralReadingScore),
       comprehensionLevel: determineComprehensionLevel(latestTest?.comprehension),
       dateTaken: latestReading?.createdAt || latestTest?.createdAt || new Date().toISOString(),
@@ -439,13 +550,13 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
         setIsrLanguage(latestReading.language || 'Filipino');
       } else {
         // No data available
-        setIsrObservations({
-          wordByWord: false,
-          lacksExpression: false,
-          hardlyAudible: false,
-          disregardsPunctuation: false,
-          pointsToWords: false,
-          littleAnalysis: false,
+    setIsrObservations({
+      wordByWord: false,
+      lacksExpression: false,
+      hardlyAudible: false,
+      disregardsPunctuation: false,
+      pointsToWords: false,
+      littleAnalysis: false,
           otherObservations: 'No assessment data available'
         });
         setIsrLanguage('Filipino'); // Default language
@@ -486,7 +597,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
       schoolName = profile?.school || '';
     } catch {}
 
-      const isrData = getStudentISRData(isrStudent);
+      const isrData = getStudentISRData(isrStudent, isrStudent.grade);
       const html = generateISRHTML(isrData, teacherName, schoolName);
 
       const w = window.open('', '_blank');
@@ -499,6 +610,282 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
       handleCloseISRModal();
     } catch (error) {
       console.error('Error generating ISR:', error);
+    } finally {
+      setIsrLoading(false);
+    }
+  };
+
+
+  // Function to submit class report to adminInbox (called from popup window)
+  const submitClassReportToAdmin = async (className?: string) => {
+    try {
+      // Check if classISRData is available
+      if (!classISRData || classISRData.length === 0) {
+        throw new Error('No class ISR data available. Please generate the class report first.');
+      }
+      
+      // Get teacher profile for school/teacher name
+      let teacherName = '';
+      let schoolName = '';
+      let teacherId = '';
+      try {
+        const profile: any = await (getUserProfile() as Promise<any>);
+        teacherName = profile?.displayName || 'Unknown Teacher';
+        schoolName = profile?.school || 'Unknown School';
+        teacherId = currentUser?.uid || '';
+      } catch (profileError) {
+        console.error('Error loading teacher profile:', profileError);
+        teacherName = 'Unknown Teacher';
+        schoolName = 'Unknown School';
+        teacherId = currentUser?.uid || '';
+      }
+
+      // Get grade and section from classGrades collection
+      console.log(`🔍 [DEBUG] submitClassReportToAdmin: className parameter: "${className}"`);
+      console.log(`🔍 [DEBUG] submitClassReportToAdmin: classReportTargetClass state: "${classReportTargetClass}"`);
+      
+      // Use className parameter first, then fallback to state, then extract from data
+      let targetClassName = className || classReportTargetClass;
+      
+      if (!targetClassName || targetClassName.trim() === '') {
+        // Try to extract class name from the first student's data
+        if (classISRData.length > 0 && classISRData[0].student) {
+          const firstStudent = classISRData[0].student;
+          // Try to reconstruct class name from student data
+          if (firstStudent.grade && firstStudent.section) {
+            targetClassName = `Grade ${firstStudent.grade} - ${firstStudent.section}`;
+            console.log(`🔍 [DEBUG] Reconstructed class name from student data: "${targetClassName}"`);
+          }
+        }
+        
+        if (!targetClassName || targetClassName.trim() === '') {
+          throw new Error('Class name is not set. Please generate the class report first.');
+        }
+      }
+      
+      console.log(`🔍 [DEBUG] Using targetClassName: "${targetClassName}"`);
+      
+      const { grade, section } = await getGradeAndSectionFromClassGrades(targetClassName);
+      console.log(`🔍 [DEBUG] submitClassReportToAdmin: Fetched Grade: "${grade}", Section: "${section}"`);
+      
+      if (grade === 'N/A' || section === 'N/A') {
+        console.warn(`⚠️ [DEBUG] Grade or section is N/A. Class: "${targetClassName}", Grade: "${grade}", Section: "${section}"`);
+      }
+      
+      // Get class report data
+      const classReportData = {
+        // Core notification fields
+        title: `Class ISR Report - Grade ${grade}, Section ${section}`,
+        message: `Class Individual Summary Record (ISR) has been submitted for Grade ${grade}, Section ${section} by ${teacherName}. This report contains data for ${classISRData.length} students.`,
+        type: 'teacher_report',
+        recipientId: 'admin',
+        senderId: teacherId || 'unknown',
+        senderRole: 'teacher',
+        senderName: teacherName || 'Unknown Teacher',
+        isRead: false,
+        isArchived: false,
+        priority: 'medium',
+        category: 'teacher_reports',
+        
+        // Class report-specific data
+        data: {
+          reportType: 'class_isr',
+          className: targetClassName || 'Unknown Class',
+          grade: grade,
+          section: section,
+          teacherId: teacherId || 'unknown',
+          teacherName: teacherName || 'Unknown Teacher',
+          schoolName: schoolName || 'Unknown School',
+          studentCount: classISRData.length,
+          students: classISRData.map(isrData => ({
+            studentId: isrData.student.id || 'unknown',
+            studentName: isrData.student.name || 'Unknown Student',
+            grade: isrData.student.grade || grade,
+            section: (isrData.student as any).section || section,
+            readingLevel: isrData.readingLevel || 'N/A',
+            comprehensionLevel: isrData.comprehensionLevel || 'N/A',
+            language: isrData.language || 'Filipino',
+            observations: isrData.observations || {
+              wordByWord: false,
+              lacksExpression: false,
+              hardlyAudible: false,
+              disregardsPunctuation: false,
+              pointsToWords: false,
+              littleAnalysis: false,
+              otherObservations: ''
+            }
+          })),
+          reportDate: new Date().toISOString(),
+          status: 'submitted'
+        }
+      };
+
+      // Clean the data to remove undefined values
+      const cleanData = (obj: any): any => {
+        if (obj === null || obj === undefined) return null;
+        if (typeof obj !== 'object') return obj;
+        if (Array.isArray(obj)) {
+          return obj.map(cleanData).filter(item => item !== undefined);
+        }
+        const cleaned: any = {};
+        for (const [key, value] of Object.entries(obj)) {
+          if (value !== undefined) {
+            cleaned[key] = cleanData(value);
+          }
+        }
+        return cleaned;
+      };
+
+      const cleanedReportData = cleanData(classReportData);
+
+      // Store in adminInbox collection
+      const docRef = await addDoc(collection(db, 'adminInbox'), {
+        ...cleanedReportData,
+        createdAt: serverTimestamp()
+      });
+      
+      return docRef.id;
+      
+    } catch (error) {
+      console.error('Error submitting class report to admin:', error);
+      throw error;
+    }
+  };
+
+  // Make function available globally for popup window
+  (window as any).submitClassReportToAdmin = submitClassReportToAdmin;
+
+  // Test function to check adminInbox collection (for debugging)
+  const testAdminInboxCollection = async () => {
+    try {
+      console.log('🔍 Testing adminInbox collection...');
+      const { collection, getDocs } = await import('firebase/firestore');
+      const { db } = await import('../../config/firebase');
+      
+      const snapshot = await getDocs(collection(db, 'adminInbox'));
+      console.log('🔍 AdminInbox collection size:', snapshot.size);
+      
+      const docs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      console.log('🔍 AdminInbox documents:', docs);
+      return docs;
+    } catch (error) {
+      console.error('❌ Error testing adminInbox:', error);
+      return [];
+    }
+  };
+
+  // Make test function available globally
+  (window as any).testAdminInboxCollection = testAdminInboxCollection;
+
+  const handleSubmitReportToAdmin = async () => {
+    if (!isrStudent) {
+      console.error('No student selected for report submission');
+      return;
+    }
+    
+    setIsrLoading(true);
+    try {
+      // Get teacher profile for school/teacher name
+      let teacherName = '';
+      let schoolName = '';
+      let teacherId = '';
+      try {
+        const profile: any = await (getUserProfile() as Promise<any>);
+        teacherName = profile?.displayName || 'Unknown Teacher';
+        schoolName = profile?.school || 'Unknown School';
+        teacherId = currentUser?.uid || '';
+      } catch (profileError) {
+        console.error('Error loading teacher profile:', profileError);
+        teacherName = 'Unknown Teacher';
+        schoolName = 'Unknown School';
+        teacherId = currentUser?.uid || '';
+      }
+
+      // Get grade and section from classGrades collection using student's grade field
+      console.log(`🔍 [DEBUG] handleSubmitReportToAdmin: isrStudent.grade: "${isrStudent.grade}"`);
+      const { grade: studentGrade, section: studentSection } = await getGradeAndSectionFromClassGrades(isrStudent.grade);
+      console.log(`🔍 [DEBUG] handleSubmitReportToAdmin: Fetched Student Grade: "${studentGrade}", Student Section: "${studentSection}"`);
+
+      // Create report data for adminInbox
+      const reportData = {
+        // Core notification fields
+        title: `ISR Report - ${isrStudent.name} (Grade ${studentGrade}, Section ${studentSection})`,
+        message: `Individual Summary Record (ISR) has been submitted for ${isrStudent.name} - Grade ${studentGrade}, Section ${studentSection} by ${teacherName}. Please review the report for assessment and instructional planning.`,
+        type: 'teacher_report',
+        recipientId: 'admin', // This will match any admin user since we filter by role
+        senderId: teacherId,
+        senderRole: 'teacher',
+        senderName: teacherName,
+        isRead: false,
+        isArchived: false,
+        priority: 'medium',
+        category: 'teacher_reports',
+        
+        // Report-specific data
+        data: {
+          studentId: isrStudent.id,
+          studentName: isrStudent.name,
+          studentGrade: studentGrade,
+          studentSection: studentSection,
+          teacherId: teacherId,
+          teacherName: teacherName,
+          schoolName: schoolName,
+          reportType: 'individual_isr',
+          language: isrLanguage,
+          observations: isrObservations,
+          readingLevel: isrStudent.readingLevel,
+          reportDate: new Date().toISOString(),
+          status: 'submitted'
+        }
+      };
+
+      console.log('Report data prepared:', reportData);
+      console.log('Firebase config:', { 
+        db: !!db, 
+        collection: !!collection, 
+        addDoc: !!addDoc, 
+        serverTimestamp: !!serverTimestamp 
+      });
+
+      // Store in adminInbox collection
+      const docRef = await addDoc(collection(db, 'adminInbox'), {
+        ...reportData,
+        createdAt: serverTimestamp()
+      });
+      
+      console.log('✅ Document written with ID:', docRef.id);
+      console.log('✅ Report submitted to adminInbox successfully');
+      
+      // Verify the document was created by trying to read it back
+      try {
+        const { doc, getDoc } = await import('firebase/firestore');
+        const docSnap = await getDoc(doc(db, 'adminInbox', docRef.id));
+        if (docSnap.exists()) {
+          console.log('✅ Document verification successful:', docSnap.data());
+        } else {
+          console.warn('⚠️ Document verification failed - document not found');
+        }
+      } catch (verifyError) {
+        console.warn('⚠️ Document verification failed:', verifyError);
+      }
+      
+      // Close modal after successful submission
+      handleCloseISRModal();
+      
+      // Show success message
+      alert(`Report submitted to admin successfully! Document ID: ${docRef.id}`);
+      
+    } catch (error) {
+      console.error('❌ Error submitting report to admin:', error);
+      console.error('Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      alert(`Error submitting report: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsrLoading(false);
     }
@@ -517,23 +904,47 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
       } catch {}
 
       const target = classReportTargetClass;
+      console.log(`🔍 [DEBUG] handleGenerateClassISR: classReportTargetClass = "${classReportTargetClass}"`);
+      console.log(`🔍 [DEBUG] handleGenerateClassISR: target = "${target}"`);
+      console.log(`🔍 [DEBUG] handleGenerateClassISR: studentsByClass keys:`, Object.keys(studentsByClass));
+      console.log(`🔍 [DEBUG] handleGenerateClassISR: studentsByClass[target] =`, target ? studentsByClass[target] : 'No target class');
+      
+      // Debug the studentsByClass structure
+      Object.keys(studentsByClass).forEach(key => {
+        console.log(`🔍 [DEBUG] Class "${key}" has ${studentsByClass[key].length} students:`, studentsByClass[key].map(s => ({
+          name: s.name,
+          grade: s.grade,
+          id: s.id
+        })));
+      });
+      
       const sourceStudents = target ? (studentsByClass[target] || []) : students;
-      const classISRData = sourceStudents.map(student => getStudentISRData(student));
+      console.log(`🔍 [DEBUG] handleGenerateClassISR: sourceStudents count = ${sourceStudents.length}`);
+      
+      const classISRData = sourceStudents.map(student => {
+        const isrData = getStudentISRData(student, target || undefined);
+        console.log(`🔍 [DEBUG] Student ISR Data for ${student.name}:`, {
+          studentName: student.name,
+          studentGrade: student.grade,
+          studentClass: target,
+          isrGrade: isrData.student.grade,
+          isrSection: (isrData.student as any).section || 'N/A'
+        });
+        return isrData;
+      });
+      
+      console.log(`🔍 [DEBUG] Final classISRData:`, classISRData);
+      
+      // Store classISRData in state for use by submitClassReportToAdmin
+      // Also store the class name for reference
+      setClassISRData(classISRData);
+      
+      // Store the class name in a way that can be accessed by submitClassReportToAdmin
+      console.log(`🔍 [DEBUG] Storing classISRData with ${classISRData.length} students for class: "${target}"`);
       
       // Generate combined HTML for all students in class
       const escapeAttr = (v: any) => String(v ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
       const reportTitleText = target ? `Class ISR Report - ${target}` : 'All Classes ISR Report';
-      const mailSubject = encodeURIComponent(reportTitleText);
-      const mailBodyLines = [
-        `School: ${schoolName}`,
-        `Teacher: ${teacherName}`,
-        `Class: ${target || 'All Classes'}`,
-        `Date: ${formatDateHuman(new Date())}`,
-        '',
-        'Please see the attached/printed ISR summary.'
-      ];
-      const mailBody = encodeURIComponent(mailBodyLines.join('\n'));
-      const mailtoHref = `mailto:?subject=${mailSubject}&body=${mailBody}`;
       const combinedHTML = `
       <!doctype html>
       <html lang="en">
@@ -790,8 +1201,26 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
             
             <div class="actions no-print">
               <button id="printBtn" class="btn" onclick="window.print()">Print Class Report</button>
-              <a class="btn btn-secondary" href="${mailtoHref}">Submit Report</a>
+              <button id="submitBtn" class="btn btn-secondary" onclick="submitClassReport()">Submit Report</button>
             </div>
+            
+            <script>
+              function submitClassReport() {
+                // Send message to parent window to submit the class report
+                if (window.opener && window.opener.submitClassReportToAdmin) {
+                  // Pass the class name to the parent window function
+                  const className = '${escapeAttr(target || '')}';
+                  window.opener.submitClassReportToAdmin(className);
+                  alert('Class report submitted to admin successfully!');
+                  const submitBtn = document.getElementById('submitBtn');
+                  submitBtn.textContent = 'Submitted ✓';
+                  submitBtn.style.background = '#28A745';
+                  submitBtn.disabled = true;
+                } else {
+                  alert('Error: Unable to submit report. Please try again.');
+                }
+              }
+            </script>
         </body>
       </html>
     `;
@@ -1013,7 +1442,21 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                             <td className="px-3 sm:px-6 py-3">
                               <div className="flex items-center justify-end gap-2">
                                   <button
-                                    onClick={() => { setClassReportTargetClass(className); setClassReportModalOpen(true); }}
+                                    onClick={() => { 
+                                      console.log(`🔍 [DEBUG] Button clicked for className: "${className}"`);
+                                      console.log(`🔍 [DEBUG] className type: ${typeof className}, length: ${className?.length}`);
+                                      console.log(`🔍 [DEBUG] Current classReportTargetClass: "${classReportTargetClass}"`);
+                                      
+                                      // Ensure we set the class name correctly
+                                      if (className && className.trim()) {
+                                        setClassReportTargetClass(className.trim());
+                                        console.log(`🔍 [DEBUG] Set classReportTargetClass to: "${className.trim()}"`);
+                                      } else {
+                                        console.error(`❌ [DEBUG] Invalid className: "${className}"`);
+                                      }
+                                      
+                                      setClassReportModalOpen(true); 
+                                    }}
                                     className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded shadow-sm"
                                   aria-label={`Generate ISR for class ${className}`}
                                   >
@@ -1244,6 +1687,23 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                         <>
                       <i className="fas fa-file-alt mr-2"></i>
                       Generate ISR Report
+                        </>
+                      )}
+                </button>
+                <button
+                  onClick={handleSubmitReportToAdmin}
+                  disabled={isrLoading}
+                  className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white disabled:bg-gray-400"
+                >
+                  {isrLoading ? (
+                    <>
+                      <i className="fas fa-spinner fa-spin mr-2"></i>
+                      Submitting...
+                    </>
+                  ) : (
+                    <>
+                      <i className="fas fa-paper-plane mr-2"></i>
+                      Submit Report
                         </>
                       )}
                 </button>

@@ -65,8 +65,10 @@ const Header: React.FC<HeaderProps> = ({
 
     const fetchNotificationCount = async () => {
       try {
-        const count = await notificationService.getUnreadNotificationCount(currentUser.uid);
-        setUnreadNotificationCount(count);
+        // Use new inbox system based on user role
+        const messages = await notificationService.getInboxMessages(currentUser.uid, userRole || '');
+        const unreadCount = messages.filter(msg => !msg.isRead).length;
+        setUnreadNotificationCount(unreadCount);
       } catch (error) {
         console.debug('Error fetching notification count:', error);
         // Set to 0 if there's an error (permissions issue)
@@ -79,8 +81,8 @@ const Header: React.FC<HeaderProps> = ({
     // Set up real-time listener for notifications (with error handling)
     let unsubscribe: (() => void) | null = null;
     try {
-      unsubscribe = notificationService.subscribeToNotifications(currentUser.uid, (notifications) => {
-        const unreadCount = notifications.filter(n => !n.isRead).length;
+      unsubscribe = notificationService.subscribeToInboxMessages(currentUser.uid, userRole || '', (messages) => {
+        const unreadCount = messages.filter(msg => !msg.isRead).length;
         setUnreadNotificationCount(unreadCount);
       });
     } catch (error) {

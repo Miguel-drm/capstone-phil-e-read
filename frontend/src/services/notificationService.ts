@@ -50,7 +50,7 @@ export interface Notification {
 
 export interface InboxMessage {
   id: string;
-  type: 'link_request' | 'link_approved' | 'link_rejected' | 'system' | 'alert' | 'info' | 'announcement' | 'parent_report';
+  type: 'link_request' | 'link_approved' | 'link_rejected' | 'system' | 'alert' | 'info' | 'announcement' | 'parent_report' | 'teacher_report';
   title: string;
   message: string;
   recipientId: string;
@@ -60,7 +60,7 @@ export interface InboxMessage {
   isRead: boolean;
   isArchived: boolean;
   priority: 'low' | 'medium' | 'high' | 'urgent';
-  category: 'link_requests' | 'system_updates' | 'alerts' | 'announcements' | 'general' | 'parent_reports';
+  category: 'link_requests' | 'system_updates' | 'alerts' | 'announcements' | 'general' | 'parent_reports' | 'teacher_reports';
   createdAt: Timestamp;
   readAt?: Timestamp;
   archivedAt?: Timestamp;
@@ -565,60 +565,52 @@ class NotificationService {
   async getInboxMessages(userId: string, userRole: string, includeArchived: boolean = false): Promise<InboxMessage[]> {
     try {
       const collectionName = this.getInboxCollection(userRole);
-      console.log(`Fetching inbox messages from ${collectionName} for user ${userId}, includeArchived: ${includeArchived}`);
       
-      let q = query(
-        collection(db, collectionName),
-        where('recipientId', '==', userId),
-        orderBy('createdAt', 'desc')
-      );
-
-      if (!includeArchived) {
-        q = query(
-          collection(db, collectionName),
-          where('recipientId', '==', userId),
-          where('isArchived', '==', false),
-          orderBy('createdAt', 'desc')
-        );
-      }
-
+      // Simplified query to avoid index requirements - get all messages and filter client-side
+      const q = query(collection(db, collectionName), orderBy('createdAt', 'desc'));
       const snapshot = await getDocs(q);
-      const messages = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as InboxMessage[];
       
-      console.log(`Found ${messages.length} messages in ${collectionName}`);
-      return messages;
-    } catch (error) {
-      console.debug('Error fetching inbox messages (trying fallback):', error);
-      
-      // Fallback: Get all messages and filter client-side
-      try {
-        const fallbackQuery = query(
-          collection(db, this.getInboxCollection(userRole)),
-          where('recipientId', '==', userId)
-        );
+      const allMessages = snapshot.docs.map(doc => {
+        const docData = doc.data();
         
-        const snapshot = await getDocs(fallbackQuery);
-        let messages = snapshot.docs.map(doc => ({
+        // Validate and fix the data structure
+        const message: InboxMessage = {
           id: doc.id,
-          ...doc.data()
-        })) as InboxMessage[];
+          type: docData.type || 'teacher_report',
+          title: docData.title || 'Untitled',
+          message: docData.message || '',
+          recipientId: docData.recipientId || 'admin',
+          senderId: docData.senderId || '',
+          senderRole: docData.senderRole || 'teacher',
+          senderName: docData.senderName || 'Unknown',
+          isRead: docData.isRead || false,
+          isArchived: docData.isArchived || false,
+          priority: docData.priority || 'medium',
+          category: docData.category || 'teacher_reports',
+          createdAt: docData.createdAt || new Date(),
+          data: docData.data || {}
+        };
         
-        // Filter and sort client-side
-        if (!includeArchived) {
-          messages = messages.filter(msg => !msg.isArchived);
-        }
-        
-        console.log(`Fallback found ${messages.length} messages`);
-        return messages.sort((a, b) => 
-          b.createdAt.toMillis() - a.createdAt.toMillis()
-        );
-      } catch (fallbackError) {
-        console.debug('Fallback query also failed:', fallbackError);
-        return [];
+        return message;
+      });
+      
+      // Client-side filtering based on role and archived status
+      let filteredMessages = allMessages;
+      
+      if (userRole !== 'admin') {
+        // For non-admin roles, filter by recipientId
+        filteredMessages = filteredMessages.filter(msg => msg.recipientId === userId);
       }
+      
+      if (!includeArchived) {
+        // Filter out archived messages
+        filteredMessages = filteredMessages.filter(msg => !msg.isArchived);
+      }
+      
+      return filteredMessages;
+    } catch (error) {
+      console.error('Error fetching inbox messages:', error);
+      return [];
     }
   }
 
@@ -678,48 +670,38 @@ class NotificationService {
       const collectionName = this.getInboxCollection(userRole);
       console.log(`Fetching archived messages from ${collectionName} for user ${userId}`);
       
-      const q = query(
-        collection(db, collectionName),
-        where('recipientId', '==', userId),
-        where('isArchived', '==', true),
-        orderBy('createdAt', 'desc')
-      );
-
+      // Simplified query to avoid index requirements - get all messages and filter client-side
+      const q = query(collection(db, collectionName), orderBy('createdAt', 'desc'));
       const snapshot = await getDocs(q);
-      const messages = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as InboxMessage[];
       
-      console.log(`Found ${messages.length} archived messages in ${collectionName}`);
-      return messages;
-    } catch (error) {
-      console.debug('Error fetching archived messages (trying fallback):', error);
-      
-      // Fallback: Get all messages and filter client-side
-      try {
-        const fallbackQuery = query(
-          collection(db, this.getInboxCollection(userRole)),
-          where('recipientId', '==', userId)
-        );
-        
-        const snapshot = await getDocs(fallbackQuery);
-        let messages = snapshot.docs.map(doc => ({
+      const allMessages = snapshot.docs.map(doc => {
+        const docData = doc.data();
+        const message: InboxMessage = {
           id: doc.id,
-          ...doc.data()
-        })) as InboxMessage[];
-        
-        // Filter for archived messages and sort client-side
-        messages = messages.filter(msg => msg.isArchived);
-        
-        console.log(`Fallback found ${messages.length} archived messages`);
-        return messages.sort((a, b) => 
-          b.createdAt.toMillis() - a.createdAt.toMillis()
-        );
-      } catch (fallbackError) {
-        console.debug('Fallback query also failed:', fallbackError);
-        return [];
-      }
+          type: docData.type || 'teacher_report',
+          title: docData.title || 'Untitled',
+          message: docData.message || '',
+          recipientId: docData.recipientId || 'admin',
+          senderId: docData.senderId || '',
+          senderRole: docData.senderRole || 'teacher',
+          senderName: docData.senderName || 'Unknown',
+          isRead: docData.isRead || false,
+          isArchived: docData.isArchived || false,
+          priority: docData.priority || 'medium',
+          category: docData.category || 'teacher_reports',
+          createdAt: docData.createdAt || new Date(),
+          data: docData.data || {}
+        };
+        return message;
+      });
+      
+      // Filter for archived messages
+      const archivedMessages = allMessages.filter(msg => msg.isArchived);
+      console.log(`Found ${archivedMessages.length} archived messages`);
+      return archivedMessages;
+    } catch (error) {
+      console.error('Error fetching archived messages:', error);
+      return [];
     }
   }
 
@@ -732,32 +714,52 @@ class NotificationService {
   ) {
     try {
       const collectionName = this.getInboxCollection(userRole);
-      let q = query(
-        collection(db, collectionName),
-        where('recipientId', '==', userId),
-        orderBy('createdAt', 'desc')
-      );
-
-      if (!includeArchived) {
-        q = query(
-          collection(db, collectionName),
-          where('recipientId', '==', userId),
-          where('isArchived', '==', false),
-          orderBy('createdAt', 'desc')
-        );
-      } else {
-        // When includeArchived is true, we want only archived messages
-        q = query(
-          collection(db, collectionName),
-          where('recipientId', '==', userId),
-          where('isArchived', '==', true),
-          orderBy('createdAt', 'desc')
-        );
-      }
-
-      const safeCallback = createSafeFirestoreListener<InboxMessage[]>(callback);
+      
+      // Simplified query to avoid index requirements - get all messages and filter client-side
+      const q = query(collection(db, collectionName), orderBy('createdAt', 'desc'));
+      
+      const safeCallback = (snapshot: any) => {
+        const allMessages = snapshot.docs.map((doc: any) => {
+          const docData = doc.data();
+          
+          // Validate and fix the data structure
+          const message: InboxMessage = {
+            id: doc.id,
+            type: docData.type || 'teacher_report',
+            title: docData.title || 'Untitled',
+            message: docData.message || '',
+            recipientId: docData.recipientId || 'admin',
+            senderId: docData.senderId || '',
+            senderRole: docData.senderRole || 'teacher',
+            senderName: docData.senderName || 'Unknown',
+            isRead: docData.isRead || false,
+            isArchived: docData.isArchived || false,
+            priority: docData.priority || 'medium',
+            category: docData.category || 'teacher_reports',
+            createdAt: docData.createdAt || new Date(),
+            data: docData.data || {}
+          };
+          
+          return message;
+        });
+        
+        // Client-side filtering based on role and archived status
+        let filteredMessages = allMessages;
+        
+        if (userRole !== 'admin') {
+          // For non-admin roles, filter by recipientId
+          filteredMessages = filteredMessages.filter((msg: InboxMessage) => msg.recipientId === userId);
+        }
+        
+        if (!includeArchived) {
+          // Filter out archived messages
+          filteredMessages = filteredMessages.filter((msg: InboxMessage) => !msg.isArchived);
+        }
+        
+        callback(filteredMessages);
+      };
+      
       const safeErrorHandler = createSafeFirestoreErrorHandler();
-
       return onSnapshot(q, safeCallback, safeErrorHandler);
     } catch (error) {
       console.debug('Error setting up inbox messages listener:', error);

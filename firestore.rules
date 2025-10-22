@@ -236,17 +236,48 @@ service cloud.firestore {
       allow update, delete: if isAuthenticated() && isUserAdmin();
     }
 
+    // Admin Inbox collection rules
+    match /adminInbox/{messageId} {
+      allow read: if isAuthenticated() && isUserAdmin();
+      allow create: if isAuthenticated() && (isUserTeacher() || isUserParent() || isUserAdmin());
+      allow update: if isAuthenticated() && (
+        isUserAdmin() ||
+        (resource.data.senderId == request.auth.uid && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead', 'isArchived']))
+      );
+      allow delete: if isAuthenticated() && isUserAdmin();
+    }
+
     // Teacher Inbox collection rules
     match /teacherInbox/{messageId} {
       allow read: if isAuthenticated() && (
         isUserAdmin() ||
-        (isUserTeacher() && resource.data.teacherId == request.auth.uid) ||
-        (isUserParent() && resource.data.parentId == request.auth.uid)
+        (isUserTeacher() && resource.data.recipientId == request.auth.uid) ||
+        (isUserParent() && resource.data.senderId == request.auth.uid)
       );
-      allow create: if isAuthenticated() && isUserParent() && request.resource.data.parentId == request.auth.uid;
+      allow create: if isAuthenticated() && (isUserParent() || isUserAdmin());
       allow update: if isAuthenticated() && (
         isUserAdmin() ||
-        (isUserTeacher() && resource.data.teacherId == request.auth.uid)
+        (isUserTeacher() && resource.data.recipientId == request.auth.uid) ||
+        (resource.data.senderId == request.auth.uid && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead', 'isArchived']))
+      );
+      allow delete: if isAuthenticated() && isUserAdmin();
+    }
+
+    // Parent Inbox collection rules
+    match /parentInbox/{messageId} {
+      allow read: if isAuthenticated() && (
+        isUserAdmin() ||
+        (isUserParent() && resource.data.recipientId == request.auth.uid) ||
+        (isUserTeacher() && resource.data.senderId == request.auth.uid)
+      );
+      allow create: if isAuthenticated() && (isUserTeacher() || isUserAdmin());
+      allow update: if isAuthenticated() && (
+        isUserAdmin() ||
+        (isUserParent() && resource.data.recipientId == request.auth.uid) ||
+        (resource.data.senderId == request.auth.uid && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead', 'isArchived']))
       );
       allow delete: if isAuthenticated() && isUserAdmin();
     }

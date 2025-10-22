@@ -318,13 +318,13 @@ const ReportsPage: React.FC = () => {
         
         // Additional data for context
         data: {
-          teacherId: child.teacherId,
-          parentId: currentUser.uid,
-          parentEmail: currentUser.email || '',
-          childId: child.id,
-          childName,
-          reportType,
-          subject: subject.trim() || `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report`,
+        teacherId: child.teacherId,
+        parentId: currentUser.uid,
+        parentEmail: currentUser.email || '',
+        childId: child.id,
+        childName,
+        reportType,
+        subject: subject.trim() || `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report`,
           status: 'new',
           parentDisplayName: parentName,
           reportDate: new Date().toISOString()
