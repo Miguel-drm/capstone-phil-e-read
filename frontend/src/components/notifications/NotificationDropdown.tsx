@@ -12,7 +12,12 @@ import {
   InformationCircleIcon,
   DocumentTextIcon,
   ArchiveBoxIcon,
-  EyeIcon
+  EyeIcon,
+  AcademicCapIcon,
+  ChartBarIcon,
+  UsersIcon,
+  CalendarIcon,
+  BuildingOfficeIcon
 } from '@heroicons/react/24/outline';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -32,40 +37,29 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
   const [activeTab, setActiveTab] = useState<'inbox' | 'legacy' | 'archived'>('inbox');
   const [archivedMessages, setArchivedMessages] = useState<InboxMessage[]>([]);
 
+
   useEffect(() => {
     if (!currentUser?.uid || !isOpen) return;
 
     const fetchData = async () => {
       setLoading(true);
       try {
-        // Fetch notifications with error handling
-        const userNotifications = await notificationService.getNotifications(currentUser.uid).catch(error => {
-          console.debug('Error fetching notifications:', error);
-          return [];
-        });
-        setNotifications(userNotifications);
-        
         // Fetch new inbox messages
-        console.log('Fetching inbox messages for user:', currentUser.uid, 'role:', userRole);
         const messages = await notificationService.getInboxMessages(currentUser.uid, userRole || '').catch(error => {
-          console.debug('Error fetching inbox messages:', error);
+          console.error('Error fetching inbox messages:', error);
           return [];
         });
-        console.log('Retrieved inbox messages:', messages);
         setInboxMessages(messages);
         
         // Calculate unread count from inbox messages
         const unreadMessages = messages.filter(msg => !msg.isRead);
         setUnreadCount(unreadMessages.length);
-        console.log('Unread count:', unreadMessages.length);
 
         // Fetch archived messages
-        console.log('Fetching archived messages for user:', currentUser.uid, 'role:', userRole);
         const archived = await notificationService.getArchivedMessages(currentUser.uid, userRole || '').catch(error => {
           console.debug('Error fetching archived messages:', error);
           return [];
         });
-        console.log('Retrieved archived messages:', archived);
         setArchivedMessages(archived);
 
         // If user is a teacher, also fetch link requests
@@ -166,8 +160,12 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
       if (activeTab === 'inbox') {
         await notificationService.markAllMessagesAsRead(currentUser?.uid || '', userRole || '');
         setInboxMessages(prev => prev.map(m => ({ ...m, isRead: true })));
+      } else if (activeTab === 'archived') {
+        // Archived messages are read-only, no action needed
+        return;
       } else {
-        await notificationService.markAllNotificationsAsRead(currentUser?.uid || '');
+        // Legacy notifications - use new inbox system
+        await notificationService.markAllMessagesAsRead(currentUser?.uid || '', userRole || '');
         setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
       }
       setUnreadCount(0);
@@ -195,6 +193,8 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
         return <XMarkIcon className="h-5 w-5 text-red-500" />;
       case 'parent_report':
         return <DocumentTextIcon className="h-5 w-5 text-indigo-500" />;
+      case 'teacher_report':
+        return <ChartBarIcon className="h-5 w-5 text-emerald-500" />;
       default:
         return <InformationCircleIcon className="h-5 w-5 text-gray-500" />;
     }
@@ -210,15 +210,180 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
         return 'bg-red-50 border-red-200';
       case 'parent_report':
         return 'bg-indigo-50 border-indigo-200';
+      case 'teacher_report':
+        return 'bg-emerald-50 border-emerald-200';
       default:
         return 'bg-gray-50 border-gray-200';
     }
   };
 
+  // Enhanced component for teacher reports
+  const TeacherReportCard = ({ message }: { message: InboxMessage }) => {
+    const reportData = message.data;
+    const isClassReport = reportData?.reportType === 'class_isr';
+    const isIndividualReport = reportData?.reportType === 'individual_isr';
+    
+    return (
+      <div className={`p-4 rounded-lg border cursor-pointer transition-all duration-200 hover:shadow-md ${
+        message.isRead 
+          ? 'bg-gray-50 border-gray-200' 
+          : 'bg-emerald-50 border-emerald-200 shadow-sm'
+      }`}
+      onClick={() => !message.isRead && handleMarkMessageAsRead(message.id)}
+      >
+        <div className="flex items-start gap-3">
+          <div className="flex-shrink-0 mt-1">
+            <div className="p-2 rounded-lg bg-emerald-100">
+              <ChartBarIcon className="h-5 w-5 text-emerald-600" />
+            </div>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between mb-2">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <h4 className={`text-sm font-semibold ${
+                    message.isRead ? 'text-gray-700' : 'text-gray-900'
+                  }`}>
+                    {message.title}
+                  </h4>
+                  {!message.isRead && (
+                    <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                  )}
+                </div>
+                
+                {/* Report Type Badge */}
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                    isClassReport 
+                      ? 'bg-blue-100 text-blue-800' 
+                      : 'bg-purple-100 text-purple-800'
+                  }`}>
+                    {isClassReport ? (
+                      <>
+                        <UsersIcon className="h-3 w-3 mr-1" />
+                        Class Report
+                      </>
+                    ) : (
+                      <>
+                        <AcademicCapIcon className="h-3 w-3 mr-1" />
+                        Individual Report
+                      </>
+                    )}
+                  </span>
+                  
+                  {/* Priority Badge */}
+                  {reportData?.priority && (
+                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                      reportData.priority === 'high' 
+                        ? 'bg-red-100 text-red-800'
+                        : reportData.priority === 'medium'
+                        ? 'bg-yellow-100 text-yellow-800'
+                        : 'bg-green-100 text-green-800'
+                    }`}>
+                      {reportData.priority.toUpperCase()}
+                    </span>
+                  )}
+                </div>
+
+                {/* Report Details */}
+                <div className="space-y-2">
+                  <p className={`text-sm leading-relaxed ${
+                    message.isRead ? 'text-gray-600' : 'text-gray-700'
+                  }`}>
+                    {message.message}
+                  </p>
+                  
+                  {/* Class Information */}
+                  {reportData?.className && (
+                    <div className="grid grid-cols-2 gap-4 text-xs text-gray-600">
+                      <div className="flex items-center gap-1">
+                        <BuildingOfficeIcon className="h-3 w-3" />
+                        <span className="font-medium">Class:</span>
+                        <span className="truncate">{reportData.className}</span>
+                      </div>
+                      {reportData.grade && reportData.section && (
+                        <div className="flex items-center gap-1">
+                          <AcademicCapIcon className="h-3 w-3" />
+                          <span className="font-medium">Grade:</span>
+                          <span>{reportData.grade} - {reportData.section}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Student Count for Class Reports */}
+                  {isClassReport && reportData?.students && (
+                    <div className="flex items-center gap-1 text-xs text-emerald-600">
+                      <UsersIcon className="h-3 w-3" />
+                      <span className="font-medium">{reportData.students.length} students included</span>
+                    </div>
+                  )}
+                  
+                  {/* Teacher Information */}
+                  {reportData?.teacherName && (
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                      <div className="flex items-center gap-1">
+                        <span className="font-medium">Submitted by:</span>
+                        <span>{reportData.teacherName}</span>
+                      </div>
+                      {reportData.schoolName && (
+                        <div className="flex items-center gap-1">
+                          <BuildingOfficeIcon className="h-3 w-3" />
+                          <span>{reportData.schoolName}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              <div className="flex flex-col items-end gap-1 ml-2">
+                <span className="text-xs text-gray-500">
+                  {formatDistanceToNow(message.createdAt.toDate(), { addSuffix: true })}
+                </span>
+                {message.senderName && (
+                  <span className="text-xs text-gray-400">
+                    {message.senderName}
+                  </span>
+                )}
+              </div>
+            </div>
+            
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2 mt-3 pt-2 border-t border-gray-200">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleArchiveMessage(message.id);
+                }}
+                className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 transition-colors"
+              >
+                <ArchiveBoxIcon className="h-3 w-3" />
+                Archive
+              </button>
+              {!message.isRead && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleMarkMessageAsRead(message.id);
+                  }}
+                  className="text-xs text-emerald-600 hover:text-emerald-800 flex items-center gap-1 transition-colors"
+                >
+                  <EyeIcon className="h-3 w-3" />
+                  Mark read
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (!isOpen) return null;
 
   return (
-    <div className="origin-top-right absolute right-0 mt-2 w-96 rounded-lg bg-white shadow-lg ring-1 ring-black ring-opacity-5 z-50">
+    <div className="origin-top-right absolute right-0 mt-2 w-[32rem] max-w-[calc(100vw-2rem)] rounded-lg bg-white shadow-lg ring-1 ring-black ring-opacity-5 z-50">
       <div className="p-4">
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
@@ -284,7 +449,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
         </div>
 
         {/* Content */}
-        <div className="max-h-96 overflow-y-auto">
+        <div className="max-h-[28rem] overflow-y-auto">
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -349,6 +514,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                 </div>
               )}
 
+
                   {/* Inbox Messages */}
                   {inboxMessages.length === 0 ? (
                     <div className="text-center py-8">
@@ -356,76 +522,80 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                       <p className="text-gray-500 text-sm">No messages in your inbox</p>
                     </div>
                   ) : (
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       {inboxMessages.map((message) => (
-                        <div
-                          key={message.id}
-                          className={`p-3 rounded-lg border cursor-pointer transition-colors ${
-                            message.isRead 
-                              ? 'bg-gray-50 border-gray-200' 
-                              : getNotificationColor(message.type)
-                          }`}
-                          onClick={() => !message.isRead && handleMarkMessageAsRead(message.id)}
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className="flex-shrink-0 mt-0.5">
-                              {getNotificationIcon(message.type)}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-start justify-between">
-                                <div className="flex-1">
-                                  <p className={`text-sm font-medium ${
-                                    message.isRead ? 'text-gray-600' : 'text-gray-900'
-                                  }`}>
-                                    {message.title}
-                                  </p>
-                                  <p className={`text-xs mt-1 ${
-                                    message.isRead ? 'text-gray-500' : 'text-gray-700'
-                                  }`}>
-                                    {message.message}
-                                  </p>
-                                  {message.senderName && (
-                                    <p className="text-xs text-gray-500 mt-1">
-                                      From: {message.senderName}
-                                    </p>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-2 ml-2">
-                                  {!message.isRead && (
-                                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                                  )}
-                                  <span className="text-xs text-gray-500">
-                                    {formatDistanceToNow(message.createdAt.toDate(), { addSuffix: true })}
-                                  </span>
-                                </div>
+                        message.type === 'teacher_report' ? (
+                          <TeacherReportCard key={message.id} message={message} />
+                        ) : (
+                          <div
+                            key={message.id}
+                            className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                              message.isRead 
+                                ? 'bg-gray-50 border-gray-200' 
+                                : getNotificationColor(message.type)
+                            }`}
+                            onClick={() => !message.isRead && handleMarkMessageAsRead(message.id)}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="flex-shrink-0 mt-0.5">
+                                {getNotificationIcon(message.type)}
                               </div>
-                              <div className="flex items-center gap-2 mt-2">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleArchiveMessage(message.id);
-                                  }}
-                                  className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
-                                >
-                                  <ArchiveBoxIcon className="h-3 w-3" />
-                                  Archive
-                                </button>
-                                {!message.isRead && (
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <p className={`text-sm font-medium ${
+                                      message.isRead ? 'text-gray-600' : 'text-gray-900'
+                                    }`}>
+                                      {message.title}
+                                    </p>
+                                    <p className={`text-xs mt-1 ${
+                                      message.isRead ? 'text-gray-500' : 'text-gray-700'
+                                    }`}>
+                                      {message.message}
+                                    </p>
+                                    {message.senderName && (
+                                      <p className="text-xs text-gray-500 mt-1">
+                                        From: {message.senderName}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2 ml-2">
+                                    {!message.isRead && (
+                                      <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                                    )}
+                                    <span className="text-xs text-gray-500">
+                                      {formatDistanceToNow(message.createdAt.toDate(), { addSuffix: true })}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 mt-2">
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      handleMarkMessageAsRead(message.id);
+                                      handleArchiveMessage(message.id);
                                     }}
-                                    className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                                    className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
                                   >
-                                    <EyeIcon className="h-3 w-3" />
-                                    Mark read
+                                    <ArchiveBoxIcon className="h-3 w-3" />
+                                    Archive
                                   </button>
-                                )}
+                                  {!message.isRead && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleMarkMessageAsRead(message.id);
+                                      }}
+                                      className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                                    >
+                                      <EyeIcon className="h-3 w-3" />
+                                      Mark read
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </div>
-                        </div>
+                        )
                       ))}
                     </div>
                   )}
@@ -439,51 +609,68 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                       <p className="text-gray-500 text-sm">No archived messages</p>
                     </div>
                   ) : (
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       {archivedMessages.map((message) => (
-                        <div
-                          key={message.id}
-                          className="p-3 rounded-lg border bg-gray-50 border-gray-200 cursor-pointer transition-colors"
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className="flex-shrink-0 mt-0.5">
-                              {getNotificationIcon(message.type)}
+                        message.type === 'teacher_report' ? (
+                          <div key={message.id} className="opacity-75">
+                            <TeacherReportCard message={message} />
+                            <div className="flex items-center gap-2 mt-2 ml-16">
+                              <span className="text-xs text-gray-400 flex items-center gap-1">
+                                <ArchiveBoxIcon className="h-3 w-3" />
+                                Archived
+                              </span>
+                              {message.archivedAt && (
+                                <span className="text-xs text-gray-400">
+                                  {formatDistanceToNow(message.archivedAt.toDate(), { addSuffix: true })}
+                                </span>
+                              )}
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-start justify-between">
-                                <div className="flex-1">
-                                  <p className="text-sm font-medium text-gray-600">
-                                    {message.title}
-                                  </p>
-                                  <p className="text-xs mt-1 text-gray-500">
-                                    {message.message}
-                                  </p>
-                                  {message.senderName && (
-                                    <p className="text-xs text-gray-400 mt-1">
-                                      From: {message.senderName}
+                          </div>
+                        ) : (
+                          <div
+                            key={message.id}
+                            className="p-3 rounded-lg border bg-gray-50 border-gray-200 cursor-pointer transition-colors"
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="flex-shrink-0 mt-0.5">
+                                {getNotificationIcon(message.type)}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <p className="text-sm font-medium text-gray-600">
+                                      {message.title}
                                     </p>
+                                    <p className="text-xs mt-1 text-gray-500">
+                                      {message.message}
+                                    </p>
+                                    {message.senderName && (
+                                      <p className="text-xs text-gray-400 mt-1">
+                                        From: {message.senderName}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2 ml-2">
+                                    <span className="text-xs text-gray-400">
+                                      {formatDistanceToNow(message.createdAt.toDate(), { addSuffix: true })}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 mt-2">
+                                  <span className="text-xs text-gray-400 flex items-center gap-1">
+                                    <ArchiveBoxIcon className="h-3 w-3" />
+                                    Archived
+                                  </span>
+                                  {message.archivedAt && (
+                                    <span className="text-xs text-gray-400">
+                                      {formatDistanceToNow(message.archivedAt.toDate(), { addSuffix: true })}
+                                    </span>
                                   )}
                                 </div>
-                                <div className="flex items-center gap-2 ml-2">
-                                  <span className="text-xs text-gray-400">
-                                    {formatDistanceToNow(message.createdAt.toDate(), { addSuffix: true })}
-                                  </span>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-2 mt-2">
-                                <span className="text-xs text-gray-400 flex items-center gap-1">
-                                  <ArchiveBoxIcon className="h-3 w-3" />
-                                  Archived
-                                </span>
-                                {message.archivedAt && (
-                                  <span className="text-xs text-gray-400">
-                                    {formatDistanceToNow(message.archivedAt.toDate(), { addSuffix: true })}
-                                  </span>
-                                )}
                               </div>
                             </div>
                           </div>
-                        </div>
+                        )
                       ))}
                     </div>
                   )}

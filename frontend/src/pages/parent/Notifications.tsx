@@ -7,7 +7,13 @@ import {
   XCircleIcon,
   ClockIcon,
   UserPlusIcon,
-  InformationCircleIcon
+  InformationCircleIcon,
+  DocumentTextIcon,
+  ExclamationTriangleIcon,
+  AcademicCapIcon,
+  BuildingOfficeIcon,
+  ArchiveBoxIcon,
+  EyeIcon
 } from '@heroicons/react/24/outline';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -24,16 +30,16 @@ const ParentNotifications: React.FC = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [userNotifications, parentRequests] = await Promise.all([
-          notificationService.getNotifications(currentUser.uid),
+        const [inboxMessages, parentRequests] = await Promise.all([
+          notificationService.getInboxMessages(currentUser.uid, 'parent'),
           notificationService.getParentLinkRequests(currentUser.uid)
         ]);
         
-        setNotifications(userNotifications);
+        setNotifications(inboxMessages);
         setLinkRequests(parentRequests);
 
         // If no notifications exist, create a welcome notification
-        if (userNotifications.length === 0) {
+        if (inboxMessages.length === 0) {
           await notificationService.createWelcomeNotification(currentUser.uid);
         }
       } catch (error) {
@@ -52,18 +58,18 @@ const ParentNotifications: React.FC = () => {
     fetchData();
 
     // Set up real-time listeners
-    const unsubscribeNotifications = notificationService.subscribeToNotifications(currentUser.uid, setNotifications);
+    const unsubscribeInbox = notificationService.subscribeToInboxMessages(currentUser.uid, 'parent', setNotifications);
     const unsubscribeRequests = notificationService.subscribeToParentLinkRequests(currentUser.uid, setLinkRequests);
 
     return () => {
-      unsubscribeNotifications();
+      unsubscribeInbox();
       unsubscribeRequests();
     };
   }, [currentUser?.uid]);
 
   const handleMarkAsRead = async (notificationId: string) => {
     try {
-      await notificationService.markNotificationAsRead(notificationId);
+      await notificationService.markMessageAsRead(notificationId, 'parent');
       setNotifications(prev => 
         prev.map(n => n.id === notificationId ? { ...n, isRead: true } : n)
       );
@@ -74,7 +80,7 @@ const ParentNotifications: React.FC = () => {
 
   const handleMarkAllAsRead = async () => {
     try {
-      await notificationService.markAllNotificationsAsRead(currentUser?.uid || '');
+      await notificationService.markAllMessagesAsRead(currentUser?.uid || '', 'parent');
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
     } catch (error) {
       console.error('Error marking all notifications as read:', error);
@@ -89,6 +95,10 @@ const ParentNotifications: React.FC = () => {
         return <CheckCircleIcon className="h-5 w-5 text-green-500" />;
       case 'link_rejected':
         return <XCircleIcon className="h-5 w-5 text-red-500" />;
+      case 'parent_report':
+        return <DocumentTextIcon className="h-5 w-5 text-indigo-500" />;
+      case 'teacher_report':
+        return <DocumentTextIcon className="h-5 w-5 text-emerald-500" />;
       default:
         return <InformationCircleIcon className="h-5 w-5 text-gray-500" />;
     }
@@ -105,6 +115,153 @@ const ParentNotifications: React.FC = () => {
       default:
         return 'bg-gray-100 text-gray-800';
     }
+  };
+
+  const getNotificationColor = (type: string) => {
+    switch (type) {
+      case 'link_request':
+        return 'bg-blue-50 border-blue-200';
+      case 'link_approved':
+        return 'bg-green-50 border-green-200';
+      case 'link_rejected':
+        return 'bg-red-50 border-red-200';
+      case 'parent_report':
+        return 'bg-indigo-50 border-indigo-200';
+      case 'teacher_report':
+        return 'bg-emerald-50 border-emerald-200';
+      default:
+        return 'bg-gray-50 border-gray-200';
+    }
+  };
+
+  // Enhanced component for parent reports
+  const ParentReportCard = ({ notification }: { notification: Notification }) => {
+    const reportData = notification.data;
+    
+    return (
+      <div className={`p-4 rounded-lg border cursor-pointer transition-all duration-200 hover:shadow-md ${
+        notification.isRead 
+          ? 'bg-gray-50 border-gray-200' 
+          : 'bg-indigo-50 border-indigo-200 shadow-sm'
+      }`}
+      onClick={() => !notification.isRead && handleMarkAsRead(notification.id)}
+      >
+        <div className="flex items-start gap-3">
+          <div className="flex-shrink-0 mt-1">
+            <div className="p-2 rounded-lg bg-indigo-100">
+              <DocumentTextIcon className="h-5 w-5 text-indigo-600" />
+            </div>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between mb-2">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <h4 className={`text-sm font-semibold ${
+                    notification.isRead ? 'text-gray-700' : 'text-gray-900'
+                  }`}>
+                    {notification.title}
+                  </h4>
+                  {!notification.isRead && (
+                    <div className="w-2 h-2 bg-indigo-500 rounded-full"></div>
+                  )}
+                </div>
+                
+                {/* Report Type Badge */}
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                    <DocumentTextIcon className="h-3 w-3 mr-1" />
+                    Parent Report
+                  </span>
+                  
+                  {/* Priority Badge */}
+                  {reportData?.priority && (
+                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                      reportData.priority === 'high' 
+                        ? 'bg-red-100 text-red-800'
+                        : reportData.priority === 'medium'
+                        ? 'bg-yellow-100 text-yellow-800'
+                        : 'bg-green-100 text-green-800'
+                    }`}>
+                      {reportData.priority.toUpperCase()}
+                    </span>
+                  )}
+                </div>
+
+                {/* Report Details */}
+                <div className="space-y-2">
+                  <p className={`text-sm leading-relaxed ${
+                    notification.isRead ? 'text-gray-600' : 'text-gray-700'
+                  }`}>
+                    {notification.message}
+                  </p>
+                  
+                  {/* Child Information */}
+                  {reportData?.childName && (
+                    <div className="flex items-center gap-4 text-xs text-gray-600">
+                      <div className="flex items-center gap-1">
+                        <AcademicCapIcon className="h-3 w-3" />
+                        <span className="font-medium">Child:</span>
+                        <span>{reportData.childName}</span>
+                      </div>
+                      {reportData.gradeLevel && reportData.sectionName && (
+                        <div className="flex items-center gap-1">
+                          <BuildingOfficeIcon className="h-3 w-3" />
+                          <span className="font-medium">Grade:</span>
+                          <span>{reportData.gradeLevel} - {reportData.sectionName}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Report Type */}
+                  {reportData?.reportType && (
+                    <div className="flex items-center gap-1 text-xs text-indigo-600">
+                      <ExclamationTriangleIcon className="h-3 w-3" />
+                      <span className="font-medium">Report Type: {reportData.reportType}</span>
+                    </div>
+                  )}
+                  
+                  {/* Subject */}
+                  {reportData?.subject && (
+                    <div className="flex items-center gap-1 text-xs text-gray-500">
+                      <span className="font-medium">Subject:</span>
+                      <span>{reportData.subject}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              <div className="flex flex-col items-end gap-1 ml-2">
+                <span className="text-xs text-gray-500">
+                  {formatDistanceToNow(notification.createdAt.toDate(), { addSuffix: true })}
+                </span>
+                {notification.senderName && (
+                  <span className="text-xs text-gray-400">
+                    {notification.senderName}
+                  </span>
+                )}
+              </div>
+            </div>
+            
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2 mt-3 pt-2 border-t border-gray-200">
+              {!notification.isRead && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleMarkAsRead(notification.id);
+                  }}
+                  className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 transition-colors"
+                >
+                  <EyeIcon className="h-3 w-3" />
+                  Mark read
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
@@ -188,47 +345,53 @@ const ParentNotifications: React.FC = () => {
               <p className="text-gray-500">You'll see updates about your child's link requests here</p>
             </div>
           ) : (
-            notifications.map((notification) => (
-              <div
-                key={notification.id}
-                className={`p-4 rounded-xl border cursor-pointer transition-all ${
-                  notification.isRead 
-                    ? 'bg-gray-50 border-gray-200' 
-                    : 'bg-blue-50 border-blue-200 shadow-sm'
-                }`}
-                onClick={() => !notification.isRead && handleMarkAsRead(notification.id)}
-              >
-                <div className="flex items-start gap-3">
-                  <div className="flex-shrink-0 mt-0.5">
-                    {getNotificationIcon(notification.type)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <p className={`text-sm font-medium ${
-                          notification.isRead ? 'text-gray-600' : 'text-gray-900'
-                        }`}>
-                          {notification.title}
-                        </p>
-                        <p className={`text-sm mt-1 ${
-                          notification.isRead ? 'text-gray-500' : 'text-gray-700'
-                        }`}>
-                          {notification.message}
-                        </p>
+            <div className="space-y-3">
+              {notifications.map((notification) => (
+                notification.type === 'parent_report' ? (
+                  <ParentReportCard key={notification.id} notification={notification} />
+                ) : (
+                  <div
+                    key={notification.id}
+                    className={`p-4 rounded-xl border cursor-pointer transition-all ${
+                      notification.isRead 
+                        ? 'bg-gray-50 border-gray-200' 
+                        : getNotificationColor(notification.type)
+                    }`}
+                    onClick={() => !notification.isRead && handleMarkAsRead(notification.id)}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="flex-shrink-0 mt-0.5">
+                        {getNotificationIcon(notification.type)}
                       </div>
-                      <div className="flex items-center gap-2 ml-2">
-                        {!notification.isRead && (
-                          <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                        )}
-                        <span className="text-xs text-gray-500">
-                          {formatDistanceToNow(notification.createdAt.toDate(), { addSuffix: true })}
-                        </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <p className={`text-sm font-medium ${
+                              notification.isRead ? 'text-gray-600' : 'text-gray-900'
+                            }`}>
+                              {notification.title}
+                            </p>
+                            <p className={`text-sm mt-1 ${
+                              notification.isRead ? 'text-gray-500' : 'text-gray-700'
+                            }`}>
+                              {notification.message}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 ml-2">
+                            {!notification.isRead && (
+                              <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                            )}
+                            <span className="text-xs text-gray-500">
+                              {formatDistanceToNow(notification.createdAt.toDate(), { addSuffix: true })}
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            ))
+                )
+              ))}
+            </div>
           )}
         </div>
       ) : (
