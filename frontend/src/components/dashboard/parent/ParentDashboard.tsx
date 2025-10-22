@@ -212,7 +212,26 @@ const ChildCard = memo(({ child }: { child: Student }) => {
     switch (performance) {
       case 'Excellent': return 'bg-green-100 text-green-800';
       case 'Good': return 'bg-blue-100 text-blue-800';
-      default: return 'bg-yellow-100 text-yellow-800';
+      case 'Needs Improvement': return 'bg-yellow-100 text-yellow-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getPerformanceText = (performance: string) => {
+    switch (performance) {
+      case 'Excellent': return 'Advanced';
+      case 'Good': return 'On Track';
+      case 'Needs Improvement': return 'Support Needed';
+      default: return performance;
+    }
+  };
+
+  const getPerformanceDotColor = (performance: string) => {
+    switch (performance) {
+      case 'Excellent': return 'bg-green-500';
+      case 'Good': return 'bg-blue-500';
+      case 'Needs Improvement': return 'bg-yellow-500';
+      default: return 'bg-gray-400';
     }
   };
 
@@ -258,10 +277,13 @@ const ChildCard = memo(({ child }: { child: Student }) => {
           </span>
         </div>
         <div className="text-sm flex items-center gap-2">
-        <span className="font-medium text-gray-700">Performance:</span>
-          <span className={`px-2 py-1 rounded text-xs font-medium ${getPerformanceColor(child.performance)}`}>
-            {child.performance || 'Not Available'}
+        <span className="font-medium text-gray-700">Progress:</span>
+          <div className="flex items-center gap-1">
+            <div className={`w-2 h-2 rounded-full ${getPerformanceDotColor(child.performance)}`}></div>
+            <span className="text-xs font-medium text-gray-700">
+              {getPerformanceText(child.performance) || 'Not Available'}
           </span>
+          </div>
       </div>
     </div>
       
