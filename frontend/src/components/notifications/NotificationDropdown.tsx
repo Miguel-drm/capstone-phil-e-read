@@ -87,9 +87,20 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
     // For parent users, read messages should also go to Recent section
     const isReadByParent = (userRole === 'parent' && msg.isRead);
     
+    // For teacher users, read messages should also go to Recent section
+    const isReadByTeacher = (userRole === 'teacher' && msg.isRead);
+    
     // For parent users, include their own sent messages in Recent section after 20 seconds
     const isParentSent = (userRole === 'parent' && msg.senderRole === 'parent');
     if (isParentSent) {
+      const messageAge = Date.now() - safeToDate(msg.createdAt).getTime();
+      const twentySeconds = 20 * 1000;
+      return messageAge > twentySeconds; // Only show in Recent after 20 seconds
+    }
+    
+    // For teacher users, include their own sent messages in Recent section after 20 seconds
+    const isTeacherSent = (userRole === 'teacher' && msg.senderRole === 'teacher');
+    if (isTeacherSent) {
       const messageAge = Date.now() - safeToDate(msg.createdAt).getTime();
       const twentySeconds = 20 * 1000;
       return messageAge > twentySeconds; // Only show in Recent after 20 seconds
@@ -101,7 +112,13 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
       return msg.isRead; // Only show in Recent after parent reads them
     }
     
-    return isReplied || isTeacherReplied || isParentReplied || isMovedToRecent || isReadByParent;
+    // For teacher users, parent replies should move to Recent only after being read
+    const isParentReply = (userRole === 'teacher' && msg.senderRole === 'parent');
+    if (isParentReply) {
+      return msg.isRead; // Only show in Recent after teacher reads them
+    }
+    
+    return isReplied || isTeacherReplied || isParentReplied || isMovedToRecent || isReadByParent || isReadByTeacher;
   };
   
   // Helper function to check if message should be in Inbox section
@@ -134,6 +151,16 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
       return true; // Unread teacher replies stay in Inbox
     }
     
+    // For teacher users, include parent replies in Inbox only if unread
+    if (userRole === 'teacher' && msg.senderRole === 'parent') {
+      if (msg.isRead) {
+        console.log('Filtered out: read parent reply (goes to Recent)');
+        return false; // Read parent replies go to Recent
+      }
+      console.log('Included: unread parent reply in Inbox');
+      return true; // Unread parent replies stay in Inbox
+    }
+    
     // For parent users, include their own sent messages in inbox initially
     if (userRole === 'parent' && msg.senderRole === 'parent') {
       // Check if message is older than 20 seconds - if so, move to Recent
@@ -151,6 +178,26 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
         return false; // Move to Recent after 20 seconds
       }
       console.log('Included: parent-sent message within 20 seconds');
+      return true; // Stay in Inbox for first 20 seconds
+    }
+    
+    // For teacher users, include their own sent messages in inbox initially
+    if (userRole === 'teacher' && msg.senderRole === 'teacher') {
+      // Check if message is older than 20 seconds - if so, move to Recent
+      const messageAge = Date.now() - safeToDate(msg.createdAt).getTime();
+      const twentySeconds = 20 * 1000;
+      
+      console.log('Teacher-sent message check:', {
+        messageAge,
+        twentySeconds,
+        shouldStayInInbox: messageAge <= twentySeconds
+      });
+      
+      if (messageAge > twentySeconds) {
+        console.log('Filtered out: teacher-sent message older than 20 seconds');
+        return false; // Move to Recent after 20 seconds
+      }
+      console.log('Included: teacher-sent message within 20 seconds');
       return true; // Stay in Inbox for first 20 seconds
     }
     
@@ -545,24 +592,6 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
     }
   };
 
-  const handleMarkAllAsRead = async () => {
-    try {
-      if (activeTab === 'inbox') {
-        await notificationService.markAllMessagesAsRead(currentUser?.uid || '', userRole || '');
-        setInboxMessages(prev => prev.map(m => ({ ...m, isRead: true })));
-      } else if (activeTab === 'archived') {
-        // Archived messages are read-only, no action needed
-        return;
-      } else {
-        // Legacy notifications - use new inbox system
-        await notificationService.markAllMessagesAsRead(currentUser?.uid || '', userRole || '');
-        setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
-      }
-      setUnreadCount(0);
-    } catch (error) {
-      console.error('Error marking all notifications as read:', error);
-    }
-  };
 
   const handleArchiveMessage = async (messageId: string) => {
     // Add to loading set
@@ -621,18 +650,6 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
 
   // Bulk actions removed per request
 
-  const resolveInboxCollection = (role: string) => {
-    switch (role) {
-      case 'admin':
-        return 'adminInbox';
-      case 'teacher':
-        return 'teacherInbox';
-      case 'parent':
-        return 'parentInbox';
-      default:
-        return 'notifications';
-    }
-  };
 
   const handleSendReplyToParent = async (message: InboxMessage) => {
     if (!replyForMessageText.trim() || !currentUser?.uid) return;
@@ -906,119 +923,6 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
     }
   };
 
-  // Enhanced component for replied messages
-  const RepliedMessageCard = ({ request }: { request: LinkRequest }) => {
-    return (
-      <div className={`p-4 rounded-lg border cursor-pointer transition-all duration-200 hover:shadow-md bg-gray-50 border-gray-200 shadow-sm`}>
-        <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 mt-1">
-            <div className="p-2 rounded-lg bg-green-100">
-              <CheckIcon className="h-5 w-5 text-green-600" />
-            </div>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-start justify-between mb-2">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <h4 className="text-sm font-semibold text-gray-900">
-                    Message Replied
-                  </h4>
-                </div>
-                
-                {/* Request Type Badge */}
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                    <CheckIcon className="h-3 w-3 mr-1" />
-                    Replied
-                  </span>
-                  
-                  {/* Status Badge */}
-                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                    Completed
-                  </span>
-                </div>
-
-                {/* Message Details */}
-                <div className="space-y-2">
-                  {/* Child Information */}
-                  <div className="flex items-center gap-4 text-xs text-gray-600">
-                    <div className="flex items-center gap-1">
-                      <AcademicCapIcon className="h-3 w-3" />
-                      <span className="font-medium">Child:</span>
-                      <span className="font-semibold text-gray-900">{request.childName}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <BuildingOfficeIcon className="h-3 w-3" />
-                      <span className="font-medium">Grade:</span>
-                      <span>{request.gradeLevel} - {request.sectionName}</span>
-                    </div>
-                  </div>
-                  
-                  {/* Parent Information */}
-                  <div className="flex items-center gap-1 text-xs text-gray-500">
-                    <span className="font-medium">From:</span>
-                    <span className="font-semibold text-gray-700">{parentNames[request.parentId] || request.parentEmail?.split('@')[0] || 'Unknown Parent'}</span>
-                    {request.relationship && (
-                      <>
-                        <span>•</span>
-                        <span className="capitalize">{request.relationship}</span>
-                      </>
-                    )}
-                  </div>
-                  
-                  {/* Original Message */}
-                  {request.message && (
-                    <div className="bg-white p-2 rounded border border-gray-100">
-                      <p className="text-xs text-gray-600 italic">
-                        "{request.message}"
-                      </p>
-                    </div>
-                  )}
-                  
-                  {/* Teacher Reply */}
-                  {(request as any).teacherReplyText && (
-                    <div className="bg-green-50 p-2 rounded border border-green-200">
-                      <p className="text-xs text-green-700 font-medium mb-1">Your Reply:</p>
-                      <p className="text-xs text-gray-700 italic">
-                        "{(request as any).teacherReplyText}"
-                      </p>
-                    </div>
-                  )}
-                  
-                  {/* Parent Reply */}
-                  {(request as any).parentReplyText && (
-                    <div className="bg-blue-50 p-2 rounded border border-blue-200">
-                      <p className="text-xs text-blue-700 font-medium mb-1">Your Reply:</p>
-                      <p className="text-xs text-gray-700 italic">
-                        "{(request as any).parentReplyText}"
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-              <div className="flex flex-col items-end gap-1 ml-2">
-                <span className="text-xs text-gray-500">
-                  {(request as any).teacherReplyAt ? 
-                    formatDistanceToNow(
-                      (request as any).teacherReplyAt instanceof Date 
-                        ? (request as any).teacherReplyAt 
-                        : new Date((request as any).teacherReplyAt), 
-                      { addSuffix: true }
-                    ) :
-                    formatDistanceToNow(safeToDate(request.createdAt), { addSuffix: true })
-                  }
-                </span>
-                <span className="text-xs text-gray-400">
-                  {parentNames[request.parentId] || request.parentEmail?.split('@')[0] || 'Unknown Parent'}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   // Enhanced component for rejected link requests
   const RejectedLinkRequestCard = ({ request, onMarkedSeen, variant = 'default' }: { request: LinkRequest, onMarkedSeen?: (id: string) => void, variant?: 'default' | 'recent' }) => {
@@ -1201,22 +1105,6 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
       }
     };
 
-    const getMessageTypeColor = (type: string) => {
-      switch (type) {
-        case 'bug_report':
-          return 'bg-yellow-50 border-yellow-200';
-        case 'issue_report':
-          return 'bg-red-50 border-red-200';
-        case 'general_message':
-          return 'bg-blue-50 border-blue-200';
-        case 'link_request':
-          return 'bg-blue-50 border-blue-200';
-        case 'parent_report':
-          return 'bg-blue-50 border-blue-200';
-        default:
-          return 'bg-blue-50 border-blue-200';
-      }
-    };
 
     const getMessageTypeLabel = (type: string) => {
       switch (type) {
@@ -1758,199 +1646,250 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
     );
   };
 
-  // Enhanced component for teacher reports
-  const TeacherReportCard = ({ message }: { message: InboxMessage }) => {
-    const reportData = message.data;
-    const isClassReport = reportData?.reportType === 'class_isr';
-    
+  // Enhanced component for teacher notifications (matching parent design)
+  const TeacherNotificationCard = ({ message }: { message: InboxMessage }) => {
+    // Determine the actual message type based on content and data
+    const getMessageType = () => {
+      // Check if it's a bug report based on subject or content
+      if (message.title?.toLowerCase().includes('bug') || 
+          message.message?.toLowerCase().includes('bug') ||
+          message.data?.reportType === 'bug') {
+        return 'bug_report';
+      }
+      
+      // Check if it's an issue report
+      if (message.title?.toLowerCase().includes('issue') || 
+          message.message?.toLowerCase().includes('issue') ||
+          message.data?.reportType === 'issue') {
+        return 'issue_report';
+      }
+      
+      // Check if it's a general message
+      if (message.data?.reportType === 'general') {
+        return 'general_message';
+      }
+      
+      // Check if it's a link request
+      if (message.type === 'link_request' || message.data?.reportType === 'link_request') {
+        return 'link_request';
+      }
+      
+      // Check if it's a class report
+      if (message.data?.reportType === 'class_isr') {
+        return 'class_report';
+      }
+      
+      // Default to parent report
+      return 'parent_report';
+    };
+
+    const getTeacherNotificationIcon = (type: string) => {
+      switch (type) {
+        case 'link_request':
+          return <UserPlusIcon className="h-5 w-5 text-blue-600" />;
+        case 'bug_report':
+          return <ExclamationTriangleIcon className="h-5 w-5 text-yellow-600" />;
+        case 'issue_report':
+          return <ExclamationCircleIcon className="h-5 w-5 text-red-600" />;
+        case 'general_message':
+          return <ChatBubbleLeftRightIcon className="h-5 w-5 text-blue-600" />;
+        case 'parent_report':
+          return <DocumentTextIcon className="h-5 w-5 text-blue-600" />;
+        case 'class_report':
+          return <ChartBarIcon className="h-5 w-5 text-purple-600" />;
+        case 'system':
+          return <InformationCircleIcon className="h-5 w-5 text-gray-600" />;
+        case 'alert':
+          return <ExclamationTriangleIcon className="h-5 w-5 text-yellow-600" />;
+        default:
+          return <BellIcon className="h-5 w-5 text-gray-600" />;
+      }
+    };
+
+
+    const getMessageTypeLabel = (type: string) => {
+      switch (type) {
+        case 'bug_report':
+          return 'Bug Report';
+        case 'issue_report':
+          return 'Issue Report';
+        case 'general_message':
+          return 'General Message';
+        case 'link_request':
+          return 'Link Request';
+        case 'parent_report':
+          return 'Parent Report';
+        case 'class_report':
+          return 'Class Report';
+        default:
+          return 'Message';
+      }
+    };
+
+    const actualMessageType = getMessageType();
+
+    // Check if this is a teacher-sent message
+    const isTeacherSent = message.senderRole === 'teacher';
+
     return (
-      <div className={`p-4 rounded-lg border cursor-pointer transition-all duration-200 hover:shadow-md ${
-        message.isRead 
-          ? 'bg-gray-50 border-gray-200' 
-          : 'bg-emerald-50 border-emerald-200 shadow-sm'
-      }`}
-      onClick={() => !message.isRead && handleMarkMessageAsRead(message.id)}
-      >
-        <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 mt-1">
-            <div className="p-2 rounded-lg bg-emerald-100">
-              <ChartBarIcon className="h-5 w-5 text-emerald-600" />
-            </div>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-start justify-between mb-2">
-              <div className="flex-1">
+      <div className={`group relative overflow-hidden rounded-lg transition-all duration-200 hover:shadow-md ${
+        isTeacherSent 
+          ? 'bg-gray-50 border border-gray-200' 
+          : 'bg-white border border-gray-200'
+      } shadow-sm`}>
+        
+        {/* Priority Indicator Bar - Based on Message Type */}
+        <div className={`absolute top-0 left-0 right-0 h-0.5 ${
+          actualMessageType === 'bug_report' ? 'bg-yellow-500' :
+          actualMessageType === 'issue_report' ? 'bg-red-500' :
+          actualMessageType === 'general_message' ? 'bg-blue-500' :
+          actualMessageType === 'link_request' ? 'bg-blue-500' :
+          actualMessageType === 'class_report' ? 'bg-purple-500' :
+          'bg-blue-500'
+        }`}></div>
+
+        <div className="p-3">
+          {/* Header Section - Compact */}
+          <div className="flex items-start justify-between mb-2">
+            <div className="flex items-start gap-2 flex-1">
+              {/* Icon - Smaller */}
+              <div className={`p-1.5 rounded-lg ${
+                isTeacherSent ? 'bg-gray-200' : 'bg-gray-100'
+              }`}>
+                {getTeacherNotificationIcon(actualMessageType)}
+              </div>
+              
+              {/* Content */}
+              <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <h4 className={`text-sm font-semibold ${
-                    message.isRead ? 'text-gray-700' : 'text-gray-900'
-                  }`}>
+                  <h4 className="text-sm font-semibold text-gray-900 line-clamp-1">
                     {message.title}
                   </h4>
                   {!message.isRead && (
-                    <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
                   )}
                 </div>
                 
-                {/* Report Type Badge */}
+                {/* Message Type and Priority - Compact */}
                 <div className="flex items-center gap-2 mb-2">
-                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                    isClassReport 
-                      ? 'bg-blue-100 text-blue-800' 
-                      : 'bg-purple-100 text-purple-800'
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                    actualMessageType === 'bug_report' ? 'bg-yellow-100 text-yellow-800' :
+                    actualMessageType === 'issue_report' ? 'bg-red-100 text-red-800' :
+                    actualMessageType === 'general_message' ? 'bg-blue-100 text-blue-800' :
+                    actualMessageType === 'link_request' ? 'bg-blue-100 text-blue-700' :
+                    actualMessageType === 'class_report' ? 'bg-purple-100 text-purple-800' :
+                    'bg-blue-100 text-blue-700'
                   }`}>
-                    {isClassReport ? (
-                      <>
-                        <UsersIcon className="h-3 w-3 mr-1" />
-                        Class Report
-                      </>
-                    ) : (
-                      <>
-                        <AcademicCapIcon className="h-3 w-3 mr-1" />
-                        Individual Report
-                      </>
-                    )}
+                    {getMessageTypeLabel(actualMessageType)}
                   </span>
                   
-                  {/* Priority Badge */}
-                  {reportData?.priority && (
-                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                      reportData.priority === 'high' 
-                        ? 'bg-red-100 text-red-800'
-                        : reportData.priority === 'medium'
-                        ? 'bg-yellow-100 text-yellow-800'
-                        : 'bg-green-100 text-green-800'
-                    }`}>
-                      {reportData.priority.toUpperCase()}
-                    </span>
-                  )}
-                </div>
-
-                {/* Report Details */}
-                <div className="space-y-2">
-                  <p className={`text-sm leading-relaxed ${
-                    message.isRead ? 'text-gray-600' : 'text-gray-700'
-                  }`}>
-                    {message.message}
-                  </p>
-                  
-                  {/* Class Information */}
-                  {reportData?.className && (
-                    <div className="grid grid-cols-2 gap-4 text-xs text-gray-600">
-                      <div className="flex items-center gap-1">
-                        <BuildingOfficeIcon className="h-3 w-3" />
-                        <span className="font-medium">Class:</span>
-                        <span className="truncate">{reportData.className}</span>
-                      </div>
-                      {reportData.grade && reportData.section && (
-                        <div className="flex items-center gap-1">
-                          <AcademicCapIcon className="h-3 w-3" />
-                          <span className="font-medium">Grade:</span>
-                          <span>{reportData.grade} - {reportData.section}</span>
-                        </div>
-                      )}
+                  {/* Priority Indicator - Tooltip Only */}
+                  <div className="relative group">
+                    <div className={`w-2 h-2 rounded-full cursor-help ${
+                      // General message always blue (regardless of priority)
+                      actualMessageType === 'general_message' ? 'bg-blue-500' :
+                      // Bug report + medium = yellow
+                      (actualMessageType === 'bug_report' && message.priority === 'medium') ? 'bg-yellow-500' :
+                      // Issue report + high = maroon/red
+                      (actualMessageType === 'issue_report' && message.priority === 'high') ? 'bg-red-600' :
+                      // Default priority colors
+                      message.priority === 'urgent' ? 'bg-red-500' :
+                      message.priority === 'high' ? 'bg-orange-500' :
+                      message.priority === 'medium' ? 'bg-yellow-500' :
+                      'bg-blue-500'
+                    }`}></div>
+                    {/* Tooltip */}
+                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-10">
+                      {message.priority === 'urgent' ? 'Urgent' :
+                       message.priority === 'high' ? 'High' :
+                       message.priority === 'medium' ? 'Medium' : 'Low'}
                     </div>
-                  )}
-                  
-                  {/* Student Count for Class Reports */}
-                  {isClassReport && reportData?.students && (
-                    <div className="flex items-center gap-1 text-xs text-emerald-600">
-                      <UsersIcon className="h-3 w-3" />
-                      <span className="font-medium">{reportData.students.length} students included</span>
-                    </div>
-                  )}
-                  
-                  {/* Teacher Information */}
-                  {reportData?.teacherName && (
-                    <div className="flex items-center justify-between text-xs text-gray-500">
-                      <div className="flex items-center gap-1">
-                        <span className="font-medium">Submitted by:</span>
-                        <span>{reportData.teacherName}</span>
-                      </div>
-                      {reportData.schoolName && (
-                        <div className="flex items-center gap-1">
-                          <BuildingOfficeIcon className="h-3 w-3" />
-                          <span>{reportData.schoolName}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  </div>
                 </div>
               </div>
               
-              <div className="flex flex-col items-end gap-1 ml-2">
+              {/* Timestamp and Sender - Compact */}
+              <div className="flex flex-col items-end gap-0.5 ml-2">
                 <span className="text-xs text-gray-500">
                   {formatDistanceToNow(safeToDate(message.createdAt), { addSuffix: true })}
                 </span>
                 {message.senderName && (
                   <span className="text-xs text-gray-400">
-                    {message.senderName}
+                    {isTeacherSent ? `To: ${message.data?.parentName || 'Parent'}` : `From: ${message.senderName}`}
                   </span>
                 )}
               </div>
             </div>
-            
-            {/* Action Buttons */}
-            <div className="flex items-center gap-2 mt-3 pt-2 border-t border-gray-200">
-                                  <button
+          </div>
+          
+          {/* Message Content - Compact */}
+          <div className="mb-2">
+            <p className={`text-sm leading-relaxed line-clamp-2 ${
+              isTeacherSent ? 'text-gray-600' : 'text-gray-700'
+            }`}>
+              {message.message}
+            </p>
+          </div>
+          
+          {/* Child Information - Compact */}
+          {message.data && message.data.childName && (
+            <div className="flex items-center gap-1 text-xs text-gray-500 mb-2">
+              <AcademicCapIcon className="h-3 w-3 text-blue-600" />
+              <span>Child: {message.data.childName}</span>
+            </div>
+          )}
+          
+          {/* Class Information - Compact */}
+          {message.data && message.data.className && (
+            <div className="flex items-center gap-1 text-xs text-gray-500 mb-2">
+              <BuildingOfficeIcon className="h-3 w-3 text-purple-600" />
+              <span>Class: {message.data.className}</span>
+            </div>
+          )}
+          
+          {/* Action Buttons - Compact */}
+          {!isTeacherSent && (
+            <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+              {/* Archive button - Compact */}
+              <button
                 onClick={(e) => {
                   e.stopPropagation();
                   handleArchiveMessage(message.id);
                 }}
-                className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 transition-colors"
+                disabled={archiveLoading.has(message.id)}
+                className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <ArchiveBoxIcon className="h-3 w-3" />
-                Archive
+                {archiveLoading.has(message.id) ? (
+                  <>
+                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-600"></div>
+                    Archiving...
+                  </>
+                ) : (
+                  <>
+                    <ArchiveBoxIcon className="h-3 w-3" />
+                    Archive
+                  </>
+                )}
               </button>
-                                  {/* Inline reply to parent */}
-                                  {userRole === 'teacher' && message.senderRole === 'parent' && (
-                                    <>
-                                      {replyForMessageId === message.id ? (
-                                        <div className="flex items-center gap-2 w-full">
-                                          <input
-                                            className="flex-1 border rounded px-2 py-1 text-xs"
-                                            placeholder="Type a one-time reply to the parent..."
-                                            value={replyForMessageText}
-                                            onChange={(e) => setReplyForMessageText(e.target.value)}
-                                            dir="ltr"
-                                            style={{ direction: 'ltr', textAlign: 'left', unicodeBidi: 'embed' }}
-                                          />
-                                          <button
-                                            onClick={(e) => { e.stopPropagation(); handleSendReplyToParent(message); }}
-                                            className="text-xs bg-emerald-600 text-white px-2 py-1 rounded hover:bg-emerald-700"
-                                          >
-                                            Send
-                                          </button>
-                                          <button
-                                            onClick={(e) => { e.stopPropagation(); setReplyForMessageId(null); setReplyForMessageText(''); }}
-                                            className="text-xs text-gray-500 hover:text-gray-700"
-                                          >
-                                            Cancel
-                                          </button>
-                                        </div>
-                                      ) : (
-                                        <button
-                                          onClick={(e) => { e.stopPropagation(); setReplyForMessageId(message.id); }}
-                                          className="text-xs text-emerald-600 hover:text-emerald-800"
-                                        >
-                                          Reply
-                                        </button>
-                                      )}
-                                    </>
-                                  )}
-              {!message.isRead && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleMarkMessageAsRead(message.id);
-                  }}
-                  className="text-xs text-emerald-600 hover:text-emerald-800 flex items-center gap-1 transition-colors"
-                >
-                  <EyeIcon className="h-3 w-3" />
-                  Mark read
-                </button>
-              )}
+              
+              {/* Mark as Read button - Compact */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleMarkMessageAsRead(message.id);
+                }}
+                disabled={message.isRead}
+                className={`flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                  message.isRead 
+                    ? 'text-gray-500 bg-gray-100' 
+                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                }`}
+              >
+                <CheckIcon className="h-3 w-3" />
+                {message.isRead ? 'Read' : 'Mark as Read'}
+              </button>
             </div>
-          </div>
+          )}
         </div>
       </div>
     );
@@ -2063,13 +2002,15 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                         // Use specialized components based on user role and message type
                         if (userRole === 'parent') {
                           return <ParentNotificationCard key={message.id} message={message} />;
+                        } else if (userRole === 'teacher') {
+                          return <TeacherNotificationCard key={message.id} message={message} />;
                         } else if (userRole === 'admin') {
                           return <AdminNotificationCard key={message.id} message={message} />;
                         } else if (message.type === 'teacher_report') {
                           // Visually dim read items
                           return (
                             <div key={message.id} className={message.isRead ? 'bg-gray-50 border border-gray-200 rounded-lg p-1' : ''}>
-                              <TeacherReportCard message={message} />
+                              <TeacherNotificationCard message={message} />
                             </div>
                           );
                         } else {
@@ -2237,6 +2178,14 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                           />
                         ))}
                         
+                        {/* Show teacher-sent messages and parent replies from allInboxMessages in Recent */}
+                        {userRole === 'teacher' && allInboxMessages.filter(msg => shouldBeInRecent(msg, userRole)).map((message) => (
+                          <TeacherNotificationCard
+                            key={message.id}
+                            message={message}
+                          />
+                        ))}
+                        
                         {/* Show other recent requests - only non-replied messages */}
                       {recentRequests.map((request) => {
                           // Skip replied messages - they should be handled differently
@@ -2283,7 +2232,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                       {archivedMessages.map((message) => (
                         message.type === 'teacher_report' ? (
                           <div key={message.id} className="opacity-75">
-                            <TeacherReportCard message={message} />
+                            <TeacherNotificationCard message={message} />
                             <div className="flex items-center gap-2 mt-2 ml-16">
                               <span className="text-xs text-gray-400 flex items-center gap-1">
                                 <ArchiveBoxIcon className="h-3 w-3" />
