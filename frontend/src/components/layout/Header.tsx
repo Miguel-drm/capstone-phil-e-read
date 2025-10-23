@@ -91,9 +91,12 @@ const Header: React.FC<HeaderProps> = ({
     fetchNotificationCount();
 
     // Set up real-time listener for notifications (with error handling)
-    let unsubscribe: (() => void) | null = null;
+    let unsubscribeInbox: (() => void) | null = null;
+    let unsubscribeRequests: (() => void) | null = null;
+    
     try {
-      unsubscribe = notificationService.subscribeToInboxMessages(currentUser.uid, userRole || '', async (messages) => {
+      // Listen to inbox messages
+      unsubscribeInbox = notificationService.subscribeToInboxMessages(currentUser.uid, userRole || '', async (messages) => {
         const unreadMessages = messages.filter(msg => !msg.isRead);
         let totalUnreadCount = unreadMessages.length;
         
@@ -109,14 +112,31 @@ const Header: React.FC<HeaderProps> = ({
         
         setUnreadNotificationCount(totalUnreadCount);
       });
+
+      // For teachers, also listen to link requests changes
+      if (userRole === 'teacher') {
+        unsubscribeRequests = notificationService.subscribeToParentLinkRequests(currentUser.uid, async (requests) => {
+          try {
+            const messages = await notificationService.getInboxMessages(currentUser.uid, userRole || '');
+            const unreadMessages = messages.filter(msg => !msg.isRead);
+            const totalUnreadCount = unreadMessages.length + requests.length;
+            setUnreadNotificationCount(totalUnreadCount);
+          } catch (error) {
+            console.debug('Error updating notification count from link requests:', error);
+          }
+        });
+      }
     } catch (error) {
       console.debug('Error setting up notification listener:', error);
     }
 
     return () => {
       try {
-        if (unsubscribe) {
-          unsubscribe();
+        if (unsubscribeInbox) {
+          unsubscribeInbox();
+        }
+        if (unsubscribeRequests) {
+          unsubscribeRequests();
         }
       } catch (error) {
         console.debug('Error unsubscribing from notifications:', error);

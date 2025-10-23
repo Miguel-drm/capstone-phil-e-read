@@ -96,7 +96,40 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
             console.debug('Error fetching all link requests:', error);
             return [];
           });
-          setRecentRequests(allForRecent.filter(r => r.status === 'approved' || r.status === 'rejected'));
+          
+          // Also get replied messages from inbox
+          const repliedMessages = await notificationService.getInboxMessages(currentUser.uid, userRole || '', true).catch(error => {
+            console.debug('Error fetching replied messages:', error);
+            return [];
+          });
+          const repliedInboxMessages = repliedMessages.filter(msg => msg.status === 'replied' || (msg as any).teacherReplied);
+          
+          // Convert replied inbox messages to LinkRequest format for Recent section
+          const convertedRepliedMessages = repliedInboxMessages.map(msg => ({
+            id: msg.id,
+            parentId: msg.senderId || '',
+            parentEmail: msg.senderName || '',
+            firstName: '',
+            lastName: '',
+            childName: msg.data?.childName || msg.title || 'Child',
+            classGradeId: msg.data?.classGradeId || '',
+            gradeLevel: msg.data?.grade || msg.data?.gradeLevel || '',
+            sectionName: msg.data?.section || msg.data?.sectionName || '',
+            relationship: msg.data?.relationship || '',
+            message: msg.message,
+            teacherId: currentUser?.uid || '',
+            status: 'replied' as any,
+            createdAt: msg.createdAt,
+            updatedAt: msg.createdAt,
+            teacherReplied: (msg as any).teacherReplied || false,
+            teacherReplyText: (msg as any).teacherReplyText || '',
+            teacherReplyAt: (msg as any).teacherReplyAt
+          }));
+          
+          setRecentRequests([
+            ...allForRecent.filter(r => r.status === 'approved' || r.status === 'rejected'),
+            ...convertedRepliedMessages
+          ]);
           
           // Fetch parent names for all requests
           const names: Record<string, string> = {};
@@ -138,7 +171,13 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
     const unsubscribeInbox = notificationService.subscribeToInboxMessages(
       currentUser.uid, 
       userRole || '', 
-      setInboxMessages
+      (messages) => {
+        setInboxMessages(messages);
+        // Update unread count in real-time
+        const unreadCount = messages.filter(msg => !msg.isRead).length;
+        const linkRequestCount = userRole === 'teacher' ? linkRequests.length : 0;
+        setUnreadCount(unreadCount + linkRequestCount);
+      }
     );
     const unsubscribeArchived = notificationService.subscribeToInboxMessages(
       currentUser.uid, 
@@ -148,7 +187,51 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
     );
     const unsubscribeNotifications = notificationService.subscribeToNotifications(currentUser.uid, setNotifications);
     const unsubscribeRequests = userRole === 'teacher' ? 
-      notificationService.subscribeToParentLinkRequests(currentUser.uid, setLinkRequests) : 
+      notificationService.subscribeToParentLinkRequests(currentUser.uid, (requests) => {
+        setLinkRequests(requests);
+        // Update unread count when link requests change
+        const unreadMessages = inboxMessages.filter(msg => !msg.isRead);
+        setUnreadCount(unreadMessages.length + requests.length);
+      }) : 
+      () => {};
+
+    // Real-time listener for Recent section (replied messages)
+    const unsubscribeRecent = userRole === 'teacher' ? 
+      notificationService.subscribeToInboxMessages(
+        currentUser.uid, 
+        userRole || '', 
+        (messages) => {
+          // Filter for replied messages and convert to Recent format
+          const repliedMessages = messages.filter(msg => msg.status === 'replied' || (msg as any).teacherReplied);
+          const convertedRepliedMessages = repliedMessages.map(msg => ({
+            id: msg.id,
+            parentId: msg.senderId || '',
+            parentEmail: msg.senderName || '',
+            firstName: '',
+            lastName: '',
+            childName: msg.data?.childName || msg.title || 'Child',
+            classGradeId: msg.data?.classGradeId || '',
+            gradeLevel: msg.data?.grade || msg.data?.gradeLevel || '',
+            sectionName: msg.data?.section || msg.data?.sectionName || '',
+            relationship: msg.data?.relationship || '',
+            message: msg.message,
+            teacherId: currentUser?.uid || '',
+            status: 'replied' as any,
+            createdAt: msg.createdAt,
+            updatedAt: msg.createdAt,
+            teacherReplied: (msg as any).teacherReplied || false,
+            teacherReplyText: (msg as any).teacherReplyText || '',
+            teacherReplyAt: (msg as any).teacherReplyAt
+          }));
+          
+          // Get approved/rejected link requests
+          notificationService.getAllLinkRequests(currentUser.uid).then(allRequests => {
+            const approvedRejectedRequests = allRequests.filter(r => r.status === 'approved' || r.status === 'rejected');
+            setRecentRequests([...approvedRejectedRequests, ...convertedRepliedMessages]);
+          });
+        },
+        true // include archived messages
+      ) : 
       () => {};
 
     return () => {
@@ -156,6 +239,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
       unsubscribeArchived();
       unsubscribeNotifications();
       unsubscribeRequests();
+      unsubscribeRecent();
     };
   }, [currentUser?.uid, userRole, isOpen]);
 
@@ -204,16 +288,20 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
   const handleArchiveMessage = async (messageId: string) => {
     try {
       await notificationService.archiveMessage(messageId, userRole || '');
-      // Move message from inbox to archived list in the UI
-      setInboxMessages(prev => {
-        const toArchive = prev.find(m => m.id === messageId);
-        if (toArchive) {
-          setArchivedMessages(aPrev => [{ ...toArchive, isArchived: true }, ...aPrev]);
-        }
-        return prev.filter(m => m.id !== messageId);
-      });
+      // Real-time listeners will automatically handle the UI updates
+      // No need to manually update state - the listeners will detect the database changes
     } catch (error) {
       console.error('Error archiving message:', error);
+    }
+  };
+
+  const handleUnarchiveMessage = async (messageId: string) => {
+    try {
+      await notificationService.unarchiveMessage(messageId, userRole || '');
+      // Real-time listeners will automatically handle the UI updates
+      // No need to manually update state - the listeners will detect the database changes
+    } catch (error) {
+      console.error('Error unarchiving message:', error);
     }
   };
 
@@ -235,11 +323,17 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
     try {
       if ((message as any).teacherReplied) return;
       const col = resolveInboxCollection(userRole || '');
+      
+      // Update the original message in the database to mark it as replied
       await updateDoc(doc(db, col, message.id), {
         teacherReplied: true,
         teacherReplyText: replyForMessageText.trim(),
-        teacherReplyAt: serverTimestamp()
+        teacherReplyAt: serverTimestamp(),
+        status: 'replied', // Add status field to mark as replied
+        isArchived: true // Archive the original message so it doesn't show in inbox
       });
+      
+      // Send notification to parent
       await addDoc(collection(db, 'parentInbox'), {
         title: 'Teacher Reply',
         message: replyForMessageText.trim(),
@@ -255,9 +349,12 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
         createdAt: serverTimestamp(),
         data: { relatedMessageId: message.id, childName: message.data?.childName }
       });
+      
       setReplyForMessageId(null);
       setReplyForMessageText('');
-      setInboxMessages(prev => prev.map(m => m.id === message.id ? ({ ...m, teacherReplied: true } as any) : m));
+      
+      // Real-time listeners will automatically handle the UI updates
+      // No need to manually update state - the listeners will detect the database changes
     } catch (e) {
       console.error('Failed to send reply to parent', e);
       alert('Failed to send reply.');
@@ -296,6 +393,110 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
       default:
         return 'bg-gray-50 border-gray-200';
     }
+  };
+
+  // Enhanced component for replied messages
+  const RepliedMessageCard = ({ request }: { request: LinkRequest }) => {
+    return (
+      <div className={`p-4 rounded-lg border cursor-pointer transition-all duration-200 hover:shadow-md bg-green-50 border-green-200 shadow-sm`}>
+        <div className="flex items-start gap-3">
+          <div className="flex-shrink-0 mt-1">
+            <div className="p-2 rounded-lg bg-green-100">
+              <CheckIcon className="h-5 w-5 text-green-600" />
+            </div>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between mb-2">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <h4 className="text-sm font-semibold text-gray-900">
+                    Message Replied
+                  </h4>
+                </div>
+                
+                {/* Request Type Badge */}
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                    <CheckIcon className="h-3 w-3 mr-1" />
+                    Replied
+                  </span>
+                  
+                  {/* Status Badge */}
+                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                    Completed
+                  </span>
+                </div>
+
+                {/* Message Details */}
+                <div className="space-y-2">
+                  {/* Child Information */}
+                  <div className="flex items-center gap-4 text-xs text-gray-600">
+                    <div className="flex items-center gap-1">
+                      <AcademicCapIcon className="h-3 w-3" />
+                      <span className="font-medium">Child:</span>
+                      <span className="font-semibold text-gray-900">{request.childName}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <BuildingOfficeIcon className="h-3 w-3" />
+                      <span className="font-medium">Grade:</span>
+                      <span>{request.gradeLevel} - {request.sectionName}</span>
+                    </div>
+                  </div>
+                  
+                  {/* Parent Information */}
+                  <div className="flex items-center gap-1 text-xs text-gray-500">
+                    <span className="font-medium">From:</span>
+                    <span className="font-semibold text-gray-700">{parentNames[request.parentId] || request.parentEmail?.split('@')[0] || 'Unknown Parent'}</span>
+                    {request.relationship && (
+                      <>
+                        <span>•</span>
+                        <span className="capitalize">{request.relationship}</span>
+                      </>
+                    )}
+                  </div>
+                  
+                  {/* Original Message */}
+                  {request.message && (
+                    <div className="bg-white p-2 rounded border border-gray-100">
+                      <p className="text-xs text-gray-600 italic">
+                        "{request.message}"
+                      </p>
+                    </div>
+                  )}
+                  
+                  {/* Teacher Reply */}
+                  {(request as any).teacherReplyText && (
+                    <div className="bg-green-50 p-2 rounded border border-green-200">
+                      <p className="text-xs text-green-700 font-medium mb-1">Your Reply:</p>
+                      <p className="text-xs text-gray-700 italic">
+                        "{(request as any).teacherReplyText}"
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              <div className="flex flex-col items-end gap-1 ml-2">
+                <span className="text-xs text-gray-500">
+                  {(request as any).teacherReplyAt ? 
+                    formatDistanceToNow(
+                      (request as any).teacherReplyAt instanceof Date 
+                        ? (request as any).teacherReplyAt 
+                        : new Date((request as any).teacherReplyAt), 
+                      { addSuffix: true }
+                    ) :
+                    formatDistanceToNow(request.createdAt.toDate(), { addSuffix: true })
+                  }
+                </span>
+                <span className="text-xs text-gray-400">
+                  {parentNames[request.parentId] || request.parentEmail?.split('@')[0] || 'Unknown Parent'}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   // Enhanced component for rejected link requests
@@ -681,11 +882,6 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
       }
     };
 
-    const handleViewDetails = () => {
-      console.log('Viewing link request details:', request.id);
-      setSelectedRequestId(request.id);
-      setShowApprovalModal(true);
-    };
 
     const handleSendReply = async () => {
       if (!replyText.trim()) return;
@@ -797,23 +993,31 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleViewDetails();
+                        handleApprove();
                       }}
-                      className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
+                      disabled={isProcessing}
+                      className="text-xs text-green-600 hover:text-green-800 flex items-center gap-1 transition-colors disabled:opacity-50"
                     >
-                      <EyeIcon className="h-3 w-3" />
-                      View Details
+                      <CheckIcon className="h-3 w-3" />
+                      {isProcessing ? 'Processing...' : 'Review & Approve'}
                     </button>
-                  {/* One-time reply */}
-                  {!((request as any).teacherReplied) && (
-                    <>
+                    
+                    {/* Show reply status */}
+                    {((request as any).teacherReplied) ? (
+                      <span className="text-xs text-gray-500 italic">
+                        Replied
+                      </span>
+                    ) : (
                       <button
                         onClick={(e) => { e.stopPropagation(); setReplyOpen(v => !v); }}
                         className="text-xs text-emerald-600 hover:text-emerald-800"
                       >
-                        {replyOpen ? 'Cancel Reply' : 'Reply'}
+                        {replyOpen ? 'Cancel Reply' : 'Reply?'}
                       </button>
-                      {replyOpen && (
+                    )}
+                    
+                    {/* Reply input */}
+                    {replyOpen && !((request as any).teacherReplied) && (
                         <div className="flex items-center gap-2 w-full">
                           <input
                             className="flex-1 border rounded px-2 py-1 text-xs"
@@ -829,25 +1033,6 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                           </button>
                         </div>
                       )}
-                    </>
-                  )}
-                  {/* Show if already replied */}
-                  {((request as any).teacherReplied) && (
-                    <span className="text-xs text-gray-500 italic">
-                      Replied: {(request as any).teacherReplyText}
-                    </span>
-                  )}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleApprove();
-                      }}
-                      disabled={isProcessing}
-                      className="text-xs text-green-600 hover:text-green-800 flex items-center gap-1 transition-colors disabled:opacity-50"
-                    >
-                      <CheckIcon className="h-3 w-3" />
-                      {isProcessing ? 'Processing...' : 'Review & Approve'}
-                    </button>
                   </div>
                 </div>
               </div>
@@ -1323,7 +1508,17 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        {recentRequests.map((request) => (
+                        {recentRequests.map((request) => {
+                          // Show different components based on status
+                          if (request.status === 'replied') {
+                            return (
+                              <RepliedMessageCard
+                                key={request.id}
+                                request={request}
+                              />
+                            );
+                          } else {
+                            return (
                           <RejectedLinkRequestCard
                             key={request.id}
                             request={request}
@@ -1332,7 +1527,9 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                               setRecentRequests(prev => prev.map(r => r.id === id ? ({ ...r, seenByTeacher: true } as any) : r));
                             }}
                           />
-                        ))}
+                            );
+                          }
+                        })}
                       </div>
                     )
                   ) : (
@@ -1369,6 +1566,16 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                                   {formatDistanceToNow(message.archivedAt.toDate(), { addSuffix: true })}
                                 </span>
                               )}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleUnarchiveMessage(message.id);
+                                }}
+                                className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
+                              >
+                                <ArchiveBoxIcon className="h-3 w-3" />
+                                Unarchive
+                              </button>
                             </div>
                           </div>
                         ) : (
@@ -1411,6 +1618,16 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                                       {formatDistanceToNow(message.archivedAt.toDate(), { addSuffix: true })}
                                     </span>
                                   )}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleUnarchiveMessage(message.id);
+                                    }}
+                                    className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
+                                  >
+                                    <ArchiveBoxIcon className="h-3 w-3" />
+                                    Unarchive
+                                  </button>
                                 </div>
                               </div>
                             </div>
