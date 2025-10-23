@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { notificationService, type LinkRequest } from '../../services/notificationService';
 import { db } from '../../config/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { 
   XMarkIcon, 
   CheckIcon, 
@@ -140,7 +140,7 @@ const LinkRequestApprovalModal: React.FC<LinkRequestApprovalModalProps> = ({
       );
       
       if (success) {
-        // Create notification for parent
+        // Create notification for parent in notifications collection
         await notificationService.createNotification({
           type: 'link_rejected',
           title: 'Link Request Rejected',
@@ -150,6 +150,29 @@ const LinkRequestApprovalModal: React.FC<LinkRequestApprovalModalProps> = ({
           userId: request.parentId,
           isRead: false,
           data: { requestId: request.id, reason: rejectionReason }
+        });
+
+        // Also create notification in parentInbox for immediate visibility
+        await addDoc(collection(db, 'parentInbox'), {
+          title: 'Link Request Rejected',
+          message: rejectionReason 
+            ? `Your request to link ${request.childName} was rejected: ${rejectionReason}`
+            : `Your request to link ${request.childName} was rejected.`,
+          type: 'link_rejected',
+          recipientId: request.parentId,
+          senderId: currentUser.uid,
+          senderRole: 'teacher',
+          senderName: 'Teacher',
+          isRead: false,
+          isArchived: false,
+          priority: 'high',
+          category: 'link_requests',
+          createdAt: serverTimestamp(),
+          data: { 
+            requestId: request.id, 
+            reason: rejectionReason,
+            childName: request.childName
+          }
         });
 
         onRequestUpdated?.();
@@ -355,6 +378,8 @@ const LinkRequestApprovalModal: React.FC<LinkRequestApprovalModalProps> = ({
                     placeholder="Please provide a reason for rejection (optional but recommended)..."
                     rows={3}
                     className="w-full px-3 py-2 border border-red-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm"
+                    dir="ltr"
+                    style={{ direction: 'ltr', textAlign: 'left', unicodeBidi: 'embed' }}
                   />
                 </div>
               )}
