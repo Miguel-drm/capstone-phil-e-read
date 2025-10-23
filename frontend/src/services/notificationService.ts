@@ -11,7 +11,8 @@ import {
   getDoc,
   Timestamp,
   addDoc,
-  serverTimestamp
+  serverTimestamp,
+  writeBatch
 } from 'firebase/firestore';
 import { createSafeFirestoreListener, createSafeFirestoreErrorHandler } from '../utils/firestoreErrorHandler';
 
@@ -50,7 +51,7 @@ export interface Notification {
 
 export interface InboxMessage {
   id: string;
-  type: 'link_request' | 'link_approved' | 'link_rejected' | 'system' | 'alert' | 'info' | 'announcement' | 'parent_report' | 'teacher_report';
+  type: 'link_request' | 'link_approved' | 'link_rejected' | 'link_reply' | 'parent_reply' | 'system' | 'alert' | 'info' | 'announcement' | 'parent_report' | 'teacher_report';
   title: string;
   message: string;
   recipientId: string;
@@ -117,130 +118,82 @@ class NotificationService {
   // Get all link requests for a teacher (pending, approved, rejected)
   async getAllLinkRequests(teacherId: string): Promise<LinkRequest[]> {
     try {
-      // Try with index first
+      // Simplified query without orderBy to avoid index requirements
       const q = query(
         collection(db, 'linkRequests'),
-        where('teacherId', '==', teacherId),
-        orderBy('createdAt', 'desc')
+        where('teacherId', '==', teacherId)
       );
       
       const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({
+      const requests = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as LinkRequest[];
-    } catch (error) {
-      console.debug('Error fetching link requests (trying fallback):', error);
       
-      // Fallback: Get all link requests for teacher and sort client-side
-      try {
-        const fallbackQuery = query(
-          collection(db, 'linkRequests'),
-          where('teacherId', '==', teacherId)
-        );
-        
-        const snapshot = await getDocs(fallbackQuery);
-        const requests = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as LinkRequest[];
-        
-        // Sort client-side
-        return requests.sort((a, b) => 
-          b.createdAt.toMillis() - a.createdAt.toMillis()
-        );
-      } catch (fallbackError) {
-        console.debug('Fallback query also failed:', fallbackError);
-        return [];
-      }
+      // Sort client-side to avoid index requirements
+      return requests.sort((a, b) => {
+        const aTime = a.createdAt?.toDate?.() || new Date();
+        const bTime = b.createdAt?.toDate?.() || new Date();
+        return bTime.getTime() - aTime.getTime();
+      });
+    } catch (error) {
+      console.error('Error fetching link requests:', error);
+      return [];
     }
   }
 
   // Get rejected link requests for a teacher
   async getRejectedLinkRequests(teacherId: string): Promise<LinkRequest[]> {
     try {
-      // Try with index first
+      // Simplified query without orderBy to avoid index requirements
       const q = query(
         collection(db, 'linkRequests'),
         where('teacherId', '==', teacherId),
-        where('status', '==', 'rejected'),
-        orderBy('reviewedAt', 'desc')
+        where('status', '==', 'rejected')
       );
       
       const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({
+      const requests = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as LinkRequest[];
-    } catch (error) {
-      console.debug('Error fetching rejected link requests (trying fallback):', error);
       
-      // Fallback: Get all link requests for teacher and filter client-side
-      try {
-        const fallbackQuery = query(
-          collection(db, 'linkRequests'),
-          where('teacherId', '==', teacherId),
-          where('status', '==', 'rejected')
-        );
-        
-        const snapshot = await getDocs(fallbackQuery);
-        const requests = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as LinkRequest[];
-        
-        // Sort client-side by reviewedAt or createdAt
-        return requests.sort((a, b) => {
-          const aTime = a.reviewedAt?.toMillis() || a.createdAt.toMillis();
-          const bTime = b.reviewedAt?.toMillis() || b.createdAt.toMillis();
-          return bTime - aTime;
-        });
-      } catch (fallbackError) {
-        console.debug('Fallback query also failed:', fallbackError);
-        return [];
-      }
+      // Sort client-side to avoid index requirements
+      return requests.sort((a, b) => {
+        const aTime = a.reviewedAt?.toDate?.() || a.createdAt?.toDate?.() || new Date();
+        const bTime = b.reviewedAt?.toDate?.() || b.createdAt?.toDate?.() || new Date();
+        return bTime.getTime() - aTime.getTime();
+      });
+    } catch (error) {
+      console.error('Error fetching rejected link requests:', error);
+      return [];
     }
   }
 
   // Get link requests for a parent
   async getParentLinkRequests(parentId: string): Promise<LinkRequest[]> {
     try {
-      // Try with index first
+      // Simplified query without orderBy to avoid index requirements
       const q = query(
         collection(db, 'linkRequests'),
-        where('parentId', '==', parentId),
-        orderBy('createdAt', 'desc')
+        where('parentId', '==', parentId)
       );
       
       const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({
+      const requests = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as LinkRequest[];
-    } catch (error) {
-      console.debug('Error fetching parent link requests (trying fallback):', error);
       
-      // Fallback: Get all link requests for parent and sort client-side
-      try {
-        const fallbackQuery = query(
-          collection(db, 'linkRequests'),
-          where('parentId', '==', parentId)
-        );
-        
-        const snapshot = await getDocs(fallbackQuery);
-        const requests = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as LinkRequest[];
-        
-        // Sort client-side
-        return requests.sort((a, b) => 
-          b.createdAt.toMillis() - a.createdAt.toMillis()
-        );
-      } catch (fallbackError) {
-        console.debug('Fallback query also failed:', fallbackError);
-        return [];
-      }
+      // Sort client-side to avoid index requirements
+      return requests.sort((a, b) => {
+        const aTime = a.createdAt?.toDate?.() || new Date();
+        const bTime = b.createdAt?.toDate?.() || new Date();
+        return bTime.getTime() - aTime.getTime();
+      });
+    } catch (error) {
+      console.error('Error fetching parent link requests:', error);
+      return [];
     }
   }
 
@@ -473,15 +426,98 @@ class NotificationService {
   }
 
   // Real-time listener for notifications
-  subscribeToNotifications(userId: string, callback: (notifications: Notification[]) => void) {
+  subscribeToNotifications(userId: string, userRole: string, callback: (notifications: Notification[]) => void) {
     try {
+      // For parent users, get notifications from parentInbox instead of notifications collection
+      if (userRole === 'parent') {
+        // Use the same logic as subscribeToInboxMessages for parents
+        const collectionName = this.getInboxCollection(userRole);
+        const q = query(collection(db, collectionName), orderBy('createdAt', 'desc'));
+        
+        const safeCallback = (snapshot: any) => {
+          if (!snapshot || !snapshot.docs) {
+            console.warn('Parent notifications - invalid snapshot:', snapshot);
+            callback([]);
+            return;
+          }
+          
+          const allMessages = snapshot.docs.map((doc: any) => {
+            const docData = doc.data();
+            return {
+              id: doc.id,
+              type: docData.type || 'teacher_report',
+              title: docData.title || 'Untitled',
+              message: docData.message || '',
+              recipientId: docData.recipientId || 'admin',
+              senderId: docData.senderId || '',
+              senderRole: docData.senderRole || 'teacher',
+              senderName: docData.senderName || 'Unknown',
+              isRead: docData.isRead || false,
+              isArchived: docData.isArchived || false,
+              priority: docData.priority || 'medium',
+              category: docData.category || 'teacher_reports',
+              createdAt: docData.createdAt || new Date(),
+              data: docData.data || {}
+            };
+          });
+          
+          // Filter by userId (recipientId or senderId for parents)
+          const filteredMessages = allMessages.filter((msg: any) => 
+            msg.recipientId === userId || msg.senderId === userId
+          );
+          
+          // Convert to Notification format
+          const notifications = filteredMessages.map((msg: any) => ({
+            id: msg.id,
+            type: msg.type,
+            title: msg.title,
+            message: msg.message,
+            userId: msg.recipientId,
+            isRead: msg.isRead,
+            createdAt: msg.createdAt,
+            data: msg.data
+          })) as Notification[];
+          
+          callback(notifications);
+        };
+        
+        const safeErrorHandler = (error: any) => {
+          console.error('Error in parent notifications listener:', error);
+          callback([]);
+        };
+        
+        return onSnapshot(q, safeCallback, safeErrorHandler);
+      }
+      
+      // For other roles, use the original notifications collection query
       const q = query(
         collection(db, 'notifications'),
-        where('userId', '==', userId),
-        orderBy('createdAt', 'desc')
+        where('userId', '==', userId)
       );
 
-      const safeCallback = createSafeFirestoreListener<Notification[]>(callback);
+      const fallbackCallback = (snapshot: any) => {
+        if (!snapshot || !snapshot.docs) {
+          console.warn('Fallback callback received invalid snapshot:', snapshot);
+          callback([]);
+          return;
+        }
+        
+        const notifications = snapshot.docs.map((doc: any) => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Notification[];
+        
+        // Sort client-side to avoid index requirements
+        const sorted = notifications.sort((a, b) => {
+        const aTime = a.createdAt?.toDate?.() || new Date();
+        const bTime = b.createdAt?.toDate?.() || new Date();
+          return bTime.getTime() - aTime.getTime();
+        });
+        
+        callback(sorted);
+      };
+
+      const safeCallback = createSafeFirestoreListener<Notification[]>(fallbackCallback);
       const safeErrorHandler = createSafeFirestoreErrorHandler();
 
       return onSnapshot(q, safeCallback, safeErrorHandler);
@@ -645,8 +681,10 @@ class NotificationService {
       let filteredMessages = allMessages;
       
       if (userRole !== 'admin') {
-        // For non-admin roles, filter by recipientId
-        filteredMessages = filteredMessages.filter(msg => msg.recipientId === userId);
+        // For non-admin roles, filter by recipientId OR senderId (for sent messages)
+        filteredMessages = filteredMessages.filter(msg => 
+          msg.recipientId === userId || msg.senderId === userId
+        );
       }
       
       if (!includeArchived) {
@@ -725,6 +763,68 @@ class NotificationService {
       console.error('Error unarchiving message:', error);
       return false;
     }
+  }
+
+  // Batch archive multiple messages
+  async batchArchiveMessages(messageIds: string[], userRole: string): Promise<{ success: string[], failed: string[] }> {
+    const success: string[] = [];
+    const failed: string[] = [];
+    const collectionName = this.getInboxCollection(userRole);
+    
+    // Process in batches of 500 (Firestore batch limit)
+    const BATCH_SIZE = 500;
+    for (let i = 0; i < messageIds.length; i += BATCH_SIZE) {
+      const batch = writeBatch(db);
+      const chunk = messageIds.slice(i, i + BATCH_SIZE);
+      
+      try {
+        for (const messageId of chunk) {
+          const messageRef = doc(db, collectionName, messageId);
+          batch.update(messageRef, {
+            isArchived: true,
+            archivedAt: serverTimestamp()
+          });
+        }
+        await batch.commit();
+        success.push(...chunk);
+      } catch (error) {
+        console.error('Error in batch archive:', error);
+        failed.push(...chunk);
+      }
+    }
+    
+    return { success, failed };
+  }
+
+  // Batch unarchive multiple messages
+  async batchUnarchiveMessages(messageIds: string[], userRole: string): Promise<{ success: string[], failed: string[] }> {
+    const success: string[] = [];
+    const failed: string[] = [];
+    const collectionName = this.getInboxCollection(userRole);
+    
+    // Process in batches of 500 (Firestore batch limit)
+    const BATCH_SIZE = 500;
+    for (let i = 0; i < messageIds.length; i += BATCH_SIZE) {
+      const batch = writeBatch(db);
+      const chunk = messageIds.slice(i, i + BATCH_SIZE);
+      
+      try {
+        for (const messageId of chunk) {
+          const messageRef = doc(db, collectionName, messageId);
+          batch.update(messageRef, {
+            isArchived: false,
+            archivedAt: null
+          });
+        }
+        await batch.commit();
+        success.push(...chunk);
+      } catch (error) {
+        console.error('Error in batch unarchive:', error);
+        failed.push(...chunk);
+      }
+    }
+    
+    return { success, failed };
   }
 
   // Get only archived messages for a user
@@ -810,8 +910,10 @@ class NotificationService {
         let filteredMessages = allMessages;
         
         if (userRole !== 'admin') {
-          // For non-admin roles, filter by recipientId
-          filteredMessages = filteredMessages.filter((msg: InboxMessage) => msg.recipientId === userId);
+          // For non-admin roles, filter by recipientId OR senderId (for sent messages)
+          filteredMessages = filteredMessages.filter((msg: InboxMessage) => 
+            msg.recipientId === userId || msg.senderId === userId
+          );
         }
         
         if (!includeArchived) {

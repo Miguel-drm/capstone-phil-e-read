@@ -10,6 +10,8 @@ import {
   XMarkIcon,
   UserPlusIcon,
   ExclamationTriangleIcon,
+  ExclamationCircleIcon,
+  ChatBubbleLeftRightIcon,
   InformationCircleIcon,
   DocumentTextIcon,
   ArchiveBoxIcon,
@@ -31,6 +33,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
   const { currentUser, userRole } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [inboxMessages, setInboxMessages] = useState<InboxMessage[]>([]);
+  const [allInboxMessages, setAllInboxMessages] = useState<InboxMessage[]>([]); // Keep all messages for Recent section
   const [linkRequests, setLinkRequests] = useState<LinkRequest[]>([]);
   const [rejectedRequests, setRejectedRequests] = useState<LinkRequest[]>([]);
   const [recentRequests, setRecentRequests] = useState<LinkRequest[]>([]);
@@ -43,11 +46,130 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
   const [showApprovalModal, setShowApprovalModal] = useState(false);
   const [replyForMessageId, setReplyForMessageId] = useState<string | null>(null);
   const [replyForMessageText, setReplyForMessageText] = useState<string>('');
+  const [archiveLoading, setArchiveLoading] = useState<Set<string>>(new Set());
+  const [recentlyRepliedMessages, setRecentlyRepliedMessages] = useState<Set<string>>(new Set()); // Used in real-time listener
+  const [disableRealTimeListener, setDisableRealTimeListener] = useState(false); // Used in real-time listener
+  
+  // Helper function to safely convert Firestore Timestamp to Date
+  const safeToDate = (timestamp: any): Date => {
+    if (timestamp?.toDate && typeof timestamp.toDate === 'function') {
+      return timestamp.toDate();
+    }
+    if (timestamp instanceof Date) {
+      return timestamp;
+    }
+    return new Date(timestamp);
+  };
+  
+  // Timer to refresh UI every 20 seconds to move parent-sent messages to Recent
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (userRole === 'parent') {
+        // Force refresh to update Inbox/Recent filtering based on message age
+        setInboxMessages(prev => [...prev]); // Trigger re-render
+        setRecentRequests(prev => [...prev]); // Trigger re-render
+      }
+    }, 20000); // 20 seconds
+    
+    return () => clearInterval(interval);
+  }, [userRole]);
+  
+  // Helper function to check if message should be in Recent section
+  const shouldBeInRecent = (msg: InboxMessage, userRole: string): boolean => {
+    const isReplied = msg.status === 'replied' || 
+      (msg as any).teacherReplied || 
+      (msg as any).parentReplied;
+    
+    const isTeacherReplied = (userRole === 'teacher' && (msg as any).teacherReplied);
+    const isParentReplied = (userRole === 'parent' && (msg as any).parentReplied);
+    const isMovedToRecent = (msg as any).movedToRecent;
+    
+    // For parent users, read messages should also go to Recent section
+    const isReadByParent = (userRole === 'parent' && msg.isRead);
+    
+    // For parent users, include their own sent messages in Recent section after 20 seconds
+    const isParentSent = (userRole === 'parent' && msg.senderRole === 'parent');
+    if (isParentSent) {
+      const messageAge = Date.now() - safeToDate(msg.createdAt).getTime();
+      const twentySeconds = 20 * 1000;
+      return messageAge > twentySeconds; // Only show in Recent after 20 seconds
+    }
+    
+    // For parent users, teacher replies should move to Recent only after being read
+    const isTeacherReply = (userRole === 'parent' && msg.senderRole === 'teacher');
+    if (isTeacherReply) {
+      return msg.isRead; // Only show in Recent after parent reads them
+    }
+    
+    return isReplied || isTeacherReplied || isParentReplied || isMovedToRecent || isReadByParent;
+  };
+  
+  // Helper function to check if message should be in Inbox section
+  const shouldBeInInbox = (msg: InboxMessage, userRole: string): boolean => {
+    console.log('shouldBeInInbox check:', {
+      id: msg.id,
+      title: msg.title,
+      senderRole: msg.senderRole,
+      userRole,
+      isArchived: msg.isArchived,
+      recentlyReplied: recentlyRepliedMessages.has(msg.id)
+    });
+    
+    if (msg.isArchived) {
+      console.log('Filtered out: archived');
+      return false;
+    }
+    if (recentlyRepliedMessages.has(msg.id)) {
+      console.log('Filtered out: recently replied');
+      return false;
+    }
+    
+    // For parent users, include teacher replies in Inbox only if unread
+    if (userRole === 'parent' && msg.senderRole === 'teacher') {
+      if (msg.isRead) {
+        console.log('Filtered out: read teacher reply (goes to Recent)');
+        return false; // Read teacher replies go to Recent
+      }
+      console.log('Included: unread teacher reply in Inbox');
+      return true; // Unread teacher replies stay in Inbox
+    }
+    
+    // For parent users, include their own sent messages in inbox initially
+    if (userRole === 'parent' && msg.senderRole === 'parent') {
+      // Check if message is older than 20 seconds - if so, move to Recent
+      const messageAge = Date.now() - safeToDate(msg.createdAt).getTime();
+      const twentySeconds = 20 * 1000;
+      
+      console.log('Parent-sent message check:', {
+        messageAge,
+        twentySeconds,
+        shouldStayInInbox: messageAge <= twentySeconds
+      });
+      
+      if (messageAge > twentySeconds) {
+        console.log('Filtered out: parent-sent message older than 20 seconds');
+        return false; // Move to Recent after 20 seconds
+      }
+      console.log('Included: parent-sent message within 20 seconds');
+      return true; // Stay in Inbox for first 20 seconds
+    }
+    
+    // For other messages, check if they should be in Recent instead
+    if (shouldBeInRecent(msg, userRole)) {
+      console.log('Filtered out: should be in Recent');
+      return false;
+    }
+    
+    console.log('Included: default case');
+    return true;
+  };
 
   // Calculate counts for each tab
   const getInboxCount = () => {
-    if (userRole === 'teacher') {
-      return inboxMessages.length + linkRequests.length;
+    if (userRole === 'teacher' || userRole === 'parent') {
+      // Count only unread messages that should be in Inbox
+      const unreadInboxMessages = inboxMessages.filter(msg => !msg.isRead);
+      return unreadInboxMessages.length + linkRequests.length;
     }
     return inboxMessages.length;
   };
@@ -67,13 +189,16 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
           console.error('Error fetching inbox messages:', error);
           return [];
         });
-        setInboxMessages(messages);
+        // Use simplified filtering logic
+        const filteredForInbox = messages.filter(m => shouldBeInInbox(m, userRole || ''));
+        setInboxMessages(filteredForInbox);
+        setAllInboxMessages(messages); // Keep all messages for Recent section
         
-        // Calculate unread count from inbox messages and link requests
-        const unreadMessages = messages.filter(msg => !msg.isRead);
-        const totalUnreadCount = userRole === 'teacher' 
-          ? unreadMessages.length + linkRequests.length 
-          : unreadMessages.length;
+        // Calculate unread count from all messages that should be in Inbox
+        const unreadInboxMessages = messages.filter(msg => shouldBeInInbox(msg, userRole || '') && !msg.isRead);
+        const totalUnreadCount = (userRole === 'teacher' || userRole === 'parent')
+          ? unreadInboxMessages.length + linkRequests.length
+          : unreadInboxMessages.length;
         setUnreadCount(totalUnreadCount);
 
         // Fetch archived messages
@@ -83,8 +208,8 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
         });
         setArchivedMessages(archived);
 
-        // If user is a teacher, also fetch link requests
-        if (userRole === 'teacher') {
+        // If user is a teacher or parent, also fetch link requests
+        if (userRole === 'teacher' || userRole === 'parent') {
           const requests = await notificationService.getPendingLinkRequests(currentUser.uid).catch(error => {
             console.debug('Error fetching link requests:', error);
             return [];
@@ -97,12 +222,15 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
             return [];
           });
           
-          // Also get replied messages from inbox
+          // Also get replied messages from inbox (only messages that have been replied to)
           const repliedMessages = await notificationService.getInboxMessages(currentUser.uid, userRole || '', true).catch(error => {
             console.debug('Error fetching replied messages:', error);
             return [];
           });
-          const repliedInboxMessages = repliedMessages.filter(msg => msg.status === 'replied' || (msg as any).teacherReplied);
+          
+          
+          // Use simplified filtering logic for Recent section
+          const repliedInboxMessages = repliedMessages.filter(msg => shouldBeInRecent(msg, userRole || ''));
           
           // Convert replied inbox messages to LinkRequest format for Recent section
           const convertedRepliedMessages = repliedInboxMessages.map(msg => ({
@@ -172,21 +300,97 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
       currentUser.uid, 
       userRole || '', 
       (messages) => {
-        setInboxMessages(messages);
-        // Update unread count in real-time
-        const unreadCount = messages.filter(msg => !msg.isRead).length;
-        const linkRequestCount = userRole === 'teacher' ? linkRequests.length : 0;
-        setUnreadCount(unreadCount + linkRequestCount);
+        // Skip real-time listener updates if disabled
+        if (disableRealTimeListener) {
+          console.log('Real-time listener disabled, skipping update');
+          return;
+        }
+        
+        // Skip updates for recently replied messages
+        if (recentlyRepliedMessages.size > 0) {
+          console.log('Skipping real-time update due to recently replied messages:', Array.from(recentlyRepliedMessages));
+          return;
+        }
+        
+        // Use simplified filtering logic with debug
+        const filteredForInbox = messages.filter(m => {
+          const shouldInclude = shouldBeInInbox(m, userRole || '');
+          console.log('Inbox filtering:', {
+            id: m.id,
+            title: m.title,
+            senderRole: m.senderRole,
+            isRead: m.isRead,
+            isArchived: m.isArchived,
+            shouldInclude,
+            messageAge: m.createdAt ? Date.now() - safeToDate(m.createdAt).getTime() : 'no date'
+          });
+          return shouldInclude;
+        });
+        
+        // Debug logging for all users
+        console.log('Real-time listener - Inbox messages:', {
+          userRole,
+          allMessages: messages.length,
+          filteredMessages: filteredForInbox.length,
+          messages: messages.map(m => ({
+            id: m.id,
+            type: m.type,
+            title: m.title,
+            senderRole: m.senderRole,
+            isRead: m.isRead,
+            isArchived: m.isArchived,
+            teacherReplied: (m as any).teacherReplied,
+            parentReplied: (m as any).parentReplied,
+            status: (m as any).status
+          }))
+        });
+        
+        // Log which messages are being filtered out and why
+        messages.forEach(m => {
+          if ((m as any).teacherReplied) {
+            console.log('Real-time listener - Message filtered out due to teacherReplied:', m.id, m.title);
+          }
+          if ((m as any).parentReplied) {
+            console.log('Real-time listener - Message filtered out due to parentReplied:', m.id, m.title);
+          }
+          if (m.isArchived) {
+            console.log('Real-time listener - Message filtered out due to isArchived:', m.id, m.title);
+          }
+        });
+        
+        setInboxMessages(filteredForInbox);
+        setAllInboxMessages(messages); // Keep all messages for Recent section
+        setAllInboxMessages(messages); // Keep all messages for Recent section
+        // Update unread count in real-time - count all unread messages that should be in Inbox
+        const unreadInboxMessages = messages.filter(msg => shouldBeInInbox(msg, userRole || '') && !msg.isRead);
+        let totalUnreadCount = unreadInboxMessages.length;
+        
+        // For teachers and parents, also include pending link requests
+        if (userRole === 'teacher' || userRole === 'parent') {
+          totalUnreadCount += linkRequests.length;
+        }
+        
+        setUnreadCount(totalUnreadCount);
       }
     );
     const unsubscribeArchived = notificationService.subscribeToInboxMessages(
       currentUser.uid, 
       userRole || '', 
-      setArchivedMessages,
+      (messages) => {
+        // Ensure only archived messages are shown in the Archived tab
+        const onlyArchived = messages.filter(m => m.isArchived === true);
+        setArchivedMessages(onlyArchived);
+      },
       true // include archived
     );
-    const unsubscribeNotifications = notificationService.subscribeToNotifications(currentUser.uid, setNotifications);
-    const unsubscribeRequests = userRole === 'teacher' ? 
+    const unsubscribeNotifications = notificationService.subscribeToNotifications(currentUser.uid, userRole || '', (notifications) => {
+      try {
+        setNotifications(notifications);
+      } catch (error) {
+        console.error('Error updating notifications:', error);
+      }
+    });
+    const unsubscribeRequests = (userRole === 'teacher' || userRole === 'parent') ? 
       notificationService.subscribeToParentLinkRequests(currentUser.uid, (requests) => {
         setLinkRequests(requests);
         // Update unread count when link requests change
@@ -196,43 +400,66 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
       () => {};
 
     // Real-time listener for Recent section (replied messages)
-    const unsubscribeRecent = userRole === 'teacher' ? 
-      notificationService.subscribeToInboxMessages(
-        currentUser.uid, 
-        userRole || '', 
-        (messages) => {
-          // Filter for replied messages and convert to Recent format
-          const repliedMessages = messages.filter(msg => msg.status === 'replied' || (msg as any).teacherReplied);
-          const convertedRepliedMessages = repliedMessages.map(msg => ({
-            id: msg.id,
-            parentId: msg.senderId || '',
-            parentEmail: msg.senderName || '',
-            firstName: '',
-            lastName: '',
-            childName: msg.data?.childName || msg.title || 'Child',
-            classGradeId: msg.data?.classGradeId || '',
-            gradeLevel: msg.data?.grade || msg.data?.gradeLevel || '',
-            sectionName: msg.data?.section || msg.data?.sectionName || '',
-            relationship: msg.data?.relationship || '',
-            message: msg.message,
-            teacherId: currentUser?.uid || '',
-            status: 'replied' as any,
-            createdAt: msg.createdAt,
-            updatedAt: msg.createdAt,
-            teacherReplied: (msg as any).teacherReplied || false,
-            teacherReplyText: (msg as any).teacherReplyText || '',
-            teacherReplyAt: (msg as any).teacherReplyAt
-          }));
+    const unsubscribeRecent = notificationService.subscribeToInboxMessages(
+      currentUser.uid, 
+      userRole || '', 
+      (messages) => {
+
+        // Use simplified filtering logic for Recent section
+        const repliedMessages = messages.filter(msg => {
+          const shouldInclude = shouldBeInRecent(msg, userRole || '');
           
-          // Get approved/rejected link requests
+          // Debug logging for Recent section
+          if (userRole === 'teacher' || userRole === 'parent') {
+            console.log('Recent section - Message filtering:', {
+              id: msg.id,
+              title: msg.title,
+              status: msg.status,
+              teacherReplied: (msg as any).teacherReplied,
+              parentReplied: (msg as any).parentReplied,
+              shouldInclude
+            });
+          }
+          
+          return shouldInclude;
+        });
+        const convertedRepliedMessages = repliedMessages.map(msg => ({
+          id: msg.id,
+          parentId: msg.senderId || '',
+          parentEmail: msg.senderName || '',
+          firstName: '',
+          lastName: '',
+          childName: msg.data?.childName || msg.title || 'Child',
+          classGradeId: msg.data?.classGradeId || '',
+          gradeLevel: msg.data?.grade || msg.data?.gradeLevel || '',
+          sectionName: msg.data?.section || msg.data?.sectionName || '',
+          relationship: msg.data?.relationship || '',
+          message: msg.message,
+          teacherId: currentUser?.uid || '',
+          status: 'replied' as any,
+          createdAt: msg.createdAt,
+          updatedAt: msg.createdAt,
+          teacherReplied: (msg as any).teacherReplied || false,
+          teacherReplyText: (msg as any).teacherReplyText || '',
+          teacherReplyAt: (msg as any).teacherReplyAt,
+          parentReplied: (msg as any).parentReplied || false,
+          parentReplyText: (msg as any).parentReplyText || '',
+          parentReplyAt: (msg as any).parentReplyAt
+        }));
+        
+        // For teachers and parents, also get approved/rejected link requests
+        if (userRole === 'teacher' || userRole === 'parent') {
           notificationService.getAllLinkRequests(currentUser.uid).then(allRequests => {
             const approvedRejectedRequests = allRequests.filter(r => r.status === 'approved' || r.status === 'rejected');
             setRecentRequests([...approvedRejectedRequests, ...convertedRepliedMessages]);
           });
-        },
-        true // include archived messages
-      ) : 
-      () => {};
+        } else {
+          // For admins, only show replied messages
+          setRecentRequests(convertedRepliedMessages);
+        }
+      },
+      true // include archived messages
+    );
 
     return () => {
       unsubscribeInbox();
@@ -258,8 +485,60 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
   const handleMarkMessageAsRead = async (messageId: string) => {
     try {
       await notificationService.markMessageAsRead(messageId, userRole || '');
-      // Remove from inbox once read so it moves to Recent view
-      setInboxMessages(prev => prev.filter(m => m.id !== messageId));
+      
+      // Update the message in inbox messages to mark as read
+      setInboxMessages(prev => 
+        prev.map(m => m.id === messageId ? { ...m, isRead: true } : m)
+      );
+      
+      // Update allInboxMessages as well
+      setAllInboxMessages(prev => 
+        prev.map(m => m.id === messageId ? { ...m, isRead: true } : m)
+      );
+      
+      // For parents, force refresh both Inbox and Recent sections
+      if (userRole === 'parent') {
+        setTimeout(async () => {
+          try {
+            // Refresh Inbox messages
+            const inboxMessages = await notificationService.getInboxMessages(currentUser?.uid || '', userRole || '');
+            const filteredInboxMessages = inboxMessages.filter(msg => shouldBeInInbox(msg, userRole || ''));
+            setInboxMessages(filteredInboxMessages);
+            setAllInboxMessages(inboxMessages);
+            
+            // Refresh Recent messages
+            const recentMessages = await notificationService.getInboxMessages(currentUser?.uid || '', userRole || '', true);
+            const repliedMessages = recentMessages.filter(msg => shouldBeInRecent(msg, userRole || ''));
+            const convertedRepliedMessages = repliedMessages.map(msg => ({
+              id: msg.id,
+              parentId: msg.senderId || '',
+              parentEmail: msg.senderName || '',
+              firstName: '',
+              lastName: '',
+              childName: msg.data?.childName || msg.title || 'Child',
+              classGradeId: msg.data?.classGradeId || '',
+              gradeLevel: msg.data?.grade || msg.data?.gradeLevel || '',
+              sectionName: msg.data?.section || msg.data?.sectionName || '',
+              relationship: msg.data?.relationship || '',
+              message: msg.message,
+              teacherId: currentUser?.uid || '',
+              status: 'replied' as any,
+              createdAt: msg.createdAt,
+              updatedAt: msg.createdAt,
+              teacherReplied: (msg as any).teacherReplied || false,
+              teacherReplyText: (msg as any).teacherReplyText || '',
+              teacherReplyAt: (msg as any).teacherReplyAt,
+              parentReplied: (msg as any).parentReplied || false,
+              parentReplyText: (msg as any).parentReplyText || '',
+              parentReplyAt: (msg as any).parentReplyAt
+            }));
+            setRecentRequests(convertedRepliedMessages);
+          } catch (error) {
+            console.error('Error refreshing sections:', error);
+          }
+        }, 500);
+      }
+      
       setUnreadCount(prev => Math.max(0, prev - 1));
     } catch (error) {
       console.error('Error marking message as read:', error);
@@ -286,24 +565,61 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
   };
 
   const handleArchiveMessage = async (messageId: string) => {
+    // Add to loading set
+    setArchiveLoading(prev => new Set(prev).add(messageId));
+    
     try {
-      await notificationService.archiveMessage(messageId, userRole || '');
+      const success = await notificationService.archiveMessage(messageId, userRole || '');
+      if (success) {
+        // Show success feedback
+        console.log('Message archived successfully');
+      } else {
+        console.error('Failed to archive message');
+        // Could show user feedback here
+      }
       // Real-time listeners will automatically handle the UI updates
-      // No need to manually update state - the listeners will detect the database changes
     } catch (error) {
       console.error('Error archiving message:', error);
+      // Could show user feedback here
+    } finally {
+      // Remove from loading set
+      setArchiveLoading(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(messageId);
+        return newSet;
+      });
     }
   };
 
+
   const handleUnarchiveMessage = async (messageId: string) => {
+    // Add to loading set
+    setArchiveLoading(prev => new Set(prev).add(messageId));
+    
     try {
-      await notificationService.unarchiveMessage(messageId, userRole || '');
+      const success = await notificationService.unarchiveMessage(messageId, userRole || '');
+      if (success) {
+        // Show success feedback
+        console.log('Message unarchived successfully');
+      } else {
+        console.error('Failed to unarchive message');
+        // Could show user feedback here
+      }
       // Real-time listeners will automatically handle the UI updates
-      // No need to manually update state - the listeners will detect the database changes
     } catch (error) {
       console.error('Error unarchiving message:', error);
+      // Could show user feedback here
+    } finally {
+      // Remove from loading set
+      setArchiveLoading(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(messageId);
+        return newSet;
+      });
     }
   };
+
+  // Bulk actions removed per request
 
   const resolveInboxCollection = (role: string) => {
     switch (role) {
@@ -321,17 +637,52 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
   const handleSendReplyToParent = async (message: InboxMessage) => {
     if (!replyForMessageText.trim() || !currentUser?.uid) return;
     try {
-      if ((message as any).teacherReplied) return;
-      const col = resolveInboxCollection(userRole || '');
+      // The message is in teacherInbox, so we need to update it there
+      const teacherInboxCol = 'teacherInbox';
       
-      // Update the original message in the database to mark it as replied
-      await updateDoc(doc(db, col, message.id), {
+      // Update the original message to track conversation
+      console.log('Updating teacher reply in collection:', teacherInboxCol, 'message ID:', message.id);
+      console.log('Message details before update:', {
+        id: message.id,
+        type: message.type,
+        title: message.title,
+        senderRole: message.senderRole,
+        isRead: message.isRead,
+        isArchived: message.isArchived,
+        teacherReplied: (message as any).teacherReplied
+      });
+      
+      await updateDoc(doc(db, teacherInboxCol, message.id), {
         teacherReplied: true,
         teacherReplyText: replyForMessageText.trim(),
         teacherReplyAt: serverTimestamp(),
         status: 'replied', // Add status field to mark as replied
-        isArchived: true // Archive the original message so it doesn't show in inbox
+        isArchived: false, // Don't archive - let it go to Recent instead
+        isRead: true, // Mark as read so it moves to Recent
+        lastTeacherMessage: replyForMessageText.trim(),
+        lastTeacherMessageAt: serverTimestamp(),
+        // Add a flag to prevent it from appearing in inbox
+        movedToRecent: true,
+        recentMovedAt: serverTimestamp()
       });
+      console.log('Teacher reply updated successfully');
+      
+      // Verify the update was successful by reading the document back
+      try {
+        const updatedDoc = await getDoc(doc(db, teacherInboxCol, message.id));
+        if (updatedDoc.exists()) {
+          const data = updatedDoc.data();
+          console.log('Verification - Updated message data:', {
+            id: message.id,
+            teacherReplied: data.teacherReplied,
+            isRead: data.isRead,
+            isArchived: data.isArchived,
+            status: data.status
+          });
+        }
+      } catch (error) {
+        console.error('Error verifying update:', error);
+      }
       
       // Send notification to parent
       await addDoc(collection(db, 'parentInbox'), {
@@ -347,19 +698,179 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
         priority: 'low',
         category: 'link_requests',
         createdAt: serverTimestamp(),
-        data: { relatedMessageId: message.id, childName: message.data?.childName }
+        data: { 
+          relatedMessageId: message.id, 
+          childName: message.data?.childName,
+          teacherId: currentUser.uid,
+          conversationThread: true
+        }
       });
       
       setReplyForMessageId(null);
       setReplyForMessageText('');
       
-      // Real-time listeners will automatically handle the UI updates
-      // No need to manually update state - the listeners will detect the database changes
+      // Manually update Recent section to show the replied message immediately
+      const repliedMessage = {
+        id: message.id,
+        parentId: message.senderId || '',
+        parentEmail: message.senderName || '',
+        firstName: '',
+        lastName: '',
+        childName: message.data?.childName || message.title || 'Child',
+        classGradeId: message.data?.classGradeId || '',
+        gradeLevel: message.data?.grade || message.data?.gradeLevel || '',
+        sectionName: message.data?.section || message.data?.sectionName || '',
+        relationship: message.data?.relationship || '',
+        message: message.message,
+        teacherId: currentUser?.uid || '',
+        status: 'replied' as any,
+        createdAt: message.createdAt,
+        updatedAt: message.createdAt,
+        teacherReplied: true,
+        teacherReplyText: replyForMessageText.trim(),
+        teacherReplyAt: new Date(),
+        parentReplied: (message as any).parentReplied || false,
+        parentReplyText: (message as any).parentReplyText || '',
+        parentReplyAt: (message as any).parentReplyAt
+      };
+      
+      setRecentRequests(prev => [repliedMessage, ...prev.filter(r => r.id !== message.id)]);
+      
+      // Also manually remove from inbox messages immediately
+      setInboxMessages(prev => {
+        const filtered = prev.filter(m => m.id !== message.id);
+        console.log('Manually removed message from Inbox:', message.id, 'Remaining inbox messages:', filtered.length);
+        return filtered;
+      });
+      
+      console.log('Message moved to Recent section manually');
+      
+      // Track this message as recently replied to prevent real-time listener from overriding
+      setRecentlyRepliedMessages(prev => new Set([...prev, message.id]));
+      
+      // Temporarily disable real-time listener to prevent override
+      setDisableRealTimeListener(true);
+      console.log('Temporarily disabling real-time listener to prevent override...');
+      
+      // Show success message
+      alert('Reply sent successfully! Message moved to Recent section.');
+      
+      // Force refresh the data to ensure UI is updated
+      setTimeout(async () => {
+        try {
+          console.log('Force refreshing teacher inbox data...');
+          const messages = await notificationService.getInboxMessages(currentUser.uid, userRole || '');
+          const filteredForInbox = messages.filter(m => shouldBeInInbox(m, userRole || ''));
+          setInboxMessages(filteredForInbox);
+        setAllInboxMessages(messages); // Keep all messages for Recent section
+          console.log('Teacher inbox refreshed:', filteredForInbox.length, 'messages');
+          
+          // Also refresh Recent section
+          const recentMessages = await notificationService.getInboxMessages(currentUser.uid, userRole || '', true);
+          console.log('Force refresh - Recent messages from database:', recentMessages.length, recentMessages.map(m => ({
+            id: m.id,
+            title: m.title,
+            status: m.status,
+            teacherReplied: (m as any).teacherReplied,
+            parentReplied: (m as any).parentReplied
+          })));
+          
+          const repliedMessages = recentMessages.filter(msg => {
+            const shouldInclude = shouldBeInRecent(msg, userRole || '');
+            
+            console.log('Force refresh - Recent filtering:', {
+              id: msg.id,
+              title: msg.title,
+              status: msg.status,
+              teacherReplied: (msg as any).teacherReplied,
+              parentReplied: (msg as any).parentReplied,
+              shouldInclude
+            });
+            
+            return shouldInclude;
+          });
+          
+          const convertedRepliedMessages = repliedMessages.map(msg => ({
+            id: msg.id,
+            parentId: msg.senderId || '',
+            parentEmail: msg.senderName || '',
+            firstName: '',
+            lastName: '',
+            childName: msg.data?.childName || msg.title || 'Child',
+            classGradeId: msg.data?.classGradeId || '',
+            gradeLevel: msg.data?.grade || msg.data?.gradeLevel || '',
+            sectionName: msg.data?.section || msg.data?.sectionName || '',
+            relationship: msg.data?.relationship || '',
+            message: msg.message,
+            teacherId: currentUser?.uid || '',
+            status: 'replied' as any,
+            createdAt: msg.createdAt,
+            updatedAt: msg.createdAt,
+            teacherReplied: (msg as any).teacherReplied || false,
+            teacherReplyText: (msg as any).teacherReplyText || '',
+            teacherReplyAt: (msg as any).teacherReplyAt,
+            parentReplied: (msg as any).parentReplied || false,
+            parentReplyText: (msg as any).parentReplyText || '',
+            parentReplyAt: (msg as any).parentReplyAt
+          }));
+          
+          setRecentRequests(convertedRepliedMessages);
+          console.log('Recent section refreshed:', convertedRepliedMessages.length, 'messages');
+          
+          // If no messages were found in Recent, manually add the replied message
+          if (convertedRepliedMessages.length === 0) {
+            console.log('No messages found in Recent, manually adding replied message...');
+            const manualRepliedMessage = {
+              id: message.id,
+              parentId: message.senderId || '',
+              parentEmail: message.senderName || '',
+              firstName: '',
+              lastName: '',
+              childName: message.data?.childName || message.title || 'Child',
+              classGradeId: message.data?.classGradeId || '',
+              gradeLevel: message.data?.grade || message.data?.gradeLevel || '',
+              sectionName: message.data?.section || message.data?.sectionName || '',
+              relationship: message.data?.relationship || '',
+              message: message.message,
+              teacherId: currentUser?.uid || '',
+              status: 'replied' as any,
+              createdAt: message.createdAt,
+              updatedAt: message.createdAt,
+              teacherReplied: true,
+              teacherReplyText: replyForMessageText.trim(),
+              teacherReplyAt: new Date(),
+              parentReplied: (message as any).parentReplied || false,
+              parentReplyText: (message as any).parentReplyText || '',
+              parentReplyAt: (message as any).parentReplyAt
+            };
+            
+            setRecentRequests(prev => [manualRepliedMessage, ...prev.filter(r => r.id !== message.id)]);
+            console.log('Manually added replied message to Recent section');
+          }
+        } catch (error) {
+          console.error('Error refreshing inbox:', error);
+        }
+      }, 1000);
+      
+      // Clear the recently replied messages after 30 seconds to allow normal filtering
+      setTimeout(() => {
+        setRecentlyRepliedMessages(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(message.id);
+          console.log('Cleared recently replied message:', message.id);
+          return newSet;
+        });
+        setDisableRealTimeListener(false);
+        console.log('Re-enabled real-time listener');
+      }, 30000);
+      
+      // Real-time listeners will also handle the UI updates
     } catch (e) {
       console.error('Failed to send reply to parent', e);
       alert('Failed to send reply.');
     }
   };
+
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
@@ -398,7 +909,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
   // Enhanced component for replied messages
   const RepliedMessageCard = ({ request }: { request: LinkRequest }) => {
     return (
-      <div className={`p-4 rounded-lg border cursor-pointer transition-all duration-200 hover:shadow-md bg-green-50 border-green-200 shadow-sm`}>
+      <div className={`p-4 rounded-lg border cursor-pointer transition-all duration-200 hover:shadow-md bg-gray-50 border-gray-200 shadow-sm`}>
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 mt-1">
             <div className="p-2 rounded-lg bg-green-100">
@@ -473,6 +984,16 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                       </p>
                     </div>
                   )}
+                  
+                  {/* Parent Reply */}
+                  {(request as any).parentReplyText && (
+                    <div className="bg-blue-50 p-2 rounded border border-blue-200">
+                      <p className="text-xs text-blue-700 font-medium mb-1">Your Reply:</p>
+                      <p className="text-xs text-gray-700 italic">
+                        "{(request as any).parentReplyText}"
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
               
@@ -485,7 +1006,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                         : new Date((request as any).teacherReplyAt), 
                       { addSuffix: true }
                     ) :
-                    formatDistanceToNow(request.createdAt.toDate(), { addSuffix: true })
+                    formatDistanceToNow(safeToDate(request.createdAt), { addSuffix: true })
                   }
                 </span>
                 <span className="text-xs text-gray-400">
@@ -600,8 +1121,8 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
               <div className="flex flex-col items-end gap-1 ml-2">
                 <span className="text-xs text-gray-500">
                   {request.reviewedAt ? 
-                    formatDistanceToNow(request.reviewedAt.toDate(), { addSuffix: true }) :
-                    formatDistanceToNow(request.createdAt.toDate(), { addSuffix: true })
+                    formatDistanceToNow(safeToDate(request.reviewedAt), { addSuffix: true }) :
+                    formatDistanceToNow(safeToDate(request.createdAt), { addSuffix: true })
                   }
                 </span>
                 <span className="text-xs text-gray-400">
@@ -625,12 +1146,50 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
 
   // Enhanced component for parent notifications
   const ParentNotificationCard = ({ message }: { message: InboxMessage }) => {
+    // Determine the actual message type based on content and data
+    const getMessageType = () => {
+      // Check if it's a bug report based on subject or content
+      if (message.title?.toLowerCase().includes('bug') || 
+          message.message?.toLowerCase().includes('bug') ||
+          message.data?.reportType === 'bug') {
+        return 'bug_report';
+      }
+      
+      // Check if it's an issue report
+      if (message.title?.toLowerCase().includes('issue') || 
+          message.message?.toLowerCase().includes('issue') ||
+          message.data?.reportType === 'issue') {
+        return 'issue_report';
+      }
+      
+      // Check if it's a general message
+      if (message.data?.reportType === 'general') {
+        return 'general_message';
+      }
+      
+      // Check if it's a link request
+      if (message.type === 'link_request' || message.data?.reportType === 'link_request') {
+        return 'link_request';
+      }
+      
+      // Default to parent report
+      return 'parent_report';
+    };
+
     const getParentNotificationIcon = (type: string) => {
       switch (type) {
         case 'link_approved':
           return <CheckIcon className="h-5 w-5 text-green-600" />;
         case 'link_rejected':
           return <XCircleIcon className="h-5 w-5 text-red-600" />;
+        case 'link_request':
+          return <UserPlusIcon className="h-5 w-5 text-blue-600" />;
+        case 'bug_report':
+          return <ExclamationTriangleIcon className="h-5 w-5 text-yellow-600" />;
+        case 'issue_report':
+          return <ExclamationCircleIcon className="h-5 w-5 text-red-600" />;
+        case 'general_message':
+          return <ChatBubbleLeftRightIcon className="h-5 w-5 text-blue-600" />;
         case 'parent_report':
           return <DocumentTextIcon className="h-5 w-5 text-blue-600" />;
         case 'system':
@@ -642,36 +1201,77 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
       }
     };
 
-    const getParentNotificationColor = (type: string) => {
+    const getMessageTypeColor = (type: string) => {
       switch (type) {
-        case 'link_approved':
-          return 'bg-green-50 border-green-200';
-        case 'link_rejected':
+        case 'bug_report':
+          return 'bg-yellow-50 border-yellow-200';
+        case 'issue_report':
           return 'bg-red-50 border-red-200';
+        case 'general_message':
+          return 'bg-blue-50 border-blue-200';
+        case 'link_request':
+          return 'bg-blue-50 border-blue-200';
         case 'parent_report':
           return 'bg-blue-50 border-blue-200';
-        case 'system':
-          return 'bg-gray-50 border-gray-200';
-        case 'alert':
-          return 'bg-yellow-50 border-yellow-200';
         default:
-          return 'bg-gray-50 border-gray-200';
+          return 'bg-blue-50 border-blue-200';
       }
     };
 
+    const getMessageTypeLabel = (type: string) => {
+      switch (type) {
+        case 'bug_report':
+          return 'Bug Report';
+        case 'issue_report':
+          return 'Issue Report';
+        case 'general_message':
+          return 'General Message';
+        case 'link_request':
+          return 'Link Request';
+        case 'parent_report':
+          return 'Parent Report';
+        default:
+          return 'Message';
+      }
+    };
+
+    const actualMessageType = getMessageType();
+
+
+    // Check if this is a parent-sent message
+    const isParentSent = message.senderRole === 'parent';
+
     return (
-      <div className={`p-4 rounded-lg border cursor-pointer transition-all duration-200 hover:shadow-md ${getParentNotificationColor(message.type)} shadow-sm`}>
-        <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 mt-1">
-            <div className="p-2 rounded-lg bg-white">
-              {getParentNotificationIcon(message.type)}
+      <div className={`group relative overflow-hidden rounded-lg transition-all duration-200 hover:shadow-md ${
+        isParentSent 
+          ? 'bg-gray-50 border border-gray-200' 
+          : 'bg-white border border-gray-200'
+      } shadow-sm`}>
+        
+        {/* Priority Indicator Bar - Based on Message Type */}
+        <div className={`absolute top-0 left-0 right-0 h-0.5 ${
+          actualMessageType === 'bug_report' ? 'bg-yellow-500' :
+          actualMessageType === 'issue_report' ? 'bg-red-500' :
+          actualMessageType === 'general_message' ? 'bg-blue-500' :
+          actualMessageType === 'link_request' ? 'bg-blue-500' :
+          'bg-blue-500'
+        }`}></div>
+
+        <div className="p-3">
+          {/* Header Section - Compact */}
+          <div className="flex items-start justify-between mb-2">
+            <div className="flex items-start gap-2 flex-1">
+              {/* Icon - Smaller */}
+              <div className={`p-1.5 rounded-lg ${
+                isParentSent ? 'bg-gray-200' : 'bg-gray-100'
+              }`}>
+                {getParentNotificationIcon(actualMessageType)}
             </div>
-          </div>
+              
+              {/* Content */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-start justify-between mb-2">
-              <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
-                  <h4 className="text-sm font-semibold text-gray-900">
+                  <h4 className="text-sm font-semibold text-gray-900 line-clamp-1">
                     {message.title}
                   </h4>
                   {!message.isRead && (
@@ -679,63 +1279,119 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                   )}
                 </div>
                 
-                {/* Notification Type Badge */}
+                {/* Message Type and Priority - Compact */}
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-white text-gray-800 border">
-                    {message.type.replace('_', ' ').toUpperCase()}
-                  </span>
-                  
-                  {/* Priority Badge */}
-                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                    message.priority === 'urgent' ? 'bg-red-100 text-red-800' :
-                    message.priority === 'high' ? 'bg-orange-100 text-orange-800' :
-                    message.priority === 'medium' ? 'bg-blue-100 text-blue-800' :
-                    'bg-gray-100 text-gray-800'
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                    actualMessageType === 'bug_report' ? 'bg-yellow-100 text-yellow-800' :
+                    actualMessageType === 'issue_report' ? 'bg-red-100 text-red-800' :
+                    actualMessageType === 'general_message' ? 'bg-blue-100 text-blue-800' :
+                    actualMessageType === 'link_request' ? 'bg-blue-100 text-blue-700' :
+                    'bg-blue-100 text-blue-700'
                   }`}>
-                    {message.priority.toUpperCase()}
+                    {getMessageTypeLabel(actualMessageType)}
                   </span>
-                </div>
-
-                {/* Message Content */}
-                <div className="space-y-2">
-                  <p className="text-sm text-gray-700 leading-relaxed">
-                    {message.message}
-                  </p>
                   
-                  {/* Additional Data */}
-                  {message.data && (
-                    <div className="bg-white p-2 rounded border border-gray-100">
-                      {message.data.childName && (
-                        <div className="flex items-center gap-1 text-xs text-gray-600 mb-1">
-                          <AcademicCapIcon className="h-3 w-3" />
-                          <span className="font-medium">Child:</span>
-                          <span className="font-semibold text-gray-900">{message.data.childName}</span>
+                  {/* Priority Indicator - Tooltip Only */}
+                  <div className="relative group">
+                    <div className={`w-2 h-2 rounded-full cursor-help ${
+                      // General message always blue (regardless of priority)
+                      actualMessageType === 'general_message' ? 'bg-blue-500' :
+                      // Bug report + medium = yellow
+                      (actualMessageType === 'bug_report' && message.priority === 'medium') ? 'bg-yellow-500' :
+                      // Issue report + high = maroon/red
+                      (actualMessageType === 'issue_report' && message.priority === 'high') ? 'bg-red-600' :
+                      // Default priority colors
+                      message.priority === 'urgent' ? 'bg-red-500' :
+                      message.priority === 'high' ? 'bg-orange-500' :
+                      message.priority === 'medium' ? 'bg-yellow-500' :
+                      'bg-blue-500'
+                    }`}></div>
+                    {/* Tooltip */}
+                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-10">
+                      {message.priority === 'urgent' ? 'Urgent' :
+                       message.priority === 'high' ? 'High' :
+                       message.priority === 'medium' ? 'Medium' : 'Low'}
                         </div>
-                      )}
-                      {message.data.reportType && (
-                        <div className="flex items-center gap-1 text-xs text-gray-600">
-                          <DocumentTextIcon className="h-3 w-3" />
-                          <span className="font-medium">Report Type:</span>
-                          <span className="font-semibold text-gray-900 capitalize">{message.data.reportType}</span>
                         </div>
-                      )}
                     </div>
-                  )}
                 </div>
               </div>
               
-              <div className="flex flex-col items-end gap-1 ml-2">
+            {/* Timestamp and Sender - Compact */}
+            <div className="flex flex-col items-end gap-0.5 ml-2">
                 <span className="text-xs text-gray-500">
-                  {formatDistanceToNow(message.createdAt.toDate(), { addSuffix: true })}
+                {formatDistanceToNow(safeToDate(message.createdAt), { addSuffix: true })}
                 </span>
                 {message.senderName && (
                   <span className="text-xs text-gray-400">
-                    From: {message.senderName}
+                  {isParentSent ? `To: ${message.data?.teacherName || 'Teacher'}` : `From: ${message.senderName}`}
                   </span>
                 )}
               </div>
             </div>
+            
+          {/* Message Content - Compact */}
+          <div className="mb-2">
+            <p className={`text-sm leading-relaxed line-clamp-2 ${
+              isParentSent ? 'text-gray-600' : 'text-gray-700'
+            }`}>
+              {message.message}
+            </p>
           </div>
+          
+          {/* Child Information - Compact */}
+          {message.data && message.data.childName && (
+            <div className="flex items-center gap-1 text-xs text-gray-500 mb-2">
+              <AcademicCapIcon className="h-3 w-3 text-blue-600" />
+              <span>Child: {message.data.childName}</span>
+            </div>
+          )}
+          
+          {/* Action Buttons - Compact */}
+          {!isParentSent && (
+            <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+                {/* Archive button - Compact */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleArchiveMessage(message.id);
+                }}
+                disabled={archiveLoading.has(message.id)}
+                className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {archiveLoading.has(message.id) ? (
+                  <>
+                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-600"></div>
+                    Archiving...
+                  </>
+                ) : (
+                  <>
+                    <ArchiveBoxIcon className="h-3 w-3" />
+                    Archive
+                  </>
+                )}
+              </button>
+              
+                {/* Mark as Read button - Compact */}
+                {userRole === 'parent' && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleMarkMessageAsRead(message.id);
+                  }}
+                    disabled={message.isRead}
+                    className={`flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                      message.isRead 
+                        ? 'text-gray-500 bg-gray-100' 
+                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                    }`}
+                  >
+                    <CheckIcon className="h-3 w-3" />
+                    {message.isRead ? 'Read' : 'Mark as Read'}
+                </button>
+              )}
+            </div>
+            )}
         </div>
       </div>
     );
@@ -847,7 +1503,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
               
               <div className="flex flex-col items-end gap-1 ml-2">
                 <span className="text-xs text-gray-500">
-                  {formatDistanceToNow(message.createdAt.toDate(), { addSuffix: true })}
+                  {formatDistanceToNow(safeToDate(message.createdAt), { addSuffix: true })}
                 </span>
                 {message.senderName && (
                   <span className="text-xs text-gray-400">
@@ -855,6 +1511,43 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                   </span>
                 )}
               </div>
+            </div>
+            
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2 mt-3 pt-2 border-t border-gray-200">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleArchiveMessage(message.id);
+                }}
+                disabled={archiveLoading.has(message.id)}
+                className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {archiveLoading.has(message.id) ? (
+                  <>
+                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-400"></div>
+                    Archiving...
+                  </>
+                ) : (
+                  <>
+                    <ArchiveBoxIcon className="h-3 w-3" />
+                    Archive
+                  </>
+                )}
+              </button>
+              
+              {!message.isRead && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleMarkMessageAsRead(message.id);
+                  }}
+                  className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
+                >
+                  <EyeIcon className="h-3 w-3" />
+                  Mark read
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -886,12 +1579,13 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
     const handleSendReply = async () => {
       if (!replyText.trim()) return;
       try {
-        // prevent multiple replies
-        if ((request as any).teacherReplied) return;
+        // Allow multiple replies for ongoing conversation
         await updateDoc(doc(db, 'linkRequests', request.id), {
           teacherReplied: true,
           teacherReplyText: replyText.trim(),
-          teacherReplyAt: serverTimestamp()
+          teacherReplyAt: serverTimestamp(),
+          lastTeacherMessage: replyText.trim(),
+          lastTeacherMessageAt: serverTimestamp()
         });
 
         // send a notification to parent inbox
@@ -908,7 +1602,12 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
           priority: 'low',
           category: 'link_requests',
           createdAt: serverTimestamp(),
-          data: { requestId: request.id, childName: request.childName }
+          data: { 
+            requestId: request.id, 
+            childName: request.childName,
+            teacherId: request.teacherId,
+            conversationThread: true
+          }
         });
 
         setReplyOpen(false);
@@ -1002,28 +1701,35 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                       {isProcessing ? 'Processing...' : 'Review & Approve'}
                     </button>
                     
-                    {/* Show reply status */}
+                    {/* Show conversation status */}
                     {((request as any).teacherReplied) ? (
                       <span className="text-xs text-gray-500 italic">
-                        Replied
+                        Conversation ongoing
                       </span>
-                    ) : (
+                    ) : null}
+                    
+                    {/* Reply button - always available */}
                       <button
                         onClick={(e) => { e.stopPropagation(); setReplyOpen(v => !v); }}
                         className="text-xs text-emerald-600 hover:text-emerald-800"
                       >
                         {replyOpen ? 'Cancel Reply' : 'Reply?'}
                       </button>
-                    )}
                     
                     {/* Reply input */}
-                    {replyOpen && !((request as any).teacherReplied) && (
-                        <div className="flex items-center gap-2 w-full">
-                          <input
-                            className="flex-1 border rounded px-2 py-1 text-xs"
+                    {replyOpen && (
+                        <div className="flex items-start gap-2 w-full" onClick={(e) => e.stopPropagation()}>
+                          <textarea
+                            className="flex-1 border rounded px-2 py-1 text-xs resize-y min-h-[60px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                             placeholder="Type a one-time reply to the parent..."
                             value={replyText}
                             onChange={(e) => setReplyText(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onFocus={(e) => e.stopPropagation()}
+                            rows={3}
+                            dir="ltr"
+                            style={{ direction: 'ltr', textAlign: 'left', unicodeBidi: 'embed' }}
                           />
                           <button
                             onClick={(e) => { e.stopPropagation(); handleSendReply(); }}
@@ -1039,7 +1745,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
               
               <div className="flex flex-col items-end gap-1 ml-2">
                 <span className="text-xs text-gray-500">
-                  {formatDistanceToNow(request.createdAt.toDate(), { addSuffix: true })}
+                  {formatDistanceToNow(safeToDate(request.createdAt), { addSuffix: true })}
                 </span>
                 <span className="text-xs text-gray-400">
                   {parentNames[request.parentId] || request.parentEmail?.split('@')[0] || 'Unknown Parent'}
@@ -1173,7 +1879,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
               
               <div className="flex flex-col items-end gap-1 ml-2">
                 <span className="text-xs text-gray-500">
-                  {formatDistanceToNow(message.createdAt.toDate(), { addSuffix: true })}
+                  {formatDistanceToNow(safeToDate(message.createdAt), { addSuffix: true })}
                 </span>
                 {message.senderName && (
                   <span className="text-xs text-gray-400">
@@ -1195,8 +1901,8 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                 <ArchiveBoxIcon className="h-3 w-3" />
                 Archive
               </button>
-                                  {/* Inline reply to parent (one-time) */}
-                                  {userRole === 'teacher' && message.senderRole === 'parent' && !(message as any).teacherReplied && (
+                                  {/* Inline reply to parent */}
+                                  {userRole === 'teacher' && message.senderRole === 'parent' && (
                                     <>
                                       {replyForMessageId === message.id ? (
                                         <div className="flex items-center gap-2 w-full">
@@ -1205,6 +1911,8 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                                             placeholder="Type a one-time reply to the parent..."
                                             value={replyForMessageText}
                                             onChange={(e) => setReplyForMessageText(e.target.value)}
+                                            dir="ltr"
+                                            style={{ direction: 'ltr', textAlign: 'left', unicodeBidi: 'embed' }}
                                           />
                                           <button
                                             onClick={(e) => { e.stopPropagation(); handleSendReplyToParent(message); }}
@@ -1265,14 +1973,6 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
             )}
           </div>
           <div className="flex items-center gap-2">
-            {unreadCount > 0 && (
-              <button
-                onClick={handleMarkAllAsRead}
-                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-              >
-                Mark all read
-              </button>
-            )}
             <button
               onClick={onClose}
               className="text-gray-400 hover:text-gray-600"
@@ -1281,6 +1981,8 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
             </button>
           </div>
         </div>
+
+        
 
         {/* Tabs */}
         <div className="flex mb-4 border-b border-gray-200">
@@ -1327,8 +2029,8 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
               {activeTab === 'inbox' ? (
                 // Inbox Messages
                 <>
-                  {/* Link Requests Section for Teachers */}
-                  {userRole === 'teacher' && linkRequests.length > 0 && (
+                  {/* Link Requests Section for Teachers and Parents */}
+                  {(userRole === 'teacher' || userRole === 'parent') && linkRequests.length > 0 && (
                 <div className="mb-4">
                   <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
                     <UserPlusIcon className="h-4 w-4" />
@@ -1348,8 +2050,9 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
               )}
 
 
+
                   {/* Inbox Messages */}
-                  {(inboxMessages.length === 0 && (userRole !== 'teacher' || linkRequests.length === 0)) ? (
+                  {(inboxMessages.length === 0 && ((userRole !== 'teacher' && userRole !== 'parent') || linkRequests.length === 0)) ? (
                     <div className="text-center py-8">
                       <BellIcon className="h-12 w-12 text-gray-300 mx-auto mb-2" />
                       <p className="text-gray-500 text-sm">No messages in your inbox</p>
@@ -1408,7 +2111,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                                       <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
                                     )}
                                     <span className="text-xs text-gray-500">
-                                      {formatDistanceToNow(message.createdAt.toDate(), { addSuffix: true })}
+                                      {formatDistanceToNow(safeToDate(message.createdAt), { addSuffix: true })}
                                     </span>
                                   </div>
                                 </div>
@@ -1454,7 +2157,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                                     </button>
                                   )}
                                   {/* Reply button for parent messages */}
-                                  {userRole === 'teacher' && message.senderRole === 'parent' && !(message as any).teacherReplied && (
+                                  {userRole === 'teacher' && message.senderRole === 'parent' && (
                                     <>
                                       {replyForMessageId === message.id ? (
                                         <div className="flex items-center gap-2 w-full">
@@ -1463,6 +2166,8 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                                             placeholder="Type a one-time reply to the parent..."
                                             value={replyForMessageText}
                                             onChange={(e) => setReplyForMessageText(e.target.value)}
+                                            dir="ltr"
+                                            style={{ direction: 'ltr', textAlign: 'left', unicodeBidi: 'embed' }}
                                           />
                                           <button
                                             onClick={(e) => { e.stopPropagation(); handleSendReplyToParent(message); }}
@@ -1498,46 +2203,69 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                   )}
                 </>
               ) : activeTab === 'recent' ? (
-                // Recent (approved/rejected)
+                // Recent (approved/rejected/replied)
                 <>
-                  {userRole === 'teacher' ? (
-                    recentRequests.length === 0 ? (
-                      <div className="text-center py-8">
-                        <BellIcon className="h-12 w-12 text-gray-300 mx-auto mb-2" />
-                        <p className="text-gray-500 text-sm">No recent items</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {recentRequests.map((request) => {
-                          // Show different components based on status
-                          if (request.status === 'replied') {
-                            return (
-                              <RepliedMessageCard
-                                key={request.id}
-                                request={request}
-                              />
-                            );
-                          } else {
-                            return (
-                          <RejectedLinkRequestCard
-                            key={request.id}
-                            request={request}
-                            variant="recent"
-                            onMarkedSeen={(id) => {
-                              setRecentRequests(prev => prev.map(r => r.id === id ? ({ ...r, seenByTeacher: true } as any) : r));
-                            }}
-                          />
-                            );
-                          }
-                        })}
-                      </div>
-                    )
-                  ) : (
+                  {(() => {
+                    const parentRecentMessages = userRole === 'parent' ? allInboxMessages.filter(msg => shouldBeInRecent(msg, userRole)) : [];
+                    const hasRecentMessages = recentRequests.length > 0 || parentRecentMessages.length > 0;
+                    
+                    console.log('Recent section check:', {
+                      userRole,
+                      recentRequestsLength: recentRequests.length,
+                      parentRecentMessagesLength: parentRecentMessages.length,
+                      hasRecentMessages,
+                      allInboxMessagesLength: allInboxMessages.length,
+                      inboxMessagesLength: inboxMessages.length
+                    });
+                    
+                    if (!hasRecentMessages) {
+                      return (
                     <div className="text-center py-8">
                       <BellIcon className="h-12 w-12 text-gray-300 mx-auto mb-2" />
                       <p className="text-gray-500 text-sm">No recent items</p>
                     </div>
-                  )}
+                      );
+                    }
+                    
+                    return (
+                    <div className="space-y-3">
+                        {/* Show parent-sent messages and teacher replies from allInboxMessages in Recent */}
+                        {userRole === 'parent' && parentRecentMessages.map((message) => (
+                          <ParentNotificationCard
+                            key={message.id}
+                            message={message}
+                          />
+                        ))}
+                        
+                        {/* Show other recent requests - only non-replied messages */}
+                      {recentRequests.map((request) => {
+                          // Skip replied messages - they should be handled differently
+                        if (request.status === 'replied') {
+                            return null; // Don't show generic replied cards
+                        } else if (userRole === 'teacher' || userRole === 'parent') {
+                          return (
+                            <RejectedLinkRequestCard
+                              key={request.id}
+                              request={request}
+                              variant="recent"
+                              onMarkedSeen={(id) => {
+                                setRecentRequests(prev => prev.map(r => r.id === id ? ({ ...r, seenByTeacher: true } as any) : r));
+                              }}
+                            />
+                          );
+                        } else {
+                            // For admins, show approved messages
+                          return (
+                              <ParentLinkRequestCard
+                              key={request.id}
+                              request={request}
+                            />
+                          );
+                        }
+                      })}
+                    </div>
+                    );
+                  })()}
                 </>
               ) : activeTab === 'archived' ? (
                 // Archived Messages
@@ -1563,7 +2291,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                               </span>
                               {message.archivedAt && (
                                 <span className="text-xs text-gray-400">
-                                  {formatDistanceToNow(message.archivedAt.toDate(), { addSuffix: true })}
+                                  {formatDistanceToNow(safeToDate(message.archivedAt), { addSuffix: true })}
                                 </span>
                               )}
                               <button
@@ -1571,10 +2299,20 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                                   e.stopPropagation();
                                   handleUnarchiveMessage(message.id);
                                 }}
-                                className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
+                                disabled={archiveLoading.has(message.id)}
+                                className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                               >
-                                <ArchiveBoxIcon className="h-3 w-3" />
-                                Unarchive
+                                {archiveLoading.has(message.id) ? (
+                                  <>
+                                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
+                                    Unarchiving...
+                                  </>
+                                ) : (
+                                  <>
+                                    <ArchiveBoxIcon className="h-3 w-3" />
+                                    Unarchive
+                                  </>
+                                )}
                               </button>
                             </div>
                           </div>
@@ -1604,7 +2342,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                                   </div>
                                   <div className="flex items-center gap-2 ml-2">
                                     <span className="text-xs text-gray-400">
-                                      {formatDistanceToNow(message.createdAt.toDate(), { addSuffix: true })}
+                                      {formatDistanceToNow(safeToDate(message.createdAt), { addSuffix: true })}
                                     </span>
                                   </div>
                                 </div>
@@ -1615,7 +2353,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                                   </span>
                                   {message.archivedAt && (
                                     <span className="text-xs text-gray-400">
-                                      {formatDistanceToNow(message.archivedAt.toDate(), { addSuffix: true })}
+                                      {formatDistanceToNow(safeToDate(message.archivedAt), { addSuffix: true })}
                                     </span>
                                   )}
                                   <button
@@ -1623,10 +2361,20 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                                       e.stopPropagation();
                                       handleUnarchiveMessage(message.id);
                                     }}
-                                    className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
+                                    disabled={archiveLoading.has(message.id)}
+                                    className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                   >
-                                    <ArchiveBoxIcon className="h-3 w-3" />
-                                    Unarchive
+                                    {archiveLoading.has(message.id) ? (
+                                      <>
+                                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
+                                        Unarchiving...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <ArchiveBoxIcon className="h-3 w-3" />
+                                        Unarchive
+                                      </>
+                                    )}
                                   </button>
                                 </div>
                               </div>
@@ -1681,7 +2429,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                                 <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
                               )}
                               <span className="text-xs text-gray-500">
-                                {formatDistanceToNow(notification.createdAt.toDate(), { addSuffix: true })}
+                                {formatDistanceToNow(safeToDate(notification.createdAt), { addSuffix: true })}
                               </span>
                             </div>
                           </div>

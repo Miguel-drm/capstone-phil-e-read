@@ -49,7 +49,7 @@ const ReportsPage: React.FC = () => {
   const [sending, setSending] = useState(false);
   const [sentBanner, setSentBanner] = useState<string | null>(null);
   const [isLoadingTeacher, setIsLoadingTeacher] = useState(false);
-  const [reportType, setReportType] = useState<'progress' | 'issue' | 'bug' | 'general'>('progress');
+  const [reportType, setReportType] = useState<'issue' | 'bug' | 'general'>('issue');
 
   const shareMailtoHref = useMemo(() => {
     const to = encodeURIComponent(teacherEmail.trim());
@@ -57,7 +57,6 @@ const ReportsPage: React.FC = () => {
     const getSubjectLine = () => {
       if (subject) return subject;
       const typeLabels = {
-        progress: 'Reading Progress Update',
         issue: 'Issue Report',
         bug: 'Bug Report',
         general: 'General Inquiry'
@@ -69,20 +68,6 @@ const ReportsPage: React.FC = () => {
     
     const getBodyTemplate = () => {
       const typeTemplates = {
-        progress: [
-          `Dear ${teacherName || 'Teacher'},`,
-          '',
-          `I wanted to share an update about ${childName}'s reading progress:`,
-          '',
-          message || 'Please see the attached reading progress report.',
-          '',
-          `Current Reading Level: ${children.find(c => c.id === selectedChildId)?.readingLevel || 'Not specified'}`,
-          `Total Sessions: ${metrics.totalSessions}`,
-          `Average Score: ${metrics.avgScore}%`,
-          `Average WPM: ${metrics.avgWpm}`,
-          '',
-          'Thank you for your continued support!'
-        ],
         issue: [
           `Dear ${teacherName || 'Teacher'},`,
           '',
@@ -312,7 +297,7 @@ const ReportsPage: React.FC = () => {
         senderName: parentName,
         isRead: false,
         isArchived: false,
-        priority: reportType === 'issue' ? 'high' : 'medium',
+        priority: reportType === 'issue' ? 'high' : reportType === 'general' ? 'low' : 'medium',
         category: 'parent_reports',
         createdAt: serverTimestamp(),
         
@@ -328,6 +313,38 @@ const ReportsPage: React.FC = () => {
           status: 'new',
           parentDisplayName: parentName,
           reportDate: new Date().toISOString()
+        }
+      });
+
+      // Also add to parent's inbox so they can see their sent messages
+      await addDoc(collection(db, 'parentInbox'), {
+        // Core notification fields
+        title: subject.trim() || `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report`,
+        message: message.trim() || '',
+        type: 'parent_report',
+        recipientId: child.teacherId,
+        senderId: currentUser.uid,
+        senderRole: 'parent',
+        senderName: parentName,
+        isRead: true, // Mark as read since parent sent it
+        isArchived: false,
+        priority: reportType === 'issue' ? 'high' : reportType === 'general' ? 'low' : 'medium',
+        category: 'parent_reports',
+        createdAt: serverTimestamp(),
+        
+        // Additional data for context
+        data: {
+        teacherId: child.teacherId,
+        parentId: currentUser.uid,
+        parentEmail: currentUser.email || '',
+        childId: child.id,
+        childName,
+        reportType,
+        subject: subject.trim() || `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report`,
+          status: 'sent',
+          parentDisplayName: parentName,
+          reportDate: new Date().toISOString(),
+          teacherName: teacherName || 'Teacher'
         }
       });
       
@@ -498,9 +515,8 @@ const ReportsPage: React.FC = () => {
             {/* Report Type Selection */}
             <div>
               <label className="block text-sm font-semibold text-blue-900 mb-3">Message Type</label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {[
-                  { type: 'progress', label: 'Progress Update', icon: '📈' },
                   { type: 'issue', label: 'Report Issue', icon: '⚠️' },
                   { type: 'bug', label: 'Bug Report', icon: '🐛' },
                   { type: 'general', label: 'General Message', icon: '💬' }
@@ -576,7 +592,6 @@ const ReportsPage: React.FC = () => {
                 onChange={(e) => setMessage(e.target.value)}
                 rows={6}
                 placeholder={
-                  reportType === 'progress' ? "Share your observations about your child's reading progress, achievements, or areas for improvement..." :
                   reportType === 'issue' ? "Describe the issue you are experiencing with your child's learning or the system..." :
                   reportType === 'bug' ? "Describe the technical problem or bug you encountered..." :
                   "Write your message to the teacher..."
