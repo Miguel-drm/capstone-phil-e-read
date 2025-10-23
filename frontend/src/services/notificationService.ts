@@ -28,7 +28,7 @@ export interface LinkRequest {
   relationship: string;
   message: string;
   teacherId: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'rejected' | 'replied';
   createdAt: Timestamp;
   updatedAt: Timestamp;
   reviewedAt?: Timestamp;
@@ -66,6 +66,7 @@ export interface InboxMessage {
   archivedAt?: Timestamp;
   data?: any;
   expiresAt?: Timestamp;
+  status?: 'pending' | 'approved' | 'rejected' | 'replied';
 }
 
 class NotificationService {
@@ -706,6 +707,22 @@ class NotificationService {
       return true;
     } catch (error) {
       console.error('Error archiving message:', error);
+      return false;
+    }
+  }
+
+  // Unarchive a message
+  async unarchiveMessage(messageId: string, userRole: string): Promise<boolean> {
+    try {
+      const collectionName = this.getInboxCollection(userRole);
+      const messageRef = doc(db, collectionName, messageId);
+      await updateDoc(messageRef, {
+        isArchived: false,
+        archivedAt: null
+      });
+      return true;
+    } catch (error) {
+      console.error('Error unarchiving message:', error);
       return false;
     }
   }
