@@ -36,6 +36,12 @@ export interface LinkRequest {
   reviewedBy?: string;
   rejectionReason?: string;
   selectedStudentId?: string; // Added for student selection
+  // Conversation history fields
+  teacherReplied?: boolean;
+  teacherReplyText?: string;
+  teacherReplyAt?: Timestamp;
+  lastTeacherMessage?: string;
+  lastTeacherMessageAt?: Timestamp;
 }
 
 export interface Notification {
@@ -120,16 +126,16 @@ class NotificationService {
     try {
       // Simplified query without orderBy to avoid index requirements
       const q = query(
-        collection(db, 'linkRequests'),
-        where('teacherId', '==', teacherId)
-      );
-      
+          collection(db, 'linkRequests'),
+          where('teacherId', '==', teacherId)
+        );
+        
       const snapshot = await getDocs(q);
-      const requests = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as LinkRequest[];
-      
+        const requests = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as LinkRequest[];
+        
       // Sort client-side to avoid index requirements
       return requests.sort((a, b) => {
         const aTime = a.createdAt?.toDate?.() || new Date();
@@ -138,7 +144,7 @@ class NotificationService {
       });
     } catch (error) {
       console.error('Error fetching link requests:', error);
-      return [];
+        return [];
     }
   }
 
@@ -147,26 +153,26 @@ class NotificationService {
     try {
       // Simplified query without orderBy to avoid index requirements
       const q = query(
-        collection(db, 'linkRequests'),
-        where('teacherId', '==', teacherId),
-        where('status', '==', 'rejected')
-      );
-      
+          collection(db, 'linkRequests'),
+          where('teacherId', '==', teacherId),
+          where('status', '==', 'rejected')
+        );
+        
       const snapshot = await getDocs(q);
-      const requests = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as LinkRequest[];
-      
+        const requests = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as LinkRequest[];
+        
       // Sort client-side to avoid index requirements
-      return requests.sort((a, b) => {
+        return requests.sort((a, b) => {
         const aTime = a.reviewedAt?.toDate?.() || a.createdAt?.toDate?.() || new Date();
         const bTime = b.reviewedAt?.toDate?.() || b.createdAt?.toDate?.() || new Date();
         return bTime.getTime() - aTime.getTime();
       });
     } catch (error) {
       console.error('Error fetching rejected link requests:', error);
-      return [];
+        return [];
     }
   }
 
@@ -175,16 +181,16 @@ class NotificationService {
     try {
       // Simplified query without orderBy to avoid index requirements
       const q = query(
-        collection(db, 'linkRequests'),
-        where('parentId', '==', parentId)
-      );
-      
+          collection(db, 'linkRequests'),
+          where('parentId', '==', parentId)
+        );
+        
       const snapshot = await getDocs(q);
-      const requests = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as LinkRequest[];
-      
+        const requests = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as LinkRequest[];
+        
       // Sort client-side to avoid index requirements
       return requests.sort((a, b) => {
         const aTime = a.createdAt?.toDate?.() || new Date();
@@ -193,7 +199,7 @@ class NotificationService {
       });
     } catch (error) {
       console.error('Error fetching parent link requests:', error);
-      return [];
+        return [];
     }
   }
 
@@ -392,8 +398,7 @@ class NotificationService {
   subscribeToLinkRequests(teacherId: string, callback: (requests: LinkRequest[]) => void) {
     const q = query(
       collection(db, 'linkRequests'),
-      where('teacherId', '==', teacherId),
-      orderBy('createdAt', 'desc')
+      where('teacherId', '==', teacherId)
     );
 
     return onSnapshot(q, (snapshot) => {
@@ -401,7 +406,15 @@ class NotificationService {
         id: doc.id,
         ...doc.data()
       })) as LinkRequest[];
-      callback(requests);
+      
+      // Client-side sorting to avoid index requirements
+      const sortedRequests = requests.sort((a, b) => {
+        const aTime = a.createdAt?.toDate?.() || new Date();
+        const bTime = b.createdAt?.toDate?.() || new Date();
+        return bTime.getTime() - aTime.getTime(); // Descending order (newest first)
+      });
+      
+      callback(sortedRequests);
     });
   }
 
@@ -410,14 +423,37 @@ class NotificationService {
     try {
       const q = query(
         collection(db, 'linkRequests'),
-        where('parentId', '==', parentId),
-        orderBy('createdAt', 'desc')
+        where('parentId', '==', parentId)
       );
 
-      const safeCallback = createSafeFirestoreListener<LinkRequest[]>(callback);
       const safeErrorHandler = createSafeFirestoreErrorHandler();
 
-      return onSnapshot(q, safeCallback, safeErrorHandler);
+      return onSnapshot(q, (snapshot) => {
+        if (!snapshot || !snapshot.docs) {
+          console.debug('Empty snapshot received for parent link requests');
+          callback([]);
+          return;
+        }
+
+        try {
+          const requests = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          } as LinkRequest));
+          
+          // Client-side sorting to avoid index requirements
+          const sortedRequests = requests.sort((a, b) => {
+            const aTime = a.createdAt?.toDate?.() || new Date();
+            const bTime = b.createdAt?.toDate?.() || new Date();
+            return bTime.getTime() - aTime.getTime(); // Descending order
+          });
+          
+          callback(sortedRequests);
+        } catch (error) {
+          console.debug('Error processing parent link requests snapshot:', error);
+          callback([]);
+        }
+      }, safeErrorHandler);
     } catch (error) {
       console.debug('Error setting up parent link requests listener:', error);
       // Return a no-op unsubscribe function
@@ -435,8 +471,23 @@ class NotificationService {
         const q = query(collection(db, collectionName), orderBy('createdAt', 'desc'));
         
         const safeCallback = (snapshot: any) => {
-          if (!snapshot || !snapshot.docs) {
-            console.warn('Parent notifications - invalid snapshot:', snapshot);
+          // Handle null/undefined snapshots
+          if (!snapshot) {
+            console.debug('Parent notifications - null snapshot (normal for empty collections)');
+            callback([]);
+            return;
+          }
+          
+          // Handle snapshots without docs property
+          if (!snapshot.docs) {
+            console.debug('Parent notifications - snapshot without docs (normal for empty collections)');
+            callback([]);
+            return;
+          }
+          
+          // Handle empty snapshots (this is normal, not an error)
+          if (snapshot.docs.length === 0) {
+            console.debug('Parent notifications - empty snapshot (no messages found)');
             callback([]);
             return;
           }
@@ -496,8 +547,23 @@ class NotificationService {
       );
 
       const fallbackCallback = (snapshot: any) => {
-        if (!snapshot || !snapshot.docs) {
-          console.warn('Fallback callback received invalid snapshot:', snapshot);
+        // Handle null/undefined snapshots
+        if (!snapshot) {
+          console.debug('Fallback callback received null snapshot - this is normal for empty collections');
+          callback([]);
+          return;
+        }
+        
+        // Handle snapshots without docs property
+        if (!snapshot.docs) {
+          console.debug('Fallback callback received snapshot without docs - this is normal for empty collections');
+          callback([]);
+          return;
+        }
+        
+        // Handle empty snapshots (this is normal, not an error)
+        if (snapshot.docs.length === 0) {
+          console.debug('Fallback callback received empty snapshot - no notifications found');
           callback([]);
           return;
         }
@@ -882,6 +948,8 @@ class NotificationService {
       const q = query(collection(db, collectionName), orderBy('createdAt', 'desc'));
       
       const safeCallback = (snapshot: any) => {
+        console.log('Real-time listener for', collectionName, 'received', snapshot.docs.length, 'messages');
+        
         const allMessages = snapshot.docs.map((doc: any) => {
           const docData = doc.data();
           
@@ -921,6 +989,7 @@ class NotificationService {
           filteredMessages = filteredMessages.filter((msg: InboxMessage) => !msg.isArchived);
         }
         
+        console.log('Real-time listener - Filtered messages for', userRole, ':', filteredMessages.length);
         callback(filteredMessages);
       };
       

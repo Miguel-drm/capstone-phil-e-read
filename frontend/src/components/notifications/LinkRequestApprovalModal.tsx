@@ -110,7 +110,7 @@ const LinkRequestApprovalModal: React.FC<LinkRequestApprovalModalProps> = ({
     if (!request || !currentUser?.uid) return;
 
     if (!selectedStudentId) {
-      alert('Please select a student to approve this request.');
+      console.warn('Please select a student to approve this request.');
       return;
     }
 
@@ -145,8 +145,8 @@ const LinkRequestApprovalModal: React.FC<LinkRequestApprovalModalProps> = ({
           type: 'link_rejected',
           title: 'Link Request Rejected',
           message: rejectionReason 
-            ? `Your request to link ${request.childName} was rejected: ${rejectionReason}`
-            : `Your request to link ${request.childName} was rejected.`,
+            ? `Your request to link ${request.childName} was rejected!\nReason: ${rejectionReason}`
+            : `Your request to link ${request.childName} was rejected!`,
           userId: request.parentId,
           isRead: false,
           data: { requestId: request.id, reason: rejectionReason }
@@ -156,8 +156,8 @@ const LinkRequestApprovalModal: React.FC<LinkRequestApprovalModalProps> = ({
         await addDoc(collection(db, 'parentInbox'), {
           title: 'Link Request Rejected',
           message: rejectionReason 
-            ? `Your request to link ${request.childName} was rejected: ${rejectionReason}`
-            : `Your request to link ${request.childName} was rejected.`,
+            ? `Your request to link ${request.childName} was rejected!\nReason: ${rejectionReason}`
+            : `Your request to link ${request.childName} was rejected!`,
           type: 'link_rejected',
           recipientId: request.parentId,
           senderId: currentUser.uid,

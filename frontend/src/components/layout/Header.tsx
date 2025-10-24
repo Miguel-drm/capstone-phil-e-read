@@ -65,20 +65,39 @@ const Header: React.FC<HeaderProps> = ({
 
     const fetchNotificationCount = async () => {
       try {
-        // Use new inbox system based on user role
+        // Use same logic as NotificationDropdown for consistency
         const messages = await notificationService.getInboxMessages(currentUser.uid, userRole || '');
-        const unreadMessages = messages.filter(msg => !msg.isRead);
-        let totalUnreadCount = unreadMessages.length;
         
-        // For teachers, also include pending link requests
-        if (userRole === 'teacher') {
+        // Apply same filtering logic as NotificationDropdown
+        const filteredInboxMessages = messages.filter(msg => {
+          // Use same shouldBeInInbox logic as NotificationDropdown
+          if (msg.isArchived) return false;
+          if (userRole === 'teacher' && msg.senderRole === 'parent' && msg.isRead) return false;
+          if (userRole === 'parent' && msg.senderRole === 'teacher' && msg.isRead) return false;
+          return true;
+        });
+        
+        const unreadInboxMessages = filteredInboxMessages.filter(msg => !msg.isRead);
+        let totalUnreadCount = unreadInboxMessages.length;
+        
+        // For teachers and parents, also include pending link requests
+        if (userRole === 'teacher' || userRole === 'parent') {
           try {
-            const linkRequests = await notificationService.getPendingLinkRequests(currentUser.uid);
-            totalUnreadCount += linkRequests.length;
+            const linkRequests = await notificationService.getAllLinkRequests(currentUser.uid);
+            const pendingLinkRequests = linkRequests.filter(request => request.status === 'pending');
+            totalUnreadCount += pendingLinkRequests.length;
           } catch (error) {
             console.debug('Error fetching link requests for count:', error);
           }
         }
+        
+        console.log('🔥 HEADER NOTIFICATION COUNT:', {
+          userRole,
+          allMessages: messages.length,
+          filteredInboxMessages: filteredInboxMessages.length,
+          unreadInboxMessages: unreadInboxMessages.length,
+          totalUnreadCount
+        });
         
         setUnreadNotificationCount(totalUnreadCount);
       } catch (error) {
@@ -97,34 +116,98 @@ const Header: React.FC<HeaderProps> = ({
     try {
       // Listen to inbox messages
       unsubscribeInbox = notificationService.subscribeToInboxMessages(currentUser.uid, userRole || '', async (messages) => {
-        const unreadMessages = messages.filter(msg => !msg.isRead);
-        let totalUnreadCount = unreadMessages.length;
+        // Apply same filtering logic as NotificationDropdown
+        const filteredInboxMessages = messages.filter(msg => {
+          if (msg.isArchived) return false;
+          if (userRole === 'teacher' && msg.senderRole === 'parent' && msg.isRead) return false;
+          if (userRole === 'parent' && msg.senderRole === 'teacher' && msg.isRead) return false;
+          return true;
+        });
         
-        // For teachers, also include pending link requests
-        if (userRole === 'teacher') {
-          try {
-            const linkRequests = await notificationService.getPendingLinkRequests(currentUser.uid);
-            totalUnreadCount += linkRequests.length;
-          } catch (error) {
-            console.debug('Error fetching link requests for count:', error);
-          }
-        }
+        const unreadInboxMessages = filteredInboxMessages.filter(msg => !msg.isRead);
+        let totalUnreadCount = unreadInboxMessages.length;
+        
+        // Note: Link requests count will be updated by real-time listeners
+        // No need to fetch them here as it's handled by the link requests listener
+        
+        console.log('🔥 HEADER REAL-TIME NOTIFICATION COUNT:', {
+          userRole,
+          allMessages: messages.length,
+          filteredInboxMessages: filteredInboxMessages.length,
+          unreadInboxMessages: unreadInboxMessages.length,
+          totalUnreadCount
+        });
         
         setUnreadNotificationCount(totalUnreadCount);
       });
 
-      // For teachers, also listen to link requests changes
-      if (userRole === 'teacher') {
-        unsubscribeRequests = notificationService.subscribeToParentLinkRequests(currentUser.uid, async (requests) => {
+      // For teachers and parents, also listen to link requests changes
+      if (userRole === 'teacher' || userRole === 'parent') {
+        if (userRole === 'teacher') {
+          unsubscribeRequests = notificationService.subscribeToLinkRequests(currentUser.uid, async (requests) => {
           try {
             const messages = await notificationService.getInboxMessages(currentUser.uid, userRole || '');
-            const unreadMessages = messages.filter(msg => !msg.isRead);
-            const totalUnreadCount = unreadMessages.length + requests.length;
+            
+            // Apply same filtering logic as NotificationDropdown
+            const filteredInboxMessages = messages.filter(msg => {
+              if (msg.isArchived) return false;
+              if (userRole === 'teacher' && msg.senderRole === 'parent' && msg.isRead) return false;
+              if (userRole === 'parent' && msg.senderRole === 'teacher' && msg.isRead) return false;
+              return true;
+            });
+            
+            const unreadInboxMessages = filteredInboxMessages.filter(msg => !msg.isRead);
+            const pendingLinkRequests = requests.filter(request => request.status === 'pending');
+            const totalUnreadCount = unreadInboxMessages.length + pendingLinkRequests.length;
+            
+            console.log('🔥 HEADER LINK REQUESTS COUNT UPDATE:', {
+              userRole,
+              allMessages: messages.length,
+              filteredInboxMessages: filteredInboxMessages.length,
+              unreadInboxMessages: unreadInboxMessages.length,
+              linkRequests: requests.length,
+              pendingLinkRequests: pendingLinkRequests.length,
+              totalUnreadCount
+            });
+            
             setUnreadNotificationCount(totalUnreadCount);
           } catch (error) {
             console.debug('Error updating notification count from link requests:', error);
           }
-        });
+          });
+        } else {
+          unsubscribeRequests = notificationService.subscribeToParentLinkRequests(currentUser.uid, async (requests) => {
+            try {
+              const messages = await notificationService.getInboxMessages(currentUser.uid, userRole || '');
+              
+              // Apply same filtering logic as NotificationDropdown
+              const filteredInboxMessages = messages.filter(msg => {
+                if (msg.isArchived) return false;
+                if (userRole === 'teacher' && msg.senderRole === 'parent' && msg.isRead) return false;
+                if (userRole === 'parent' && msg.senderRole === 'teacher' && msg.isRead) return false;
+                return true;
+              });
+              
+              const unreadInboxMessages = filteredInboxMessages.filter(msg => !msg.isRead);
+              const pendingLinkRequests = requests.filter(request => request.status === 'pending');
+              const totalUnreadCount = unreadInboxMessages.length + pendingLinkRequests.length;
+              
+              console.log('🔥 HEADER PARENT LINK REQUESTS COUNT UPDATE:', {
+                userRole,
+                allMessages: messages.length,
+                filteredInboxMessages: filteredInboxMessages.length,
+                unreadInboxMessages: unreadInboxMessages.length,
+                linkRequests: requests.length,
+                pendingLinkRequests: pendingLinkRequests.length,
+                totalUnreadCount
+              });
+              
+              setUnreadNotificationCount(totalUnreadCount);
+            } catch (error) {
+              console.debug('Error updating notification count from link requests:', error);
+            }
+          });
+        }
       }
     } catch (error) {
       console.debug('Error setting up notification listener:', error);
