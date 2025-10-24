@@ -114,46 +114,70 @@ const ReadingLevelDistributionChart: React.FC<Props> = ({ classes = [] }) => {
   useEffect(() => {
     if (!currentUser?.uid) return;
 
+    let unsubscribe: (() => void) | null = null;
+
     try {
       const col = collection(db, 'readingResults');
-      const conditions = [where('teacherId', '==', currentUser.uid)];
-      if (selectedClassId) conditions.push(where('gradeId', '==', selectedClassId));
-      const q = query(col, ...conditions);
-      const unsub = onSnapshot(q, (snap) => {
-        let independent = 0;
-        let instructional = 0;
-        let frustration = 0;
-        snap.forEach((docSnap) => {
-          const d: any = docSnap.data();
-          // Determine level from stored value or compute from accuracy
-          const levelName: string | undefined = d.readingLevel || d.level || d.readingLevelName;
-          const accuracy: number | undefined = d.oralReadingScore ?? d.accuracy ?? d.score;
-          let bucket: 'independent' | 'instructional' | 'frustration';
-          if (typeof levelName === 'string') {
-            const name = levelName.toLowerCase();
-            if (name.startsWith('independent')) bucket = 'independent';
-            else if (name.startsWith('instruction')) bucket = 'instructional';
-            else bucket = 'frustration';
-          } else if (typeof accuracy === 'number') {
-            if (accuracy >= 97) bucket = 'independent';
-            else if (accuracy >= 90) bucket = 'instructional';
-            else bucket = 'frustration';
-          } else {
-            bucket = 'frustration';
-          }
-          if (bucket === 'independent') independent += 1;
-          if (bucket === 'instructional') instructional += 1;
-          if (bucket === 'frustration') frustration += 1;
-        });
-        setCounts({ independent, instructional, frustration });
+      // Use only teacherId filter to avoid composite index requirements
+      const q = query(col, where('teacherId', '==', currentUser.uid));
+      
+      unsubscribe = onSnapshot(q, (snap) => {
+        try {
+          let independent = 0;
+          let instructional = 0;
+          let frustration = 0;
+          snap.forEach((docSnap) => {
+            const d: any = docSnap.data();
+            
+            // Client-side filtering for selectedClassId
+            if (selectedClassId && d.gradeId !== selectedClassId) {
+              return; // Skip this document if it doesn't match the selected class
+            }
+            
+            // Determine level from stored value or compute from accuracy
+            const levelName: string | undefined = d.readingLevel || d.level || d.readingLevelName;
+            const accuracy: number | undefined = d.oralReadingScore ?? d.accuracy ?? d.score;
+            let bucket: 'independent' | 'instructional' | 'frustration';
+            if (typeof levelName === 'string') {
+              const name = levelName.toLowerCase();
+              if (name.startsWith('independent')) bucket = 'independent';
+              else if (name.startsWith('instruction')) bucket = 'instructional';
+              else bucket = 'frustration';
+            } else if (typeof accuracy === 'number') {
+              if (accuracy >= 97) bucket = 'independent';
+              else if (accuracy >= 90) bucket = 'instructional';
+              else bucket = 'frustration';
+            } else {
+              bucket = 'frustration';
+            }
+            if (bucket === 'independent') independent += 1;
+            if (bucket === 'instructional') instructional += 1;
+            if (bucket === 'frustration') frustration += 1;
+          });
+          setCounts({ independent, instructional, frustration });
+        } catch (error) {
+          console.error('🔥 READING CHART: Error processing snapshot:', error);
+          setCounts({ independent: 0, instructional: 0, frustration: 0 });
+        }
       }, (error) => {
-        console.warn('Reading level distribution subscribe error:', error);
+        console.warn('🔥 READING CHART: Subscribe error:', error);
         setCounts({ independent: 0, instructional: 0, frustration: 0 });
       });
-      return () => unsub();
     } catch (e) {
-      console.warn('Reading level distribution query failed:', e);
+      console.warn('🔥 READING CHART: Setup error:', e);
+      setCounts({ independent: 0, instructional: 0, frustration: 0 });
     }
+
+    return () => {
+      try {
+        if (unsubscribe) {
+          console.log('🔥 READING CHART: Cleaning up listener');
+          unsubscribe();
+        }
+      } catch (error) {
+        console.error('🔥 READING CHART: Error during cleanup:', error);
+      }
+    };
   }, [currentUser?.uid, selectedClassId]);
 
   return (

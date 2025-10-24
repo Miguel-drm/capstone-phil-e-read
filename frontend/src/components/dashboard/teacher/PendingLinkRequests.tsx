@@ -98,7 +98,7 @@ const PendingLinkRequests: React.FC = () => {
   const handleApprove = async (req: LinkRequest) => {
     const selectedStudentId = selectedStudentByRequest[req.id];
     if (!selectedStudentId) {
-      alert('Please select a student to link.');
+      console.warn('Please select a student to link.');
       return;
     }
     try {
@@ -111,7 +111,7 @@ const PendingLinkRequests: React.FC = () => {
       await batch.commit();
     } catch (e) {
       console.error('Approve failed', e);
-      alert('Failed to approve request.');
+      console.error('Failed to approve request.');
     } finally {
       setSubmittingId(null);
     }
@@ -123,7 +123,7 @@ const PendingLinkRequests: React.FC = () => {
       await updateDoc(doc(db, 'linkRequests', req.id), { status: 'denied' });
     } catch (e) {
       console.error('Deny failed', e);
-      alert('Failed to deny request.');
+      console.error('Failed to deny request.');
     } finally {
       setSubmittingId(null);
     }

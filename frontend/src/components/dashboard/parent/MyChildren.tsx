@@ -129,15 +129,15 @@ const MyChildren: React.FC = () => {
   const handleRequestSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser?.uid) {
-      alert('You must be signed in to submit a request.');
+      console.warn('You must be signed in to submit a request.');
       return;
     }
     if (!requestData.firstName.trim() || !requestData.lastName.trim()) {
-      alert("Please enter both first name and last name.");
+      console.warn("Please enter both first name and last name.");
       return;
     }
     if (!requestData.gradeLevel || !requestData.section) {
-      alert('Please select both grade level and section.');
+      console.warn('Please select both grade level and section.');
       return;
     }
 
@@ -148,7 +148,7 @@ const MyChildren: React.FC = () => {
       const classGradeRef = fsDoc(db, 'classGrades', requestData.section);
       const classGradeSnap = await getDoc(classGradeRef);
       if (!classGradeSnap.exists()) {
-        alert('Selected section no longer exists. Please try again.');
+        console.warn('Selected section no longer exists. Please try again.');
         setSubmitting(false);
         return;
       }
@@ -186,7 +186,7 @@ const MyChildren: React.FC = () => {
       }, 1600);
     } catch (err) {
       console.error('Failed to submit link request:', err);
-      alert('Failed to submit your request. Please try again.');
+      console.error('Failed to submit your request. Please try again.');
     } finally {
       setSubmitting(false);
     }
