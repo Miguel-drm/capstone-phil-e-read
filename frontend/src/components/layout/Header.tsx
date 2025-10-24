@@ -91,6 +91,11 @@ const Header: React.FC<HeaderProps> = ({
           }
         }
         
+        // Don't show badge for admin users
+        if (userRole === 'admin') {
+          totalUnreadCount = 0;
+        }
+        
         console.log('🔥 HEADER NOTIFICATION COUNT:', {
           userRole,
           allMessages: messages.length,
@@ -129,6 +134,11 @@ const Header: React.FC<HeaderProps> = ({
         
         // Note: Link requests count will be updated by real-time listeners
         // No need to fetch them here as it's handled by the link requests listener
+        
+        // Don't show badge for admin users
+        if (userRole === 'admin') {
+          totalUnreadCount = 0;
+        }
         
         console.log('🔥 HEADER REAL-TIME NOTIFICATION COUNT:', {
           userRole,

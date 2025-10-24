@@ -814,7 +814,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
             // Force badge count update when link requests change
             const pendingRequests = requests.filter(r => r.status === 'pending');
             const unreadInboxMessages = inboxMessages.filter(msg => shouldBeInInbox(msg, userRole || '') && !msg.isRead);
-            const totalBadgeCount = userRole === 'teacher' || userRole === 'parent' ? 
+            const totalBadgeCount = (userRole === 'teacher' || userRole === 'parent') ? 
               unreadInboxMessages.length + pendingRequests.length : 
               inboxMessages.filter(msg => shouldBeInInbox(msg, userRole || '')).length;
               
@@ -1869,12 +1869,45 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
     // Check if this is an admin-sent message
     const isAdminSent = message.senderRole === 'admin';
 
+    // Handle click to view ISR content for admin messages
+    const handleAdminMessageClick = () => {
+      // Check if this is a Class ISR report
+      if (actualMessageType === 'teacher_report' && message.data) {
+        // Navigate to the ISR content page
+        const gradeId = message.data.gradeId;
+        const classId = message.data.classId;
+        const teacherId = message.data.teacherId;
+        
+        if (gradeId && classId && teacherId) {
+          // Navigate to the ISR content page
+          window.location.href = `/admin/reports/isr/${gradeId}/${classId}/${teacherId}`;
+        } else {
+          // Fallback: try to construct URL from available data
+          const reportId = message.data.reportId || message.id;
+          window.location.href = `/admin/reports/isr/${reportId}`;
+        }
+      } else if (message.data && message.data.pdfUrl) {
+        // Open PDF in new tab for other document types
+        window.open(message.data.pdfUrl, '_blank');
+      } else if (message.data && message.data.documentId) {
+        // If no direct PDF URL, construct it from document ID
+        const pdfUrl = `/api/documents/${message.data.documentId}/pdf`;
+        window.open(pdfUrl, '_blank');
+      } else {
+        // Fallback: try to construct PDF URL from message data
+        console.log('Admin message clicked - no PDF URL available:', message.data);
+      }
+    };
+
     return (
-      <div className={`group relative overflow-hidden rounded-lg transition-all duration-200 hover:shadow-md ${
-        isAdminSent 
-          ? 'bg-gray-50 border border-gray-200' 
-          : 'bg-white border border-gray-200'
-      } shadow-sm`}>
+      <div 
+        className={`group relative overflow-hidden rounded-lg transition-all duration-200 hover:shadow-lg hover:scale-[1.02] cursor-pointer ${
+          isAdminSent 
+            ? 'bg-gray-50 border border-gray-200 hover:bg-gray-100' 
+            : 'bg-white border border-gray-200 hover:bg-gray-50'
+        } shadow-sm`}
+        onClick={handleAdminMessageClick}
+      >
         
         {/* Priority Indicator Bar - Based on Message Type */}
         <div className={`absolute top-0 left-0 right-0 h-0.5 ${
@@ -1964,13 +1997,21 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
               </div>
             </div>
             
-          {/* Message Content - Compact */}
+          {/* Message Content - Improved Layout */}
           <div className="mb-2">
-            <p className={`text-sm leading-relaxed line-clamp-2 ${
+            <div className={`text-sm leading-relaxed ${
               isAdminSent ? 'text-gray-600' : 'text-gray-700'
             }`}>
-              {message.message}
-            </p>
+              {(message.message || '').split(/\n+/).map((line, index) => (
+                <p key={index} className={index > 0 ? 'mt-2' : ''}>
+                  {line}
+                </p>
+              ))}
+            </div>
+            {/* Click indicator for interactive messages */}
+            <div className="mt-2 text-xs text-blue-600 opacity-70 group-hover:opacity-100 transition-opacity">
+              {actualMessageType === 'teacher_report' ? 'Click to view ISR content' : 'Click to view content'}
+            </div>
           </div>
           
           {/* Student Information - Compact */}
@@ -1998,7 +2039,43 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
           )}
           
           {/* Action Buttons - Compact */}
-          {!isAdminSent && (
+          {isAdminSent ? (
+            <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+              {/* View ISR Content button for admin messages */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleAdminMessageClick();
+                }}
+                className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 bg-blue-100 hover:bg-blue-200 rounded-md transition-colors"
+              >
+                <DocumentTextIcon className="h-3 w-3" />
+                {actualMessageType === 'teacher_report' ? 'View ISR' : 'View PDF'}
+              </button>
+              
+              {/* Archive button for admin messages */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleArchiveMessage(message.id);
+                }}
+                disabled={archiveLoading.has(message.id)}
+                className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {archiveLoading.has(message.id) ? (
+                  <>
+                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-600"></div>
+                    Archiving...
+                  </>
+                ) : (
+                  <>
+                    <ArchiveBoxIcon className="h-3 w-3" />
+                    Archive
+                  </>
+                )}
+              </button>
+            </div>
+          ) : (
             <div className="flex items-center justify-between pt-2 border-t border-gray-200">
               {/* Archive button - Compact */}
               <button
@@ -2581,12 +2658,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                 {inboxCount}
               </span>
             )}
-            {/* Debug: Show badge count info */}
-            {process.env.NODE_ENV === 'development' && (
-              <span className="text-xs text-gray-500 ml-2">
-                (Badge: {inboxCount})
-              </span>
-            )}
+            {/* Debug: Show badge count info - Removed for cleaner UI */}
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -2824,13 +2896,13 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                 // Recent (approved/rejected/replied)
                 <>
                   {(() => {
-                    const parentRecentMessages = userRole === 'parent' ? allInboxMessages.filter(msg => shouldBeInRecent(msg, userRole)) : [];
-                    const hasRecentMessages = recentRequests.length > 0 || parentRecentMessages.length > 0;
+                    const recentMessages = (userRole === 'parent' || userRole === 'admin') ? allInboxMessages.filter(msg => shouldBeInRecent(msg, userRole)) : [];
+                    const hasRecentMessages = recentRequests.length > 0 || recentMessages.length > 0;
                     
                     console.log('Recent section check:', {
                       userRole,
                       recentRequestsLength: recentRequests.length,
-                      parentRecentMessagesLength: parentRecentMessages.length,
+                      recentMessagesLength: recentMessages.length,
                       hasRecentMessages,
                       allInboxMessagesLength: allInboxMessages.length,
                       inboxMessagesLength: inboxMessages.length
@@ -2848,7 +2920,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                     return (
                     <div className="space-y-3">
                         {/* Show recent messages from allInboxMessages - using same UI as archived */}
-                        {allInboxMessages.filter(msg => shouldBeInRecent(msg, userRole || 'parent')).map((message) => (
+                        {recentMessages.map((message) => (
                           <div
                             key={message.id}
                             className="p-3 rounded-lg border bg-gray-50 border-gray-200 cursor-pointer transition-colors"
