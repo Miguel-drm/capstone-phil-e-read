@@ -9,24 +9,7 @@ import { formatDateHuman } from '@/utils/date';
 import { collection, addDoc, serverTimestamp, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 
-interface ISRObservation {
-  wordByWord: boolean;
-  lacksExpression: boolean;
-  hardlyAudible: boolean;
-  disregardsPunctuation: boolean;
-  pointsToWords: boolean;
-  littleAnalysis: boolean;
-  otherObservations: string;
-}
 
-interface ISRData {
-  student: Student;
-  readingLevel: string;
-  comprehensionLevel: string;
-  dateTaken: string;
-  observations: ISRObservation;
-  language: 'English' | 'Filipino';
-}
 
 const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ setIsHeaderDarkened }) => {
   const { currentUser } = useAuth();
@@ -125,26 +108,11 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
   const [studentReadingResults, setStudentReadingResults] = useState<Record<string, any[]>>({});
   const [studentTestResults, setStudentTestResults] = useState<Record<string, any[]>>({});
   
-  // ISR Report states
-  const [isrModalOpen, setIsrModalOpen] = useState(false);
-  const [isrStudent, setIsrStudent] = useState<Student | null>(null);
-  const [isrObservations, setIsrObservations] = useState<ISRObservation>({
-    wordByWord: false,
-    lacksExpression: false,
-    hardlyAudible: false,
-    disregardsPunctuation: false,
-    pointsToWords: false,
-    littleAnalysis: false,
-    otherObservations: ''
-  });
-  const [isrLanguage, setIsrLanguage] = useState<'English' | 'Filipino'>('Filipino');
-  const [isrLoading, setIsrLoading] = useState(false);
+
+
   
-  // Class report states
-  const [classReportModalOpen, setClassReportModalOpen] = useState(false);
-  const [classReportLoading, setClassReportLoading] = useState(false);
-  const [classReportTargetClass, setClassReportTargetClass] = useState<string | null>(null);
-  const [classISRData, setClassISRData] = useState<any[]>([]);
+
+
 
   // Share-to-parent modal state
   const [shareOpen, setShareOpen] = useState(false);
@@ -525,95 +493,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     `;
   };
 
-  // ISR Modal Handlers
-  const handleOpenISRModal = async (student: Student) => {
-    setIsrStudent(student);
-    setIsrModalOpen(true);
-    setIsHeaderDarkened?.(true);
-    
-    // Fetch actual observations from database
-    try {
-      const { latestReading } = getLatestResults(student.id || '');
-      if (latestReading) {
-        // Use observations from the latest reading assessment
-        setIsrObservations({
-          wordByWord: latestReading.observations?.wordByWord || false,
-          lacksExpression: latestReading.observations?.lacksExpression || false,
-          hardlyAudible: latestReading.observations?.hardlyAudible || false,
-          disregardsPunctuation: latestReading.observations?.disregardsPunctuation || false,
-          pointsToWords: latestReading.observations?.pointsToWords || false,
-          littleAnalysis: latestReading.observations?.littleAnalysis || false,
-          otherObservations: latestReading.observations?.otherObservations || ''
-        });
-        
-        // Set language from database
-        setIsrLanguage(latestReading.language || 'Filipino');
-      } else {
-        // No data available
-    setIsrObservations({
-      wordByWord: false,
-      lacksExpression: false,
-      hardlyAudible: false,
-      disregardsPunctuation: false,
-      pointsToWords: false,
-      littleAnalysis: false,
-          otherObservations: 'No assessment data available'
-        });
-        setIsrLanguage('Filipino'); // Default language
-      }
-    } catch (error) {
-      console.error('Error fetching observations:', error);
-      // Fallback to empty observations
-      setIsrObservations({
-        wordByWord: false,
-        lacksExpression: false,
-        hardlyAudible: false,
-        disregardsPunctuation: false,
-        pointsToWords: false,
-        littleAnalysis: false,
-        otherObservations: 'Error loading data'
-      });
-      setIsrLanguage('Filipino'); // Default language
-    }
-  };
 
-  const handleCloseISRModal = () => {
-    setIsrModalOpen(false);
-    setIsrStudent(null);
-    setIsHeaderDarkened?.(false);
-  };
-
-  const handleGenerateIndividualISR = async () => {
-    if (!isrStudent) return;
-    
-    setIsrLoading(true);
-    try {
-      // Get teacher profile for school/teacher name
-    let teacherName = '';
-    let schoolName = '';
-    try {
-      const profile: any = await (getUserProfile() as Promise<any>);
-      teacherName = profile?.displayName || '';
-      schoolName = profile?.school || '';
-    } catch {}
-
-      const isrData = getStudentISRData(isrStudent, isrStudent.grade);
-      const html = generateISRHTML(isrData, teacherName, schoolName);
-
-      const w = window.open('', '_blank');
-      if (!w) return;
-      w.document.open();
-      w.document.write(html);
-      w.document.close();
-      w.focus();
-      
-      handleCloseISRModal();
-    } catch (error) {
-      console.error('Error generating ISR:', error);
-    } finally {
-      setIsrLoading(false);
-    }
-  };
 
 
   // Function to submit class report to adminInbox (called from popup window)
@@ -1270,7 +1150,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
 
   const shareMailtoHref = useMemo(() => {
     const to = encodeURIComponent(parentEmail.trim());
-    const subject = encodeURIComponent(`ISR Report for ${shareStudent?.name || ''}`);
+    const subject = encodeURIComponent(`Reading Report for ${shareStudent?.name || ''}`);
     const lines: string[] = [];
     if (shareStudent) {
       lines.push(`Individual Summary Record (ISR) for ${shareStudent.name}`);
@@ -1394,7 +1274,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
             <div className="bg-white border border-dashed border-gray-300 rounded-lg p-8 text-center text-gray-600">
               <i className="fas fa-users-slash text-2xl text-gray-400"></i>
               <div className="mt-2 font-medium">No classes found</div>
-              <div className="text-sm">Add students to your class list to view and generate ISR reports.</div>
+              <div className="text-sm">Add students to your class list to view reports.</div>
             </div>
           )}
           
@@ -1441,28 +1321,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                             </td>
                             <td className="px-3 sm:px-6 py-3">
                               <div className="flex items-center justify-end gap-2">
-                                  <button
-                                    onClick={() => { 
-                                      console.log(`🔍 [DEBUG] Button clicked for className: "${className}"`);
-                                      console.log(`🔍 [DEBUG] className type: ${typeof className}, length: ${className?.length}`);
-                                      console.log(`🔍 [DEBUG] Current classReportTargetClass: "${classReportTargetClass}"`);
-                                      
-                                      // Ensure we set the class name correctly
-                                      if (className && className.trim()) {
-                                        setClassReportTargetClass(className.trim());
-                                        console.log(`🔍 [DEBUG] Set classReportTargetClass to: "${className.trim()}"`);
-                                      } else {
-                                        console.error(`❌ [DEBUG] Invalid className: "${className}"`);
-                                      }
-                                      
-                                      setClassReportModalOpen(true); 
-                                    }}
-                                    className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded shadow-sm"
-                                  aria-label={`Generate ISR for class ${className}`}
-                                  >
-                                    <i className="fas fa-file-alt mr-1"></i>
-                                    Generate Class ISR
-                                  </button>
+                                {/* ISR functionality removed */}
                               </div>
                             </td>
                           </tr>
@@ -1515,15 +1374,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                               </td>
                               <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap w-56">
                                 <div className="flex gap-2 justify-end">
-                                  <button
-                                    className="bg-blue-100 hover:bg-blue-200 text-blue-700 font-semibold px-2 sm:px-4 py-1 sm:py-2 rounded text-xs sm:text-sm"
-                                    onClick={() => handleOpenISRModal(student)}
-                                    aria-label={`Generate ISR for ${student.name}`}
-                                  >
-                                    <i className="fas fa-file-alt mr-1"></i>
-                                    <span className="hidden sm:inline">Generate ISR</span>
-                                    <span className="sm:hidden">ISR</span>
-                                  </button>
+
                                 <button
                                   className="bg-green-100 hover:bg-green-200 text-green-700 font-semibold px-2 sm:px-4 py-1 sm:py-2 rounded text-xs sm:text-sm"
                                   onClick={() => handleOpenShare(student)}
@@ -1549,217 +1400,9 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
           {/* Class ISR Report - Overview section removed per request */}
       </div>
 
-      {/* Individual ISR Modal */}
-      {isrModalOpen && isrStudent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
-          <div className="bg-white rounded-2xl p-8 w-full max-w-4xl relative max-h-[90vh] overflow-y-auto border border-gray-200">
-            <button
-              className="absolute top-4 right-4 text-gray-400 hover:text-red-500 text-2xl font-bold"
-              onClick={handleCloseISRModal}
-              title="Close"
-            >
-              ×
-            </button>
-            <h2 className="text-2xl font-extrabold mb-6 text-gray-900 tracking-tight flex items-center gap-2">
-              <i className="fas fa-file-alt text-blue-500 text-2xl"></i>
-              Individual Summary Record (ISR) for <span className="text-blue-700">{isrStudent.name}</span>
-            </h2>
-            
-            <div className="space-y-6">
-              {/* Student Information */}
-              <div className="bg-gray-50 rounded-lg p-4">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">Student Information</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                    <div className="text-sm text-gray-900">{isrStudent.name?.replace(/\|/g, ' ')}</div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Grade/Section</label>
-                    <div className="text-sm text-gray-900">{isrStudent.grade || 'N/A'}</div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Reading Level</label>
-                    <div className="text-sm text-gray-900">Level {isrStudent.readingLevel || 'N/A'}</div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Language</label>
-                    <div className="text-sm text-gray-900">{isrLanguage}</div>
-                  </div>
-                </div>
-              </div>
 
-              {/* Latest Assessment Results */}
-              <div className="bg-blue-50 rounded-lg p-4">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">Latest Assessment Results</h3>
-                {(() => {
-                  const { latestReading, latestTest } = getLatestResults(isrStudent.id || '');
-                    return (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <h4 className="font-medium text-gray-700 mb-2">Reading Assessment</h4>
-                        {latestReading ? (
-                          <div className="space-y-1 text-sm">
-                            <div><span className="font-medium">Score:</span> {latestReading.oralReadingScore || 'N/A'}%</div>
-                            <div><span className="font-medium">Words Read:</span> {latestReading.wordsRead || 'N/A'}</div>
-                            <div><span className="font-medium">Miscues:</span> {latestReading.miscues || 'N/A'}</div>
-                            <div><span className="font-medium">Speed:</span> {latestReading.readingSpeed || 'N/A'} WPM</div>
-                            <div><span className="font-medium">Level:</span> {determineReadingLevel(latestReading.oralReadingScore)}</div>
-                          </div>
-                        ) : (
-                          <div className="text-sm text-gray-500">No reading assessment data</div>
-                      )}
-                    </div>
-                      <div>
-                        <h4 className="font-medium text-gray-700 mb-2">Comprehension Assessment</h4>
-                        {latestTest ? (
-                          <div className="space-y-1 text-sm">
-                            <div><span className="font-medium">Score:</span> {latestTest.score || 'N/A'}</div>
-                            <div><span className="font-medium">Comprehension:</span> {latestTest.comprehension || 'N/A'}%</div>
-                            <div><span className="font-medium">Correct:</span> {latestTest.correctAnswers || 'N/A'}/{latestTest.totalQuestions || 'N/A'}</div>
-                            <div><span className="font-medium">Level:</span> {determineComprehensionLevel(latestTest.comprehension)}</div>
-                          </div>
-                        ) : (
-                          <div className="text-sm text-gray-500">No comprehension assessment data</div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                                })()}
-                            </div>
 
-              {/* Oral Reading Observation Checklist */}
-              <div className="bg-yellow-50 rounded-lg p-4">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">Oral Reading Observation Checklist</h3>
-                <div className="space-y-3">
-                  <div className="flex items-center">
-                    <span className="mr-3 text-lg">{isrObservations.wordByWord ? '✓' : '☐'}</span>
-                    <span className="text-sm">Does word-by-word reading (Nagbabasa nang pa-isa isang salita)</span>
-                  </div>
-                  <div className="flex items-center">
-                    <span className="mr-3 text-lg">{isrObservations.lacksExpression ? '✓' : '☐'}</span>
-                    <span className="text-sm">Lacks expression; reads in a monotonous tone (Walang damdamin; walang pagbabago ang tono)</span>
-                  </div>
-                  <div className="flex items-center">
-                    <span className="mr-3 text-lg">{isrObservations.hardlyAudible ? '✓' : '☐'}</span>
-                    <span className="text-sm">Voice is hardly audible (Hindi madaling marinig ang boses)</span>
-                  </div>
-                  <div className="flex items-center">
-                    <span className="mr-3 text-lg">{isrObservations.disregardsPunctuation ? '✓' : '☐'}</span>
-                    <span className="text-sm">Disregards punctuation (Hindi pinapansin ang mga bantas)</span>
-                  </div>
-                  <div className="flex items-center">
-                    <span className="mr-3 text-lg">{isrObservations.pointsToWords ? '✓' : '☐'}</span>
-                    <span className="text-sm">Points to each word with his/her finger (Itinuturo ang bawat salita)</span>
-                  </div>
-                  <div className="flex items-center">
-                    <span className="mr-3 text-lg">{isrObservations.littleAnalysis ? '✓' : '☐'}</span>
-                    <span className="text-sm">Employs little or no method of analysis (Bahagya o walang paraan ng pagsusuri)</span>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Other observations: (Ibang Puna)</label>
-                    <div className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 min-h-[80px]">
-                      {isrObservations.otherObservations || 'No additional observations'}
-                    </div>
-                  </div>
-                </div>
-              </div>
 
-              {/* Action Buttons */}
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={handleCloseISRModal}
-                  className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleGenerateIndividualISR}
-                  disabled={isrLoading}
-                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white disabled:bg-gray-400"
-                >
-                  {isrLoading ? (
-                    <>
-                      <i className="fas fa-spinner fa-spin mr-2"></i>
-                      Generating...
-                        </>
-                      ) : (
-                        <>
-                      <i className="fas fa-file-alt mr-2"></i>
-                      Generate ISR Report
-                        </>
-                      )}
-                </button>
-                <button
-                  onClick={handleSubmitReportToAdmin}
-                  disabled={isrLoading}
-                  className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white disabled:bg-gray-400"
-                >
-                  {isrLoading ? (
-                    <>
-                      <i className="fas fa-spinner fa-spin mr-2"></i>
-                      Submitting...
-                    </>
-                  ) : (
-                    <>
-                      <i className="fas fa-paper-plane mr-2"></i>
-                      Submit Report
-                        </>
-                      )}
-                </button>
-                    </div>
-                  </div>
-          </div>
-        </div>
-      )}
-
-      {/* Class ISR Confirmation Modal */}
-      {classReportModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
-          <div className="bg-white rounded-2xl p-8 w-full max-w-md relative border border-gray-200">
-            <button
-              className="absolute top-4 right-4 text-gray-400 hover:text-red-500 text-2xl font-bold"
-              onClick={() => setClassReportModalOpen(false)}
-              title="Close"
-            >
-              ×
-            </button>
-            <h2 className="text-xl font-extrabold mb-4 text-gray-900">
-              {classReportTargetClass ? `Generate ISR for ${classReportTargetClass}` : 'Generate All Classes ISR Report'}
-            </h2>
-            <p className="text-gray-600 mb-6">
-              {classReportTargetClass
-                ? `This will generate ISR for all students in ${classReportTargetClass} (${(studentsByClass[classReportTargetClass] || []).length} students).`
-                : `This will generate Individual Summary Records for all students across all classes. The report will include ${students.length} students from ${Object.keys(studentsByClass).length} classes.`}
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setClassReportModalOpen(false)}
-                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleGenerateClassISR}
-                disabled={classReportLoading}
-                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white disabled:bg-gray-400"
-              >
-                {classReportLoading ? (
-                  <>
-                    <i className="fas fa-spinner fa-spin mr-2"></i>
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <i className="fas fa-file-alt mr-2"></i>
-                    {classReportTargetClass ? 'Generate Class Report' : 'Generate All Classes Report'}
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Share to Parent Modal */}
       {shareOpen && shareStudent && (
@@ -1772,7 +1415,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
             >
               ×
             </button>
-            <h2 className="text-xl font-extrabold mb-4 text-gray-900 tracking-tight">Share ISR Report to Parent</h2>
+            <h2 className="text-xl font-extrabold mb-4 text-gray-900 tracking-tight">Share Report to Parent</h2>
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Parent email</label>
@@ -1785,7 +1428,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                 />
               </div>
               <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-900">
-                This will open your email client with a pre-filled ISR summary for {shareStudent.name}.
+                This will open your email client with a pre-filled report summary for {shareStudent.name}.
               </div>
               <div className="flex items-center justify-end gap-3 pt-2">
                 <button

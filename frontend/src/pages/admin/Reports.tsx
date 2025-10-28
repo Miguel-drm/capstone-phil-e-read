@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, query, orderBy, where } from 'firebase/firestore';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../config/firebase';
-import { getAllParents, getTeachersCount, getParentsCount } from '../../services/authService';
+import { getAllParents } from '../../services/authService';
 import { studentService } from '../../services/studentService';
-import { gradeService } from '../../services/gradeService';
+
 import { UnifiedStoryService } from '../../services/UnifiedStoryService';
 // import { resultsService } from '../../services/resultsService';
 import * as XLSX from 'xlsx';
@@ -51,7 +51,7 @@ const Reports: React.FC = () => {
 
   const fetchReportData = async () => {
     setReportData(prev => ({ ...prev, loading: true, error: null }));
-    
+
     try {
       const data: Partial<ReportData> = {};
 
@@ -76,18 +76,17 @@ const Reports: React.FC = () => {
       setReportData(prev => ({ ...prev, ...data, loading: false }));
     } catch (error) {
       console.error('Error fetching report data:', error);
-      setReportData(prev => ({ 
-        ...prev, 
-        loading: false, 
-        error: 'Failed to load report data' 
+      setReportData(prev => ({
+        ...prev,
+        loading: false,
+        error: 'Failed to load report data'
       }));
     }
   };
 
   const fetchStudentsData = async () => {
     const students = await studentService.getAllStudents();
-    const grades = await gradeService.getAllClassGrades();
-    
+
     return students.map(student => ({
       name: student.name,
       grade: student.grade,
@@ -104,7 +103,7 @@ const Reports: React.FC = () => {
   const fetchTeachersData = async () => {
     const q = query(collection(db, 'users'), where('role', '==', 'teacher'));
     const snapshot = await getDocs(q);
-    
+
     return snapshot.docs.map(doc => ({
       id: doc.id,
       displayName: doc.data().displayName,
@@ -117,30 +116,30 @@ const Reports: React.FC = () => {
 
   const fetchParentsData = async () => {
     const parents = await getAllParents();
-    
-    return parents.map(parent => ({
+
+    return parents.map((parent: any) => ({
       id: parent.id,
-      displayName: parent.displayName,
-      email: parent.email,
+      displayName: parent.displayName || 'N/A',
+      email: parent.email || 'N/A',
       childrenCount: parent.children?.length || 0,
-      children: parent.children?.map(child => child.name).join(', ') || 'None',
-      createdAt: parent.createdAt?.toDate?.() || parent.createdAt,
-      lastLogin: parent.lastLogin?.toDate?.() || parent.lastLogin
+      children: parent.children?.map((child: any) => child.name).join(', ') || 'None',
+      createdAt: parent.createdAt?.toDate?.() || parent.createdAt || 'N/A',
+      lastLogin: parent.lastLogin?.toDate?.() || parent.lastLogin || 'N/A'
     }));
   };
 
   const fetchStoriesData = async () => {
     const stories = await UnifiedStoryService.getInstance().getStories();
-    
-    return stories.map(story => ({
+
+    return stories.map((story: any) => ({
       title: story.title,
       description: story.description,
       language: story.language,
-      gradeLevel: story.gradeLevel,
+      gradeLevel: story.level || 'N/A',
       isActive: story.isActive,
       createdAt: story.createdAt,
       updatedAt: story.updatedAt,
-      wordCount: story.wordCount || 'N/A'
+      wordCount: story.content?.split(' ').length || 'N/A'
     }));
   };
 
@@ -149,7 +148,7 @@ const Reports: React.FC = () => {
       // Fetch from readingResults collection in Firebase
       const readingResultsQuery = query(collection(db, 'readingResults'));
       const readingResultsSnapshot = await getDocs(readingResultsQuery);
-      
+
       const results = readingResultsSnapshot.docs.map(doc => {
         const data = doc.data();
         return {
@@ -164,7 +163,7 @@ const Reports: React.FC = () => {
           grade: data.gradeId || data.grade || 'N/A'
         };
       });
-      
+
       return results;
     } catch (error) {
       console.error('Error fetching performance data:', error);
@@ -184,7 +183,7 @@ const Reports: React.FC = () => {
       const ws = XLSX.utils.json_to_sheet(data);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, `${activeTab} Report`);
-      
+
       const fileName = `${activeTab}_report_${new Date().toISOString().split('T')[0]}.xlsx`;
       XLSX.writeFile(wb, fileName);
     } catch (error) {
@@ -223,7 +222,7 @@ const Reports: React.FC = () => {
 
   const isDateKey = (key: string) => {
     const k = key.toLowerCase();
-    return k === 'date' || k.endsWith('date') || k.endsWith('at') || ['createdat','updatedat','lastlogin','lastassessment'].includes(k);
+    return k === 'date' || k.endsWith('date') || k.endsWith('at') || ['createdat', 'updatedat', 'lastlogin', 'lastassessment'].includes(k);
   };
 
   const formatCellForKey = (key: string, value: any) => {
@@ -248,7 +247,7 @@ const Reports: React.FC = () => {
       k === 'id' ||
       k.endsWith('id') ||
       k.endsWith('_id') ||
-      ['uid','userid','teacherid','parentid','studentid','sessionid','storyid','gradeid','docid'].includes(k)
+      ['uid', 'userid', 'teacherid', 'parentid', 'studentid', 'sessionid', 'storyid', 'gradeid', 'docid'].includes(k)
     );
   };
 
@@ -260,6 +259,17 @@ const Reports: React.FC = () => {
       });
       return clean;
     });
+  };
+
+  const formatCell = (value: any): string => {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'object' && value.toDate) {
+      return value.toDate().toLocaleDateString();
+    }
+    if (value instanceof Date) {
+      return value.toLocaleDateString();
+    }
+    return String(value);
   };
 
   const getPreparedData = () => {
@@ -284,7 +294,7 @@ const Reports: React.FC = () => {
 
   const renderTable = () => {
     const data = getPreparedData();
-    
+
     if (!data || data.length === 0) {
       return (
         <div className="text-center py-8 text-gray-500">
@@ -294,7 +304,7 @@ const Reports: React.FC = () => {
     }
 
     const columns = Object.keys(data[0] || {}).filter(c => !isSensitiveKey(c));
-    
+
     return (
       <div className="overflow-x-auto rounded-lg border border-gray-200">
         <table className="min-w-full bg-white">
@@ -329,8 +339,8 @@ const Reports: React.FC = () => {
                   </th>
                 );
               })}
-      </tr>
-    </thead>
+            </tr>
+          </thead>
           <tbody className="divide-y divide-gray-100">
             {data.slice((page - 1) * pageSize, page * pageSize).map((row, index) => (
               <tr key={index} className="hover:bg-blue-50/40">
@@ -339,10 +349,10 @@ const Reports: React.FC = () => {
                     {formatCellForKey(column, row[column])}
                   </td>
                 ))}
-      </tr>
+              </tr>
             ))}
-    </tbody>
-  </table>
+          </tbody>
+        </table>
         <div className="flex items-center justify-between p-3 text-sm text-gray-600">
           <div>
             Showing {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, data.length)} of {data.length}
@@ -375,7 +385,7 @@ const Reports: React.FC = () => {
 
   const renderChart = () => {
     const data = reportData[activeTab as keyof ReportData] as any[];
-    
+
     if (!data || data.length === 0) {
       return (
         <div className="bg-gray-100 rounded h-48 flex items-center justify-center text-gray-400 mb-4">
@@ -391,14 +401,14 @@ const Reports: React.FC = () => {
           acc[student.grade] = (acc[student.grade] || 0) + 1;
           return acc;
         }, {} as Record<string, number>);
-        
+
         return (
           <div className="bg-white rounded-lg p-6 mb-4">
             <h3 className="text-lg font-semibold mb-4">Students by Grade</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {Object.entries(gradeDistribution).map(([grade, count]) => (
                 <div key={grade} className="text-center p-4 bg-blue-50 rounded-lg">
-                  <div className="text-2xl font-bold text-blue-600">{count}</div>
+                  <div className="text-2xl font-bold text-blue-600">{String(count)}</div>
                   <div className="text-sm text-gray-600">{grade}</div>
                 </div>
               ))}
@@ -411,7 +421,7 @@ const Reports: React.FC = () => {
           const score = typeof result.score === 'number' ? result.score : 0;
           return sum + score;
         }, 0) / data.length;
-        
+
         return (
           <div className="bg-white rounded-lg p-6 mb-4">
             <h3 className="text-lg font-semibold mb-4">Performance Overview</h3>
@@ -431,8 +441,8 @@ const Reports: React.FC = () => {
                 <div className="text-sm text-gray-600">Passing Rate</div>
               </div>
             </div>
-  </div>
-);
+          </div>
+        );
 
       default:
         return (
@@ -450,24 +460,23 @@ const Reports: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto py-8 px-4">
       <h1 className="text-3xl font-bold mb-6 text-gray-800">Admin Reports</h1>
-      
+
       {/* Filters */}
       <div className="mb-6 flex flex-wrap gap-4 items-center">
         <div className="flex space-x-4 border-b">
-        {tabs.map(tab => (
-          <button
-            key={tab.value}
-            className={`px-4 py-2 font-medium border-b-2 transition-colors duration-200 ${
-              activeTab === tab.value
+          {tabs.map(tab => (
+            <button
+              key={tab.value}
+              className={`px-4 py-2 font-medium border-b-2 transition-colors duration-200 ${activeTab === tab.value
                 ? 'border-blue-600 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-blue-600'
-            }`}
-            onClick={() => setActiveTab(tab.value)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+                }`}
+              onClick={() => setActiveTab(tab.value)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
         <div className="ml-auto flex items-center gap-2">
           <div className="hidden md:flex items-center gap-2 bg-white rounded-full border border-gray-200 p-1">
             {[
@@ -498,14 +507,14 @@ const Reports: React.FC = () => {
             {tabs.find(t => t.value === activeTab)?.label} Report
           </h2>
           <div className="space-x-2">
-            <button 
+            <button
               onClick={exportToCSV}
               disabled={isExporting || reportData.loading}
               className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition disabled:opacity-50"
             >
               {isExporting ? 'Exporting...' : 'Export CSV'}
             </button>
-            <button 
+            <button
               onClick={exportToPDF}
               className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition"
             >
