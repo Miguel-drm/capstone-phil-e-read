@@ -38,10 +38,13 @@ import ParentNotifications from './pages/parent/Notifications';
 
 import SyncTeacherProfile from './components/SyncTeacherProfile';
 import AdminReports from './pages/admin/Reports';
-import ISRReport from './pages/admin/ISRReport';
+import ISRManagement from './pages/admin/ISRManagement';
+
 import TeacherReports from './pages/teacher/Reports';
 import AdminProfile from './pages/admin/Profile';
 import AdminResourcesPage from './pages/admin/Resources';
+
+
 
 const App: React.FC = () => {
   return (
@@ -69,8 +72,10 @@ const App: React.FC = () => {
                     <Route path="resources" element={<AdminResourcesPage />} />
                     <Route path="students" element={<Students />} />
                     <Route path="parents" element={<Parents />} />
+
                     <Route path="reports" element={<AdminReports />} />
-                    <Route path="reports/isr/:reportId" element={<ISRReport />} />
+                    <Route path="isr" element={<ISRManagement />} />
+
                     <Route path="profile/*" element={<AdminProfile />} />
                     {/* Add more admin routes here */}
                   </Routes>
@@ -89,6 +94,7 @@ const App: React.FC = () => {
                     <Route path="dashboard" element={<TeacherDashboardPage />} />
                     <Route path="reading" element={<Reading />} />
                     <Route path="class-list" element={<ClassList />} />
+
                     <Route path="reports" element={<TeacherReports />} />
                     <Route path="profile/*" element={<Profile />} />
                     <Route path="reading-session/:sessionId" element={<ReadingSessionPage />} />

@@ -63,7 +63,7 @@ const getGradesAndSections = async (req: Request, res: Response): Promise<void> 
 		}));
 		
 		// Filter to only Grade 3-6 and handle both old and new data structures
-		const filteredGrades = allGrades.filter(grade => {
+		const filteredGrades = allGrades.filter((grade: any) => {
 			// Check if new structure exists (gradeLevel field)
 			if (grade.gradeLevel) {
 				return grade.gradeLevel >= 3 && grade.gradeLevel <= 6;
@@ -75,7 +75,7 @@ const getGradesAndSections = async (req: Request, res: Response): Promise<void> 
 		
 		// Group by grade number for sections
 		const gradesByNumber: { [key: string]: any[] } = {};
-		filteredGrades.forEach(grade => {
+		filteredGrades.forEach((grade: any) => {
 			let gradeNumber: string;
 			
 			// Use new structure if available

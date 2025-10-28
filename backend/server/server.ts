@@ -43,8 +43,13 @@ const audioUpload = multer({ storage: multer.memoryStorage() });
 app.use(cors({
   origin: isProduction
     ? 'https://phileread-api.onrender.com'
-    : '*',
+    : true, // Allow all origins in development
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  optionsSuccessStatus: 200
 }));
+
 app.use(express.json());
 
 // // Serve static files from the frontend's dist directory
