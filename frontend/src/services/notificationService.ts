@@ -57,7 +57,7 @@ export interface Notification {
 
 export interface InboxMessage {
   id: string;
-  type: 'link_request' | 'link_approved' | 'link_rejected' | 'link_reply' | 'parent_reply' | 'system' | 'alert' | 'info' | 'announcement' | 'parent_report' | 'teacher_report';
+  type: 'link_request' | 'link_approved' | 'link_rejected' | 'link_reply' | 'parent_reply' | 'system' | 'alert' | 'info' | 'announcement' | 'parent_report' | 'teacher_report' | 'revision_request' | 'student_linked';
   title: string;
   message: string;
   recipientId: string;
@@ -301,8 +301,26 @@ class NotificationService {
   }
 
   // Get notifications for a user
-  async getNotifications(userId: string): Promise<Notification[]> {
+  async getNotifications(userId: string, userRole?: string): Promise<Notification[]> {
     try {
+      // For teachers, get notifications from teacherInbox
+      if (userRole === 'teacher') {
+        const inboxMessages = await this.getInboxMessages(userId, 'teacher');
+        
+        // Convert inbox messages to notification format
+        return inboxMessages.map(msg => ({
+          id: msg.id,
+          type: msg.type as any,
+          title: msg.title,
+          message: msg.message,
+          userId: msg.recipientId,
+          isRead: msg.isRead,
+          createdAt: msg.createdAt,
+          data: msg.data
+        }));
+      }
+
+      // For other roles, use the notifications collection
       // Try with index first
       const q = query(
         collection(db, 'notifications'),
@@ -468,7 +486,7 @@ class NotificationService {
       if (userRole === 'parent') {
         // Use the same logic as subscribeToInboxMessages for parents
         const collectionName = this.getInboxCollection(userRole);
-        const q = query(collection(db, collectionName), orderBy('createdAt', 'desc'));
+        const q = query(collection(db, collectionName));
         
         const safeCallback = (snapshot: any) => {
           // Handle null/undefined snapshots
@@ -517,6 +535,87 @@ class NotificationService {
             msg.recipientId === userId || msg.senderId === userId
           );
           
+          // Convert to Notification format and sort client-side
+          const notifications = filteredMessages
+            .map((msg: any) => ({
+              id: msg.id,
+              type: msg.type,
+              title: msg.title,
+              message: msg.message,
+              userId: msg.recipientId,
+              isRead: msg.isRead,
+              createdAt: msg.createdAt,
+              data: msg.data
+            }))
+            .sort((a: any, b: any) => {
+              const aTime = a.createdAt?.toDate?.() || new Date();
+              const bTime = b.createdAt?.toDate?.() || new Date();
+              return bTime.getTime() - aTime.getTime(); // Descending order (newest first)
+            }) as Notification[];
+          
+          callback(notifications);
+        };
+        
+        const safeErrorHandler = (error: any) => {
+          console.error('Error in parent notifications listener:', error);
+          callback([]);
+        };
+        
+        return onSnapshot(q, safeCallback, safeErrorHandler);
+      }
+      
+      // For teacher users, get notifications from teacherInbox instead of notifications collection
+      if (userRole === 'teacher') {
+        const collectionName = this.getInboxCollection(userRole);
+        const q = query(collection(db, collectionName));
+        
+        const safeCallback = (snapshot: any) => {
+          // Handle null/undefined snapshots
+          if (!snapshot) {
+            console.debug('Teacher notifications - null snapshot (normal for empty collections)');
+            callback([]);
+            return;
+          }
+          
+          // Handle snapshots without docs property
+          if (!snapshot.docs) {
+            console.debug('Teacher notifications - snapshot without docs (normal for empty collections)');
+            callback([]);
+            return;
+          }
+          
+          // Handle empty snapshots (this is normal, not an error)
+          if (snapshot.docs.length === 0) {
+            console.debug('Teacher notifications - empty snapshot (no messages found)');
+            callback([]);
+            return;
+          }
+          
+          const allMessages = snapshot.docs.map((doc: any) => {
+            const docData = doc.data();
+            return {
+              id: doc.id,
+              type: docData.type || 'revision_request',
+              title: docData.title || 'Untitled',
+              message: docData.message || '',
+              recipientId: docData.recipientId || userId,
+              senderId: docData.senderId || '',
+              senderRole: docData.senderRole || 'admin',
+              senderName: docData.senderName || 'Unknown',
+              isRead: docData.isRead || false,
+              isArchived: docData.isArchived || false,
+              priority: docData.priority || 'medium',
+              category: docData.category || 'teacher_reports',
+              createdAt: docData.createdAt || new Date(),
+              data: docData.data || {}
+            };
+          });
+          
+          // Filter by userId (recipientId for teachers)
+          const filteredMessages = allMessages.filter((msg: any) => 
+            msg.recipientId === userId
+          );
+          
           // Convert to Notification format
           const notifications = filteredMessages.map((msg: any) => ({
             id: msg.id,
@@ -533,13 +632,13 @@ class NotificationService {
         };
         
         const safeErrorHandler = (error: any) => {
-          console.error('Error in parent notifications listener:', error);
+          console.error('Error in teacher notifications listener:', error);
           callback([]);
         };
         
         return onSnapshot(q, safeCallback, safeErrorHandler);
       }
-      
+
       // For other roles, use the original notifications collection query
       const q = query(
         collection(db, 'notifications'),
@@ -574,7 +673,7 @@ class NotificationService {
         })) as Notification[];
         
         // Sort client-side to avoid index requirements
-        const sorted = notifications.sort((a, b) => {
+        const sorted = notifications.sort((a: Notification, b: Notification) => {
         const aTime = a.createdAt?.toDate?.() || new Date();
         const bTime = b.createdAt?.toDate?.() || new Date();
           return bTime.getTime() - aTime.getTime();
@@ -716,7 +815,7 @@ class NotificationService {
       const collectionName = this.getInboxCollection(userRole);
       
       // Simplified query to avoid index requirements - get all messages and filter client-side
-      const q = query(collection(db, collectionName), orderBy('createdAt', 'desc'));
+      const q = query(collection(db, collectionName));
       const snapshot = await getDocs(q);
       
       const allMessages = snapshot.docs.map(doc => {
@@ -757,6 +856,13 @@ class NotificationService {
         // Filter out archived messages
         filteredMessages = filteredMessages.filter(msg => !msg.isArchived);
       }
+      
+      // Sort client-side to avoid index requirements
+      filteredMessages.sort((a, b) => {
+        const aTime = a.createdAt?.toDate?.() || new Date();
+        const bTime = b.createdAt?.toDate?.() || new Date();
+        return bTime.getTime() - aTime.getTime(); // Descending order (newest first)
+      });
       
       return filteredMessages;
     } catch (error) {
@@ -900,7 +1006,7 @@ class NotificationService {
       console.log(`Fetching archived messages from ${collectionName} for user ${userId}`);
       
       // Simplified query to avoid index requirements - get all messages and filter client-side
-      const q = query(collection(db, collectionName), orderBy('createdAt', 'desc'));
+      const q = query(collection(db, collectionName));
       const snapshot = await getDocs(q);
       
       const allMessages = snapshot.docs.map(doc => {
@@ -924,13 +1030,101 @@ class NotificationService {
         return message;
       });
       
-      // Filter for archived messages
-      const archivedMessages = allMessages.filter(msg => msg.isArchived);
+      // Filter for archived messages and sort client-side
+      const archivedMessages = allMessages
+        .filter(msg => msg.isArchived)
+        .sort((a, b) => {
+          const aTime = a.createdAt?.toDate?.() || new Date();
+          const bTime = b.createdAt?.toDate?.() || new Date();
+          return bTime.getTime() - aTime.getTime(); // Descending order (newest first)
+        });
+      
       console.log(`Found ${archivedMessages.length} archived messages`);
       return archivedMessages;
     } catch (error) {
       console.error('Error fetching archived messages:', error);
       return [];
+    }
+  }
+
+  // Create inbox message for a specific user role
+  async createInboxMessage(
+    recipientId: string,
+    recipientRole: 'admin' | 'teacher' | 'parent',
+    messageData: {
+      type: InboxMessage['type'];
+      title: string;
+      message: string;
+      senderId?: string;
+      senderRole?: 'admin' | 'teacher' | 'parent';
+      senderName?: string;
+      priority?: 'low' | 'medium' | 'high' | 'urgent';
+      category?: InboxMessage['category'];
+      data?: any;
+    }
+  ): Promise<string | null> {
+    try {
+      const collectionName = this.getInboxCollection(recipientRole);
+      
+      const inboxMessage: Omit<InboxMessage, 'id'> = {
+        type: messageData.type,
+        title: messageData.title,
+        message: messageData.message,
+        recipientId: recipientId,
+        senderId: messageData.senderId || '',
+        senderRole: messageData.senderRole || 'teacher',
+        senderName: messageData.senderName || 'Unknown',
+        isRead: false,
+        isArchived: false,
+        priority: messageData.priority || 'medium',
+        category: messageData.category || 'teacher_reports',
+        createdAt: serverTimestamp() as Timestamp,
+        data: messageData.data || {}
+      };
+
+      const docRef = await addDoc(collection(db, collectionName), inboxMessage);
+      console.log(`Created inbox message in ${collectionName} with ID:`, docRef.id);
+      return docRef.id;
+    } catch (error) {
+      console.error('Error creating inbox message:', error);
+      return null;
+    }
+  }
+
+  // Send ISR submission notification to admin
+  async sendISRSubmissionToAdmin(
+    teacherId: string,
+    teacherName: string,
+    className: string,
+    studentCount: number,
+    submissionData: any
+  ): Promise<string | null> {
+    try {
+      return await this.createInboxMessage(
+        'admin', // All admins will see this
+        'admin',
+        {
+          type: 'teacher_report',
+          title: 'New ISR Submission',
+          message: `${teacherName} has submitted ISR reports for ${className} (${studentCount} students)`,
+          senderId: teacherId,
+          senderRole: 'teacher',
+          senderName: teacherName,
+          priority: 'medium',
+          category: 'teacher_reports',
+          data: {
+            teacherId,
+            teacherName,
+            className,
+            studentCount,
+            submissionDate: new Date().toISOString(),
+            submissionData
+          }
+        }
+      );
+    } catch (error) {
+      console.error('Error sending ISR submission to admin:', error);
+      return null;
     }
   }
 
@@ -944,8 +1138,8 @@ class NotificationService {
     try {
       const collectionName = this.getInboxCollection(userRole);
       
-      // Simplified query to avoid index requirements - get all messages and filter client-side
-      const q = query(collection(db, collectionName), orderBy('createdAt', 'desc'));
+      // Remove orderBy to avoid index requirements - we'll sort client-side instead
+      const q = query(collection(db, collectionName));
       
       const safeCallback = (snapshot: any) => {
         console.log('Real-time listener for', collectionName, 'received', snapshot.docs.length, 'messages');
@@ -988,6 +1182,13 @@ class NotificationService {
           // Filter out archived messages
           filteredMessages = filteredMessages.filter((msg: InboxMessage) => !msg.isArchived);
         }
+        
+        // Sort client-side to avoid index requirements
+        filteredMessages.sort((a: InboxMessage, b: InboxMessage) => {
+          const aTime = a.createdAt?.toDate?.() || new Date();
+          const bTime = b.createdAt?.toDate?.() || new Date();
+          return bTime.getTime() - aTime.getTime(); // Descending order (newest first)
+        });
         
         console.log('Real-time listener - Filtered messages for', userRole, ':', filteredMessages.length);
         callback(filteredMessages);

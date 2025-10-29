@@ -214,7 +214,11 @@ service cloud.firestore {
 
     // Notifications collection rules
     match /notifications/{notificationId} {
-      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow read: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.recipientId == request.auth.uid ||
+        isUserAdmin()
+      );
       
       allow create: if isAuthenticated() && (
         isUserAdmin() ||
@@ -222,9 +226,11 @@ service cloud.firestore {
         (isUserParent() && request.resource.data.userId != request.auth.uid)
       );
       
-      allow update: if isAuthenticated() && 
-        resource.data.userId == request.auth.uid &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
+      allow update: if isAuthenticated() && (
+        (resource.data.userId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead'])) ||
+        isUserAdmin()
+      );
       
       allow delete: if isAuthenticated() && isUserAdmin();
     }
@@ -302,6 +308,17 @@ service cloud.firestore {
         isUserAdmin() ||
         (isUserTeacher() && request.auth.uid == teacherId)
       );
+    }
+
+    // Approved ISR Records collection rules (for approved ISR submissions)
+    match /approvedISRRecords/{recordId} {
+      allow read: if isAuthenticated() && (
+        isUserAdmin() ||
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid)
+      );
+      allow create: if isAuthenticated() && isUserAdmin();
+      allow update: if isAuthenticated() && isUserAdmin();
+      allow delete: if isAuthenticated() && isUserAdmin();
     }
 
     // Default rule - deny all other access

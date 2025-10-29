@@ -51,6 +51,8 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
   const [replyForMessageText, setReplyForMessageText] = useState<string>('');
   const [archiveLoading, setArchiveLoading] = useState<Set<string>>(new Set());
   const [recentlyRepliedMessages, setRecentlyRepliedMessages] = useState<Set<string>>(new Set()); // Used in real-time listener
+  const [showRevisionDetails, setShowRevisionDetails] = useState(false);
+  const [selectedRevisionRequest, setSelectedRevisionRequest] = useState<any>(null);
 
   // ISR Viewer state
   const [selectedISR, setSelectedISR] = useState<ISRSubmissionData | null>(null);
@@ -149,6 +151,43 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
     } catch (error) {
       console.error('Error rejecting ISR:', error);
       alert('Error rejecting ISR.');
+    } finally {
+      setIsApproving(false);
+    }
+  };
+
+  const handleRequestRevisionFromNotification = async (message: string, issues: string[]) => {
+    if (!selectedISR || !currentUser) return;
+
+    setIsApproving(true);
+    try {
+      const success = await isrService.requestRevision(
+        selectedISR.id,
+        currentUser.uid,
+        currentUser.displayName || 'Admin',
+        issues,
+        message
+      );
+
+      if (success) {
+        setIsISRViewerOpen(false);
+        setIsMultiStudentReviewOpen(false);
+        setSelectedISR(null);
+        setSelectedStudent(null);
+
+        // Refresh notifications
+        if (currentUser?.uid) {
+          const messages = await notificationService.getInboxMessages(currentUser.uid, userRole || '');
+          setInboxMessages(messages.filter(msg => shouldBeInInbox(msg, userRole || '')));
+        }
+
+        alert('Revision request sent successfully! The teacher will be notified.');
+      } else {
+        alert('Failed to send revision request.');
+      }
+    } catch (error) {
+      console.error('Error requesting revision:', error);
+      alert('Error requesting revision.');
     } finally {
       setIsApproving(false);
     }
@@ -1568,6 +1607,10 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
         return <CheckIcon className="h-5 w-5 text-green-500" />;
       case 'link_rejected':
         return <XMarkIcon className="h-5 w-5 text-red-500" />;
+      case 'revision_request':
+        return <DocumentTextIcon className="h-5 w-5 text-orange-500" />;
+      case 'student_linked':
+        return <UserPlusIcon className="h-5 w-5 text-green-500" />;
       case 'parent_report':
         return <DocumentTextIcon className="h-5 w-5 text-indigo-500" />;
       case 'teacher_report':
@@ -1585,6 +1628,10 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
         return 'bg-green-50 border-green-200';
       case 'link_rejected':
         return 'bg-red-50 border-red-200';
+      case 'revision_request':
+        return 'bg-orange-50 border-orange-200';
+      case 'student_linked':
+        return 'bg-green-50 border-green-200';
       case 'parent_report':
         return 'bg-indigo-50 border-indigo-200';
       case 'teacher_report':
@@ -2600,6 +2647,11 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
         return 'class_report';
       }
 
+      // Check if it's a revision request
+      if (message.type === 'revision_request') {
+        return 'revision_request';
+      }
+
       // Default to parent report
       return 'parent_report';
     };
@@ -2618,6 +2670,8 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
           return <DocumentTextIcon className="h-5 w-5 text-blue-600" />;
         case 'class_report':
           return <ChartBarIcon className="h-5 w-5 text-purple-600" />;
+        case 'revision_request':
+          return <DocumentTextIcon className="h-5 w-5 text-orange-600" />;
         case 'system':
           return <InformationCircleIcon className="h-5 w-5 text-gray-600" />;
         case 'alert':
@@ -2642,6 +2696,8 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
           return 'Parent Report';
         case 'class_report':
           return 'Class Report';
+        case 'revision_request':
+          return 'Admin Request';
         default:
           return 'Message';
       }
@@ -2653,10 +2709,21 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
     const isTeacherSent = message.senderRole === 'teacher';
 
     return (
-      <div className={`group relative overflow-hidden rounded-lg transition-all duration-200 hover:shadow-md ${isTeacherSent
-        ? 'bg-gray-50 border border-gray-200'
-        : 'bg-white border border-gray-200'
-        } shadow-sm`}>
+      <div 
+        className={`group relative overflow-hidden rounded-lg transition-all duration-200 hover:shadow-md ${isTeacherSent
+          ? 'bg-gray-50 border border-gray-200'
+          : 'bg-white border border-gray-200'
+          } shadow-sm ${actualMessageType === 'revision_request' ? 'cursor-pointer hover:bg-orange-50' : ''}`}
+        onClick={() => {
+          if (actualMessageType === 'revision_request') {
+            setSelectedRevisionRequest(message);
+            setShowRevisionDetails(true);
+            if (!message.isRead) {
+              handleMarkMessageAsRead(message.id);
+            }
+          }
+        }}
+      >
 
         {/* Priority Indicator Bar - Based on Message Type */}
         <div className={`absolute top-0 left-0 right-0 h-0.5 ${actualMessageType === 'bug_report' ? 'bg-yellow-500' :
@@ -2664,7 +2731,8 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
             actualMessageType === 'general_message' ? 'bg-blue-500' :
               actualMessageType === 'link_request' ? 'bg-blue-500' :
                 actualMessageType === 'class_report' ? 'bg-purple-500' :
-                  'bg-blue-500'
+                  actualMessageType === 'revision_request' ? 'bg-orange-500' :
+                    'bg-blue-500'
           }`}></div>
 
         <div className="p-3">
@@ -2695,7 +2763,8 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                       actualMessageType === 'general_message' ? 'bg-blue-100 text-blue-800' :
                         actualMessageType === 'link_request' ? 'bg-blue-100 text-blue-700' :
                           actualMessageType === 'class_report' ? 'bg-purple-100 text-purple-800' :
-                            'bg-blue-100 text-blue-700'
+                            actualMessageType === 'revision_request' ? 'bg-orange-100 text-orange-800' :
+                              'bg-blue-100 text-blue-700'
                     }`}>
                     {getMessageTypeLabel(actualMessageType)}
                   </span>
@@ -2882,7 +2951,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                 // Inbox Messages
                 <>
                   {/* Link Requests Section for Teachers and Parents */}
-                  {(userRole === 'teacher' || userRole === 'parent') && linkRequests.length > 0 && (
+                  {(userRole === 'teacher' || userRole === 'parent') && linkRequests.filter(request => request.status === 'pending').length > 0 && (
                     <div className="mb-4">
                       <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
                         <UserPlusIcon className="h-4 w-4" />
@@ -2934,7 +3003,17 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                                 ? 'bg-gray-50 border-gray-200'
                                 : getNotificationColor(message.type)
                                 }`}
-                              onClick={() => !message.isRead && handleMarkMessageAsRead(message.id)}
+                              onClick={() => {
+                                if (message.type === 'revision_request') {
+                                  setSelectedRevisionRequest(message);
+                                  setShowRevisionDetails(true);
+                                  if (!message.isRead) {
+                                    handleMarkMessageAsRead(message.id);
+                                  }
+                                } else if (!message.isRead) {
+                                  handleMarkMessageAsRead(message.id);
+                                }
+                              }}
                             >
                               <div className="flex items-start gap-3">
                                 <div className="flex-shrink-0 mt-0.5">
@@ -3395,7 +3474,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
         <MultiStudentISRReview
           submission={selectedISR}
           onApproveAll={handleApproveISRFromNotification}
-          onRejectAll={handleRejectISRFromNotification}
+          onRequestRevision={handleRequestRevisionFromNotification}
           onClose={() => {
             setIsMultiStudentReviewOpen(false);
             setSelectedISR(null);
@@ -3417,6 +3496,140 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
           }}
           isLoading={isApproving}
         />
+      )}
+
+      {/* Revision Details Modal */}
+      {showRevisionDetails && selectedRevisionRequest && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[999999] p-4">
+          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[80vh] overflow-hidden shadow-2xl">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white px-6 py-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <DocumentTextIcon className="h-6 w-6" />
+                  <div>
+                    <h3 className="text-lg font-semibold">ISR Revision Request</h3>
+                    <p className="text-orange-100 text-sm">
+                      {selectedRevisionRequest.data?.className} • From: {selectedRevisionRequest.senderName}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowRevisionDetails(false);
+                    setSelectedRevisionRequest(null);
+                  }}
+                  className="text-white hover:text-orange-200 text-2xl font-bold p-1 rounded hover:bg-white hover:bg-opacity-20 transition-colors"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 overflow-y-auto max-h-[60vh]">
+              <div className="mb-6">
+                <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <InformationCircleIcon className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm text-blue-800">
+                    <p className="font-medium mb-1">Revision Requested</p>
+                    <p>The administrator has requested revisions to your ISR submission. Please review the issues below and resubmit with the necessary corrections.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Issues Found */}
+              {selectedRevisionRequest.data?.issues && selectedRevisionRequest.data.issues.length > 0 && (
+                <div className="mb-6">
+                  <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                    <ExclamationTriangleIcon className="h-5 w-5 text-orange-600" />
+                    Issues to Address
+                  </h4>
+                  <div className="space-y-2">
+                    {selectedRevisionRequest.data.issues.map((issue: string, index: number) => (
+                      <div key={index} className="flex items-start gap-3 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                        <div className="w-2 h-2 bg-orange-500 rounded-full flex-shrink-0 mt-2"></div>
+                        <span className="text-sm text-orange-900">{issue}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Custom Message */}
+              {selectedRevisionRequest.data?.customMessage && (
+                <div className="mb-6">
+                  <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                    <ChatBubbleLeftRightIcon className="h-5 w-5 text-gray-600" />
+                    Additional Message from Administrator
+                  </h4>
+                  <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                    <p className="text-sm text-gray-700">{selectedRevisionRequest.data.customMessage}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Submission Details */}
+              <div className="mb-6">
+                <h4 className="font-semibold text-gray-900 mb-3">Submission Details</h4>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-500">Class:</span>
+                    <span className="ml-2 text-gray-900">{selectedRevisionRequest.data?.className}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Grade:</span>
+                    <span className="ml-2 text-gray-900">{selectedRevisionRequest.data?.grade}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Section:</span>
+                    <span className="ml-2 text-gray-900">{selectedRevisionRequest.data?.section}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Original Submission:</span>
+                    <span className="ml-2 text-gray-900">
+                      {selectedRevisionRequest.data?.originalSubmissionDate 
+                        ? new Date(selectedRevisionRequest.data.originalSubmissionDate).toLocaleDateString()
+                        : 'N/A'
+                      }
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-gray-50 px-6 py-4 flex justify-between items-center">
+              <div className="text-sm text-gray-600">
+                Please make the necessary corrections and resubmit your ISR.
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowRevisionDetails(false);
+                    setSelectedRevisionRequest(null);
+                  }}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={() => {
+                    // Navigate to ISR submission page
+                    setShowRevisionDetails(false);
+                    setSelectedRevisionRequest(null);
+                    onClose();
+                    window.location.href = '/teacher/isr-submission';
+                  }}
+                  className="px-6 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors flex items-center gap-2"
+                >
+                  <DocumentTextIcon className="h-4 w-4" />
+                  Go to ISR Submission
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

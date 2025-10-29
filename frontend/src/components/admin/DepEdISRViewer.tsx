@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 
 interface ISRData {
   studentName: string;
@@ -7,6 +7,7 @@ interface ISRData {
   school: string;
   teacher: string;
   language: 'English' | 'Filipino';
+  levelStarted?: string; // The level where the student started (marked with *)
   readingData: {
     level: string;
     wordReading: {
@@ -34,22 +35,13 @@ interface ISRData {
 
 interface DepEdISRViewerProps {
   data: ISRData;
-  onApprove?: () => void;
-  onReject?: () => void;
   onClose: () => void;
-  isLoading?: boolean;
-  viewOnly?: boolean;
 }
 
 const DepEdISRViewer: React.FC<DepEdISRViewerProps> = ({
   data,
-  onApprove,
-  onReject,
-  onClose,
-  isLoading = false,
-  viewOnly = false
+  onClose
 }) => {
-  const [comments, setComments] = useState('');
 
   const levels = ['K', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
 
@@ -143,9 +135,12 @@ const DepEdISRViewer: React.FC<DepEdISRViewerProps> = ({
               <tbody>
                 {levels.map((level) => {
                   const readingEntry = data.readingData.find(entry => entry.level === level);
+                  const isStartedLevel = data.levelStarted === level;
                   return (
                     <tr key={level}>
-                      <td className="border border-gray-800 p-2 text-center text-sm"></td>
+                      <td className="border border-gray-800 p-2 text-center text-sm font-bold">
+                        {isStartedLevel ? '*' : ''}
+                      </td>
                       <td className="border border-gray-800 p-2 text-center font-bold">{level}</td>
                       <td className="border border-gray-800 p-2 text-center text-sm"></td>
                       <td className="border border-gray-800 p-2 text-center">
@@ -192,7 +187,7 @@ const DepEdISRViewer: React.FC<DepEdISRViewerProps> = ({
                   <th className="border border-gray-800 p-3 bg-gray-100 text-left font-bold">
                     Behaviors while Reading <span className="italic">(Paraan ng Pagbabasa)</span>
                   </th>
-                  <th className="border border-gray-800 p-3 bg-gray-100 text-center font-bold w-16">
+                  <th className="border border-gray-800 p-3 bg-gray-100 text-center font-bold w-20 whitespace-nowrap">
                     ✓ or ✗
                   </th>
                 </tr>
@@ -259,51 +254,7 @@ const DepEdISRViewer: React.FC<DepEdISRViewerProps> = ({
           </div>
         </div>
 
-        {/* Footer Actions */}
-        <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4">
-          {!viewOnly && (
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Admin Comments (Optional)
-              </label>
-              <textarea
-                value={comments}
-                onChange={(e) => setComments(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                rows={3}
-                placeholder="Add any comments or feedback..."
-              />
-            </div>
-          )}
-          
-          <div className="flex gap-3 justify-end">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-              disabled={isLoading}
-            >
-              {viewOnly ? 'Close' : 'Cancel'}
-            </button>
-            {!viewOnly && onReject && (
-              <button
-                onClick={() => onReject()}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:bg-gray-400"
-                disabled={isLoading}
-              >
-                {isLoading ? 'Processing...' : 'Reject'}
-              </button>
-            )}
-            {!viewOnly && onApprove && (
-              <button
-                onClick={() => onApprove()}
-                className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors disabled:bg-gray-400"
-                disabled={isLoading}
-              >
-                {isLoading ? 'Processing...' : 'Approve ISR'}
-              </button>
-            )}
-          </div>
-        </div>
+
       </div>
     </div>
   );

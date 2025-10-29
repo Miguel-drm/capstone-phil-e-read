@@ -1,103 +1,23 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { studentService, type Student } from '../../services/studentService';
 import { resultService } from '../../services/resultsService';
 import { getUserProfile } from '../../services/authService';
+import { notificationService } from '../../services/notificationService';
+import DepEdISRViewer from '../../components/admin/DepEdISRViewer';
 // import { gradeService } from '../../services/gradeService';
-import { formatDateHuman } from '@/utils/date';
-import { collection, addDoc, serverTimestamp, getDocs, query, where } from 'firebase/firestore';
-import { db } from '../../config/firebase';
+
+
 
 
 
 const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ setIsHeaderDarkened }) => {
   const { currentUser } = useAuth();
 
-  // Helper function to get grade and section from classGrades collection
-  const getGradeAndSectionFromClassGrades = async (className: string) => {
-    console.log(`🔍 [DEBUG] getGradeAndSectionFromClassGrades called with className: "${className}"`);
-    
-    if (!className) {
-      console.log('⚠️ [DEBUG] className is empty, returning N/A');
-      return { grade: 'N/A', section: 'N/A' };
-    }
-    
-    try {
-      // First, let's see ALL documents in classGrades to understand the structure
-      const classGradesRef = collection(db, 'classGrades');
-      const allDocsQuery = query(classGradesRef);
-      const allSnapshot = await getDocs(allDocsQuery);
-      console.log(`🔍 [DEBUG] All documents in classGrades: ${allSnapshot.size} total`);
-      
-      allSnapshot.docs.forEach((doc, index) => {
-        const data = doc.data();
-        console.log(`📄 [DEBUG] Document ${index + 1}:`, {
-          id: doc.id,
-          ...data // Show all fields
-        });
-      });
-      
-      // Now try to find the specific class
-      const q = query(classGradesRef, where('name', '==', className));
-      console.log(`🔍 [DEBUG] Querying classGrades for name: "${className}"`);
-      
-      const snapshot = await getDocs(q);
-      console.log(`🔍 [DEBUG] Query result: ${snapshot.size} documents found`);
-      
-      if (!snapshot.empty) {
-        const classData = snapshot.docs[0].data();
-        console.log('✅ [DEBUG] Found class data:', classData);
-        
-        // Try different field names that might exist
-        const grade = classData.gradeLevel?.toString() || 
-                     classData.grade?.toString() || 
-                     classData.level?.toString() || 
-                     'N/A';
-        const section = classData.section || 
-                       classData.sectionName || 
-                       classData.classSection || 
-                       'N/A';
-        
-        console.log(`✅ [DEBUG] Extracted - Grade: "${grade}", Section: "${section}"`);
-        
-        return { grade, section };
-      }
-      
-      console.log(`❌ [DEBUG] No class found in classGrades for name: "${className}"`);
-      
-      // If not found, try to parse from className as fallback
-      const gradeMatch = className.match(/Grade\s+(\d+)/i);
-      const sectionMatch = className.match(/-\s*(.+)$/);
-      
-      const parsedGrade = gradeMatch ? gradeMatch[1] : 'N/A';
-      const parsedSection = sectionMatch ? sectionMatch[1].trim() : 'N/A';
-      
-      console.log(`🔄 [DEBUG] Fallback parsing - Grade: "${parsedGrade}", Section: "${parsedSection}"`);
-      
-      return {
-        grade: parsedGrade,
-        section: parsedSection
-      };
-    } catch (error) {
-      console.error(`❌ [DEBUG] Error fetching grade and section for class "${className}":`, error);
-      
-      // Fallback to parsing
-      const gradeMatch = className.match(/Grade\s+(\d+)/i);
-      const sectionMatch = className.match(/-\s*(.+)$/);
-      
-      const parsedGrade = gradeMatch ? gradeMatch[1] : 'N/A';
-      const parsedSection = sectionMatch ? sectionMatch[1].trim() : 'N/A';
-      
-      console.log(`🔄 [DEBUG] Error fallback parsing - Grade: "${parsedGrade}", Section: "${parsedSection}"`);
-      
-      return {
-        grade: parsedGrade,
-        section: parsedSection
-      };
-    }
-  };
-  const navigate = useNavigate();
+  // ISR Modal state
+  const [isrModalOpen, setIsrModalOpen] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [isrData, setIsrData] = useState<any>(null);
   const [students, setStudents] = useState<Student[]>([]);
   // Removed unused classGrades state after redesign to always show all classes
   // Deprecated: selectedClass no longer used in ISR pages (all classes always shown)
@@ -107,10 +27,8 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
   // selectedClass reset no longer needed
   const [studentReadingResults, setStudentReadingResults] = useState<Record<string, any[]>>({});
   const [studentTestResults, setStudentTestResults] = useState<Record<string, any[]>>({});
-  
 
 
-  
 
 
 
@@ -118,7 +36,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
   const [shareOpen, setShareOpen] = useState(false);
   const [shareStudent, setShareStudent] = useState<Student | null>(null);
   const [parentEmail, setParentEmail] = useState('');
-  
+
   // Collapsible class state
   const [collapsedClasses, setCollapsedClasses] = useState<Set<string>>(new Set());
 
@@ -187,938 +105,184 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     return 'Frus';
   };
 
-  const determineComprehensionLevel = (score: number | string | undefined | null): 'Ind' | 'Ins' | 'Frus' => {
-    if (score === undefined || score === null) return 'Frus';
-    const n = typeof score === 'string' ? parseFloat(score) : score;
-    if (isNaN(n)) return 'Frus';
-    if (n >= 80) return 'Ind';
-    if (n >= 59) return 'Ins';
-    return 'Frus';
-  };
+
 
   const getLatestResults = (studentId: string) => {
     const readingList = studentReadingResults[studentId] || [];
     const testList = studentTestResults[studentId] || [];
-    
-        const latestReading = readingList.length
-          ? [...readingList].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
-          : null;
-        const latestTest = testList.length
-          ? [...testList].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
-          : null;
+
+    const latestReading = readingList.length
+      ? [...readingList].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+      : null;
+    const latestTest = testList.length
+      ? [...testList].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+      : null;
 
     return { latestReading, latestTest };
   };
 
-  const getStudentISRData = (student: Student, className?: string): ISRData => {
+
+
+  // Helper function to determine ISR status
+  const getISRStatus = (student: Student) => {
     const { latestReading, latestTest } = getLatestResults(student.id || '');
-    
-    // Get grade and section from classGrades collection if className is provided
-    let studentGrade = student.grade || 'N/A';
-    let studentSection = 'N/A';
-    
-    if (className) {
-      // Try to extract grade and section from className
-      const gradeMatch = className.match(/Grade\s+(\d+)/i);
-      const sectionMatch = className.match(/-\s*(.+)$/);
+
+    const hasReadingData = latestReading && latestReading.oralReadingScore !== undefined;
+    const hasComprehensionData = latestTest && latestTest.comprehension !== undefined;
+
+    if (hasReadingData && hasComprehensionData) {
+      return { status: 'Ready to Submit', color: 'text-green-600 bg-green-50', icon: 'fas fa-check-circle' };
+    } else if (hasReadingData || hasComprehensionData) {
+      return { status: 'Incomplete Data', color: 'text-yellow-600 bg-yellow-50', icon: 'fas fa-exclamation-triangle' };
+    } else {
+      return { status: 'Missing Data', color: 'text-red-600 bg-red-50', icon: 'fas fa-times-circle' };
+    }
+  };
+
+
+
+  // Helper function to get class submission status
+  const getClassSubmissionStatus = (classStudents: Student[]) => {
+    const readyCount = classStudents.filter(student => {
+      const status = getISRStatus(student);
+      return status.status === 'Ready to Submit';
+    }).length;
+
+    const totalCount = classStudents.length;
+
+    if (readyCount === totalCount) {
+      return { ready: true, message: `All ${totalCount} students ready for submission` };
+    } else {
+      const missingCount = totalCount - readyCount;
+      return { ready: false, message: `${missingCount} student${missingCount > 1 ? 's' : ''} still need${missingCount === 1 ? 's' : ''} assessment data` };
+    }
+  };
+
+
+
+
+
+
+
+  // ISR Modal handlers
+  const handleOpenISRModal = async (student: Student) => {
+    setSelectedStudent(student);
+    setIsrModalOpen(true);
+    setIsHeaderDarkened?.(true);
+
+    // Prepare ISR data with teacher profile
+    const data = await getISRDataAsync(student);
+    setIsrData(data);
+  };
+
+  const handleCloseISRModal = () => {
+    setIsrModalOpen(false);
+    setSelectedStudent(null);
+    setIsrData(null);
+    setIsHeaderDarkened?.(false);
+  };
+
+
+
+  // Async version to get teacher profile
+  const getISRDataAsync = async (student: Student) => {
+    const { latestReading, latestTest } = getLatestResults(student.id || '');
+
+    // Debug: Log student data to check age
+    console.log('Student data for ISR (async):', {
+      name: student.name,
+      age: student.age,
+      grade: student.grade,
+      readingLevel: student.readingLevel
+    });
+
+    // Determine reading level based on scores
+    const readingScore = latestReading?.oralReadingScore || 0;
+    const comprehensionScore = latestTest?.comprehension || 0;
+
+    // Get teacher profile information
+    let teacherName = 'Current Teacher';
+    let schoolName = 'Phil I-Ready School';
+
+    try {
+      const profile = await getUserProfile();
+      teacherName = profile?.displayName || profile?.email || 'Current Teacher';
+      schoolName = profile?.school || 'Phil I-Ready School';
+    } catch (error) {
+      console.log('Could not fetch teacher profile:', error);
+    }
+
+    // Convert student grade to Roman numeral format for level started
+    const convertGradeToRomanLevel = (grade: any): string => {
+      if (!grade) return 'K';
+      
+      // Extract the grade number from strings like "Grade 4", "Grade 4 - Narra", etc.
+      const gradeStr = grade.toString();
+      const gradeMatch = gradeStr.match(/(\d+)/); // Extract first number
       
       if (gradeMatch) {
-        studentGrade = gradeMatch[1];
+        const gradeNum = parseInt(gradeMatch[1]);
+        const romanMap: Record<number, string> = {
+          0: 'K',
+          1: 'I',
+          2: 'II', 
+          3: 'III',
+          4: 'IV',
+          5: 'V',
+          6: 'VI',
+          7: 'VII'
+        };
+        
+        return romanMap[gradeNum] || 'K';
       }
-      if (sectionMatch) {
-        studentSection = sectionMatch[1].trim();
-      }
-    }
-    
-    // Create enhanced student object with proper grade/section
-    const enhancedStudent = {
-      ...student,
-      grade: studentGrade,
-      section: studentSection
+      
+      return 'K';
     };
     
+    const studentLevel = convertGradeToRomanLevel(student.grade);
+    
+    // Debug: Log the final ISR data
+    console.log('Final ISR data:', {
+      studentName: student.name,
+      age: student.age,
+      readingLevel: student.readingLevel,
+      finalAge: student.age?.toString() || ''
+    });
+
     return {
-      student: enhancedStudent,
-      readingLevel: determineReadingLevel(latestReading?.oralReadingScore),
-      comprehensionLevel: determineComprehensionLevel(latestTest?.comprehension),
-      dateTaken: latestReading?.createdAt || latestTest?.createdAt || new Date().toISOString(),
-      observations: isrObservations,
-      language: isrLanguage
+      studentName: student.name?.replace(/\|/g, ' ') || '',
+      age: student.age?.toString() || '',
+      gradeSection: student.grade || '',
+      school: schoolName,
+      teacher: teacherName,
+      language: 'Filipino' as 'English' | 'Filipino',
+      levelStarted: studentLevel, // Mark the level where student started
+      readingData: [
+        {
+          level: studentLevel,
+          wordReading: {
+            ind: readingScore >= 95,
+            ins: readingScore >= 90 && readingScore < 95,
+            frus: readingScore < 90
+          },
+          comprehension: {
+            ind: comprehensionScore >= 80,
+            ins: comprehensionScore >= 60 && comprehensionScore < 80,
+            frus: comprehensionScore < 60
+          },
+          dateTaken: latestReading?.createdAt || latestTest?.createdAt || new Date().toLocaleDateString()
+        }
+      ],
+      observations: {
+        wordByWord: false,
+        lacksExpression: false,
+        hardlyAudible: false,
+        disregardsPunctuation: false,
+        pointsToWords: false,
+        littleAnalysis: false,
+        otherObservations: `Reading Score: ${readingScore}%, Comprehension Score: ${comprehensionScore}%`
+      }
     };
-  };
-
-  // ISR Report Generation Functions
-  const generateISRHTML = (isrData: ISRData, teacherName: string, schoolName: string) => {
-    
-    const safe = (v: any) => (v === undefined || v === null ? '' : String(v));
-    const levels = ['K', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
-    
-    // Convert reading level to Roman numeral
-    const toRoman = (num?: number | null) => {
-      if (num === undefined || num === null) return '';
-      const map: Record<number, string> = {1:'I',2:'II',3:'III',4:'IV',5:'V',6:'VI',7:'VII'};
-      return map[num] || '';
-    };
-    const startedLevel = toRoman(typeof isrData.student.readingLevel === 'number' ? isrData.student.readingLevel : parseInt(String(isrData.student.readingLevel || ''), 10));
-
-    return `
-      <!doctype html>
-      <html lang="en">
-        <head>
-          <meta charset="utf-8" />
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <title>Individual Summary Record - ${safe(isrData.student.name?.replace(/\|/g,' '))}</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 24px; color: #111827; line-height: 1.4; }
-            .title { text-align: center; font-weight: 700; font-size: 18px; margin-bottom: 8px; }
-            .subtitle { text-align: center; color: #374151; margin-bottom: 20px; }
-            .form-section { margin-bottom: 24px; }
-            .row { display: flex; gap: 16px; margin-bottom: 8px; }
-            .field { flex: 1; }
-            .label { font-size: 12px; color: #374151; margin-bottom: 4px; }
-            .value { border-bottom: 1px solid #d1d5db; padding: 4px 0; min-height: 18px; }
-            .checkbox-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-            .checkbox { width: 16px; height: 16px; border: 1px solid #d1d5db; }
-            table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
-            th, td { border: 1px solid #e5e7eb; padding: 6px; text-align: center; vertical-align: middle; }
-            th { background: #f9fafb; font-weight: 600; }
-            .section-title { margin-top: 20px; font-weight: 600; font-size: 14px; margin-bottom: 8px; }
-            .note { font-size: 11px; color: #6b7280; margin-top: 6px; }
-            .legend { font-size: 11px; margin-top: 8px; }
-            .observation-table { margin-top: 12px; }
-            .observation-table td:first-child { text-align: left; padding-left: 8px; }
-            .observation-table td:last-child { text-align: center; width: 60px; }
-            @media print { 
-              .no-print { display: none; } 
-              body { padding: 12px; padding-bottom: 12px; }
-              .actions { display: none; }
-            }
-            .btn { 
-              margin-top: 0; 
-              padding: 14px 28px; 
-              background: #007AFF; 
-              color: white; 
-              border: 0; 
-              border-radius: 12px; 
-              cursor: pointer; 
-              font-weight: 500;
-              font-size: 15px;
-              transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-              box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
-              backdrop-filter: blur(10px);
-              -webkit-backdrop-filter: blur(10px);
-              position: relative;
-              overflow: hidden;
-            }
-            .btn::before {
-              content: '';
-              position: absolute;
-              top: 0;
-              left: -100%;
-              width: 100%;
-              height: 100%;
-              background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-              transition: left 0.5s;
-            }
-            .btn:hover::before {
-              left: 100%;
-            }
-            .btn:hover { 
-              background: #0056CC; 
-              transform: translateY(-2px);
-              box-shadow: 0 4px 12px rgba(0,122,255,0.4), 0 2px 4px rgba(0,0,0,0.1);
-            }
-            .btn:active {
-              transform: translateY(0);
-              box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            }
-            .actions { 
-              position: fixed; 
-              bottom: 0; 
-              left: 0; 
-              right: 0; 
-              background: rgba(255, 255, 255, 0.95); 
-              backdrop-filter: blur(20px);
-              -webkit-backdrop-filter: blur(20px);
-              padding: 20px; 
-              border-top: 1px solid rgba(0, 0, 0, 0.08); 
-              box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08), 0 -1px 3px rgba(0, 0, 0, 0.1); 
-              display: flex; 
-              gap: 16px; 
-              justify-content: center; 
-              z-index: 1000;
-              border-radius: 20px 20px 0 0;
-            }
-            body { padding-bottom: 100px; }
-            .center { text-align: center; }
-            .language-section { margin-bottom: 16px; }
-            .language-option { display: inline-flex; align-items: center; gap: 4px; margin-right: 16px; }
-          </style>
-        </head>
-        <body>
-          <div class="title">Individual Summary Record (ISR)</div>
-          <div class="subtitle">Talaan ng Indibidwal na Pagbabasa (TIP)</div>
-
-          <div class="form-section">
-            <div class="row">
-              <div class="field">
-                <div class="label">Name:</div>
-                <div class="value">${safe(isrData.student.name?.replace(/\|/g,' '))}</div>
-              </div>
-              <div class="field">
-                <div class="label">Age:</div>
-                <div class="value"></div>
-              </div>
-              <div class="field">
-                <div class="label">Grade/Section:</div>
-                <div class="value">${safe(isrData.student.grade)}</div>
-              </div>
-            </div>
-            <div class="row">
-              <div class="field">
-                <div class="label">School:</div>
-                <div class="value">${safe(schoolName)}</div>
-              </div>
-              <div class="field">
-                <div class="label">Teacher:</div>
-                <div class="value">${safe(teacherName)}</div>
-              </div>
-            </div>
-            <div class="language-section">
-              <div class="label">Language:</div>
-              <div class="language-option">
-                <span>English:</span>
-                <span>${isrData.language === 'English' ? '✓' : '☐'}</span>
-              </div>
-              <div class="language-option">
-                <span>Filipino:</span>
-                <span>${isrData.language === 'Filipino' ? '✓' : '☐'}</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="section-title">Instructional Level Summary</div>
-          <table>
-            <thead>
-              <tr>
-                <th class="center" colspan="2">Level Started<br/><span style="font-weight:400; font-size:10px;">Mark with an *</span></th>
-                <th class="center" rowspan="2">Level</th>
-                <th class="center" rowspan="2">Set<br/><span style="font-weight:400; font-size:10px;">Indicate if A, B, C, or D</span></th>
-                <th class="center" colspan="3">Word Reading</th>
-                <th class="center" colspan="3">Comprehension</th>
-                <th class="center" rowspan="2">Date Taken</th>
-              </tr>
-              <tr>
-                <th class="center" colspan="2"></th>
-                <th class="center">Ind</th>
-                <th class="center">Ins</th>
-                <th class="center">Frus</th>
-                <th class="center">Ind</th>
-                <th class="center">Ins</th>
-                <th class="center">Frus</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${levels.map(lvl => {
-                const isStarted = startedLevel && lvl === startedLevel ? '*' : '';
-                const wrInd = isrData.readingLevel === 'Ind' ? '✓' : '';
-                const wrIns = isrData.readingLevel === 'Ins' ? '✓' : '';
-                const wrFr  = isrData.readingLevel === 'Frus' ? '✓' : '';
-                const cInd  = isrData.comprehensionLevel === 'Ind' ? '✓' : '';
-                const cIns  = isrData.comprehensionLevel === 'Ins' ? '✓' : '';
-                const cFr   = isrData.comprehensionLevel === 'Frus' ? '✓' : '';
-                const dateTaken = formatDateHuman(new Date(isrData.dateTaken));
-                return `
-                <tr>
-                  <td class="center" style="width:60px">${isStarted}</td>
-                  <td class="center" style="width:60px"></td>
-                  <td class="center" style="width:60px">${lvl}</td>
-                  <td class="center" style="width:120px"></td>
-                  <td class="center" style="width:50px">${wrInd}</td>
-                  <td class="center" style="width:50px">${wrIns}</td>
-                  <td class="center" style="width:50px">${wrFr}</td>
-                  <td class="center" style="width:50px">${cInd}</td>
-                  <td class="center" style="width:50px">${cIns}</td>
-                  <td class="center" style="width:50px">${cFr}</td>
-                  <td class="center" style="width:110px">${dateTaken}</td>
-                </tr>`;
-              }).join('')}
-            </tbody>
-          </table>
-          <div class="legend"><strong>Legend:</strong> <strong>Ind</strong> - Independent; <strong>Ins</strong> - Instructional; <strong>Frus</strong> - Frustration</div>
-
-          <div class="section-title">Oral Reading Observation Checklist</div>
-          <div class="note">Talaan ng mga Puna Habang Nagbabasa</div>
-          <table class="observation-table">
-            <tbody>
-              <tr>
-                <td>Does word-by-word reading (Nagbabasa nang pa-isa isang salita)</td>
-                <td>${isrData.observations.wordByWord ? '✓' : '☐'}</td>
-              </tr>
-              <tr>
-                <td>Lacks expression; reads in a monotonous tone (Walang damdamin; walang pagbabago ang tono)</td>
-                <td>${isrData.observations.lacksExpression ? '✓' : '☐'}</td>
-              </tr>
-              <tr>
-                <td>Voice is hardly audible (Hindi madaling marinig ang boses)</td>
-                <td>${isrData.observations.hardlyAudible ? '✓' : '☐'}</td>
-              </tr>
-              <tr>
-                <td>Disregards punctuation (Hindi pinapansin ang mga bantas)</td>
-                <td>${isrData.observations.disregardsPunctuation ? '✓' : '☐'}</td>
-              </tr>
-              <tr>
-                <td>Points to each word with his/her finger (Itinuturo ang bawat salita)</td>
-                <td>${isrData.observations.pointsToWords ? '✓' : '☐'}</td>
-              </tr>
-              <tr>
-                <td>Employs little or no method of analysis (Bahagya o walang paraan ng pagsusuri)</td>
-                <td>${isrData.observations.littleAnalysis ? '✓' : '☐'}</td>
-              </tr>
-              <tr>
-                <td>Other observations: (Ibang Puna)</td>
-                <td></td>
-              </tr>
-            </tbody>
-          </table>
-          <div style="margin-top: 8px; padding: 8px; border: 1px solid #e5e7eb; min-height: 40px;">
-            ${isrData.observations.otherObservations || ''}
-          </div>
-
-          <div class="actions no-print">
-            <button class="btn" onclick="window.print()">Print Report</button>
-          </div>
-        </body>
-      </html>
-    `;
-  };
-
-
-
-
-  // Function to submit class report to adminInbox (called from popup window)
-  const submitClassReportToAdmin = async (className?: string) => {
-    try {
-      // Check if classISRData is available
-      if (!classISRData || classISRData.length === 0) {
-        throw new Error('No class ISR data available. Please generate the class report first.');
-      }
-      
-      // Get teacher profile for school/teacher name
-      let teacherName = '';
-      let schoolName = '';
-      let teacherId = '';
-      try {
-        const profile: any = await (getUserProfile() as Promise<any>);
-        teacherName = profile?.displayName || 'Unknown Teacher';
-        schoolName = profile?.school || 'Unknown School';
-        teacherId = currentUser?.uid || '';
-      } catch (profileError) {
-        console.error('Error loading teacher profile:', profileError);
-        teacherName = 'Unknown Teacher';
-        schoolName = 'Unknown School';
-        teacherId = currentUser?.uid || '';
-      }
-
-      // Get grade and section from classGrades collection
-      console.log(`🔍 [DEBUG] submitClassReportToAdmin: className parameter: "${className}"`);
-      console.log(`🔍 [DEBUG] submitClassReportToAdmin: classReportTargetClass state: "${classReportTargetClass}"`);
-      
-      // Use className parameter first, then fallback to state, then extract from data
-      let targetClassName = className || classReportTargetClass;
-      
-      if (!targetClassName || targetClassName.trim() === '') {
-        // Try to extract class name from the first student's data
-        if (classISRData.length > 0 && classISRData[0].student) {
-          const firstStudent = classISRData[0].student;
-          // Try to reconstruct class name from student data
-          if (firstStudent.grade && firstStudent.section) {
-            targetClassName = `Grade ${firstStudent.grade} - ${firstStudent.section}`;
-            console.log(`🔍 [DEBUG] Reconstructed class name from student data: "${targetClassName}"`);
-          }
-        }
-        
-        if (!targetClassName || targetClassName.trim() === '') {
-          throw new Error('Class name is not set. Please generate the class report first.');
-        }
-      }
-      
-      console.log(`🔍 [DEBUG] Using targetClassName: "${targetClassName}"`);
-      
-      const { grade, section } = await getGradeAndSectionFromClassGrades(targetClassName);
-      console.log(`🔍 [DEBUG] submitClassReportToAdmin: Fetched Grade: "${grade}", Section: "${section}"`);
-      
-      if (grade === 'N/A' || section === 'N/A') {
-        console.warn(`⚠️ [DEBUG] Grade or section is N/A. Class: "${targetClassName}", Grade: "${grade}", Section: "${section}"`);
-      }
-      
-      // Get class report data
-      const classReportData = {
-        // Core notification fields
-        title: `Class ISR Report - Grade ${grade}, Section ${section}`,
-        message: `Class Individual Summary Record (ISR) has been submitted for Grade ${grade}, Section ${section} by ${teacherName}. This report contains data for ${classISRData.length} students.`,
-        type: 'teacher_report',
-        recipientId: 'admin',
-        senderId: teacherId || 'unknown',
-        senderRole: 'teacher',
-        senderName: teacherName || 'Unknown Teacher',
-        isRead: false,
-        isArchived: false,
-        priority: 'medium',
-        category: 'teacher_reports',
-        
-        // Class report-specific data
-        data: {
-          reportType: 'class_isr',
-          className: targetClassName || 'Unknown Class',
-          grade: grade,
-          section: section,
-          teacherId: teacherId || 'unknown',
-          teacherName: teacherName || 'Unknown Teacher',
-          schoolName: schoolName || 'Unknown School',
-          studentCount: classISRData.length,
-          students: classISRData.map(isrData => ({
-            studentId: isrData.student.id || 'unknown',
-            studentName: isrData.student.name || 'Unknown Student',
-            grade: isrData.student.grade || grade,
-            section: (isrData.student as any).section || section,
-            readingLevel: isrData.readingLevel || 'N/A',
-            comprehensionLevel: isrData.comprehensionLevel || 'N/A',
-            language: isrData.language || 'Filipino',
-            observations: isrData.observations || {
-              wordByWord: false,
-              lacksExpression: false,
-              hardlyAudible: false,
-              disregardsPunctuation: false,
-              pointsToWords: false,
-              littleAnalysis: false,
-              otherObservations: ''
-            }
-          })),
-          reportDate: new Date().toISOString(),
-          status: 'submitted'
-        }
-      };
-
-      // Clean the data to remove undefined values
-      const cleanData = (obj: any): any => {
-        if (obj === null || obj === undefined) return null;
-        if (typeof obj !== 'object') return obj;
-        if (Array.isArray(obj)) {
-          return obj.map(cleanData).filter(item => item !== undefined);
-        }
-        const cleaned: any = {};
-        for (const [key, value] of Object.entries(obj)) {
-          if (value !== undefined) {
-            cleaned[key] = cleanData(value);
-          }
-        }
-        return cleaned;
-      };
-
-      const cleanedReportData = cleanData(classReportData);
-
-      // Store in adminInbox collection
-      const docRef = await addDoc(collection(db, 'adminInbox'), {
-        ...cleanedReportData,
-        createdAt: serverTimestamp()
-      });
-      
-      return docRef.id;
-      
-    } catch (error) {
-      console.error('Error submitting class report to admin:', error);
-      throw error;
-    }
-  };
-
-  // Make function available globally for popup window
-  (window as any).submitClassReportToAdmin = submitClassReportToAdmin;
-
-  // Test function to check adminInbox collection (for debugging)
-  const testAdminInboxCollection = async () => {
-    try {
-      console.log('🔍 Testing adminInbox collection...');
-      const { collection, getDocs } = await import('firebase/firestore');
-      const { db } = await import('../../config/firebase');
-      
-      const snapshot = await getDocs(collection(db, 'adminInbox'));
-      console.log('🔍 AdminInbox collection size:', snapshot.size);
-      
-      const docs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      
-      console.log('🔍 AdminInbox documents:', docs);
-      return docs;
-    } catch (error) {
-      console.error('❌ Error testing adminInbox:', error);
-      return [];
-    }
-  };
-
-  // Make test function available globally
-  (window as any).testAdminInboxCollection = testAdminInboxCollection;
-
-  const handleSubmitReportToAdmin = async () => {
-    if (!isrStudent) {
-      console.error('No student selected for report submission');
-      return;
-    }
-    
-    setIsrLoading(true);
-    try {
-      // Get teacher profile for school/teacher name
-      let teacherName = '';
-      let schoolName = '';
-      let teacherId = '';
-      try {
-        const profile: any = await (getUserProfile() as Promise<any>);
-        teacherName = profile?.displayName || 'Unknown Teacher';
-        schoolName = profile?.school || 'Unknown School';
-        teacherId = currentUser?.uid || '';
-      } catch (profileError) {
-        console.error('Error loading teacher profile:', profileError);
-        teacherName = 'Unknown Teacher';
-        schoolName = 'Unknown School';
-        teacherId = currentUser?.uid || '';
-      }
-
-      // Get grade and section from classGrades collection using student's grade field
-      console.log(`🔍 [DEBUG] handleSubmitReportToAdmin: isrStudent.grade: "${isrStudent.grade}"`);
-      const { grade: studentGrade, section: studentSection } = await getGradeAndSectionFromClassGrades(isrStudent.grade);
-      console.log(`🔍 [DEBUG] handleSubmitReportToAdmin: Fetched Student Grade: "${studentGrade}", Student Section: "${studentSection}"`);
-
-      // Create report data for adminInbox
-      const reportData = {
-        // Core notification fields
-        title: `ISR Report - ${isrStudent.name} (Grade ${studentGrade}, Section ${studentSection})`,
-        message: `Individual Summary Record (ISR) has been submitted for ${isrStudent.name} - Grade ${studentGrade}, Section ${studentSection} by ${teacherName}. Please review the report for assessment and instructional planning.`,
-        type: 'teacher_report',
-        recipientId: 'admin', // This will match any admin user since we filter by role
-        senderId: teacherId,
-        senderRole: 'teacher',
-        senderName: teacherName,
-        isRead: false,
-        isArchived: false,
-        priority: 'medium',
-        category: 'teacher_reports',
-        
-        // Report-specific data
-        data: {
-          studentId: isrStudent.id,
-          studentName: isrStudent.name,
-          studentGrade: studentGrade,
-          studentSection: studentSection,
-          teacherId: teacherId,
-          teacherName: teacherName,
-          schoolName: schoolName,
-          reportType: 'individual_isr',
-          language: isrLanguage,
-          observations: isrObservations,
-          readingLevel: isrStudent.readingLevel,
-          reportDate: new Date().toISOString(),
-          status: 'submitted'
-        }
-      };
-
-      console.log('Report data prepared:', reportData);
-      console.log('Firebase config:', { 
-        db: !!db, 
-        collection: !!collection, 
-        addDoc: !!addDoc, 
-        serverTimestamp: !!serverTimestamp 
-      });
-
-      // Store in adminInbox collection
-      const docRef = await addDoc(collection(db, 'adminInbox'), {
-        ...reportData,
-        createdAt: serverTimestamp()
-      });
-      
-      console.log('✅ Document written with ID:', docRef.id);
-      console.log('✅ Report submitted to adminInbox successfully');
-      
-      // Verify the document was created by trying to read it back
-      try {
-        const { doc, getDoc } = await import('firebase/firestore');
-        const docSnap = await getDoc(doc(db, 'adminInbox', docRef.id));
-        if (docSnap.exists()) {
-          console.log('✅ Document verification successful:', docSnap.data());
-        } else {
-          console.warn('⚠️ Document verification failed - document not found');
-        }
-      } catch (verifyError) {
-        console.warn('⚠️ Document verification failed:', verifyError);
-      }
-      
-      // Close modal after successful submission
-      handleCloseISRModal();
-      
-      // Show success message
-      alert(`Report submitted to admin successfully! Document ID: ${docRef.id}`);
-      
-    } catch (error) {
-      console.error('❌ Error submitting report to admin:', error);
-      console.error('Error details:', {
-        message: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
-      });
-      alert(`Error submitting report: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setIsrLoading(false);
-    }
-  };
-
-  const handleGenerateClassISR = async () => {
-    setClassReportLoading(true);
-    try {
-      // Get teacher profile for school/teacher name
-      let teacherName = '';
-      let schoolName = '';
-      try {
-        const profile: any = await (getUserProfile() as Promise<any>);
-        teacherName = profile?.displayName || '';
-        schoolName = profile?.school || '';
-      } catch {}
-
-      const target = classReportTargetClass;
-      console.log(`🔍 [DEBUG] handleGenerateClassISR: classReportTargetClass = "${classReportTargetClass}"`);
-      console.log(`🔍 [DEBUG] handleGenerateClassISR: target = "${target}"`);
-      console.log(`🔍 [DEBUG] handleGenerateClassISR: studentsByClass keys:`, Object.keys(studentsByClass));
-      console.log(`🔍 [DEBUG] handleGenerateClassISR: studentsByClass[target] =`, target ? studentsByClass[target] : 'No target class');
-      
-      // Debug the studentsByClass structure
-      Object.keys(studentsByClass).forEach(key => {
-        console.log(`🔍 [DEBUG] Class "${key}" has ${studentsByClass[key].length} students:`, studentsByClass[key].map(s => ({
-          name: s.name,
-          grade: s.grade,
-          id: s.id
-        })));
-      });
-      
-      const sourceStudents = target ? (studentsByClass[target] || []) : students;
-      console.log(`🔍 [DEBUG] handleGenerateClassISR: sourceStudents count = ${sourceStudents.length}`);
-      
-      const classISRData = sourceStudents.map(student => {
-        const isrData = getStudentISRData(student, target || undefined);
-        console.log(`🔍 [DEBUG] Student ISR Data for ${student.name}:`, {
-          studentName: student.name,
-          studentGrade: student.grade,
-          studentClass: target,
-          isrGrade: isrData.student.grade,
-          isrSection: (isrData.student as any).section || 'N/A'
-        });
-        return isrData;
-      });
-      
-      console.log(`🔍 [DEBUG] Final classISRData:`, classISRData);
-      
-      // Store classISRData in state for use by submitClassReportToAdmin
-      // Also store the class name for reference
-      setClassISRData(classISRData);
-      
-      // Store the class name in a way that can be accessed by submitClassReportToAdmin
-      console.log(`🔍 [DEBUG] Storing classISRData with ${classISRData.length} students for class: "${target}"`);
-      
-      // Generate combined HTML for all students in class
-      const escapeAttr = (v: any) => String(v ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
-      const reportTitleText = target ? `Class ISR Report - ${target}` : 'All Classes ISR Report';
-      const combinedHTML = `
-      <!doctype html>
-      <html lang="en">
-        <head>
-          <meta charset="utf-8" />
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
-            <title>${escapeAttr(reportTitleText)}</title>
-          <style>
-              body { font-family: Arial, sans-serif; padding: 24px; color: #111827; line-height: 1.4; }
-              .class-title { text-align: center; font-weight: 700; font-size: 20px; margin-bottom: 20px; }
-              .student-report { page-break-after: always; margin-bottom: 40px; }
-              .student-report:last-child { page-break-after: auto; }
-            .title { text-align: center; font-weight: 700; font-size: 18px; margin-bottom: 8px; }
-            .subtitle { text-align: center; color: #374151; margin-bottom: 20px; }
-              .form-section { margin-bottom: 24px; }
-            .row { display: flex; gap: 16px; margin-bottom: 8px; }
-            .field { flex: 1; }
-              .label { font-size: 12px; color: #374151; margin-bottom: 4px; }
-            .value { border-bottom: 1px solid #d1d5db; padding: 4px 0; min-height: 18px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
-              th, td { border: 1px solid #e5e7eb; padding: 6px; text-align: center; vertical-align: middle; }
-              th { background: #f9fafb; font-weight: 600; }
-              .section-title { margin-top: 20px; font-weight: 600; font-size: 14px; margin-bottom: 8px; }
-              .legend { font-size: 11px; margin-top: 8px; }
-              .observation-table { margin-top: 12px; }
-              .observation-table td:first-child { text-align: left; padding-left: 8px; }
-              .observation-table td:last-child { text-align: center; width: 60px; }
-            .center { text-align: center; }
-              .language-section { margin-bottom: 16px; }
-              .language-option { display: inline-flex; align-items: center; gap: 4px; margin-right: 16px; }
-              @media print { 
-                .no-print { display: none; } 
-                body { padding: 12px; padding-bottom: 12px; }
-                .actions { display: none; }
-              }
-              .btn { 
-                margin-top: 0; 
-                padding: 14px 28px; 
-                background: #007AFF; 
-                color: white; 
-                border: 0; 
-                border-radius: 12px; 
-                cursor: pointer; 
-                font-weight: 500;
-                font-size: 15px;
-                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
-                backdrop-filter: blur(10px);
-                -webkit-backdrop-filter: blur(10px);
-                position: relative;
-                overflow: hidden;
-              }
-              .btn::before {
-                content: '';
-                position: absolute;
-                top: 0;
-                left: -100%;
-                width: 100%;
-                height: 100%;
-                background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-                transition: left 0.5s;
-              }
-              .btn:hover::before {
-                left: 100%;
-              }
-              .btn:hover { 
-                background: #0056CC; 
-                transform: translateY(-2px);
-                box-shadow: 0 4px 12px rgba(0,122,255,0.4), 0 2px 4px rgba(0,0,0,0.1);
-              }
-              .btn:active {
-                transform: translateY(0);
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-              }
-              .btn-secondary { 
-                background: #34C759; 
-              }
-              .btn-secondary:hover { 
-                background: #28A745; 
-                box-shadow: 0 4px 12px rgba(52,199,89,0.4), 0 2px 4px rgba(0,0,0,0.1);
-              }
-              .actions { 
-                position: fixed; 
-                bottom: 0; 
-                left: 0; 
-                right: 0; 
-                background: rgba(255, 255, 255, 0.95); 
-                backdrop-filter: blur(20px);
-                -webkit-backdrop-filter: blur(20px);
-                padding: 20px; 
-                border-top: 1px solid rgba(0, 0, 0, 0.08); 
-                box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08), 0 -1px 3px rgba(0, 0, 0, 0.1); 
-                display: flex; 
-                gap: 16px; 
-                justify-content: center; 
-                z-index: 1000;
-                border-radius: 20px 20px 0 0;
-              }
-              body { padding-bottom: 100px; }
-              .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #111827; color: #fff; padding: 8px 12px; border-radius: 6px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); opacity: 0; transition: opacity .2s ease; }
-              .toast.show { opacity: 1; }
-          </style>
-        </head>
-        <body>
-            <div class="class-title">${escapeAttr(reportTitleText)}</div>
-            <div class="class-title">School: ${schoolName} | Teacher: ${teacherName}</div>
-            <div id="isr-config" data-teacher="${escapeAttr(teacherName)}" data-school="${escapeAttr(schoolName)}" data-class="${escapeAttr(target || 'All Classes')}" data-count="${classISRData.length}"></div>
-            
-            ${classISRData.map((isrData) => {
-              
-              const safe = (v: any) => (v === undefined || v === null ? '' : String(v));
-              const levels = ['K', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
-              
-              const toRoman = (num?: number | null) => {
-                if (num === undefined || num === null) return '';
-                const map: Record<number, string> = {1:'I',2:'II',3:'III',4:'IV',5:'V',6:'VI',7:'VII'};
-                return map[num] || '';
-              };
-              const startedLevel = toRoman(typeof isrData.student.readingLevel === 'number' ? isrData.student.readingLevel : parseInt(String(isrData.student.readingLevel || ''), 10));
-
-              return `
-                <div class="student-report">
-          <div class="title">Individual Summary Record (ISR)</div>
-          <div class="subtitle">Talaan ng Indibidwal na Pagbabasa (TIP)</div>
-
-                  <div class="form-section">
-          <div class="row">
-                      <div class="field">
-                        <div class="label">Name:</div>
-                        <div class="value">${safe(isrData.student.name?.replace(/\|/g,' '))}</div>
-          </div>
-                      <div class="field">
-                        <div class="label">Age:</div>
-                        <div class="value"></div>
-                      </div>
-                      <div class="field">
-                        <div class="label">Grade/Section:</div>
-                        <div class="value">${safe(isrData.student.grade)}</div>
-                      </div>
-          </div>
-          <div class="row">
-                      <div class="field">
-                        <div class="label">School:</div>
-                        <div class="value">${safe(schoolName)}</div>
-                      </div>
-                      <div class="field">
-                        <div class="label">Teacher:</div>
-                        <div class="value">${safe(teacherName)}</div>
-                      </div>
-                    </div>
-                    <div class="language-section">
-                      <div class="label">Language:</div>
-                      <div class="language-option">
-                        <span>English:</span>
-                        <span>${isrData.language === 'English' ? '✓' : '☐'}</span>
-                      </div>
-                      <div class="language-option">
-                        <span>Filipino:</span>
-                        <span>${isrData.language === 'Filipino' ? '✓' : '☐'}</span>
-                      </div>
-                    </div>
-          </div>
-
-                  <div class="section-title">Instructional Level Summary</div>
-          <table>
-            <thead>
-              <tr>
-                        <th class="center" colspan="2">Level Started<br/><span style="font-weight:400; font-size:10px;">Mark with an *</span></th>
-                <th class="center" rowspan="2">Level</th>
-                        <th class="center" rowspan="2">Set<br/><span style="font-weight:400; font-size:10px;">Indicate if A, B, C, or D</span></th>
-                <th class="center" colspan="3">Word Reading</th>
-                <th class="center" colspan="3">Comprehension</th>
-                <th class="center" rowspan="2">Date Taken</th>
-              </tr>
-              <tr>
-                        <th class="center" colspan="2"></th>
-                <th class="center">Ind</th>
-                <th class="center">Ins</th>
-                <th class="center">Frus</th>
-                <th class="center">Ind</th>
-                <th class="center">Ins</th>
-                <th class="center">Frus</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${levels.map(lvl => {
-                const isStarted = startedLevel && lvl === startedLevel ? '*' : '';
-                        const wrInd = isrData.readingLevel === 'Ind' ? '✓' : '';
-                        const wrIns = isrData.readingLevel === 'Ins' ? '✓' : '';
-                        const wrFr  = isrData.readingLevel === 'Frus' ? '✓' : '';
-                        const cInd  = isrData.comprehensionLevel === 'Ind' ? '✓' : '';
-                        const cIns  = isrData.comprehensionLevel === 'Ins' ? '✓' : '';
-                        const cFr   = isrData.comprehensionLevel === 'Frus' ? '✓' : '';
-                        const dateTaken = formatDateHuman(new Date(isrData.dateTaken));
-                return `
-                <tr>
-                          <td class="center" style="width:60px">${isStarted}</td>
-                  <td class="center" style="width:60px"></td>
-                  <td class="center" style="width:60px">${lvl}</td>
-                  <td class="center" style="width:120px"></td>
-                  <td class="center" style="width:50px">${wrInd}</td>
-                  <td class="center" style="width:50px">${wrIns}</td>
-                  <td class="center" style="width:50px">${wrFr}</td>
-                  <td class="center" style="width:50px">${cInd}</td>
-                  <td class="center" style="width:50px">${cIns}</td>
-                  <td class="center" style="width:50px">${cFr}</td>
-                  <td class="center" style="width:110px">${dateTaken}</td>
-                </tr>`;
-              }).join('')}
-            </tbody>
-          </table>
-                  <div class="legend"><strong>Legend:</strong> <strong>Ind</strong> - Independent; <strong>Ins</strong> - Instructional; <strong>Frus</strong> - Frustration</div>
-
-                  <div class="section-title">Oral Reading Observation Checklist</div>
-                  <div style="font-size: 11px; color: #6b7280; margin-bottom: 8px;">Talaan ng mga Puna Habang Nagbabasa</div>
-                  <table class="observation-table">
-            <tbody>
-                      <tr>
-                        <td>Does word-by-word reading (Nagbabasa nang pa-isa isang salita)</td>
-                        <td>${isrData.observations.wordByWord ? '✓' : '☐'}</td>
-                      </tr>
-                      <tr>
-                        <td>Lacks expression; reads in a monotonous tone (Walang damdamin; walang pagbabago ang tono)</td>
-                        <td>${isrData.observations.lacksExpression ? '✓' : '☐'}</td>
-                      </tr>
-                      <tr>
-                        <td>Voice is hardly audible (Hindi madaling marinig ang boses)</td>
-                        <td>${isrData.observations.hardlyAudible ? '✓' : '☐'}</td>
-                      </tr>
-                      <tr>
-                        <td>Disregards punctuation (Hindi pinapansin ang mga bantas)</td>
-                        <td>${isrData.observations.disregardsPunctuation ? '✓' : '☐'}</td>
-                      </tr>
-                      <tr>
-                        <td>Points to each word with his/her finger (Itinuturo ang bawat salita)</td>
-                        <td>${isrData.observations.pointsToWords ? '✓' : '☐'}</td>
-                      </tr>
-                      <tr>
-                        <td>Employs little or no method of analysis (Bahagya o walang paraan ng pagsusuri)</td>
-                        <td>${isrData.observations.littleAnalysis ? '✓' : '☐'}</td>
-                      </tr>
-                      <tr>
-                        <td>Other observations: (Ibang Puna)</td>
-                        <td></td>
-                      </tr>
-            </tbody>
-          </table>
-                  <div style="margin-top: 8px; padding: 8px; border: 1px solid #e5e7eb; min-height: 40px;">
-                    ${isrData.observations.otherObservations || ''}
-                  </div>
-                </div>
-              `;
-            }).join('')}
-            
-            <div class="actions no-print">
-              <button id="printBtn" class="btn" onclick="window.print()">Print Class Report</button>
-              <button id="submitBtn" class="btn btn-secondary" onclick="submitClassReport()">Submit Report</button>
-            </div>
-            
-            <script>
-              function submitClassReport() {
-                // Send message to parent window to submit the class report
-                if (window.opener && window.opener.submitClassReportToAdmin) {
-                  // Pass the class name to the parent window function
-                  const className = '${escapeAttr(target || '')}';
-                  window.opener.submitClassReportToAdmin(className);
-                  alert('Class report submitted to admin successfully!');
-                  const submitBtn = document.getElementById('submitBtn');
-                  submitBtn.textContent = 'Submitted ✓';
-                  submitBtn.style.background = '#28A745';
-                  submitBtn.disabled = true;
-                } else {
-                  alert('Error: Unable to submit report. Please try again.');
-                }
-              }
-            </script>
-        </body>
-      </html>
-    `;
-
-    const w = window.open('', '_blank');
-    if (!w) return;
-    w.document.open();
-      w.document.write(combinedHTML);
-    w.document.close();
-    w.focus();
-      
-      setClassReportModalOpen(false);
-      setClassReportTargetClass(null);
-    } catch (error) {
-      console.error('Error generating class ISR:', error);
-    } finally {
-      setClassReportLoading(false);
-    }
   };
 
   const handleOpenShare = (student: Student) => {
@@ -1126,7 +290,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     setShareOpen(true);
     setIsHeaderDarkened?.(true);
   };
-  
+
   const handleCloseShare = () => {
     setShareOpen(false);
     setShareStudent(null);
@@ -1150,7 +314,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
 
   const shareMailtoHref = useMemo(() => {
     const to = encodeURIComponent(parentEmail.trim());
-    const subject = encodeURIComponent(`Reading Report for ${shareStudent?.name || ''}`);
+    const subject = encodeURIComponent(`ISR Report for ${shareStudent?.name || ''}`);
     const lines: string[] = [];
     if (shareStudent) {
       lines.push(`Individual Summary Record (ISR) for ${shareStudent.name}`);
@@ -1166,7 +330,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
       if (latestReadingForShare.miscues != null) lines.push(`- Miscues: ${latestReadingForShare.miscues}`);
       if (latestReadingForShare.oralReadingScore != null) lines.push(`- Oral Reading Score: ${latestReadingForShare.oralReadingScore}%`);
       if (latestReadingForShare.readingSpeed != null) lines.push(`- Speed: ${latestReadingForShare.readingSpeed} WPM`);
-      if (latestReadingForShare.createdAt) lines.push(`- Date: ${formatDateHuman(new Date(latestReadingForShare.createdAt))}`);
+      if (latestReadingForShare.createdAt) lines.push(`- Date: ${new Date(latestReadingForShare.createdAt).toLocaleString()}`);
     }
     if (latestTestForShare) {
       lines.push('');
@@ -1175,7 +339,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
       if (latestTestForShare.score != null) lines.push(`- Score: ${latestTestForShare.score}`);
       if (latestTestForShare.comprehension != null) lines.push(`- Comprehension: ${latestTestForShare.comprehension}%`);
       if (latestTestForShare.correctAnswers != null && latestTestForShare.totalQuestions != null) lines.push(`- Correct: ${latestTestForShare.correctAnswers}/${latestTestForShare.totalQuestions}`);
-      if (latestTestForShare.createdAt) lines.push(`- Date: ${formatDateHuman(new Date(latestTestForShare.createdAt))}`);
+      if (latestTestForShare.createdAt) lines.push(`- Date: ${new Date(latestTestForShare.createdAt).toLocaleString()}`);
     }
     lines.push('', 'Please contact me if you have any questions about your child\'s reading progress.');
     const body = encodeURIComponent(lines.join('\n'));
@@ -1237,172 +401,347 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
       </div>
 
       {/* Combined ISR Report (Individual + Class) */}
-        <div className="space-y-4 sm:space-y-6">
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 sm:gap-0">
-            <h2 className="text-base sm:text-lg font-semibold text-gray-900">Individual Student ISR Reports</h2>
-          </div>
-          
-          {/* Collapse/Expand Controls - always show since we're showing all classes */}
-          {Object.keys(studentsByClass).length > 0 && (
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-4">
-              <div className="flex gap-2">
-                <button
-                  onClick={expandAllClasses}
-                  className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-green-100 hover:bg-green-200 text-green-700 rounded-lg transition-colors"
-                >
-                  <i className="fas fa-expand-arrows-alt mr-1"></i>
-                  <span className="hidden sm:inline">Expand All</span>
-                  <span className="sm:hidden">Expand</span>
-                </button>
-                <button
-                  onClick={collapseAllClasses}
-                  className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
-                >
-                  <i className="fas fa-compress-arrows-alt mr-1"></i>
-                  <span className="hidden sm:inline">Collapse All</span>
-                  <span className="sm:hidden">Collapse</span>
-                </button>
-              </div>
-              <span className="text-xs sm:text-sm text-gray-500">
-                {Object.keys(studentsByClass).length} classes • {collapsedClasses.size} collapsed
-              </span>
-            </div>
-          )}
+      <div className="space-y-4 sm:space-y-6">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 sm:gap-0">
+          <h2 className="text-base sm:text-lg font-semibold text-gray-900">Individual Student ISR Reports</h2>
+        </div>
 
-          {/* Empty state */}
-          {Object.keys(studentsByClass).length === 0 && (
-            <div className="bg-white border border-dashed border-gray-300 rounded-lg p-8 text-center text-gray-600">
-              <i className="fas fa-users-slash text-2xl text-gray-400"></i>
-              <div className="mt-2 font-medium">No classes found</div>
-              <div className="text-sm">Add students to your class list to view reports.</div>
+        {/* Collapse/Expand Controls - always show since we're showing all classes */}
+        {Object.keys(studentsByClass).length > 0 && (
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-4">
+            <div className="flex gap-2">
+              <button
+                onClick={expandAllClasses}
+                className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-green-100 hover:bg-green-200 text-green-700 rounded-lg transition-colors"
+              >
+                <i className="fas fa-expand-arrows-alt mr-1"></i>
+                <span className="hidden sm:inline">Expand All</span>
+                <span className="sm:hidden">Expand</span>
+              </button>
+              <button
+                onClick={collapseAllClasses}
+                className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+              >
+                <i className="fas fa-compress-arrows-alt mr-1"></i>
+                <span className="hidden sm:inline">Collapse All</span>
+                <span className="sm:hidden">Collapse</span>
+              </button>
             </div>
-          )}
-          
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50 sticky top-0 z-10">
-                  <tr>
-                    <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <span className="hidden sm:inline">Class / Student</span>
-                      <span className="sm:hidden">Student</span>
-                    </th>
-                    <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28 whitespace-nowrap">
-                      Reading Level
-                    </th>
-                    <th className="px-3 sm:px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-56 whitespace-nowrap">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-100">
-                  {/* Show all students grouped by class */}
-                  {Object.entries(studentsByClass).map(([className, classStudents]) => {
-                      const isCollapsed = collapsedClasses.has(className);
-                      return (
-                        <React.Fragment key={className}>
-                          {/* Class Header Row */}
-                          <tr className="bg-gray-100">
-                            <td colSpan={2} className="px-3 sm:px-6 py-3">
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => toggleClassCollapse(className)}
-                                  className="inline-flex items-center gap-2 text-gray-700 hover:text-gray-900"
-                                  title={isCollapsed ? 'Expand' : 'Collapse'}
-                                  aria-expanded={!isCollapsed}
-                                  aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} class ${className}`}
-                                >
-                                <i className={`fas fa-chevron-${isCollapsed ? 'right' : 'down'} text-gray-600 transition-transform duration-200 text-sm`}></i>
-                                <i className="fas fa-users text-gray-600 text-sm"></i>
-                                <span className="font-semibold text-gray-800 text-sm sm:text-base">{className}</span>
-                                <span className="text-xs sm:text-sm text-gray-600">({classStudents.length} students)</span>
-                                </button>
-                              </div>
-                            </td>
-                            <td className="px-3 sm:px-6 py-3">
-                              <div className="flex items-center justify-end gap-2">
-                                {/* ISR functionality removed */}
-                              </div>
-                            </td>
-                          </tr>
-                          {/* Students in this class - only show if not collapsed */}
-                          {!isCollapsed && classStudents.length === 0 && (
-                            <tr>
-                              <td colSpan={3} className="px-3 sm:px-6 py-4 text-sm text-gray-500">
-                                No students yet in this class.
-                              </td>
-                            </tr>
-                          )}
-                          {!isCollapsed && classStudents.map((student, rowIdx) => (
-                            student.id ? (
-                            <tr key={student.id} className={rowIdx % 2 === 0 ? "bg-white hover:bg-gray-50" : "bg-gray-50 hover:bg-gray-100"}>
-                              <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap flex items-center gap-2 sm:gap-3">
-                                <span className="inline-flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-blue-200 text-blue-700 font-bold text-sm sm:text-lg">
-                                  {student.name.replace(/\|/g, ' ').trim().charAt(0).toUpperCase()}
-                                </span>
-                                <div className="min-w-0 flex-1">
-                                  <div className="font-semibold text-gray-900 text-sm sm:text-base truncate">{student.name.replace(/\|/g, ' ')}</div>
-                                  <div className="text-xs text-gray-500">{student.grade || 'No grade assigned'}</div>
-                                </div>
-                              </td>
-                              <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap w-28">
-                                <div className="flex flex-col items-start">
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                  Level {student.readingLevel || 'N/A'}
+            <span className="text-xs sm:text-sm text-gray-500">
+              {Object.keys(studentsByClass).length} classes • {collapsedClasses.size} collapsed
+            </span>
+          </div>
+        )}
+
+        {/* Empty state */}
+        {Object.keys(studentsByClass).length === 0 && (
+          <div className="bg-white border border-dashed border-gray-300 rounded-lg p-8 text-center text-gray-600">
+            <i className="fas fa-users-slash text-2xl text-gray-400"></i>
+            <div className="mt-2 font-medium">No classes found</div>
+            <div className="text-sm">Add students to your class list to view and generate ISR reports.</div>
+          </div>
+        )}
+
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50 sticky top-0 z-10">
+                <tr>
+                  <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <span className="hidden sm:inline">Class / Student</span>
+                    <span className="sm:hidden">Student</span>
+                  </th>
+                  <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28 whitespace-nowrap">
+                    Reading Level
+                  </th>
+                  <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32 whitespace-nowrap">
+                    Status
+                  </th>
+                  <th className="px-3 sm:px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-56 whitespace-nowrap">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-100">
+                {/* Show all students grouped by class */}
+                {Object.entries(studentsByClass).map(([className, classStudents]) => {
+                  const isCollapsed = collapsedClasses.has(className);
+                  return (
+                    <React.Fragment key={className}>
+                      {/* Class Header Row */}
+                      <tr className="bg-gray-100">
+                        <td colSpan={3} className="px-3 sm:px-6 py-3">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => toggleClassCollapse(className)}
+                              className="inline-flex items-center gap-2 text-gray-700 hover:text-gray-900"
+                              title={isCollapsed ? 'Expand' : 'Collapse'}
+                              aria-expanded={!isCollapsed}
+                              aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} class ${className}`}
+                            >
+                              <i className={`fas fa-chevron-${isCollapsed ? 'right' : 'down'} text-gray-600 transition-transform duration-200 text-sm`}></i>
+                              <i className="fas fa-users text-gray-600 text-sm"></i>
+                              <span className="font-semibold text-gray-800 text-sm sm:text-base">{className}</span>
+                              <span className="text-xs sm:text-sm text-gray-600">({classStudents.length} students)</span>
+                              {(() => {
+                                const submissionStatus = getClassSubmissionStatus(classStudents);
+                                return (
+                                  <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-medium ${submissionStatus.ready
+                                    ? 'bg-green-100 text-green-800'
+                                    : 'bg-yellow-100 text-yellow-800'
+                                    }`} title={submissionStatus.message}>
+                                    <i className={`${submissionStatus.ready ? 'fas fa-check-circle' : 'fas fa-clock'} mr-1`}></i>
+                                    {submissionStatus.ready ? 'Ready' : 'Pending'}
                                   </span>
+                                );
+                              })()}
+                            </button>
+                          </div>
+                        </td>
+                        <td className="px-3 sm:px-6 py-3">
+                          <div className="flex items-center justify-end gap-2">
+                            {(() => {
+                              const submissionStatus = getClassSubmissionStatus(classStudents);
+                              const isReady = submissionStatus.ready;
+
+                              return (
+                                <>
+                                  {/* Test Submit Button */}
+                                  <div className="relative group">
+                                    <button
+                                      onClick={async () => {
+                                        try {
+                                          console.log('TEST: Submit Class ISR to Admin for', className);
+
+                                          // Get teacher profile for sender name
+                                          const teacherProfile = await getUserProfile();
+                                          const teacherName = teacherProfile?.displayName || teacherProfile?.email || 'Unknown Teacher';
+
+                                          // Send notification to admin
+                                          const notificationId = await notificationService.sendISRSubmissionToAdmin(
+                                            currentUser?.uid || '',
+                                            teacherName,
+                                            className,
+                                            classStudents.length,
+                                            {
+                                              students: classStudents.map(student => ({
+                                                id: student.id,
+                                                name: student.name,
+                                                grade: student.grade
+                                              })),
+                                              submissionType: 'test'
+                                            }
+                                          );
+
+                                          if (notificationId) {
+                                            alert(`✅ TEST: Successfully sent ISR submission notification to admin!\n\nDetails:\n- Class: ${className}\n- Students: ${classStudents.length}\n- Teacher: ${teacherName}\n- Notification ID: ${notificationId}`);
+                                          } else {
+                                            alert('❌ Failed to send notification to admin. Check console for errors.');
+                                          }
+                                        } catch (error) {
+                                          console.error('Error sending test notification:', error);
+                                          alert('❌ Error sending notification to admin. Check console for details.');
+                                        }
+                                      }}
+                                      className="px-3 py-1.5 text-xs font-medium rounded-md shadow-sm transition-all duration-200 bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
+                                      aria-label={`Test submit ISR for class ${className} to admin`}
+                                      title="Test submission to admin"
+                                    >
+                                      <i className="fas fa-flask mr-1"></i>
+                                      Test Submit
+                                    </button>
+
+                                    {/* Test Button Tooltip */}
+                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-10">
+                                      Test submit all {classStudents.length} student ISRs to admin
+                                      <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+                                    </div>
+                                  </div>
+
+                                  {/* Original Submit Button */}
+                                  <div className="relative group">
+                                    <button
+                                      onClick={() => {
+                                        if (isReady) {
+                                          console.log('Submit Class ISR to Admin for', className);
+                                          // TODO: Implement actual submission to admin
+                                        }
+                                      }}
+                                      disabled={!isReady}
+                                      className={`px-3 py-1.5 text-xs font-medium rounded-md shadow-sm transition-all duration-200 ${isReady
+                                        ? 'bg-green-600 hover:bg-green-700 text-white cursor-pointer'
+                                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                        }`}
+                                      aria-label={`Submit ISR for class ${className} to admin`}
+                                      title={submissionStatus.message}
+                                    >
+                                      <i className={`${isReady ? 'fas fa-paper-plane' : 'fas fa-exclamation-triangle'} mr-1`}></i>
+                                      {isReady ? 'Submit Class ISR' : 'Incomplete Data'}
+                                    </button>
+
+                                    {/* Original Button Tooltip */}
+                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-10">
+                                      {isReady
+                                        ? `Submit all ${classStudents.length} student ISRs to admin for review`
+                                        : submissionStatus.message
+                                      }
+                                      <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+                                    </div>
+                                  </div>
+                                </>
+                              );
+                            })()}
+                          </div>
+                        </td>
+                      </tr>
+                      {/* Students in this class - only show if not collapsed */}
+                      {!isCollapsed && classStudents.length === 0 && (
+                        <tr>
+                          <td colSpan={3} className="px-3 sm:px-6 py-4 text-sm text-gray-500">
+                            No students yet in this class.
+                          </td>
+                        </tr>
+                      )}
+                      {!isCollapsed && classStudents.map((student, rowIdx) => (
+                        student.id ? (
+                          <tr key={student.id} className={rowIdx % 2 === 0 ? "bg-white hover:bg-gray-50" : "bg-gray-50 hover:bg-gray-100"}>
+                            <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap flex items-center gap-2 sm:gap-3">
+                              <span className="inline-flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-blue-200 text-blue-700 font-bold text-sm sm:text-lg">
+                                {student.name.replace(/\|/g, ' ').trim().charAt(0).toUpperCase()}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <div className="font-semibold text-gray-900 text-sm sm:text-base truncate">{student.name.replace(/\|/g, ' ')}</div>
+                                <div className="text-xs text-gray-500">{student.grade || 'No grade assigned'}</div>
+                              </div>
+                            </td>
+                            <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap w-28">
+                              <div className="flex flex-col items-start">
+                                {(() => {
+                                  const { latestReading } = getLatestResults(student.id);
+                                  const readingLevel = determineReadingLevel(latestReading?.oralReadingScore);
+
+                                  return (
+                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${readingLevel === 'Ind' ? 'bg-green-100 text-green-800' :
+                                      readingLevel === 'Ins' ? 'bg-yellow-100 text-yellow-800' :
+                                        'bg-red-100 text-red-800'
+                                      }`}>
+                                      Level {readingLevel}
+                                    </span>
+                                  );
+                                })()}
                                 {(() => {
                                   const { latestReading, latestTest } = getLatestResults(student.id);
-                                    const latestDateStr = latestReading?.createdAt || latestTest?.createdAt
-                                      ? formatDateHuman(new Date(latestReading?.createdAt || latestTest?.createdAt))
-                                      : null;
-                                    if (latestDateStr) {
-                                      return (
-                                        <span className="mt-1 text-[11px] text-gray-500">Last assessed: {latestDateStr}</span>
-                                      );
-                                    }
+                                  const latestDateStr = latestReading?.createdAt || latestTest?.createdAt
+                                    ? new Date(latestReading?.createdAt || latestTest?.createdAt).toLocaleDateString()
+                                    : null;
+                                  if (latestDateStr) {
                                     return (
-                                      <button
-                                        onClick={() => navigate(`/teacher/reading-session?studentId=${encodeURIComponent(String(student.id || ''))}`)}
-                                        className="mt-1 text-[11px] text-blue-700 hover:text-blue-900 underline"
-                                        aria-label={`Start assessment for ${student.name}`}
-                                      >
-                                        Assess now
-                                      </button>
+                                      <span className="mt-1 text-[11px] text-gray-500">Assessed: {latestDateStr}</span>
                                     );
+                                  }
+                                  return null;
                                 })()}
-                                </div>
-                              </td>
-                              <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap w-56">
-                                <div className="flex gap-2 justify-end">
-
+                              </div>
+                            </td>
+                            <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap w-32">
+                              {(() => {
+                                const isrStatus = getISRStatus(student);
+                                return (
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${isrStatus.color}`}>
+                                    <i className={`${isrStatus.icon} mr-1`}></i>
+                                    {isrStatus.status}
+                                  </span>
+                                );
+                              })()}
+                            </td>
+                            <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap w-56">
+                              <div className="flex gap-2 justify-end">
+                                <button
+                                  className="bg-blue-100 hover:bg-blue-200 text-blue-700 font-semibold px-2 sm:px-4 py-1 sm:py-2 rounded text-xs sm:text-sm"
+                                  onClick={() => handleOpenISRModal(student)}
+                                  aria-label={`Generate ISR for ${student.name}`}
+                                >
+                                  <i className="fas fa-file-alt mr-1"></i>
+                                  <span className="hidden sm:inline">Generate ISR</span>
+                                  <span className="sm:hidden">ISR</span>
+                                </button>
                                 <button
                                   className="bg-green-100 hover:bg-green-200 text-green-700 font-semibold px-2 sm:px-4 py-1 sm:py-2 rounded text-xs sm:text-sm"
                                   onClick={() => handleOpenShare(student)}
                                   aria-label={`Share ISR summary for ${student.name}`}
                                 >
-                                    <i className="fas fa-share mr-1"></i>
-                                    <span className="hidden sm:inline">Share</span>
+                                  <i className="fas fa-share mr-1"></i>
+                                  <span className="hidden sm:inline">Share</span>
                                   <span className="sm:hidden">Share</span>
                                 </button>
-                                </div>
-                              </td>
-                            </tr>
-                            ) : null
-                          ))}
-                        </React.Fragment>
-                      );
-                    })
-                  }
-                </tbody>
-              </table>
-            </div>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : null
+                      ))}
+                    </React.Fragment>
+                  );
+                })
+                }
+              </tbody>
+            </table>
           </div>
-          {/* Class ISR Report - Overview section removed per request */}
+        </div>
+        {/* Class ISR Report - Overview section removed per request */}
       </div>
 
 
 
 
+
+      {/* ISR Modal */}
+      {isrModalOpen && selectedStudent && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto relative">
+            {/* Modal Header */}
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-lg">
+              <h2 className="text-xl font-bold text-gray-900">
+                Individual Summary Record (ISR) for {selectedStudent.name?.replace(/\|/g, ' ')}
+              </h2>
+              <button
+                onClick={handleCloseISRModal}
+                className="text-gray-400 hover:text-gray-600 text-2xl font-bold"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* DepEd ISR Form */}
+            {isrData ? (
+              <DepEdISRViewer
+                data={isrData}
+                onClose={handleCloseISRModal}
+              />
+            ) : (
+              <div className="p-8 text-center">
+                <i className="fas fa-spinner fa-spin text-2xl text-gray-400 mb-4"></i>
+                <p className="text-gray-600">Loading ISR data...</p>
+              </div>
+            )}
+
+            {/* Modal Footer */}
+            <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 rounded-b-lg">
+              <div className="flex justify-end">
+                <button
+                  onClick={() => {
+                    // TODO: Implement print functionality
+                    window.print();
+                  }}
+                  className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                >
+                  <i className="fas fa-print mr-2"></i>
+                  Print ISR
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Share to Parent Modal */}
       {shareOpen && shareStudent && (
@@ -1415,7 +754,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
             >
               ×
             </button>
-            <h2 className="text-xl font-extrabold mb-4 text-gray-900 tracking-tight">Share Report to Parent</h2>
+            <h2 className="text-xl font-extrabold mb-4 text-gray-900 tracking-tight">Share ISR Report to Parent</h2>
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Parent email</label>
@@ -1428,7 +767,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                 />
               </div>
               <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-900">
-                This will open your email client with a pre-filled report summary for {shareStudent.name}.
+                This will open your email client with a pre-filled ISR summary for {shareStudent.name}.
               </div>
               <div className="flex items-center justify-end gap-3 pt-2">
                 <button

@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { formatDateHuman } from '@/utils/date';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../config/firebase';
-import { collection, onSnapshot, query, where, orderBy, addDoc, serverTimestamp, doc } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, addDoc, serverTimestamp, doc } from 'firebase/firestore';
 import { 
   ClockIcon, 
   DocumentTextIcon,
@@ -15,7 +15,8 @@ import {
   ArrowTrendingUpIcon,
   BookOpenIcon,
   StarIcon,
-  SparklesIcon
+  SparklesIcon,
+  AcademicCapIcon
 } from '@heroicons/react/24/outline';
 
 const ReportsPage: React.FC = () => {
@@ -27,7 +28,17 @@ const ReportsPage: React.FC = () => {
   const [selectedChildId, setSelectedChildId] = useState('');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isLoadingSaved, setIsLoadingSaved] = useState(true);
-  const [savedReports, setSavedReports] = useState<Array<{ id: string; title: string; createdAt: Date; childName?: string }>>([]);
+  const [savedReports, setSavedReports] = useState<Array<{ 
+    id: string; 
+    title: string; 
+    createdAt: Date; 
+    childName?: string;
+    message?: string;
+    reportType?: string;
+    teacherName?: string;
+    status?: string;
+    senderRole?: string;
+  }>>([]);
   const [metrics, setMetrics] = useState<{ 
     totalSessions: number; 
     avgScore: number; 
@@ -396,20 +407,40 @@ const ReportsPage: React.FC = () => {
   // Realtime saved reports for this parent
   useEffect(() => {
     if (!currentUser?.uid) return;
-    const savedQ = query(collection(db, 'parentReports'), where('parentId', '==', currentUser.uid), orderBy('createdAt', 'desc'));
+    
+    // Load parent's sent messages from parentInbox (simplified query to avoid index requirement)
+    const savedQ = query(
+      collection(db, 'parentInbox'), 
+      where('senderId', '==', currentUser.uid)
+    );
+    
     const unsub = onSnapshot(savedQ, (snap) => {
-      const items = snap.docs.map(d => {
-        const data = d.data() as any;
-        return { 
-          id: d.id, 
-          title: data.title || data.subject || 'Report', 
-          createdAt: (data.createdAt?.toDate?.() || new Date()) as Date,
-          childName: data.childName || ''
-        };
-      });
+      const items = snap.docs
+        .map(d => {
+          const data = d.data() as any;
+          return { 
+            id: d.id, 
+            title: data.title || data.subject || 'Report', 
+            createdAt: (data.createdAt?.toDate?.() || new Date()) as Date,
+            childName: data.data?.childName || data.childName || '',
+            message: data.message || '',
+            reportType: data.data?.reportType || 'general',
+            teacherName: data.data?.teacherName || 'Teacher',
+            status: data.data?.status || 'sent',
+            senderRole: data.senderRole
+          };
+        })
+        .filter(item => item.senderRole === 'parent') // Client-side filtering to avoid index requirement
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()); // Client-side sorting
+      
       setSavedReports(items);
       setIsLoadingSaved(false);
-    }, () => { setSavedReports([]); setIsLoadingSaved(false); });
+    }, (error) => {
+      console.error('Error loading message history:', error);
+      setSavedReports([]); 
+      setIsLoadingSaved(false);
+    });
+    
     return () => unsub();
   }, [currentUser?.uid]);
 
@@ -676,21 +707,55 @@ const ReportsPage: React.FC = () => {
             <div className="space-y-3">
               {savedReports.map(r => (
                 <div key={r.id} className="p-4 border border-blue-200 rounded-lg bg-blue-50 hover:bg-white transition-all duration-200">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                      <DocumentTextIcon className="w-4 h-4 text-blue-600" />
+                  <div className="flex items-start gap-3">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                      r.reportType === 'issue' ? 'bg-red-100' :
+                      r.reportType === 'bug' ? 'bg-yellow-100' :
+                      'bg-blue-100'
+                    }`}>
+                      <DocumentTextIcon className={`w-4 h-4 ${
+                        r.reportType === 'issue' ? 'text-red-600' :
+                        r.reportType === 'bug' ? 'text-yellow-600' :
+                        'text-blue-600'
+                      }`} />
                     </div>
-                    <div>
-                      <div className="font-medium text-blue-900">{r.title}</div>
-                      <div className="text-sm text-blue-600 flex items-center gap-2">
-                        <CalendarIcon className="w-3 h-3" />
-                        {formatDateHuman(r.createdAt)}
-                        {r.childName && (
-                          <>
-                            <span>•</span>
-                            <span>{r.childName}</span>
-                          </>
-                        )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="font-medium text-blue-900">{r.title}</div>
+                          {r.message && (
+                            <div className="text-sm text-gray-700 mt-1 line-clamp-2">
+                              {r.message}
+                            </div>
+                          )}
+                          <div className="text-sm text-blue-600 flex items-center gap-2 mt-2">
+                            <CalendarIcon className="w-3 h-3" />
+                            {formatDateHuman(r.createdAt)}
+                            {r.childName && (
+                              <>
+                                <span>•</span>
+                                <UserIcon className="w-3 h-3" />
+                                <span>{r.childName}</span>
+                              </>
+                            )}
+                            {r.teacherName && (
+                              <>
+                                <span>•</span>
+                                <AcademicCapIcon className="w-3 h-3" />
+                                <span>To: {r.teacherName}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <div className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          r.reportType === 'issue' ? 'bg-red-100 text-red-700' :
+                          r.reportType === 'bug' ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-blue-100 text-blue-700'
+                        }`}>
+                          {r.reportType === 'issue' ? 'Issue Report' :
+                           r.reportType === 'bug' ? 'Bug Report' :
+                           'General Message'}
+                        </div>
                       </div>
                     </div>
                   </div>
