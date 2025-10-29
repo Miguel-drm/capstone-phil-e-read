@@ -11,15 +11,19 @@ import { useAuth } from '../../contexts/AuthContext';
 interface StoryFilters {
   language?: string;
   searchTerm?: string;
+  set?: string;
 }
 
 export default function StoriesManagement() {
   const [stories, setStories] = useState<Story[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [addToSet, setAddToSet] = useState<'A' | 'B' | 'C' | 'D' | null>(null);
   const [editingStory, setEditingStory] = useState<Story | null>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'sets'>('sets');
   const [filters, setFilters] = useState<StoryFilters>({
-    language: ''
+    language: '',
+    set: ''
   });
   const { currentUser } = useAuth();
   const navigate = useNavigate();
@@ -61,15 +65,22 @@ export default function StoriesManagement() {
   const loadStories = async () => {
     try {
       setLoading(true);
-      const storiesData = await UnifiedStoryService.getInstance().getStories(
-        filters.language ? { language: filters.language } : {}
-      );
+      const filterParams: any = {};
+      if (filters.language) filterParams.language = filters.language;
+      if (filters.set) filterParams.set = filters.set;
+      
+      const storiesData = await UnifiedStoryService.getInstance().getStories(filterParams);
       console.log('API /api/stories response:', storiesData);
       if (!Array.isArray(storiesData)) {
         console.error('API did not return an array:', storiesData);
         setStories([]);
       } else {
-        setStories(storiesData);
+        // Client-side filtering for set if backend doesn't support it yet
+        let filteredStories = storiesData;
+        if (filters.set) {
+          filteredStories = storiesData.filter(story => story.set === filters.set);
+        }
+        setStories(filteredStories);
       }
     } catch (error) {
       console.error('Error loading stories:', error);
@@ -93,8 +104,31 @@ export default function StoriesManagement() {
         Swal.fire('Error', 'Please upload a valid PDF file', 'error');
         return;
       }
+      
+      // Check if the set already has a story (each set can only have ONE story)
+      if (storyData.set && groupedStories[storyData.set]) {
+        const result = await Swal.fire({
+          title: `Set ${storyData.set} already has a story`,
+          text: `Set ${storyData.set} already contains "${groupedStories[storyData.set].title}". Each set can only have one story. Do you want to replace it?`,
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonColor: '#d33',
+          cancelButtonColor: '#3085d6',
+          confirmButtonText: 'Replace Story',
+          cancelButtonText: 'Cancel'
+        });
+        
+        if (!result.isConfirmed) {
+          return;
+        }
+        
+        // Delete the existing story in this set
+        await UnifiedStoryService.getInstance().deleteStory(groupedStories[storyData.set]._id!);
+      }
+      
       await UnifiedStoryService.getInstance().createStory(storyData, file);
       setShowAddModal(false);
+      setAddToSet(null);
       await loadStories();
       Swal.fire('Success', 'Story added successfully', 'success');
     } catch (error) {
@@ -154,15 +188,17 @@ export default function StoriesManagement() {
   useEffect(() => {
     const loadTestsByStory = async () => {
       const mapping: Record<string, { id: string; testName: string; questionsCount: number }[]> = {};
-      for (const s of stories) {
-        if (!s._id) continue;
-        const q = query(collection(db, 'tests'), where('storyId', '==', String(s._id)));
-        const snap = await getDocs(q);
-        mapping[String(s._id)] = snap.docs.map(d => ({ id: d.id, testName: String((d.data() as any).testName || 'Untitled Test'), questionsCount: Array.isArray((d.data() as any).questions) ? (d.data() as any).questions.length : 0 }));
+      if (Array.isArray(stories)) {
+        for (const s of stories) {
+          if (!s._id) continue;
+          const q = query(collection(db, 'tests'), where('storyId', '==', String(s._id)));
+          const snap = await getDocs(q);
+          mapping[String(s._id)] = snap.docs.map(d => ({ id: d.id, testName: String((d.data() as any).testName || 'Untitled Test'), questionsCount: Array.isArray((d.data() as any).questions) ? (d.data() as any).questions.length : 0 }));
+        }
       }
       setStoryIdToTests(mapping);
     };
-    if (stories.length) loadTestsByStory();
+    if (Array.isArray(stories) && stories.length) loadTestsByStory();
   }, [stories]);
 
   const handleOpenViewTest = async (testId: string) => {
@@ -193,11 +229,13 @@ export default function StoriesManagement() {
       await deleteDoc(doc(db, 'tests', testId));
       // Refresh mapping after deletion
       const mapping: Record<string, { id: string; testName: string; questionsCount: number }[]> = {};
-      for (const s of stories) {
-        if (!s._id) continue;
-        const q = query(collection(db, 'tests'), where('storyId', '==', String(s._id)));
-        const snap = await getDocs(q);
-        mapping[String(s._id)] = snap.docs.map(d => ({ id: d.id, testName: String((d.data() as any).testName || 'Untitled Test'), questionsCount: Array.isArray((d.data() as any).questions) ? (d.data() as any).questions.length : 0 }));
+      if (Array.isArray(stories)) {
+        for (const s of stories) {
+          if (!s._id) continue;
+          const q = query(collection(db, 'tests'), where('storyId', '==', String(s._id)));
+          const snap = await getDocs(q);
+          mapping[String(s._id)] = snap.docs.map(d => ({ id: d.id, testName: String((d.data() as any).testName || 'Untitled Test'), questionsCount: Array.isArray((d.data() as any).questions) ? (d.data() as any).questions.length : 0 }));
+        }
       }
       setStoryIdToTests(mapping);
       Swal.fire('Deleted', 'Test has been deleted.', 'success');
@@ -206,16 +244,55 @@ export default function StoriesManagement() {
     }
   };
 
+  // Group stories by set - each set should have only ONE story
+  const groupedStories = Array.isArray(stories) ? stories.reduce((acc, story) => {
+    const set = story.set || 'A';
+    acc[set] = story; // Only one story per set
+    return acc;
+  }, {} as Record<string, Story>) : {};
+
+
+
   return (
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">Stories Management</h1>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-        >
-          Add New Story
-        </button>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Stories Management</h1>
+          {viewMode === 'sets' && (
+            <p className="text-sm text-gray-600 mt-1">
+              Each set contains exactly one story and one quiz for ISR assessment
+            </p>
+          )}
+        </div>
+        <div className="flex gap-3">
+          <div className="flex bg-gray-100 rounded-lg p-1">
+            <button
+              onClick={() => setViewMode('sets')}
+              className={`px-3 py-1 rounded text-sm ${
+                viewMode === 'sets' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Sets View
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`px-3 py-1 rounded text-sm ${
+                viewMode === 'list' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              List View
+            </button>
+          </div>
+          <button
+            onClick={() => {
+              setAddToSet(null);
+              setShowAddModal(true);
+            }}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+          >
+            Add New Story
+          </button>
+        </div>
       </div>
 
       <div className="mb-6 flex gap-4">
@@ -228,11 +305,160 @@ export default function StoriesManagement() {
           <option value="english">English</option>
           <option value="tagalog">Tagalog</option>
         </select>
+        
+        {viewMode === 'list' && (
+          <select
+            value={filters.set}
+            onChange={(e) => setFilters({ ...filters, set: e.target.value })}
+            className="border rounded-lg px-4 py-2"
+          >
+            <option value="">All Sets</option>
+            <option value="A">Set A</option>
+            <option value="B">Set B</option>
+            <option value="C">Set C</option>
+            <option value="D">Set D</option>
+          </select>
+        )}
       </div>
 
       {loading ? (
         <div className="text-center py-4">Loading...</div>
+      ) : viewMode === 'sets' ? (
+        // Sets View - Each set contains exactly ONE story and ONE quiz
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {['A', 'B', 'C', 'D'].map(setLetter => {
+            const setStory = groupedStories[setLetter];
+            const hasStory = !!setStory;
+            const tests = setStory ? (storyIdToTests[String(setStory._id)] || []) : [];
+            const hasTest = tests.length > 0;
+            const isComplete = hasStory && hasTest;
+            
+            return (
+              <div key={setLetter} className={`bg-white rounded-xl border-2 p-6 transition-all hover:shadow-lg ${
+                isComplete ? 'border-green-200 hover:border-green-300' : 
+                hasStory ? 'border-yellow-200 hover:border-yellow-300' : 
+                'border-gray-200 hover:border-gray-300'
+              }`}>
+                {/* Set Header */}
+                <div className="text-center mb-4">
+                  <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center text-2xl font-bold mb-3 ${
+                    isComplete ? 'bg-green-100 text-green-700' :
+                    hasStory ? 'bg-yellow-100 text-yellow-700' :
+                    'bg-gray-100 text-gray-500'
+                  }`}>
+                    {setLetter}
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-800">Set {setLetter}</h3>
+                  <div className="flex justify-center gap-2 mt-2">
+                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                      hasStory ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {hasStory ? '✓' : '○'} Story
+                    </span>
+                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                      hasTest ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {hasTest ? '✓' : '○'} Quiz
+                    </span>
+                  </div>
+                </div>
+
+                {/* Set Content */}
+                {hasStory ? (
+                  <div className="space-y-3">
+                    {/* Story Info */}
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <div className="flex items-start justify-between">
+                        <div className="min-w-0 flex-1">
+                          <h4 className="font-medium text-gray-900 text-sm truncate" title={setStory.title}>
+                            📖 {setStory.title}
+                          </h4>
+                          <p className="text-xs text-gray-600 mt-1">
+                            Grade {setStory.grade} • {getDisplayLanguage(setStory.language)}
+                          </p>
+                        </div>
+                        <div className="flex gap-1 ml-2">
+                          <button
+                            onClick={() => setEditingStory(setStory)}
+                            className="text-blue-600 hover:text-blue-800 text-xs px-1"
+                            title="Edit story"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            onClick={() => setStory._id && handleDeleteStory(setStory._id)}
+                            className="text-red-600 hover:text-red-800 text-xs px-1"
+                            title="Delete story"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Quiz Info */}
+                    {hasTest ? (
+                      <div className="bg-green-50 rounded-lg p-3">
+                        <div className="flex items-center justify-between">
+                          <div className="min-w-0 flex-1">
+                            <h4 className="font-medium text-green-900 text-sm">
+                              🧩 {tests[0].testName}
+                            </h4>
+                            <p className="text-xs text-green-700 mt-1">
+                              {tests[0].questionsCount} questions
+                            </p>
+                          </div>
+                          <div className="flex gap-1 ml-2">
+                            <button
+                              onClick={() => handleOpenViewTest(tests[0].id)}
+                              className="text-green-600 hover:text-green-800 text-xs px-1"
+                              title="View quiz"
+                            >
+                              👁️
+                            </button>
+                            <button
+                              onClick={() => handleDeleteTest(tests[0].id)}
+                              className="text-red-600 hover:text-red-800 text-xs px-1"
+                              title="Delete quiz"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-yellow-50 rounded-lg p-3 text-center">
+                        <p className="text-yellow-700 text-sm mb-2">Quiz needed</p>
+                        <button
+                          onClick={() => navigate(`/admin/resources?tab=create&storyId=${String(setStory._id || '')}`)}
+                          className="bg-yellow-600 text-white py-1.5 px-3 rounded text-xs hover:bg-yellow-700"
+                        >
+                          Create Quiz
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-6">
+                    <div className="text-4xl mb-3">📚</div>
+                    <p className="text-gray-500 text-sm mb-4">Empty set</p>
+                    <button
+                      onClick={() => {
+                        setAddToSet(setLetter as 'A' | 'B' | 'C' | 'D');
+                        setShowAddModal(true);
+                      }}
+                      className="bg-blue-600 text-white py-2 px-4 rounded-lg text-sm hover:bg-blue-700 transition-colors"
+                    >
+                      Add Story
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       ) : (
+        // List View - Original detailed view
         <div className="grid gap-6">
           {Array.isArray(stories) && stories.length === 0 ? (
             <div className="text-center text-gray-500 py-10">No stories available.</div>
@@ -247,6 +473,9 @@ export default function StoriesManagement() {
                       <span>Grade: {story.grade}</span>
                       {story.language && (
                         <span>Language: {getDisplayLanguage(story.language)} (raw: {story.language})</span>
+                      )}
+                      {story.set && (
+                        <span>Set: {story.set}</span>
                       )}
                     </div>
                     {story.description && (
@@ -341,8 +570,12 @@ export default function StoriesManagement() {
 
       <AddStoryModal
         isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
+        onClose={() => {
+          setShowAddModal(false);
+          setAddToSet(null);
+        }}
         onSave={handleAddStory}
+        preselectedSet={addToSet || undefined}
       />
 
       {editingStory && (
@@ -392,6 +625,20 @@ export default function StoriesManagement() {
                 >
                   <option value="english">English</option>
                   <option value="tagalog">Tagalog</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Story Set</label>
+                <select
+                  value={editingStory.set || 'A'}
+                  onChange={(e) => setEditingStory({ ...editingStory, set: e.target.value as 'A' | 'B' | 'C' | 'D' })}
+                  className="mt-1 block w-full rounded-md border-gray-300 focus:border-blue-500 focus:ring-blue-500"
+                >
+                  <option value="A">Set A</option>
+                  <option value="B">Set B</option>
+                  <option value="C">Set C</option>
+                  <option value="D">Set D</option>
                 </select>
               </div>
 

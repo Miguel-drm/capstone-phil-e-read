@@ -11,6 +11,7 @@ export interface Story {
   createdBy?: string;
   readingLevel?: string;
   categories?: string[];
+  set?: 'A' | 'B' | 'C' | 'D'; // Track which set this story belongs to
   isActive?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
