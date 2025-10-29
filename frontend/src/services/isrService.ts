@@ -21,11 +21,17 @@ export interface ISRSubmissionData {
   section: string;
   studentCount: number;
   submissionDate: Date;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'rejected' | 'revision_requested';
   students: ISRStudentData[];
   adminComments?: string;
   reviewedBy?: string;
   reviewedAt?: Date;
+  revisionRequest?: {
+    requestedBy: string;
+    requestedAt: Date;
+    issues: string[];
+    message: string;
+  };
 }
 
 export interface ISRStudentData {
@@ -203,6 +209,193 @@ class ISRService {
     } catch (error) {
       console.error('Error rejecting ISR:', error);
       return false;
+    }
+  }
+
+  // Request revision for ISR submission
+  async requestRevision(
+    submissionId: string, 
+    adminId: string, 
+    adminName: string, 
+    issues: string[], 
+    message: string
+  ): Promise<boolean> {
+    try {
+      const docRef = doc(db, 'adminInbox', submissionId);
+      
+      // Get the current submission to extract teacher info
+      const submission = await this.getISRSubmission(submissionId);
+      if (!submission) {
+        throw new Error('Submission not found');
+      }
+
+      // Update the submission status to revision_requested
+      await updateDoc(docRef, {
+        'data.status': 'revision_requested',
+        'data.reviewedBy': adminId,
+        'data.reviewedAt': serverTimestamp(),
+        'data.revisionRequest': {
+          requestedBy: adminId,
+          requestedByName: adminName,
+          requestedAt: serverTimestamp(),
+          issues: issues,
+          message: message
+        },
+        'isRead': true
+      });
+
+      // Create a notification for the teacher
+      await this.createRevisionNotification(submission, adminName, issues, message);
+
+      return true;
+    } catch (error) {
+      console.error('Error requesting revision:', error);
+      return false;
+    }
+  }
+
+  // Create notification for teacher about revision request
+  private async createRevisionNotification(
+    submission: ISRSubmissionData,
+    adminName: string,
+    issues: string[],
+    message: string
+  ): Promise<void> {
+    try {
+      console.log('Creating revision notification for teacher:', {
+        teacherId: submission.teacherId,
+        teacherName: submission.teacherName,
+        className: submission.className,
+        submissionId: submission.id
+      });
+
+      // Create notification in teacher's notifications collection
+      const notificationData = {
+        userId: submission.teacherId, // Changed from recipientId to userId to match notification service
+        recipientId: submission.teacherId,
+        recipientType: 'teacher',
+        type: 'revision_request',
+        title: 'ISR Revision Requested',
+        message: `Your ISR submission for ${submission.className} needs revision. Please review the feedback and resubmit.`,
+        data: {
+          submissionId: submission.id,
+          className: submission.className,
+          grade: submission.grade,
+          section: submission.section,
+          adminName: adminName,
+          issues: issues,
+          customMessage: message,
+          originalSubmissionDate: submission.submissionDate
+        },
+        isRead: false,
+        createdAt: serverTimestamp(),
+        priority: 'high'
+      };
+
+      const notificationRef = await addDoc(collection(db, 'notifications'), notificationData);
+      console.log('Notification created with ID:', notificationRef.id);
+
+      // Also create an entry in the teacher's inbox for detailed view
+      const inboxData = {
+        recipientId: submission.teacherId,
+        teacherId: submission.teacherId,
+        senderId: 'admin',
+        senderRole: 'admin',
+        senderName: adminName,
+        type: 'revision_request',
+        title: 'ISR Revision Request',
+        message: `Revision requested for ${submission.className}`,
+        category: 'teacher_reports',
+        data: {
+          submissionId: submission.id,
+          className: submission.className,
+          grade: submission.grade,
+          section: submission.section,
+          adminName: adminName,
+          issues: issues,
+          customMessage: message,
+          requestedAt: serverTimestamp()
+        },
+        isRead: false,
+        isArchived: false,
+        createdAt: serverTimestamp(),
+        priority: 'high'
+      };
+
+      const inboxRef = await addDoc(collection(db, 'teacherInbox'), inboxData);
+      console.log('Teacher inbox entry created with ID:', inboxRef.id);
+
+    } catch (error) {
+      console.error('Error creating revision notification:', error);
+      throw error;
+    }
+  }
+
+  // Debug method to check teacher notifications
+  async debugTeacherNotifications(teacherId: string): Promise<void> {
+    try {
+      console.log('=== DEBUG: Checking notifications for teacher:', teacherId);
+      
+      // Check notifications collection
+      const notificationsQuery = query(
+        collection(db, 'notifications'),
+        where('userId', '==', teacherId)
+      );
+      const notificationsSnapshot = await getDocs(notificationsQuery);
+      console.log('Notifications found:', notificationsSnapshot.docs.length);
+      
+      notificationsSnapshot.docs.forEach(doc => {
+        const data = doc.data();
+        console.log('Notification:', {
+          id: doc.id,
+          type: data.type,
+          title: data.title,
+          userId: data.userId,
+          recipientId: data.recipientId,
+          createdAt: data.createdAt?.toDate?.()
+        });
+      });
+
+      // Check teacherInbox collection
+      const inboxQuery = query(
+        collection(db, 'teacherInbox'),
+        where('recipientId', '==', teacherId)
+      );
+      const inboxSnapshot = await getDocs(inboxQuery);
+      console.log('Teacher inbox messages found:', inboxSnapshot.docs.length);
+      
+      inboxSnapshot.docs.forEach(doc => {
+        const data = doc.data();
+        console.log('Inbox message:', {
+          id: doc.id,
+          type: data.type,
+          title: data.title,
+          recipientId: data.recipientId,
+          createdAt: data.createdAt?.toDate?.()
+        });
+      });
+
+      // Check ISR submissions for this teacher
+      const submissionsQuery = query(
+        collection(db, 'adminInbox'),
+        where('senderId', '==', teacherId)
+      );
+      const submissionsSnapshot = await getDocs(submissionsQuery);
+      console.log('ISR submissions found for teacher:', submissionsSnapshot.docs.length);
+      
+      submissionsSnapshot.docs.forEach(doc => {
+        const data = doc.data();
+        console.log('ISR submission:', {
+          id: doc.id,
+          senderId: data.senderId,
+          senderName: data.senderName,
+          type: data.type,
+          status: data.data?.status
+        });
+      });
+
+    } catch (error) {
+      console.error('Error debugging teacher notifications:', error);
     }
   }
 

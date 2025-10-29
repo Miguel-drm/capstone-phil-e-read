@@ -316,8 +316,7 @@ const Resources: React.FC = () => {
         const q = query(
           collection(db, 'results'),
           where('teacherId', '==', currentUser.uid),
-          where('type', '==', 'test'),
-          orderBy('createdAt', 'desc')
+          where('type', '==', 'test')
         );
         const querySnapshot = await getDocs(q);
         type TestResult = { id: string; createdAt?: any; [key: string]: any };

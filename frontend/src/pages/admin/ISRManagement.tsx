@@ -17,7 +17,7 @@ import DepEdISRViewer from '../../components/admin/DepEdISRViewer';
 const ISRManagement: React.FC = () => {
   const [allRecords, setAllRecords] = useState<ISRSubmissionData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'approved' | 'pending' | 'rejected'>('all');
+  const [filter, setFilter] = useState<'all' | 'approved' | 'pending' | 'rejected' | 'revision_requested'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<ISRStudentData | null>(null);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
@@ -56,9 +56,10 @@ const ISRManagement: React.FC = () => {
     const pending = allRecords.filter(r => r.status === 'pending').length;
     const approved = allRecords.filter(r => r.status === 'approved').length;
     const rejected = allRecords.filter(r => r.status === 'rejected').length;
+    const revisionRequested = allRecords.filter(r => r.status === 'revision_requested').length;
     const total = allRecords.length;
     
-    return { pending, approved, rejected, total };
+    return { pending, approved, rejected, revisionRequested, total };
   }, [allRecords]);
 
   const fetchISRRecords = useCallback(async () => {
@@ -66,11 +67,11 @@ const ISRManagement: React.FC = () => {
       setLoading(true);
       const records = await isrService.getISRSubmissions('all');
       
-      // Sort records by status priority: pending first, then approved, then rejected
+      // Sort records by status priority: pending first, then revision_requested, then approved, then rejected
       const sortedRecords = records.sort((a, b) => {
-        const statusPriority = { 'pending': 0, 'approved': 1, 'rejected': 2 };
-        const priorityA = statusPriority[a.status as keyof typeof statusPriority] ?? 3;
-        const priorityB = statusPriority[b.status as keyof typeof statusPriority] ?? 3;
+        const statusPriority = { 'pending': 0, 'revision_requested': 1, 'approved': 2, 'rejected': 3 };
+        const priorityA = statusPriority[a.status as keyof typeof statusPriority] ?? 4;
+        const priorityB = statusPriority[b.status as keyof typeof statusPriority] ?? 4;
         
         if (priorityA !== priorityB) {
           return priorityA - priorityB;
@@ -136,6 +137,14 @@ const ISRManagement: React.FC = () => {
           icon: XCircleIcon,
           color: 'text-rose-600'
         };
+      case 'revision_requested':
+        return {
+          badge: 'bg-orange-50 text-orange-700 border border-orange-200',
+          border: 'border-l-orange-500',
+          hover: 'hover:bg-orange-50',
+          icon: ClockIcon,
+          color: 'text-orange-600'
+        };
       default:
         return {
           badge: 'bg-slate-50 text-slate-700 border border-slate-200',
@@ -152,6 +161,7 @@ const ISRManagement: React.FC = () => {
       case 'approved': return 'Approved';
       case 'pending': return 'Pending';
       case 'rejected': return 'Rejected';
+      case 'revision_requested': return 'Revision Requested';
       default: return 'Pending';
     }
   }, []);
@@ -373,6 +383,7 @@ const ISRManagement: React.FC = () => {
               {[
                 { key: 'all', label: 'All Records', count: statistics.total, icon: DocumentTextIcon },
                 { key: 'pending', label: 'Pending', count: statistics.pending, icon: ClockIcon },
+                { key: 'revision_requested', label: 'Needs Revision', count: statistics.revisionRequested, icon: ClockIcon },
                 { key: 'approved', label: 'Approved', count: statistics.approved, icon: CheckCircleIcon },
                 { key: 'rejected', label: 'Rejected', count: statistics.rejected, icon: XCircleIcon }
               ].map(tab => {

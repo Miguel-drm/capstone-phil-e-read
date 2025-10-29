@@ -5,8 +5,9 @@ import { gradeService, type ClassGrade } from '../../services/gradeService';
 import * as XLSX from 'xlsx';
 import { showError, showSuccess, showConfirmation } from '../../services/alertService';
 import Swal from 'sweetalert2';
-import { onSnapshot, collection, query as fsQuery, where as fsWhere } from 'firebase/firestore';
+import { onSnapshot, collection, query as fsQuery, where as fsWhere, addDoc, serverTimestamp } from 'firebase/firestore';
 import { getAllParents, getUserProfile } from '../../services/authService';
+import { notificationService } from '../../services/notificationService';
 import { db } from '../../config/firebase';
 import Loader from '../../components/Loader';
 import { resultService } from '../../services/resultsService';
@@ -1159,11 +1160,58 @@ const ClassList: React.FC = () => {
         const parent = parents.find(p => p.id === result.value);
         if (!parent) return;
         try {
+          // Get student information for the notification
+          const student = filteredStudents.find(s => s.id === studentId);
+          const studentName = student?.name || 'Student';
+          const teacherName = currentUser?.displayName || 'Teacher';
+          
           await studentService.updateStudent(studentId, {
             parentId: parent.id,
             parentName: parent.name,
           });
-          showSuccess('Parent linked!', `${parent.name} is now linked to this student.`);
+
+          // Create notification for the parent
+          await notificationService.createNotification({
+            type: 'link_approved',
+            title: 'Student Linked Successfully',
+            message: `Your child ${studentName} has been linked to your account by ${teacherName}.`,
+            userId: parent.id,
+            isRead: false,
+            data: {
+              studentId: studentId,
+              studentName: studentName,
+              teacherName: teacherName,
+              teacherId: currentUser?.uid,
+              linkedAt: new Date().toISOString(),
+              className: selectedGrade ? grades.find(g => g.id === selectedGrade)?.name : 'Class'
+            }
+          });
+
+          // Also create an entry in parent's inbox for detailed view
+          await addDoc(collection(db, 'parentInbox'), {
+            recipientId: parent.id,
+            senderId: currentUser?.uid,
+            senderRole: 'teacher',
+            senderName: teacherName,
+            type: 'student_linked',
+            title: 'Student Account Linked',
+            message: `Your child ${studentName} has been successfully linked to your parent account. You can now view their progress and activities.`,
+            category: 'link_requests',
+            data: {
+              studentId: studentId,
+              studentName: studentName,
+              teacherName: teacherName,
+              teacherId: currentUser?.uid,
+              linkedAt: serverTimestamp(),
+              className: selectedGrade ? grades.find(g => g.id === selectedGrade)?.name : 'Class'
+            },
+            isRead: false,
+            isArchived: false,
+            createdAt: serverTimestamp(),
+            priority: 'medium'
+          });
+
+          showSuccess('Parent linked!', `${parent.name} is now linked to this student and has been notified.`);
           await loadStudents();
         } catch (err) {
           showError('Failed to link parent', 'An error occurred while linking the parent.');
@@ -1618,7 +1666,7 @@ const ClassList: React.FC = () => {
                   </div>
                   
                   <div className="flex items-center space-x-3">
-                    {!showArchived && (
+                    {!showArchived && filteredStudents.length > 0 && (
                       <button
                         onClick={handleArchiveAllStudents}
                         className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-full shadow-sm transition-all duration-200"
