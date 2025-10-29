@@ -5,18 +5,21 @@ import Swal from 'sweetalert2'; // Import Swal for validation messages
 interface AddStoryModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (storyData: Pick<Story, 'title' | 'description' | 'language'>, file: File) => Promise<void>;
+  onSave: (storyData: Pick<Story, 'title' | 'description' | 'language' | 'set'>, file: File) => Promise<void>;
+  preselectedSet?: 'A' | 'B' | 'C' | 'D';
 }
 
 const AddStoryModal: React.FC<AddStoryModalProps> = ({
   isOpen,
   onClose,
   onSave,
+  preselectedSet,
 }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [language, setLanguage] = useState<'english' | 'tagalog'>('english');
+  const [set, setSet] = useState<'A' | 'B' | 'C' | 'D'>(preselectedSet || 'A');
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -26,12 +29,13 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
       setDescription('');
       setSelectedFile(null);
       setLanguage('english');
+      setSet(preselectedSet || 'A');
       setIsSaving(false);
     }
-  }, [isOpen]);
+  }, [isOpen, preselectedSet]);
 
   const handleSubmit = async () => {
-    if (!title || !selectedFile || !language || !description) {
+    if (!title || !selectedFile || !language || !description || !set) {
       Swal.fire('Error', 'Please fill in all fields and select a PDF file.', 'error');
       return;
     }
@@ -49,6 +53,7 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
           title,
           description,
           language,
+          set,
         },
         selectedFile
       );
@@ -64,12 +69,22 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div 
+    <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ backgroundColor: 'rgba(0,0,0,0.4)' }} // Directly set background color with rgba
     >
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
-        <h2 className="text-xl font-semibold text-gray-800 mb-6 text-center">Add New Story</h2>
+        <h2 className="text-xl font-semibold text-gray-800 mb-6 text-center">
+          Add New Story{preselectedSet ? ` to Set ${preselectedSet}` : ''}
+        </h2>
+        {preselectedSet && (
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-sm text-blue-800">
+              <strong>Note:</strong> Each set can contain only one story and one quiz.
+              If Set {preselectedSet} already has a story, it will be replaced.
+            </p>
+          </div>
+        )}
         <div className="space-y-4">
           <div>
             <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-1">Story Title</label>
@@ -116,6 +131,21 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
             >
               <option value="english">English</option>
               <option value="tagalog">Tagalog</option>
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="set" className="block text-sm font-medium text-gray-700 mb-1">Story Set</label>
+            <select
+              id="set"
+              value={set}
+              onChange={(e) => setSet(e.target.value as 'A' | 'B' | 'C' | 'D')}
+              className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm"
+            >
+              <option value="A">Set A</option>
+              <option value="B">Set B</option>
+              <option value="C">Set C</option>
+              <option value="D">Set D</option>
             </select>
           </div>
         </div>
