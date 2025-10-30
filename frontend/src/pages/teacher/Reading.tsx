@@ -6,6 +6,7 @@ import { studentService, type Student } from '../../services/studentService';
 import { readingSessionService, type ReadingSession } from '../../services/readingSessionService';
 import { resultService, type Result } from '../../services/resultsService';
 import { UnifiedStoryService } from '../../services/UnifiedStoryService';
+import { getUserProfile } from '../../services/authService';
 import type { Story } from '../../types/Story';
 import { useNavigate } from 'react-router-dom';
 import Loader from '../../components/Loader';
@@ -21,6 +22,7 @@ const Reading: React.FC = () => {
   const [stories, setStories] = useState<Story[]>([]);
   const [storiesLoading, setStoriesLoading] = useState(true);
   const [storiesError, setStoriesError] = useState<string | null>(null);
+  const [teacherGradeLevel, setTeacherGradeLevel] = useState<string | null>(null);
   const [sessionResults, setSessionResults] = useState<Map<string, Result[]>>(new Map());
 
   const loadSessions = useCallback(async () => {
@@ -33,17 +35,41 @@ const Reading: React.FC = () => {
     }
   }, [currentUser?.uid]);
 
+  const loadTeacherProfile = useCallback(async () => {
+    try {
+      const profile = await getUserProfile();
+      const gradeLevel = profile?.gradeLevel;
+      if (gradeLevel) {
+        // Extract just the number from grade level (e.g., "Grade 4" -> "4", "4" -> "4")
+        const gradeNumber = gradeLevel.toString().replace(/[^0-9]/g, '');
+        setTeacherGradeLevel(gradeNumber);
+        console.log('Teacher grade level:', gradeNumber);
+      }
+    } catch (error) {
+      console.error('Error loading teacher profile:', error);
+    }
+  }, []);
+
   const loadStories = useCallback(async () => {
     try {
       setStoriesLoading(true);
       setStoriesError(null);
       const fetchedStories = await UnifiedStoryService.getInstance().getStories({}); // Fetch all stories initially
-      // Map IStory[] to Story[] to ensure type compatibility
-      setStories(fetchedStories.map(story => ({
+      
+      // Filter stories based on teacher's grade level
+      let filteredStories = fetchedStories;
+      if (teacherGradeLevel) {
+        filteredStories = fetchedStories.filter(story => story.grade === teacherGradeLevel);
+        console.log(`Filtered stories for Grade ${teacherGradeLevel}:`, filteredStories.length, 'out of', fetchedStories.length);
+      }
+      
+      // Map IStory[] to Story[] to ensure type compatibility and add pdfUrl
+      setStories(filteredStories.map(story => ({
         ...story,
         _id: story._id?.toString(),
         createdBy: story.createdBy?.toString?.() ?? story.createdBy,
         language: story.language as 'english' | 'tagalog',
+        pdfUrl: story._id ? UnifiedStoryService.getInstance().getStoryPdfUrl(story._id) : undefined
       })));
     } catch (error) {
       console.error('Error loading stories:', error);
@@ -52,7 +78,7 @@ const Reading: React.FC = () => {
     } finally {
       setStoriesLoading(false);
     }
-  }, []);
+  }, [teacherGradeLevel]);
 
   const loadGrades = useCallback(async () => {
     try {
@@ -103,9 +129,16 @@ const Reading: React.FC = () => {
       loadGrades();
       loadStudents();
       loadSessions();
+      loadTeacherProfile();
+    }
+  }, [currentUser?.uid, loadGrades, loadStudents, loadSessions, loadTeacherProfile]);
+
+  // Load stories when teacher grade level is available
+  useEffect(() => {
+    if (teacherGradeLevel !== null) {
       loadStories();
     }
-  }, [currentUser?.uid, loadGrades, loadStudents, loadSessions, loadStories]);
+  }, [teacherGradeLevel, loadStories]);
 
   // Load session results when sessions change
   useEffect(() => {
@@ -343,7 +376,6 @@ const Reading: React.FC = () => {
                 <a href="${story.pdfUrl}" 
                    target="_blank" 
                    class="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md"
-                   onclick="setTimeout(() => { window.close(); }, 1000);"
                 >
                   <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -386,8 +418,18 @@ const Reading: React.FC = () => {
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-blue-900 tracking-tight flex items-center gap-2">
               <i className="fas fa-book-reader text-blue-400"></i> Reading
+              {teacherGradeLevel && (
+                <span className="text-lg font-medium text-blue-600 bg-blue-50 px-3 py-1 rounded-full">
+                  Grade {teacherGradeLevel}
+                </span>
+              )}
             </h1>
-            <p className="mt-1 text-sm text-gray-500">Manage reading sessions and explore stories</p>
+            <p className="mt-1 text-sm text-gray-500">
+              {teacherGradeLevel 
+                ? `Manage reading sessions and explore Grade ${teacherGradeLevel} stories`
+                : 'Manage reading sessions and explore stories'
+              }
+            </p>
           </div>
           <button
             onClick={handleScheduleSession}
@@ -492,7 +534,19 @@ const Reading: React.FC = () => {
             ) : storiesError ? (
               <div className="col-span-full text-center py-10 text-red-500">{storiesError}</div>
             ) : stories.length === 0 ? (
-              <div className="col-span-full text-center py-10 text-gray-500">No stories available.</div>
+              <div className="col-span-full text-center py-10">
+                <div className="text-gray-500 mb-2">
+                  {teacherGradeLevel 
+                    ? `No Grade ${teacherGradeLevel} stories available.`
+                    : 'No stories available.'
+                  }
+                </div>
+                {teacherGradeLevel && (
+                  <p className="text-sm text-gray-400">
+                    Contact your administrator to add Grade {teacherGradeLevel} stories to the system.
+                  </p>
+                )}
+              </div>
             ) : (
               stories.map((story) => (
                 <div key={story._id} className="bg-white rounded-xl shadow-md border border-blue-50 overflow-hidden flex flex-col h-full">

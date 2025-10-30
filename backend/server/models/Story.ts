@@ -5,6 +5,7 @@ export interface IStory extends Document {
   title: string;
   description: string;
   grade?: string;
+  storySet?: string;
   pdfFileId?: ObjectId;
   pdfData?: Buffer;
   pdfUrl?: string;
@@ -38,6 +39,10 @@ const StorySchema: Schema = new Schema({
     trim: true
   },
   grade: {
+    type: String,
+    trim: true
+  },
+  storySet: {
     type: String,
     trim: true
   },
