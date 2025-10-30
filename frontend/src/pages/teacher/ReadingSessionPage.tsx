@@ -787,26 +787,33 @@ const ReadingSessionPage: React.FC = () => {
               );
           }
 
-          // Try to load PDF content as a backup (but don't fail if it doesn't work)
-          try {
-            const pdfUrl = UnifiedStoryService.getInstance().getStoryPdfUrl(
-              story._id
-            );
-            await loadPdfContent(pdfUrl);
+          // Try to load PDF content only if the story has a PDF
+          if (fullStory.hasPdf) {
+            try {
+              const pdfUrl = UnifiedStoryService.getInstance().getStoryPdfUrl(
+                story._id
+              );
+              await loadPdfContent(pdfUrl);
+              if ((import.meta as any)?.env?.MODE === "development")
+                console.debug("PDF content also loaded successfully");
+            } catch (pdfError) {
+              console.warn(
+                "PDF loading failed, but text content is available:",
+                pdfError
+              );
+              // Don't throw error here since we have text content
+              // Set a flag to indicate PDF failed
+              setPdfError(
+                pdfError instanceof Error
+                  ? pdfError.message
+                  : "PDF loading failed"
+              );
+            }
+          } else {
+            // Story doesn't have a PDF, set a friendly message
+            setPdfError("This story doesn't have a PDF file. Reading session will use text content only.");
             if ((import.meta as any)?.env?.MODE === "development")
-              console.debug("PDF content also loaded successfully");
-          } catch (pdfError) {
-            console.warn(
-              "PDF loading failed, but text content is available:",
-              pdfError
-            );
-            // Don't throw error here since we have text content
-            // Set a flag to indicate PDF failed
-            setPdfError(
-              pdfError instanceof Error
-                ? pdfError.message
-                : "PDF loading failed"
-            );
+              console.debug("Story has no PDF, skipping PDF loading");
           }
         } catch (error) {
           console.error("Error fetching story content:", error);

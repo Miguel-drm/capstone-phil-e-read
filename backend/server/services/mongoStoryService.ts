@@ -10,6 +10,7 @@ interface StoryInput {
   title: string;
   description: string;
   grade?: string;
+  storySet?: string;
   textContent?: string;
   language?: string;
   createdBy?: string;
@@ -36,13 +37,25 @@ export const mongoStoryService = {
       }
 
       // Create the story with the GridFS file ID
-      const story = new Story({
+      const storyToSave = {
         ...storyData,
         textContent: extractedText,
         pdfFileId: pdfFileId,
         isActive: true
-      });
+      };
+      
+      console.log('🔍 mongoStoryService - About to save:', storyToSave);
+      
+      const story = new Story(storyToSave);
       await story.save();
+      
+      console.log('🔍 mongoStoryService - Saved story:', {
+        title: story.title,
+        grade: story.grade,
+        storySet: story.storySet,
+        id: story._id
+      });
+      
       return story;
     } catch (error) {
       console.error('Error creating story:', error);

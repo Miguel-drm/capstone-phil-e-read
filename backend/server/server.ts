@@ -50,7 +50,22 @@ app.use(cors({
   optionsSuccessStatus: 200
 }));
 
+// Request logger middleware
+app.use((req, res, next) => {
+  console.log(`🌐 ${req.method} ${req.url} - ${new Date().toISOString()}`);
+  if (req.method === 'POST' && req.url.includes('/api/stories')) {
+    console.log('📝 POST /api/stories request detected');
+  }
+  next();
+});
+
 app.use(express.json());
+
+// Test endpoint
+app.get('/api/test', (req, res) => {
+  console.log('🧪 Test endpoint hit!');
+  res.json({ message: 'Backend server is working!', timestamp: new Date().toISOString() });
+});
 
 // // Serve static files from the frontend's dist directory
 // const frontendDistPath = join(__dirname, '..', '..', 'frontend', 'dist');
@@ -119,6 +134,7 @@ app.use(express.json());
             ...story.toObject(),
             pdfUrl: `${baseUrl}/api/stories/${story._id}/pdf`,
             categories,
+            hasPdf: !!(story.pdfData || story.pdfFileId)
           };
         });
 
@@ -150,7 +166,14 @@ app.use(express.json());
           res.status(404).json({ error: 'Story not found' });
           return;
         }
-        res.json(story);
+        
+        // Add hasPdf field
+        const storyWithPdfInfo = {
+          ...story.toObject(),
+          hasPdf: !!(story.pdfData || story.pdfFileId)
+        };
+        
+        res.json(storyWithPdfInfo);
       } catch (error) {
         console.error('Error fetching story:', error);
         res.status(500).json({ error: 'Failed to fetch story' });
@@ -276,19 +299,16 @@ app.use(express.json());
           return;
         }
 
-        const { title, description, language, createdBy, readingLevel, categories } = req.body;
+        const { title, description, language, createdBy, readingLevel, categories, grade, storySet } = req.body;
         
         // Log received data for debugging
-        console.log('Received story data:', {
-          title,
-          description,
-          language,
-          createdBy,
-          readingLevel,
-          categories,
-          fileSize: req.file.size,
-          fileName: req.file.originalname,
-          mimeType: req.file.mimetype
+        console.log('🔍 Backend received story data:', {
+          title: title,
+          grade: grade,
+          storySet: storySet,
+          'grade type': typeof grade,
+          'storySet type': typeof storySet,
+          'req.body keys': Object.keys(req.body)
         });
 
         // Validate required fields
@@ -334,8 +354,19 @@ app.use(express.json());
           createdBy,
           readingLevel,
           categories: parsedCategories,
+          grade: grade || '3',  // Default to grade 3 if not provided
+          storySet: storySet,  // Can be undefined for unassigned stories
           textContent: ''  // Default empty string for text content
         };
+
+        console.log('🔍 Backend storyData to save:', {
+          title: storyData.title,
+          grade: storyData.grade,
+          storySet: storyData.storySet,
+          'storyData keys': Object.keys(storyData)
+        });
+
+
 
         console.log('Creating story with data:', storyData);
         console.log('PDF file size:', req.file.size, 'bytes');

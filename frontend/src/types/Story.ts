@@ -11,7 +11,8 @@ export interface Story {
   createdBy?: string;
   readingLevel?: string;
   categories?: string[];
-  set?: 'A' | 'B' | 'C' | 'D'; // Track which set this story belongs to
+  storySet?: 'A' | 'B' | 'C' | 'D'; // Track which set this story belongs to
+  hasPdf?: boolean; // Indicates if the story has PDF data available
   isActive?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
