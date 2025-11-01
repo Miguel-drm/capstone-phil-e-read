@@ -4,9 +4,9 @@ import { type Student } from '../../../services/studentService';
 import { type ClassGrade } from '../../../services/gradeService';
 import PillSelect, { type PillOption } from '../../ui/PillSelect';
 import { useAuth } from '../../../contexts/AuthContext';
-import { db } from '../../../config/firebase';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
-import { shouldSuppressFirestoreError } from '../../../services/authService';
+
+
+import { resultService } from '../../../services/resultsService';
 
 interface PerformanceChartProps {
   data: {
@@ -21,6 +21,19 @@ interface PerformanceChartProps {
   targetLine?: number; // important target benchmark percentage
   showStaticStudentInfo?: boolean; // For parent dashboard - show static student info instead of dropdowns
 }
+
+// Helper functions
+const getGradeIndex = (grade: string | undefined): number => {
+  if (!grade) return -1;
+  const upper = grade.toUpperCase();
+  if (upper.includes('III') || upper.includes('3')) return 0;
+  if (upper.includes('IV') || upper.includes('4')) return 1;
+  if (upper.includes('V ') || upper.endsWith(' V') || (upper.includes('5') && !upper.includes('6'))) return 2;
+  if (upper.includes('VI') || upper.includes('6')) return 3;
+  return -1;
+};
+
+
 
 const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, grades, students, title, targetLine, showStaticStudentInfo = false }) => {
   const chartRef = useRef<HTMLDivElement>(null);
@@ -148,11 +161,11 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, grades, stude
     setSelectedStudent('');
   }, [selectedGrade, safeStudents, safeGrades]);
 
-  // Realtime subscription to results for selected filters -> compute data arrays
+  // Fetch real reading results from MongoDB
   useEffect(() => {
     const labels = ['Grade III', 'Grade IV', 'Grade V', 'Grade VI'];
     
-    // For parent accounts, use the passed data prop instead of fetching from Firestore
+    // For parent accounts, use the passed data prop instead of fetching from database
     if (userRole === 'parent') {
       // Don't set computedData for parents - let safeData use the passed data prop
       return;
@@ -164,97 +177,79 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, grades, stude
       return;
     }
     if (!currentUser?.uid) return;
-    const labelIndex = (gradeName: string | undefined): number => {
-      if (!gradeName) return -1;
-      const upper = gradeName.toUpperCase();
-      if (upper.includes('III')) return 0;
-      if (upper.includes('IV')) return 1;
-      if (upper.includes('V ')) return 2; // space to avoid VI
-      if (upper.endsWith(' V')) return 2;
-      if (upper.includes('VI')) return 3;
-      return -1;
+
+    const fetchReadingResults = async () => {
+      try {
+        console.log('Fetching reading results for teacher:', currentUser.uid);
+        const results = await resultService.getReadingSessionResults(currentUser.uid);
+        console.log('Fetched reading results:', results.length);
+        
+        // Process the results to compute averages by grade
+        const oralSums = [0,0,0,0];
+        const oralCounts = [0,0,0,0];
+        const compSums = [0,0,0,0];
+        const compCounts = [0,0,0,0];
+        const levelSums = [0,0,0,0];
+        const levelCounts = [0,0,0,0];
+        
+        results.forEach(result => {
+          // Map grade to index - we need to get grade name from gradeId
+          // For now, we'll use a simple mapping or get it from the grades array
+          let gradeName = '';
+          if (result.gradeId) {
+            const grade = grades.find(g => g.id === result.gradeId);
+            gradeName = grade?.name || '';
+          }
+          
+          const gradeIndex = getGradeIndex(gradeName);
+          if (gradeIndex < 0) return;
+          
+          // Process oral reading score
+          if (typeof result.oralReadingScore === 'number') {
+            oralSums[gradeIndex] += Math.max(0, Math.min(100, result.oralReadingScore));
+            oralCounts[gradeIndex] += 1;
+          }
+          
+          // Process comprehension score
+          if (typeof result.comprehension === 'number') {
+            compSums[gradeIndex] += Math.max(0, Math.min(100, result.comprehension));
+            compCounts[gradeIndex] += 1;
+          }
+          
+          // Process reading level - we'll derive it from oral reading score since readingLevel field doesn't exist
+          if (typeof result.oralReadingScore === 'number') {
+            const levelValue = result.oralReadingScore >= 97 ? 3 : result.oralReadingScore >= 90 ? 2 : 1;
+            levelSums[gradeIndex] += levelValue;
+            levelCounts[gradeIndex] += 1;
+          }
+        });
+        
+        // Calculate averages
+        const oralScores = oralSums.map((sum, i) => oralCounts[i] > 0 ? Math.round(sum / oralCounts[i]) : 0);
+        const compScores = compSums.map((sum, i) => compCounts[i] > 0 ? Math.round(sum / compCounts[i]) : 0);
+        const levelScores = levelSums.map((sum, i) => levelCounts[i] > 0 ? Math.round(sum / levelCounts[i]) : 2);
+        
+        console.log('Computed scores:', { oralScores, compScores, levelScores });
+        
+        setComputedData({
+          assessmentPeriods: labels,
+          oralReadingScores: oralScores,
+          comprehensionScores: compScores,
+          readingLevels: levelScores
+        });
+        
+      } catch (error) {
+        console.error('Error fetching reading results:', error);
+        setComputedData({ 
+          assessmentPeriods: labels, 
+          oralReadingScores: [], 
+          comprehensionScores: [], 
+          readingLevels: [] 
+        });
+      }
     };
 
-    const gradeIdToName = new Map<string, string>();
-    (Array.isArray(grades) ? grades : []).forEach(g => { if (g.id) gradeIdToName.set(g.id, g.name); });
-
-    const conditions = [where('teacherId', '==', currentUser.uid)];
-    if (selectedStudent) conditions.push(where('studentId', '==', selectedStudent));
-    else if (selectedGrade) conditions.push(where('gradeId', '==', selectedGrade));
-
-    const col = collection(db, 'readingResults');
-    const q = query(col, ...conditions);
-    const unsub = onSnapshot(q, (snap) => {
-      const oralSums = [0,0,0,0];
-      const oralCounts = [0,0,0,0];
-      const compSums = [0,0,0,0];
-      const compCounts = [0,0,0,0];
-      const levelSums = [0,0,0,0];
-      const levelCounts = [0,0,0,0];
-      snap.forEach(ds => {
-        const d: any = ds.data();
-        const gName = d.gradeName || gradeIdToName.get(d.gradeId) || '';
-        const idx = labelIndex(gName);
-        if (idx < 0) return;
-        const accuracy: number | undefined = d.oralReadingScore ?? d.accuracy ?? d.score;
-        if (typeof accuracy === 'number') {
-          oralSums[idx] += Math.max(0, Math.min(100, accuracy));
-          oralCounts[idx] += 1;
-        }
-        const comp: number | undefined = d.comprehension ?? (typeof d.correctAnswers === 'number' && typeof d.totalQuestions === 'number' && d.totalQuestions > 0 ? (d.correctAnswers / d.totalQuestions) * 100 : undefined);
-        if (typeof comp === 'number') {
-          compSums[idx] += Math.max(0, Math.min(100, comp));
-          compCounts[idx] += 1;
-        }
-        // reading level mapping
-        const levelName: string | undefined = d.readingLevel || d.level || d.readingLevelName;
-        let levelVal: number | undefined;
-        if (typeof levelName === 'string') {
-          const name = levelName.toLowerCase();
-          if (name.startsWith('independent')) levelVal = 3;
-          else if (name.startsWith('instruction')) levelVal = 2;
-          else levelVal = 1;
-        } else if (typeof accuracy === 'number') {
-          if (accuracy >= 97) levelVal = 3; else if (accuracy >= 90) levelVal = 2; else levelVal = 1;
-        }
-        if (typeof levelVal === 'number') {
-          levelSums[idx] += levelVal;
-          levelCounts[idx] += 1;
-        }
-      });
-
-      const avg = (s: number[], c: number[]) => s.map((v,i)=> c[i] ? Number((v/c[i]).toFixed(2)) : 0);
-      
-      // Create complete horizontal line by filling missing data points
-      const createHorizontalLine = (data: number[], defaultValue: number = 80) => {
-        const result = [...data];
-        // If we have any data, use the first non-zero value for all points
-        const firstValue = data.find(val => val > 0) || defaultValue;
-        return result.map(val => val > 0 ? val : firstValue);
-      };
-      
-      const oralScores = avg(oralSums, oralCounts);
-      const compScores = avg(compSums, compCounts);
-      const levelScores = avg(levelSums, levelCounts);
-      
-      setComputedData({
-        assessmentPeriods: labels,
-        oralReadingScores: createHorizontalLine(oralScores),
-        comprehensionScores: createHorizontalLine(compScores),
-        readingLevels: createHorizontalLine(levelScores, 2)
-      });
-    }, (err) => {
-      const code = (err as any)?.code as string | undefined;
-      if (shouldSuppressFirestoreError() || code === 'permission-denied' || code === 'unauthenticated') {
-        // Quietly fall back to empty data for users without access or during sign-out
-        setComputedData({ assessmentPeriods: labels, oralReadingScores: [], comprehensionScores: [], readingLevels: [] });
-        return;
-      }
-      console.warn('PerformanceChart subscribe error:', err);
-      setComputedData({ assessmentPeriods: labels, oralReadingScores: [], comprehensionScores: [], readingLevels: [] });
-    });
-
-    return () => unsub();
+    fetchReadingResults();
   }, [userRole, currentUser?.uid, selectedGrade, selectedStudent, grades]);
 
   useEffect(() => {

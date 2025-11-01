@@ -10,6 +10,7 @@ interface ISRData {
   levelStarted?: string; // The level where the student started (marked with *)
   readingData: {
     level: string;
+    set?: string; // A, B, C, or D
     wordReading: {
       ind: boolean;
       ins: boolean;
@@ -142,7 +143,9 @@ const DepEdISRViewer: React.FC<DepEdISRViewerProps> = ({
                         {isStartedLevel ? '*' : ''}
                       </td>
                       <td className="border border-gray-800 p-2 text-center font-bold">{level}</td>
-                      <td className="border border-gray-800 p-2 text-center text-sm"></td>
+                      <td className="border border-gray-800 p-2 text-center text-sm font-bold">
+                        {readingEntry?.set || ''}
+                      </td>
                       <td className="border border-gray-800 p-2 text-center">
                         {readingEntry?.wordReading.ind ? '✓' : ''}
                       </td>
