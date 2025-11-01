@@ -3,6 +3,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { studentService, type Student } from '../../services/studentService';
 import { resultService } from '../../services/resultsService';
 import { getUserProfile } from '../../services/authService';
+import { UnifiedStoryService } from '../../services/UnifiedStoryService';
 import { notificationService } from '../../services/notificationService';
 import DepEdISRViewer from '../../components/admin/DepEdISRViewer';
 // import { gradeService } from '../../services/gradeService';
@@ -139,6 +140,74 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     }
   };
 
+  // Generate reading data structure for ISR from student results
+  const generateReadingDataFromResults = async (studentId: string, studentLevel: string, storySet: string) => {
+    const readingResults = studentReadingResults[studentId] || [];
+    const testResults = studentTestResults[studentId] || [];
+
+    // Get all available reading levels (K, I, II, III, IV, V, VI, VII)
+    const allLevels = ['K', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
+    
+    // Initialize reading data array for DepEdISRViewer format
+    const readingDataArray: any[] = [];
+    
+    // Process each level
+    for (const level of allLevels) {
+      // Find reading and test results for this level
+      let readingResult = null;
+      let testResult = null;
+      
+      // For now, we'll match results to the student's current level
+      // In a more sophisticated system, you'd match based on the actual level of the story/test
+      if (level === studentLevel) {
+        readingResult = readingResults.length > 0 
+          ? [...readingResults].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+          : null;
+        testResult = testResults.length > 0
+          ? [...testResults].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+          : null;
+      }
+
+      // Only add entries that have actual data
+      if (readingResult || testResult) {
+        const readingLevel = readingResult ? determineReadingLevel(readingResult.oralReadingScore) : null;
+        const comprehensionLevel = testResult ? determineReadingLevel(testResult.comprehension) : null;
+        
+        // Determine the set (A, B, C, D) - use storySet or default to A
+        let setLetter = 'A';
+        if (storySet) {
+          // Extract set letter from storySet string
+          const setMatch = storySet.match(/set\s*([ABCD])/i);
+          if (setMatch) {
+            setLetter = setMatch[1].toUpperCase();
+          }
+        }
+
+        // Format date
+        const dateTaken = readingResult?.createdAt || testResult?.createdAt;
+        const formattedDate = dateTaken ? new Date(dateTaken).toLocaleDateString() : '';
+
+        readingDataArray.push({
+          level,
+          set: setLetter,
+          wordReading: {
+            ind: readingLevel === 'Ind',
+            ins: readingLevel === 'Ins', 
+            frus: readingLevel === 'Frus'
+          },
+          comprehension: {
+            ind: comprehensionLevel === 'Ind',
+            ins: comprehensionLevel === 'Ins',
+            frus: comprehensionLevel === 'Frus'
+          },
+          dateTaken: formattedDate
+        });
+      }
+    }
+
+    return readingDataArray;
+  };
+
 
 
   // Helper function to get class submission status
@@ -193,12 +262,41 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
       name: student.name,
       age: student.age,
       grade: student.grade,
-      readingLevel: student.readingLevel
+      readingLevel: student.readingLevel,
+      latestReadingBook: latestReading?.book
     });
 
     // Determine reading level based on scores
     const readingScore = latestReading?.oralReadingScore || 0;
     const comprehensionScore = latestTest?.comprehension || 0;
+
+    // Get story set and language information from the book/story used in the reading session
+    let storySet = '';
+    let storyLanguage: 'English' | 'Filipino' = 'English';
+    if (latestReading?.book) {
+      try {
+        // Fetch story details to get the set and language information
+        const stories = await UnifiedStoryService.getInstance().getStories({});
+        const story = stories.find((s: any) => s.title === latestReading.book);
+        if (story) {
+          if (story.storySet) {
+            storySet = story.storySet;
+            console.log('Found story set:', storySet, 'for story:', story.title);
+          }
+          // Map story language to ISR language format
+          if (story.language === 'none' || story.language === 'tagalog') {
+            storyLanguage = 'Filipino';
+          } else {
+            storyLanguage = 'English';
+          }
+          console.log('Story language:', story.language, '-> ISR language:', storyLanguage);
+        } else {
+          console.log('Story not found for:', latestReading.book);
+        }
+      } catch (error) {
+        console.error('Error fetching story information:', error);
+      }
+    }
 
     // Get teacher profile information
     let teacherName = 'Current Teacher';
@@ -255,32 +353,18 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
       gradeSection: student.grade || '',
       school: schoolName,
       teacher: teacherName,
-      language: 'Filipino' as 'English' | 'Filipino',
+      language: storyLanguage,
       levelStarted: studentLevel, // Mark the level where student started
-      readingData: [
-        {
-          level: studentLevel,
-          wordReading: {
-            ind: readingScore >= 95,
-            ins: readingScore >= 90 && readingScore < 95,
-            frus: readingScore < 90
-          },
-          comprehension: {
-            ind: comprehensionScore >= 80,
-            ins: comprehensionScore >= 60 && comprehensionScore < 80,
-            frus: comprehensionScore < 60
-          },
-          dateTaken: latestReading?.createdAt || latestTest?.createdAt || new Date().toLocaleDateString()
-        }
-      ],
+      readingData: await generateReadingDataFromResults(student.id || '', studentLevel, storySet),
       observations: {
-        wordByWord: false,
-        lacksExpression: false,
-        hardlyAudible: false,
-        disregardsPunctuation: false,
-        pointsToWords: false,
-        littleAnalysis: false,
-        otherObservations: `Reading Score: ${readingScore}%, Comprehension Score: ${comprehensionScore}%`
+        // Base observations on actual reading session data
+        wordByWord: (latestReading?.readingSpeed || 0) < 80, // Slow reading speed suggests word-by-word reading
+        lacksExpression: readingScore < 80 && (latestReading?.miscues || 0) > 5, // Low score with many miscues
+        hardlyAudible: false, // Would need audio analysis - could be enhanced with transcript analysis
+        disregardsPunctuation: (latestReading?.miscues || 0) > 8, // High miscue count often includes punctuation errors
+        pointsToWords: readingScore < 60 && (latestReading?.readingSpeed || 0) < 60, // Very slow, poor readers often point
+        littleAnalysis: comprehensionScore < 50, // Poor comprehension suggests little analysis
+        otherObservations: `Reading Score: ${readingScore}%, Comprehension Score: ${comprehensionScore}%. Words Read: ${latestReading?.wordsRead || 0}/${latestReading?.totalWords || 0}. Miscues: ${latestReading?.miscues || 0}. Reading Speed: ${latestReading?.readingSpeed || 0} WPM. ${readingScore >= 90 ? 'Strong reader with good fluency.' : readingScore >= 70 ? 'Developing reader, needs practice with fluency.' : 'Struggling reader, requires additional support and intervention.'}`
       }
     };
   };
