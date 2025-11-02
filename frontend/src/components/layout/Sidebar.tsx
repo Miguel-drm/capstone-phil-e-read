@@ -7,6 +7,7 @@ import GroupIcon from '@mui/icons-material/Group';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import SettingsIcon from '@mui/icons-material/Settings';
+import NotificationsIcon from '@mui/icons-material/Notifications';
 
 import SchoolIcon from '@mui/icons-material/School';
 import PersonIcon from '@mui/icons-material/Person';
@@ -36,6 +37,7 @@ const iconMap: Record<string, React.ReactNode> = {
   settings: <SettingsIcon fontSize="medium" />,
   stories: <MenuBookIcon fontSize="medium" />,
   resources: <MenuBookIcon fontSize="medium" />,
+  notifications: <NotificationsIcon fontSize="medium" />,
   children: <GroupIcon fontSize="medium" /> // Added for My Children
 };
 
@@ -63,6 +65,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           { path: '/admin/parents', label: 'Parents', icon: 'parents' },
           { path: '/admin/isr', label: 'ISR Records', icon: 'isr' },
           { path: '/admin/reports', label: 'Reports', icon: 'reports' },
+          { path: '/admin/notifications', label: 'Notifications', icon: 'notifications' },
           { path: '/admin/resources', label: 'Resources', icon: 'resources' },
           { path: '/admin/profile', label: 'Profile', icon: 'profile' }
         ];

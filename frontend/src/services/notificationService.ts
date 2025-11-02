@@ -818,6 +818,8 @@ class NotificationService {
       const q = query(collection(db, collectionName));
       const snapshot = await getDocs(q);
       
+      console.log(`[getInboxMessages] Fetched ${snapshot.docs.length} messages from ${collectionName} for role ${userRole}`);
+      
       const allMessages = snapshot.docs.map(doc => {
         const docData = doc.data();
         
@@ -850,11 +852,17 @@ class NotificationService {
         filteredMessages = filteredMessages.filter(msg => 
           msg.recipientId === userId || msg.senderId === userId
         );
+        console.log(`[getInboxMessages] Filtered to ${filteredMessages.length} messages for non-admin user ${userId}`);
+      } else {
+        // For admin, get ALL messages (no filtering by userId)
+        console.log(`[getInboxMessages] Admin role - returning all ${allMessages.length} messages without userId filtering`);
       }
       
       if (!includeArchived) {
         // Filter out archived messages
+        const beforeArchived = filteredMessages.length;
         filteredMessages = filteredMessages.filter(msg => !msg.isArchived);
+        console.log(`[getInboxMessages] After filtering archived: ${beforeArchived} -> ${filteredMessages.length}`);
       }
       
       // Sort client-side to avoid index requirements
@@ -864,6 +872,7 @@ class NotificationService {
         return bTime.getTime() - aTime.getTime(); // Descending order (newest first)
       });
       
+      console.log(`[getInboxMessages] Final result: ${filteredMessages.length} messages for ${userRole}`);
       return filteredMessages;
     } catch (error) {
       console.error('Error fetching inbox messages:', error);
@@ -1118,13 +1127,186 @@ class NotificationService {
             className,
             studentCount,
             submissionDate: new Date().toISOString(),
-            submissionData
+            submissionData,
+            status: 'pending'
           }
         }
       );
     } catch (error) {
       console.error('Error sending ISR submission to admin:', error);
       return null;
+    }
+  }
+
+  // Admin-specific notification methods
+  // Note: userId parameter is optional for admin since admin gets all messages
+  async getAdminNotifications(userId?: string): Promise<InboxMessage[]> {
+    try {
+      // Use the existing getInboxMessages method which already handles admin role
+      // Admin role doesn't filter by userId, so it gets all messages from adminInbox
+      // Pass userId if provided, otherwise use 'admin' (which won't be used for filtering anyway)
+      return await this.getInboxMessages(userId || 'admin', 'admin', false);
+    } catch (error) {
+      console.error('Error fetching admin notifications:', error);
+      return [];
+    }
+  }
+
+  async getAdminArchivedMessages(userId?: string): Promise<InboxMessage[]> {
+    try {
+      // Use the existing getArchivedMessages method which already handles admin role
+      // userId is not used for filtering when role is 'admin'
+      return await this.getArchivedMessages(userId || 'admin', 'admin');
+    } catch (error) {
+      console.error('Error fetching admin archived messages:', error);
+      return [];
+    }
+  }
+
+  async markAdminMessageAsRead(messageId: string): Promise<boolean> {
+    try {
+      // Use the existing markMessageAsRead method for admin role
+      return await this.markMessageAsRead(messageId, 'admin');
+    } catch (error) {
+      console.error('Error marking admin message as read:', error);
+      return false;
+    }
+  }
+
+  async archiveAdminMessage(messageId: string): Promise<boolean> {
+    try {
+      // Use the existing archiveMessage method for admin role
+      return await this.archiveMessage(messageId, 'admin');
+    } catch (error) {
+      console.error('Error archiving admin message:', error);
+      return false;
+    }
+  }
+
+  async getAdminUnreadCount(): Promise<number> {
+    try {
+      // Get all admin notifications and count unread ones
+      const messages = await this.getInboxMessages('admin', 'admin', false);
+      return messages.filter(msg => !msg.isRead).length;
+    } catch (error) {
+      console.error('Error fetching admin unread count:', error);
+      return 0;
+    }
+  }
+
+  async sendNotificationToTeacher(
+    teacherId: string,
+    title: string,
+    message: string,
+    type: string = 'admin_message',
+    priority: string = 'medium',
+    data: any = {}
+  ): Promise<boolean> {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/notify/teacher`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          teacherId,
+          title,
+          message,
+          type,
+          priority,
+          data
+        })
+      });
+      return response.ok;
+    } catch (error) {
+      console.error('Error sending notification to teacher:', error);
+      return false;
+    }
+  }
+
+  async sendNotificationToParent(
+    parentId: string,
+    title: string,
+    message: string,
+    type: string = 'admin_message',
+    priority: string = 'medium',
+    data: any = {}
+  ): Promise<boolean> {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/notify/parent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          parentId,
+          title,
+          message,
+          type,
+          priority,
+          data
+        })
+      });
+      return response.ok;
+    } catch (error) {
+      console.error('Error sending notification to parent:', error);
+      return false;
+    }
+  }
+
+  async broadcastToAllTeachers(
+    title: string,
+    message: string,
+    type: string = 'admin_announcement',
+    priority: string = 'medium',
+    data: any = {}
+  ): Promise<boolean> {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/notify/broadcast/teachers`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          title,
+          message,
+          type,
+          priority,
+          data
+        })
+      });
+      return response.ok;
+    } catch (error) {
+      console.error('Error broadcasting to teachers:', error);
+      return false;
+    }
+  }
+
+  async broadcastToAllParents(
+    title: string,
+    message: string,
+    type: string = 'admin_announcement',
+    priority: string = 'medium',
+    data: any = {}
+  ): Promise<boolean> {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/notify/broadcast/parents`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          title,
+          message,
+          type,
+          priority,
+          data
+        })
+      });
+      return response.ok;
+    } catch (error) {
+      console.error('Error broadcasting to parents:', error);
+      return false;
     }
   }
 
