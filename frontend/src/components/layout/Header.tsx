@@ -65,8 +65,17 @@ const Header: React.FC<HeaderProps> = ({
 
     const fetchNotificationCount = async () => {
       try {
-        // Use same logic as NotificationDropdown for consistency
-        const messages = await notificationService.getInboxMessages(currentUser.uid, userRole || '');
+        // Use role-specific logic for consistency
+        let messages = [];
+        if (userRole === 'admin') {
+          // Use admin-specific unread count
+          const unreadCount = await notificationService.getAdminUnreadCount();
+          setUnreadNotificationCount(unreadCount);
+          return;
+        } else {
+          // Use same logic as NotificationDropdown for consistency
+          messages = await notificationService.getInboxMessages(currentUser.uid, userRole || '');
+        }
         
         // Apply same filtering logic as NotificationDropdown
         const filteredInboxMessages = messages.filter(msg => {
@@ -119,8 +128,23 @@ const Header: React.FC<HeaderProps> = ({
     let unsubscribeRequests: (() => void) | null = null;
     
     try {
-      // Listen to inbox messages
-      unsubscribeInbox = notificationService.subscribeToInboxMessages(currentUser.uid, userRole || '', async (messages) => {
+      // Listen to inbox messages based on user role
+      if (userRole === 'admin') {
+        // For admin users, poll for unread count every 30 seconds
+        const adminPollInterval = setInterval(async () => {
+          try {
+            const unreadCount = await notificationService.getAdminUnreadCount();
+            setUnreadNotificationCount(unreadCount);
+          } catch (error) {
+            console.debug('Error polling admin unread count:', error);
+          }
+        }, 30000); // Poll every 30 seconds
+        
+        // Store interval ID for cleanup
+        (window as any).adminNotificationPoll = adminPollInterval;
+      } else {
+        // Listen to inbox messages for other roles
+        unsubscribeInbox = notificationService.subscribeToInboxMessages(currentUser.uid, userRole || '', async (messages) => {
         // Apply same filtering logic as NotificationDropdown
         const filteredInboxMessages = messages.filter(msg => {
           if (msg.isArchived) return false;
@@ -149,7 +173,8 @@ const Header: React.FC<HeaderProps> = ({
         });
         
         setUnreadNotificationCount(totalUnreadCount);
-      });
+        });
+      }
 
       // For teachers and parents, also listen to link requests changes
       if (userRole === 'teacher' || userRole === 'parent') {
@@ -230,6 +255,11 @@ const Header: React.FC<HeaderProps> = ({
         }
         if (unsubscribeRequests) {
           unsubscribeRequests();
+        }
+        // Clean up admin polling interval
+        if ((window as any).adminNotificationPoll) {
+          clearInterval((window as any).adminNotificationPoll);
+          delete (window as any).adminNotificationPoll;
         }
       } catch (error) {
         console.debug('Error unsubscribing from notifications:', error);

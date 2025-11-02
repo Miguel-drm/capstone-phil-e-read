@@ -561,6 +561,10 @@ app.get('/api/test', (req, res) => {
 
     app.use('/api/teachers', teacherRoutes);
     app.use('/api/parents', parentRoutes);
+    
+    // Import and use admin routes
+    const adminRoutes = await import('./routes/adminRoutes.js');
+    app.use('/api/admin', adminRoutes.default);
 
     // Removed OpenAI Whisper transcription route; using external Python Vosk WS instead
 

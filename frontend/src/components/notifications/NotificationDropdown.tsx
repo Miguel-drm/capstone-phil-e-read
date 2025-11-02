@@ -78,11 +78,12 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
           setIsMultiStudentReviewOpen(true);
         }
       } else {
-        alert('ISR data not found or invalid.');
+        // Silently handle missing ISR data - don't show alert
+        console.error('ISR data not found or invalid for message:', messageId);
       }
     } catch (error) {
       console.error('Error loading ISR:', error);
-      alert('Error loading ISR data.');
+      // Silently handle error - don't show alert
     }
   };
 
@@ -555,11 +556,23 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
     const fetchData = async () => {
       setLoading(true);
       try {
-        // Fetch new inbox messages
-        const messages = await notificationService.getInboxMessages(currentUser.uid, userRole || '').catch(error => {
-          console.error('Error fetching inbox messages:', error);
-          return [];
-        });
+        // Fetch inbox messages based on user role
+        let messages: InboxMessage[] = [];
+        
+        if (userRole === 'admin') {
+          // Use admin-specific API endpoints
+          messages = await notificationService.getAdminNotifications().catch(error => {
+            console.error('Error fetching admin notifications:', error);
+            return [];
+          });
+        } else {
+          // Use existing inbox messages for other roles
+          messages = await notificationService.getInboxMessages(currentUser.uid, userRole || '').catch(error => {
+            console.error('Error fetching inbox messages:', error);
+            return [];
+          });
+        }
+        
         // Use simplified filtering logic
         const filteredForInbox = messages.filter(m => shouldBeInInbox(m, userRole || ''));
         setInboxMessages(filteredForInbox);
@@ -567,11 +580,19 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
 
         // Note: unreadCount is now calculated using inboxCount for consistency
 
-        // Fetch archived messages
-        const archived = await notificationService.getArchivedMessages(currentUser.uid, userRole || '').catch(error => {
-          console.debug('Error fetching archived messages:', error);
-          return [];
-        });
+        // Fetch archived messages based on user role
+        let archived: InboxMessage[] = [];
+        if (userRole === 'admin') {
+          archived = await notificationService.getAdminArchivedMessages().catch(error => {
+            console.debug('Error fetching admin archived messages:', error);
+            return [];
+          });
+        } else {
+          archived = await notificationService.getArchivedMessages(currentUser.uid, userRole || '').catch(error => {
+            console.debug('Error fetching archived messages:', error);
+            return [];
+          });
+        }
         setArchivedMessages(archived);
 
         // If user is a teacher or parent, also fetch link requests
@@ -1192,7 +1213,13 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
   const handleMarkMessageAsRead = async (messageId: string) => {
     try {
       console.log('Marking message as read:', messageId, 'for user role:', userRole);
-      await notificationService.markMessageAsRead(messageId, userRole || '');
+      
+      // Use admin-specific method for admin users
+      if (userRole === 'admin') {
+        await notificationService.markAdminMessageAsRead(messageId);
+      } else {
+        await notificationService.markMessageAsRead(messageId, userRole || '');
+      }
 
       // Update the message in inbox messages to mark as read
       setInboxMessages(prev =>
@@ -1295,7 +1322,10 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
     setArchiveLoading(prev => new Set(prev).add(messageId));
 
     try {
-      const success = await notificationService.archiveMessage(messageId, userRole || '');
+      // Use admin-specific method for admin users
+      const success = userRole === 'admin' 
+        ? await notificationService.archiveAdminMessage(messageId)
+        : await notificationService.archiveMessage(messageId, userRole || '');
       if (success) {
         // Show success feedback
         console.log('Message archived successfully');
@@ -2091,9 +2121,9 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
 
     return (
       <div
-        className={`group relative overflow-hidden rounded-lg transition-all duration-200 hover:shadow-lg hover:scale-[1.02] cursor-pointer ${isAdminSent
-          ? 'bg-gray-50 border border-gray-200 hover:bg-gray-100'
-          : 'bg-white border border-gray-200 hover:bg-gray-50'
+        className={`group relative overflow-hidden rounded-lg transition-all duration-200 cursor-pointer ${isAdminSent
+          ? 'bg-gray-50 border border-gray-200'
+          : 'bg-white border border-gray-200'
           } shadow-sm`}
         onClick={handleAdminMessageClick}
       >
@@ -2194,7 +2224,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
               ))}
             </div>
             {/* Click indicator for interactive messages */}
-            <div className="mt-2 text-xs text-blue-600 opacity-70 group-hover:opacity-100 transition-opacity">
+            <div className="mt-2 text-xs text-blue-600 opacity-70">
               {actualMessageType === 'teacher_report' ? 'Click to review ISR' : 'Click to view content'}
             </div>
           </div>
