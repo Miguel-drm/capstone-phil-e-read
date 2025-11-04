@@ -157,42 +157,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
     }
   };
 
-  const handleRequestRevisionFromNotification = async (message: string, issues: string[]) => {
-    if (!selectedISR || !currentUser) return;
-
-    setIsApproving(true);
-    try {
-      const success = await isrService.requestRevision(
-        selectedISR.id,
-        currentUser.uid,
-        currentUser.displayName || 'Admin',
-        issues,
-        message
-      );
-
-      if (success) {
-        setIsISRViewerOpen(false);
-        setIsMultiStudentReviewOpen(false);
-        setSelectedISR(null);
-        setSelectedStudent(null);
-
-        // Refresh notifications
-        if (currentUser?.uid) {
-          const messages = await notificationService.getInboxMessages(currentUser.uid, userRole || '');
-          setInboxMessages(messages.filter(msg => shouldBeInInbox(msg, userRole || '')));
-        }
-
-        alert('Revision request sent successfully! The teacher will be notified.');
-      } else {
-        alert('Failed to send revision request.');
-      }
-    } catch (error) {
-      console.error('Error requesting revision:', error);
-      alert('Error requesting revision.');
-    } finally {
-      setIsApproving(false);
-    }
-  };
+  // Revision features removed - teachers can only submit complete ISR reports
 
   const handleQuickApproveISR = async (messageId: string) => {
     if (!currentUser) return;
@@ -534,15 +499,15 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
   const recentCount = useMemo(() => {
     // Calculate the exact count that matches what's displayed in the Recent section
     const recentMessages = allInboxMessages.filter(msg => shouldBeInRecent(msg, userRole || ''));
-    const nonRepliedRequests = recentRequests.filter(request => request.status !== 'replied');
-    const totalCount = nonRepliedRequests.length + recentMessages.length;
+    // Include all recent requests (approved, rejected, and replied) for accurate count
+    const totalCount = recentRequests.length + recentMessages.length;
 
     console.log('Recent count calculation:', {
       userRole,
-      nonRepliedRequests: nonRepliedRequests.length,
+      recentRequests: recentRequests.length,
+      recentRequestsDetails: recentRequests.map(r => ({ id: r.id, status: r.status })),
       recentMessages: recentMessages.length,
       totalCount,
-      allRecentRequests: recentRequests.length,
       allInboxMessages: allInboxMessages.length
     });
 
@@ -3166,7 +3131,8 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                 // Recent (approved/rejected/replied)
                 <>
                   {(() => {
-                    const recentMessages = (userRole === 'parent' || userRole === 'admin') ? allInboxMessages.filter(msg => shouldBeInRecent(msg, userRole)) : [];
+                    // Include recent messages for all roles (teacher, parent, admin)
+                    const recentMessages = allInboxMessages.filter(msg => shouldBeInRecent(msg, userRole || ''));
                     const hasRecentMessages = recentRequests.length > 0 || recentMessages.length > 0;
 
                     console.log('Recent section check:', {
@@ -3175,7 +3141,8 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                       recentMessagesLength: recentMessages.length,
                       hasRecentMessages,
                       allInboxMessagesLength: allInboxMessages.length,
-                      inboxMessagesLength: inboxMessages.length
+                      inboxMessagesLength: inboxMessages.length,
+                      recentMessagesDetails: recentMessages.map(m => ({ id: m.id, title: m.title, isRead: m.isRead, status: (m as any).status }))
                     });
 
                     if (!hasRecentMessages) {
@@ -3255,22 +3222,59 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                           </div>
                         ))}
 
-                        {/* Show other recent requests - only non-replied messages */}
+                        {/* Show other recent requests - include all statuses (approved, rejected, replied) */}
                         {recentRequests.map((request) => {
-                          // Skip replied messages - they should be handled differently
-                          if (request.status === 'replied') {
-                            return null; // Don't show generic replied cards
-                          } else if (userRole === 'teacher' || userRole === 'parent') {
-                            return (
-                              <RejectedLinkRequestCard
-                                key={request.id}
-                                request={request}
-                                variant="recent"
-                                onMarkedSeen={(id) => {
-                                  setRecentRequests(prev => prev.map(r => r.id === id ? ({ ...r, seenByTeacher: true } as any) : r));
-                                }}
-                              />
-                            );
+                          if (userRole === 'teacher' || userRole === 'parent') {
+                            // For teachers and parents, show all recent requests including replied ones
+                            if (request.status === 'replied') {
+                              // Show replied messages as a special card
+                              return (
+                                <div
+                                  key={request.id}
+                                  className="p-3 rounded-lg border bg-gray-50 border-gray-200"
+                                >
+                                  <div className="flex items-start gap-3">
+                                    <div className="flex-shrink-0 mt-0.5">
+                                      <ChatBubbleLeftRightIcon className="h-5 w-5 text-green-600" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                          <p className="text-sm font-medium text-gray-900 mb-1">
+                                            {request.childName || 'Link Request'}
+                                          </p>
+                                          <p className="text-xs text-gray-600 mb-2">
+                                            {request.message || 'Link request conversation'}
+                                          </p>
+                                          {request.teacherReplied && (
+                                            <div className="text-xs text-green-700 bg-green-50 p-2 rounded mb-2">
+                                              <strong>Your reply:</strong> {request.teacherReplyText || 'Replied'}
+                                            </div>
+                                          )}
+                                          <p className="text-xs text-gray-500">
+                                            From: {request.parentEmail || 'Parent'} • Grade {request.gradeLevel} - {request.sectionName}
+                                          </p>
+                                        </div>
+                                        <span className="text-xs text-gray-400 ml-2">
+                                          {formatDistanceToNow(safeToDate(request.createdAt), { addSuffix: true })}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            } else {
+                              return (
+                                <RejectedLinkRequestCard
+                                  key={request.id}
+                                  request={request}
+                                  variant="recent"
+                                  onMarkedSeen={(id) => {
+                                    setRecentRequests(prev => prev.map(r => r.id === id ? ({ ...r, seenByTeacher: true } as any) : r));
+                                  }}
+                                />
+                              );
+                            }
                           } else {
                             // For admins, show approved messages
                             return (
@@ -3504,7 +3508,6 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
         <MultiStudentISRReview
           submission={selectedISR}
           onApproveAll={handleApproveISRFromNotification}
-          onRequestRevision={handleRequestRevisionFromNotification}
           onClose={() => {
             setIsMultiStudentReviewOpen(false);
             setSelectedISR(null);

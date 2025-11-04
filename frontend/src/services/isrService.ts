@@ -21,17 +21,11 @@ export interface ISRSubmissionData {
   section: string;
   studentCount: number;
   submissionDate: Date;
-  status: 'pending' | 'approved' | 'rejected' | 'revision_requested';
+  status: 'pending' | 'approved' | 'rejected';
   students: ISRStudentData[];
   adminComments?: string;
   reviewedBy?: string;
   reviewedAt?: Date;
-  revisionRequest?: {
-    requestedBy: string;
-    requestedAt: Date;
-    issues: string[];
-    message: string;
-  };
 }
 
 export interface ISRStudentData {
@@ -44,6 +38,8 @@ export interface ISRStudentData {
   language: 'English' | 'Filipino';
   readingData: {
     level: string;
+    levelStarted?: boolean; // true if this is the starting level (shows *)
+    set?: 'A' | 'B' | 'C' | 'D';
     wordReading: {
       ind: boolean;
       ins: boolean;
@@ -68,9 +64,435 @@ export interface ISRStudentData {
 }
 
 class ISRService {
+  // Create complete class ISR submission
+  async createCompleteClassISR(): Promise<void> {
+    try {
+      console.log('[createCompleteClassISR] Creating complete class ISR submission...');
+      
+      // Create perfect submission
+      const perfectSubmission = {
+        type: 'teacher_report',
+        senderId: 'teacher_001',
+        senderName: 'Maria Santos',
+        title: 'ISR Submission - Grade 3 Mabini (Complete)',
+        message: 'Complete ISR submission for Grade 3 - Section Mabini with all students having complete data and assessments',
+        createdAt: serverTimestamp(),
+        data: {
+          reportType: 'class_isr',
+          submissionData: {
+            teacherId: 'teacher_001',
+            teacherName: 'Maria Santos',
+            className: 'Grade 3 - Section Mabini',
+            grade: '3',
+            section: 'Mabini',
+            studentCount: 5,
+            status: 'pending',
+            students: [
+              {
+                studentId: 'student_001',
+                studentName: 'Juan Dela Cruz',
+                age: '9',
+                gradeSection: '3-Mabini',
+                school: 'Bagong Silang Elementary School',
+                teacher: 'Maria Santos',
+                language: 'English',
+                readingData: [
+                  {
+                    level: 'K',
+                    levelStarted: true, // * mark here
+                    set: 'A',
+                    wordReading: { ind: true, ins: false, frus: false },
+                    comprehension: { ind: true, ins: false, frus: false },
+                    dateTaken: '2024-11-01'
+                  },
+                  {
+                    level: 'I',
+                    levelStarted: false,
+                    set: 'A',
+                    wordReading: { ind: true, ins: false, frus: false },
+                    comprehension: { ind: true, ins: false, frus: false },
+                    dateTaken: '2024-11-01'
+                  },
+                  {
+                    level: 'II',
+                    levelStarted: false,
+                    set: 'B',
+                    wordReading: { ind: true, ins: false, frus: false },
+                    comprehension: { ind: true, ins: false, frus: false },
+                    dateTaken: '2024-11-01'
+                  },
+                  {
+                    level: 'III',
+                    levelStarted: false,
+                    set: 'A',
+                    wordReading: { ind: true, ins: false, frus: false },
+                    comprehension: { ind: true, ins: false, frus: false },
+                    dateTaken: '2024-11-01'
+                  }
+                ],
+                observations: {
+                  wordByWord: false,
+                  lacksExpression: false,
+                  hardlyAudible: false,
+                  disregardsPunctuation: false,
+                  pointsToWords: false,
+                  littleAnalysis: false,
+                  otherObservations: 'Excellent reading fluency and comprehension. Student demonstrates strong independent reading skills across multiple grade levels.'
+                }
+              },
+              {
+                studentId: 'student_002',
+                studentName: 'Ana Reyes',
+                age: '8',
+                gradeSection: '3-Mabini',
+                school: 'Bagong Silang Elementary School',
+                teacher: 'Maria Santos',
+                language: 'Filipino',
+                readingData: [
+                  {
+                    level: 'K',
+                    levelStarted: false,
+                    set: 'B',
+                    wordReading: { ind: true, ins: false, frus: false },
+                    comprehension: { ind: true, ins: false, frus: false },
+                    dateTaken: '2024-11-01'
+                  },
+                  {
+                    level: 'I',
+                    levelStarted: true, // * mark here
+                    set: 'B',
+                    wordReading: { ind: true, ins: false, frus: false },
+                    comprehension: { ind: true, ins: false, frus: false },
+                    dateTaken: '2024-11-01'
+                  },
+                  {
+                    level: 'II',
+                    levelStarted: false,
+                    set: 'C',
+                    wordReading: { ind: false, ins: true, frus: false },
+                    comprehension: { ind: false, ins: true, frus: false },
+                    dateTaken: '2024-11-01'
+                  },
+                  {
+                    level: 'III',
+                    levelStarted: false,
+                    set: 'A',
+                    wordReading: { ind: false, ins: false, frus: true },
+                    comprehension: { ind: false, ins: false, frus: true },
+                    dateTaken: '2024-11-01'
+                  }
+                ],
+                observations: {
+                  wordByWord: true,
+                  lacksExpression: false,
+                  hardlyAudible: false,
+                  disregardsPunctuation: false,
+                  pointsToWords: false,
+                  littleAnalysis: false,
+                  otherObservations: 'Good progress with instructional level reading at Grade II. Shows improvement in comprehension skills.'
+                }
+              },
+              {
+                studentId: 'student_003',
+                studentName: 'Pedro Garcia',
+                age: '9',
+                gradeSection: '3-Mabini',
+                school: 'Bagong Silang Elementary School',
+                teacher: 'Maria Santos',
+                language: 'English',
+                readingData: [
+                  {
+                    level: 'K',
+                    levelStarted: false,
+                    set: 'C',
+                    wordReading: { ind: true, ins: false, frus: false },
+                    comprehension: { ind: true, ins: false, frus: false },
+                    dateTaken: '2024-11-01'
+                  },
+                  {
+                    level: 'I',
+                    levelStarted: false,
+                    set: 'D',
+                    wordReading: { ind: false, ins: true, frus: false },
+                    comprehension: { ind: false, ins: true, frus: false },
+                    dateTaken: '2024-11-01'
+                  },
+                  {
+                    level: 'II',
+                    levelStarted: true, // * mark here
+                    set: 'B',
+                    wordReading: { ind: false, ins: false, frus: true },
+                    comprehension: { ind: false, ins: false, frus: true },
+                    dateTaken: '2024-11-01'
+                  }
+                ],
+                observations: {
+                  wordByWord: true,
+                  lacksExpression: true,
+                  hardlyAudible: true,
+                  disregardsPunctuation: true,
+                  pointsToWords: true,
+                  littleAnalysis: true,
+                  otherObservations: 'Reading at Grade I instructional level. Requires additional support for Grade II and above. Recommend one-on-one tutoring sessions.'
+                }
+              },
+              {
+                studentId: 'student_004',
+                studentName: 'Maria Cruz',
+                age: '8',
+                gradeSection: '3-Mabini',
+                school: 'Bagong Silang Elementary School',
+                teacher: 'Maria Santos',
+                language: 'Filipino',
+                readingData: [
+                  {
+                    level: 'K',
+                    levelStarted: false,
+                    set: 'A',
+                    wordReading: { ind: true, ins: false, frus: false },
+                    comprehension: { ind: true, ins: false, frus: false },
+                    dateTaken: '2024-11-01'
+                  },
+                  {
+                    level: 'I',
+                    levelStarted: false,
+                    set: 'A',
+                    wordReading: { ind: true, ins: false, frus: false },
+                    comprehension: { ind: true, ins: false, frus: false },
+                    dateTaken: '2024-11-01'
+                  },
+                  {
+                    level: 'II',
+                    levelStarted: true, // * mark here
+                    set: 'A',
+                    wordReading: { ind: true, ins: false, frus: false },
+                    comprehension: { ind: true, ins: false, frus: false },
+                    dateTaken: '2024-11-01'
+                  },
+                  {
+                    level: 'III',
+                    levelStarted: false,
+                    set: 'B',
+                    wordReading: { ind: true, ins: false, frus: false },
+                    comprehension: { ind: true, ins: false, frus: false },
+                    dateTaken: '2024-11-01'
+                  },
+                  {
+                    level: 'IV',
+                    levelStarted: false,
+                    set: 'C',
+                    wordReading: { ind: false, ins: true, frus: false },
+                    comprehension: { ind: false, ins: true, frus: false },
+                    dateTaken: '2024-11-01'
+                  }
+                ],
+                observations: {
+                  wordByWord: false,
+                  lacksExpression: false,
+                  hardlyAudible: false,
+                  disregardsPunctuation: false,
+                  pointsToWords: false,
+                  littleAnalysis: false,
+                  otherObservations: 'Strong independent reader in Filipino up to Grade III level. Shows instructional level at Grade IV. Excellent comprehension and fluency.'
+                }
+              },
+              {
+                studentId: 'student_005',
+                studentName: 'Carlos Santos',
+                age: '9',
+                gradeSection: '3-Mabini',
+                school: 'Bagong Silang Elementary School',
+                teacher: 'Maria Santos',
+                language: 'English',
+                readingData: [
+                  {
+                    level: 'K',
+                    levelStarted: false,
+                    set: 'D',
+                    wordReading: { ind: true, ins: false, frus: false },
+                    comprehension: { ind: true, ins: false, frus: false },
+                    dateTaken: '2024-11-01'
+                  },
+                  {
+                    level: 'I',
+                    levelStarted: false,
+                    set: 'D',
+                    wordReading: { ind: true, ins: false, frus: false },
+                    comprehension: { ind: true, ins: false, frus: false },
+                    dateTaken: '2024-11-01'
+                  },
+                  {
+                    level: 'II',
+                    levelStarted: false,
+                    set: 'C',
+                    wordReading: { ind: true, ins: false, frus: false },
+                    comprehension: { ind: true, ins: false, frus: false },
+                    dateTaken: '2024-11-01'
+                  },
+                  {
+                    level: 'III',
+                    levelStarted: true, // * mark here
+                    set: 'A',
+                    wordReading: { ind: false, ins: true, frus: false },
+                    comprehension: { ind: false, ins: true, frus: false },
+                    dateTaken: '2024-11-01'
+                  }
+                ],
+                observations: {
+                  wordByWord: false,
+                  lacksExpression: false,
+                  hardlyAudible: false,
+                  disregardsPunctuation: false,
+                  pointsToWords: false,
+                  littleAnalysis: false,
+                  otherObservations: 'Independent reader up to Grade II level. Performing at instructional level for Grade III. Shows steady progress with guided reading activities.'
+                }
+              }
+            ]
+          }
+        }
+      };
+
+      // Add perfect submission to adminInbox
+      await addDoc(collection(db, 'adminInbox'), perfectSubmission);
+      
+      console.log('[createCompleteClassISR] Successfully created complete class ISR submission');
+    } catch (error) {
+      console.error('[createCompleteClassISR] Error creating complete submission:', error);
+      throw error;
+    }
+  }
+
+  // Create class ISR with random missing data
+  async createIncompleteClassISR(): Promise<void> {
+    try {
+      console.log('[createIncompleteClassISR] Creating class ISR with missing data...');
+      
+      // Create submission with missing data
+      const incompleteSubmission = {
+        type: 'teacher_report',
+        senderId: 'teacher_002',
+        senderName: 'Jose Rizal',
+        title: 'ISR Submission - Grade 2 Bonifacio (Incomplete)',
+        message: 'ISR submission for Grade 2 - Section Bonifacio with missing student data',
+        createdAt: serverTimestamp(),
+        data: {
+          reportType: 'class_isr',
+          submissionData: {
+            teacherId: 'teacher_002',
+            teacherName: 'Jose Rizal',
+            className: 'Grade 2 - Section Bonifacio',
+            grade: '2',
+            section: 'Bonifacio',
+            studentCount: 4,
+            status: 'pending',
+            students: [
+              {
+                studentId: 'student_004',
+                studentName: 'Lisa Cruz',
+                // Missing age
+                gradeSection: '2-Bonifacio',
+                school: 'Bagong Silang Elementary School',
+                teacher: 'Jose Rizal',
+                language: 'English',
+                readingData: [{
+                  level: 'Grade 2',
+                  wordReading: { ind: true, ins: false, frus: false },
+                  comprehension: { ind: true, ins: false, frus: false },
+                  // Missing dateTaken
+                }],
+                observations: {
+                  wordByWord: false,
+                  lacksExpression: false,
+                  hardlyAudible: false,
+                  disregardsPunctuation: false,
+                  pointsToWords: false,
+                  littleAnalysis: false,
+                  otherObservations: '' // Empty observations
+                }
+              },
+              {
+                studentId: 'student_005',
+                studentName: 'Mark Santos',
+                age: '7',
+                gradeSection: '2-Bonifacio',
+                school: 'Bagong Silang Elementary School',
+                teacher: 'Jose Rizal',
+                language: 'Filipino',
+                // Missing readingData completely
+                readingData: [],
+                observations: {
+                  wordByWord: false,
+                  lacksExpression: false,
+                  hardlyAudible: false,
+                  disregardsPunctuation: false,
+                  pointsToWords: false,
+                  littleAnalysis: false,
+                  otherObservations: 'Assessment not completed'
+                }
+              },
+              {
+                studentId: 'student_006',
+                studentName: 'Rosa Mendoza',
+                age: '8',
+                // Missing gradeSection
+                school: 'Bagong Silang Elementary School',
+                teacher: 'Jose Rizal',
+                language: 'English',
+                readingData: [{
+                  level: 'Grade 2',
+                  wordReading: { ind: false, ins: true, frus: false },
+                  comprehension: { ind: false, ins: true, frus: false },
+                  dateTaken: '2024-11-02'
+                }],
+                // Missing observations completely
+              },
+              {
+                studentId: 'student_007',
+                studentName: 'Carlos Reyes',
+                age: '7',
+                gradeSection: '2-Bonifacio',
+                // Missing school
+                teacher: 'Jose Rizal',
+                // Missing language
+                readingData: [{
+                  level: 'Grade 2',
+                  // Missing wordReading data
+                  comprehension: { ind: false, ins: false, frus: true },
+                  dateTaken: '2024-11-02'
+                }],
+                observations: {
+                  wordByWord: true,
+                  lacksExpression: true,
+                  hardlyAudible: false,
+                  disregardsPunctuation: true,
+                  pointsToWords: false,
+                  littleAnalysis: true,
+                  otherObservations: 'Needs additional support'
+                }
+              }
+            ]
+          }
+        }
+      };
+
+      // Add incomplete submission to adminInbox
+      await addDoc(collection(db, 'adminInbox'), incompleteSubmission);
+      
+      console.log('[createIncompleteClassISR] Successfully created incomplete class ISR submission');
+    } catch (error) {
+      console.error('[createIncompleteClassISR] Error creating incomplete submission:', error);
+      throw error;
+    }
+  }
+
+
+
   // Get all ISR submissions from adminInbox
   async getISRSubmissions(filter: 'all' | 'pending' | 'approved' | 'rejected' = 'all'): Promise<ISRSubmissionData[]> {
     try {
+      console.log('[getISRSubmissions] Fetching all teacher_report messages from adminInbox...');
+      
       // Use the simplest possible query to avoid any index requirements
       // We'll sort and filter in memory
       const q = query(
@@ -79,35 +501,89 @@ class ISRService {
       );
 
       const snapshot = await getDocs(q);
+      console.log(`[getISRSubmissions] Found ${snapshot.docs.length} teacher_report messages`);
+      
       const submissions: ISRSubmissionData[] = [];
 
       for (const docSnap of snapshot.docs) {
         const data = docSnap.data();
         
-        // Only include ISR reports (class or individual)
-        if (data.data?.reportType === 'class_isr' || data.data?.reportType === 'individual_isr') {
+        // Check if this is an ISR report - look for various indicators
+        const isISRReport = 
+          data.data?.reportType === 'class_isr' || 
+          data.data?.reportType === 'individual_isr' ||
+          data.data?.submissionData?.reportType === 'class_isr' ||
+          data.data?.submissionData?.reportType === 'individual_isr' ||
+          data.data?.students || 
+          data.data?.submissionData?.students ||
+          data.data?.className || 
+          data.data?.submissionData?.className ||
+          data.message?.toLowerCase().includes('isr') ||
+          data.title?.toLowerCase().includes('isr');
+        
+        if (isISRReport) {
+          // Try to get data from different possible locations in the structure
+          const submissionData = data.data?.submissionData || data.data || {};
+          
+          console.log(`[getISRSubmissions] Processing ISR report ${docSnap.id}:`, {
+            hasSubmissionData: !!data.data?.submissionData,
+            hasData: !!data.data,
+            hasStudents: !!(submissionData.students || data.data?.students),
+            studentCount: (submissionData.students || data.data?.students)?.length || 0
+          });
+          
+          // Parse student data - try different locations
+          let students: ISRStudentData[] = [];
+          if (submissionData.students && Array.isArray(submissionData.students)) {
+            // Direct access to students array in submissionData
+            students = submissionData.students.map((student: any, index: number) => 
+              this.parseIndividualStudent(student, submissionData, index));
+            console.log(`[getISRSubmissions] Parsed ${students.length} students from submissionData.students`);
+          } else if (data.data?.students && Array.isArray(data.data.students)) {
+            // Students in data.data
+            students = data.data.students.map((student: any, index: number) => 
+              this.parseIndividualStudent(student, data.data, index));
+            console.log(`[getISRSubmissions] Parsed ${students.length} students from data.data.students`);
+          } else {
+            // Try parseStudentData as fallback
+            students = this.parseStudentData(submissionData);
+            console.log(`[getISRSubmissions] Parsed ${students.length} students using parseStudentData fallback`);
+          }
+          
           const submission: ISRSubmissionData = {
             id: docSnap.id,
-            teacherId: data.senderId || data.data?.teacherId || 'unknown',
-            teacherName: data.senderName || data.data?.teacherName || 'Unknown Teacher',
-            className: data.data?.className || `Grade ${data.data?.grade} - ${data.data?.section}`,
-            grade: data.data?.grade || 'N/A',
-            section: data.data?.section || 'N/A',
-            studentCount: data.data?.studentCount || data.data?.students?.length || 1,
+            teacherId: data.senderId || submissionData.teacherId || data.data?.teacherId || 'unknown',
+            teacherName: data.senderName || submissionData.teacherName || data.data?.teacherName || 'Unknown Teacher',
+            className: submissionData.className || data.data?.className || data.message?.split('for ')?.[1]?.split(' (')?.[0] || 'Unknown Class',
+            grade: submissionData.grade || data.data?.grade || submissionData.className?.match(/Grade\s*(\w+)/i)?.[1] || 'N/A',
+            section: submissionData.section || data.data?.section || submissionData.className?.match(/Section\s*(\w+)/i)?.[1] || 'N/A',
+            studentCount: submissionData.studentCount || data.data?.studentCount || students.length || data.data?.students?.length || 1,
             submissionDate: data.createdAt?.toDate() || new Date(),
-            status: data.data?.status || 'pending',
-            students: this.parseStudentData(data.data),
-            adminComments: data.data?.adminComments,
-            reviewedBy: data.data?.reviewedBy,
-            reviewedAt: data.data?.reviewedAt?.toDate()
+            status: submissionData.status || data.data?.status || 'pending',
+            students: students,
+            adminComments: submissionData.adminComments || data.data?.adminComments,
+            reviewedBy: submissionData.reviewedBy || data.data?.reviewedBy,
+            reviewedAt: submissionData.reviewedAt?.toDate ? submissionData.reviewedAt.toDate() : (data.data?.reviewedAt?.toDate ? data.data.reviewedAt.toDate() : undefined)
           };
+          
+          console.log(`[getISRSubmissions] Processing submission ${docSnap.id}:`, {
+            teacherName: submission.teacherName,
+            className: submission.className,
+            studentCount: submission.studentCount,
+            status: submission.status,
+            hasStudents: submission.students.length > 0
+          });
           
           if (filter === 'all' || submission.status === filter) {
             submissions.push(submission);
           }
+        } else {
+          console.log(`[getISRSubmissions] Skipping message ${docSnap.id} - not identified as ISR report`);
         }
       }
 
+      console.log(`[getISRSubmissions] Returning ${submissions.length} submissions after filtering`);
+      
       // Sort submissions by submission date (newest first)
       return submissions.sort((a, b) => b.submissionDate.getTime() - a.submissionDate.getTime());
     } catch (error) {
@@ -123,25 +599,54 @@ class ISRService {
       const docSnap = await getDoc(docRef);
       
       if (!docSnap.exists()) {
+        console.log(`[getISRSubmission] Document ${submissionId} does not exist`);
         return null;
       }
 
       const data = docSnap.data();
       
+      // Try to get data from different possible locations in the structure
+      const submissionData = data.data?.submissionData || data.data || {};
+      
+      console.log(`[getISRSubmission] Fetching submission ${submissionId}:`, {
+        hasSubmissionData: !!data.data?.submissionData,
+        hasData: !!data.data,
+        hasStudents: !!(submissionData.students || data.data?.students),
+        studentCount: (submissionData.students || data.data?.students)?.length || 0
+      });
+      
+      // Parse student data - try different locations, preserving all fields
+      let students: ISRStudentData[] = [];
+      if (submissionData.students && Array.isArray(submissionData.students)) {
+        // Direct access to students array in submissionData
+        students = submissionData.students.map((student: any, index: number) => 
+          this.parseIndividualStudent(student, submissionData, index));
+        console.log(`[getISRSubmission] Parsed ${students.length} students from submissionData.students`);
+      } else if (data.data?.students && Array.isArray(data.data.students)) {
+        // Students in data.data
+        students = data.data.students.map((student: any, index: number) => 
+          this.parseIndividualStudent(student, data.data, index));
+        console.log(`[getISRSubmission] Parsed ${students.length} students from data.data.students`);
+      } else {
+        // Try parseStudentData as fallback
+        students = this.parseStudentData(submissionData);
+        console.log(`[getISRSubmission] Parsed ${students.length} students using parseStudentData fallback`);
+      }
+      
       return {
         id: docSnap.id,
-        teacherId: data.senderId || data.data?.teacherId || 'unknown',
-        teacherName: data.senderName || data.data?.teacherName || 'Unknown Teacher',
-        className: data.data?.className || `Grade ${data.data?.grade} - ${data.data?.section}`,
-        grade: data.data?.grade || 'N/A',
-        section: data.data?.section || 'N/A',
-        studentCount: data.data?.studentCount || data.data?.students?.length || 1,
+        teacherId: data.senderId || submissionData.teacherId || data.data?.teacherId || 'unknown',
+        teacherName: data.senderName || submissionData.teacherName || data.data?.teacherName || 'Unknown Teacher',
+        className: submissionData.className || data.data?.className || data.message?.split('for ')?.[1]?.split(' (')?.[0] || 'Unknown Class',
+        grade: submissionData.grade || data.data?.grade || submissionData.className?.match(/Grade\s*(\w+)/i)?.[1] || 'N/A',
+        section: submissionData.section || data.data?.section || submissionData.className?.match(/Section\s*(\w+)/i)?.[1] || 'N/A',
+        studentCount: submissionData.studentCount || data.data?.studentCount || students.length || data.data?.students?.length || 1,
         submissionDate: data.createdAt?.toDate() || new Date(),
-        status: data.data?.status || 'pending',
-        students: this.parseStudentData(data.data),
-        adminComments: data.data?.adminComments,
-        reviewedBy: data.data?.reviewedBy,
-        reviewedAt: data.data?.reviewedAt?.toDate()
+        status: submissionData.status || data.data?.status || 'pending',
+        students: students,
+        adminComments: submissionData.adminComments || data.data?.adminComments,
+        reviewedBy: submissionData.reviewedBy || data.data?.reviewedBy,
+        reviewedAt: submissionData.reviewedAt?.toDate ? submissionData.reviewedAt.toDate() : (data.data?.reviewedAt?.toDate ? data.data.reviewedAt.toDate() : undefined)
       };
     } catch (error) {
       console.error('Error fetching ISR submission:', error);
@@ -212,124 +717,7 @@ class ISRService {
     }
   }
 
-  // Request revision for ISR submission
-  async requestRevision(
-    submissionId: string, 
-    adminId: string, 
-    adminName: string, 
-    issues: string[], 
-    message: string
-  ): Promise<boolean> {
-    try {
-      const docRef = doc(db, 'adminInbox', submissionId);
-      
-      // Get the current submission to extract teacher info
-      const submission = await this.getISRSubmission(submissionId);
-      if (!submission) {
-        throw new Error('Submission not found');
-      }
-
-      // Update the submission status to revision_requested
-      await updateDoc(docRef, {
-        'data.status': 'revision_requested',
-        'data.reviewedBy': adminId,
-        'data.reviewedAt': serverTimestamp(),
-        'data.revisionRequest': {
-          requestedBy: adminId,
-          requestedByName: adminName,
-          requestedAt: serverTimestamp(),
-          issues: issues,
-          message: message
-        },
-        'isRead': true
-      });
-
-      // Create a notification for the teacher
-      await this.createRevisionNotification(submission, adminName, issues, message);
-
-      return true;
-    } catch (error) {
-      console.error('Error requesting revision:', error);
-      return false;
-    }
-  }
-
-  // Create notification for teacher about revision request
-  private async createRevisionNotification(
-    submission: ISRSubmissionData,
-    adminName: string,
-    issues: string[],
-    message: string
-  ): Promise<void> {
-    try {
-      console.log('Creating revision notification for teacher:', {
-        teacherId: submission.teacherId,
-        teacherName: submission.teacherName,
-        className: submission.className,
-        submissionId: submission.id
-      });
-
-      // Create notification in teacher's notifications collection
-      const notificationData = {
-        userId: submission.teacherId, // Changed from recipientId to userId to match notification service
-        recipientId: submission.teacherId,
-        recipientType: 'teacher',
-        type: 'revision_request',
-        title: 'ISR Revision Requested',
-        message: `Your ISR submission for ${submission.className} needs revision. Please review the feedback and resubmit.`,
-        data: {
-          submissionId: submission.id,
-          className: submission.className,
-          grade: submission.grade,
-          section: submission.section,
-          adminName: adminName,
-          issues: issues,
-          customMessage: message,
-          originalSubmissionDate: submission.submissionDate
-        },
-        isRead: false,
-        createdAt: serverTimestamp(),
-        priority: 'high'
-      };
-
-      const notificationRef = await addDoc(collection(db, 'notifications'), notificationData);
-      console.log('Notification created with ID:', notificationRef.id);
-
-      // Also create an entry in the teacher's inbox for detailed view
-      const inboxData = {
-        recipientId: submission.teacherId,
-        teacherId: submission.teacherId,
-        senderId: 'admin',
-        senderRole: 'admin',
-        senderName: adminName,
-        type: 'revision_request',
-        title: 'ISR Revision Request',
-        message: `Revision requested for ${submission.className}`,
-        category: 'teacher_reports',
-        data: {
-          submissionId: submission.id,
-          className: submission.className,
-          grade: submission.grade,
-          section: submission.section,
-          adminName: adminName,
-          issues: issues,
-          customMessage: message,
-          requestedAt: serverTimestamp()
-        },
-        isRead: false,
-        isArchived: false,
-        createdAt: serverTimestamp(),
-        priority: 'high'
-      };
-
-      const inboxRef = await addDoc(collection(db, 'teacherInbox'), inboxData);
-      console.log('Teacher inbox entry created with ID:', inboxRef.id);
-
-    } catch (error) {
-      console.error('Error creating revision notification:', error);
-      throw error;
-    }
-  }
+  // Revision features removed - teachers can only submit complete ISR reports, so revisions are not needed
 
   // Debug method to check teacher notifications
   async debugTeacherNotifications(teacherId: string): Promise<void> {
@@ -438,35 +826,129 @@ class ISRService {
 
     // Handle class ISR (multiple students)
     if (submissionData.reportType === 'class_isr' && submissionData.students) {
-      return submissionData.students.map((student: any) => this.parseIndividualStudent(student, submissionData));
+      return submissionData.students.map((student: any, index: number) => 
+        this.parseIndividualStudent(student, submissionData, index));
     }
 
     // Handle individual ISR (single student)
     if (submissionData.reportType === 'individual_isr') {
-      return [this.parseIndividualStudent(submissionData, submissionData)];
+      return [this.parseIndividualStudent(submissionData, submissionData, 0)];
+    }
+
+    // Fallback: If students array exists but no reportType, treat as class ISR
+    if (submissionData.students && Array.isArray(submissionData.students) && submissionData.students.length > 0) {
+      return submissionData.students.map((student: any, index: number) => 
+        this.parseIndividualStudent(student, submissionData, index));
+    }
+
+    // Fallback: If it looks like a single student record (has studentName or name), treat as individual
+    if (submissionData.studentName || submissionData.name) {
+      return [this.parseIndividualStudent(submissionData, submissionData, 0)];
     }
 
     return [];
   }
 
-  private parseIndividualStudent(studentData: any, submissionData: any): ISRStudentData {
+  private parseIndividualStudent(studentData: any, submissionData: any, index?: number): ISRStudentData {
+    // Generate a more unique studentId if missing
+    const baseId = studentData.studentId || 
+                   studentData.id || 
+                   studentData.originalStudentData?.id ||
+                   (studentData.studentName || studentData.name || `student-${index || Date.now()}`);
+    const uniqueId = typeof baseId === 'string' && baseId !== 'unknown' 
+      ? baseId 
+      : `student-${studentData.studentName || studentData.name || 'unknown'}-${index || Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Extract grade and section from various possible locations
+    const grade = submissionData.grade || 
+                  submissionData.className?.match(/Grade\s*(\w+)/i)?.[1] ||
+                  studentData.gradeSection?.match(/Grade\s*(\w+)/i)?.[1] ||
+                  studentData.originalStudentData?.grade?.match(/Grade\s*(\w+)/i)?.[1] ||
+                  'N/A';
+    
+    const section = submissionData.section || 
+                    submissionData.className?.match(/Section\s*(\w+)/i)?.[1] ||
+                    studentData.gradeSection?.match(/Section\s*(\w+)/i)?.[1] ||
+                    studentData.originalStudentData?.grade?.match(/Section\s*(\w+)/i)?.[1] ||
+                    '';
+    
+    const gradeSection = studentData.gradeSection || 
+                         (grade !== 'N/A' && section ? `Grade ${grade} - ${section}` : 
+                          grade !== 'N/A' ? `Grade ${grade}` : 
+                          submissionData.className || '');
+    
+    // Extract age - preserve exactly as submitted
+    const age = studentData.age || 
+                studentData.originalStudentData?.age?.toString() || 
+                '';
+    
+    // Extract school name - preserve exactly as submitted
+    const school = studentData.school || 
+                   submissionData.schoolName || 
+                   'Unknown School';
+    
+    // Extract teacher name - preserve exactly as submitted
+    const teacher = studentData.teacher || 
+                   submissionData.teacherName || 
+                   'Unknown Teacher';
+    
+    // Extract language - preserve exactly as submitted
+    const language = studentData.language || 
+                     submissionData.language || 
+                     'Filipino';
+    
+    // Parse reading data - preserve all assessment data exactly as submitted
+    let readingData = studentData.readingData;
+    if (!readingData || !Array.isArray(readingData) || readingData.length === 0) {
+      // Fallback to parsing if not already in correct format
+      readingData = this.parseReadingData(studentData);
+    } else {
+      // Ensure reading data is in correct format with all fields
+      readingData = readingData.map((rd: any) => ({
+        level: rd.level || 'Current',
+        wordReading: {
+          ind: rd.wordReading?.ind || false,
+          ins: rd.wordReading?.ins || false,
+          frus: rd.wordReading?.frus || false
+        },
+        comprehension: {
+          ind: rd.comprehension?.ind || false,
+          ins: rd.comprehension?.ins || false,
+          frus: rd.comprehension?.frus || false
+        },
+        dateTaken: rd.dateTaken || new Date().toLocaleDateString(),
+        set: rd.set || ''
+      }));
+    }
+    
+    // Extract observations - preserve exactly as submitted
+    const observations = studentData.observations || {
+      wordByWord: false,
+      lacksExpression: false,
+      hardlyAudible: false,
+      disregardsPunctuation: false,
+      pointsToWords: false,
+      littleAnalysis: false,
+      otherObservations: ''
+    };
+    
     return {
-      studentId: studentData.studentId || 'unknown',
+      studentId: uniqueId,
       studentName: studentData.studentName || studentData.name || 'Unknown Student',
-      age: studentData.age || '',
-      gradeSection: `Grade ${submissionData.grade} - ${submissionData.section}`,
-      school: submissionData.schoolName || 'Unknown School',
-      teacher: submissionData.teacherName || 'Unknown Teacher',
-      language: studentData.language || submissionData.language || 'Filipino',
-      readingData: this.parseReadingData(studentData),
+      age: age,
+      gradeSection: gradeSection,
+      school: school,
+      teacher: teacher,
+      language: language as 'English' | 'Filipino',
+      readingData: readingData,
       observations: {
-        wordByWord: studentData.observations?.wordByWord || false,
-        lacksExpression: studentData.observations?.lacksExpression || false,
-        hardlyAudible: studentData.observations?.hardlyAudible || false,
-        disregardsPunctuation: studentData.observations?.disregardsPunctuation || false,
-        pointsToWords: studentData.observations?.pointsToWords || false,
-        littleAnalysis: studentData.observations?.littleAnalysis || false,
-        otherObservations: studentData.observations?.otherObservations || ''
+        wordByWord: observations.wordByWord || false,
+        lacksExpression: observations.lacksExpression || false,
+        hardlyAudible: observations.hardlyAudible || false,
+        disregardsPunctuation: observations.disregardsPunctuation || false,
+        pointsToWords: observations.pointsToWords || false,
+        littleAnalysis: observations.littleAnalysis || false,
+        otherObservations: observations.otherObservations || ''
       }
     };
   }
