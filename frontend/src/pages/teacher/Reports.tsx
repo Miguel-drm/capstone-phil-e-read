@@ -454,6 +454,366 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     setCollapsedClasses(new Set(allClassNames));
   };
 
+  // Test submission handler for admin testing
+  const handleTestSubmission = async (type: 'complete' | 'incomplete') => {
+    if (!currentUser?.uid) {
+      alert('❌ User not authenticated. Please log in again.');
+      return;
+    }
+
+    try {
+      console.log(`Creating ${type} ISR test submission...`);
+      
+      // Get teacher profile for sender name
+      const teacherProfile = await getUserProfile();
+      const teacherName = teacherProfile?.displayName || teacherProfile?.email || 'Test Teacher';
+      const schoolName = teacherProfile?.school || 'Phil I-Ready Test School';
+
+      if (type === 'complete') {
+        // Create perfect complete ISR submission
+        const completeSubmissionData = {
+          reportType: 'class_isr',
+          className: 'Grade 4 - Diamond (Test)',
+          grade: '4',
+          section: 'Diamond',
+          teacherId: currentUser.uid,
+          teacherName: `${teacherName} (Test)`,
+          schoolName: schoolName,
+          studentCount: 5,
+          students: [
+            {
+              studentId: 'STU001',
+              studentName: 'Juan Dela Cruz',
+              age: '9',
+              gradeSection: '4-Diamond',
+              school: schoolName,
+              teacher: `${teacherName} (Test)`,
+              language: 'Filipino' as const,
+              readingData: [
+                {
+                  level: 'III',
+                  levelStarted: true,
+                  set: 'A' as const,
+                  wordReading: { ind: true, ins: false, frus: false },
+                  comprehension: { ind: true, ins: false, frus: false },
+                  dateTaken: '2024-11-01'
+                },
+                {
+                  level: 'IV',
+                  levelStarted: false,
+                  set: 'B' as const,
+                  wordReading: { ind: true, ins: false, frus: false },
+                  comprehension: { ind: true, ins: false, frus: false },
+                  dateTaken: '2024-11-01'
+                }
+              ],
+              observations: {
+                wordByWord: false,
+                lacksExpression: false,
+                hardlyAudible: false,
+                disregardsPunctuation: false,
+                pointsToWords: false,
+                littleAnalysis: false,
+                otherObservations: 'Excellent progress. Strong vocabulary and fluent reading. Reading Score: 95%, Comprehension Score: 92%.'
+              }
+            },
+            {
+              studentId: 'STU002',
+              studentName: 'Maria Garcia',
+              age: '9',
+              gradeSection: '4-Diamond',
+              school: schoolName,
+              teacher: `${teacherName} (Test)`,
+              language: 'English' as const,
+              readingData: [
+                {
+                  level: 'II',
+                  levelStarted: false,
+                  set: 'B' as const,
+                  wordReading: { ind: true, ins: false, frus: false },
+                  comprehension: { ind: true, ins: false, frus: false },
+                  dateTaken: '2024-11-01'
+                },
+                {
+                  level: 'III',
+                  levelStarted: true,
+                  set: 'A' as const,
+                  wordReading: { ind: false, ins: true, frus: false },
+                  comprehension: { ind: false, ins: true, frus: false },
+                  dateTaken: '2024-11-01'
+                }
+              ],
+              observations: {
+                wordByWord: false,
+                lacksExpression: true,
+                hardlyAudible: false,
+                disregardsPunctuation: false,
+                pointsToWords: false,
+                littleAnalysis: false,
+                otherObservations: 'Good progress. Focus on fluency improvement. Reading Score: 87%, Comprehension Score: 85%.'
+              }
+            },
+            {
+              studentId: 'STU003',
+              studentName: 'Carlos Reyes',
+              age: '8',
+              gradeSection: '4-Diamond',
+              school: schoolName,
+              teacher: `${teacherName} (Test)`,
+              language: 'Filipino' as const,
+              readingData: [
+                {
+                  level: 'I',
+                  levelStarted: false,
+                  set: 'C' as const,
+                  wordReading: { ind: true, ins: false, frus: false },
+                  comprehension: { ind: true, ins: false, frus: false },
+                  dateTaken: '2024-11-01'
+                },
+                {
+                  level: 'II',
+                  levelStarted: true,
+                  set: 'A' as const,
+                  wordReading: { ind: false, ins: true, frus: false },
+                  comprehension: { ind: false, ins: false, frus: true },
+                  dateTaken: '2024-11-01'
+                }
+              ],
+              observations: {
+                wordByWord: true,
+                lacksExpression: true,
+                hardlyAudible: false,
+                disregardsPunctuation: true,
+                pointsToWords: true,
+                littleAnalysis: true,
+                otherObservations: 'Needs continued support with fluency and comprehension. Shows effort. Reading Score: 78%, Comprehension Score: 75%.'
+              }
+            },
+            {
+              studentId: 'STU004',
+              studentName: 'Ana Mendoza',
+              age: '9',
+              gradeSection: '4-Diamond',
+              school: schoolName,
+              teacher: `${teacherName} (Test)`,
+              language: 'English' as const,
+              readingData: [
+                {
+                  level: 'IV',
+                  levelStarted: true,
+                  set: 'A' as const,
+                  wordReading: { ind: true, ins: false, frus: false },
+                  comprehension: { ind: true, ins: false, frus: false },
+                  dateTaken: '2024-11-01'
+                },
+                {
+                  level: 'V',
+                  levelStarted: false,
+                  set: 'B' as const,
+                  wordReading: { ind: false, ins: true, frus: false },
+                  comprehension: { ind: true, ins: false, frus: false },
+                  dateTaken: '2024-11-01'
+                }
+              ],
+              observations: {
+                wordByWord: false,
+                lacksExpression: false,
+                hardlyAudible: false,
+                disregardsPunctuation: false,
+                pointsToWords: false,
+                littleAnalysis: false,
+                otherObservations: 'Excellent reader. Ready for challenging materials. Reading Score: 93%, Comprehension Score: 90%.'
+              }
+            },
+            {
+              studentId: 'STU005',
+              studentName: 'Pedro Villanueva',
+              age: '10',
+              gradeSection: '4-Diamond',
+              school: schoolName,
+              teacher: `${teacherName} (Test)`,
+              language: 'Filipino' as const,
+              readingData: [
+                {
+                  level: 'II',
+                  levelStarted: false,
+                  set: 'C' as const,
+                  wordReading: { ind: true, ins: false, frus: false },
+                  comprehension: { ind: true, ins: false, frus: false },
+                  dateTaken: '2024-11-01'
+                },
+                {
+                  level: 'III',
+                  levelStarted: true,
+                  set: 'A' as const,
+                  wordReading: { ind: false, ins: true, frus: false },
+                  comprehension: { ind: false, ins: true, frus: false },
+                  dateTaken: '2024-11-01'
+                }
+              ],
+              observations: {
+                wordByWord: false,
+                lacksExpression: false,
+                hardlyAudible: false,
+                disregardsPunctuation: false,
+                pointsToWords: false,
+                littleAnalysis: false,
+                otherObservations: 'Good progress. Continue with current level materials. Reading Score: 82%, Comprehension Score: 80%.'
+              }
+            }
+          ],
+          submissionDate: new Date().toISOString(),
+          status: 'pending'
+        };
+
+        // Send complete ISR submission to admin
+        const notificationId = await notificationService.sendISRSubmissionToAdmin(
+          currentUser.uid,
+          `${teacherName} (Test)`,
+          'Grade 4 - Diamond (Test)',
+          5,
+          completeSubmissionData
+        );
+
+        if (notificationId) {
+          alert(`✅ Perfect Complete ISR Test Data Submitted to Admin!\n\nDetails:\n- Class: Grade 4 - Diamond (Test)\n- Students: 5 with complete ISR data\n- Teacher: ${teacherName} (Test)\n- All reading assessments completed\n- Comprehensive observations included\n- Notification ID: ${notificationId}`);
+        } else {
+          alert('❌ Failed to submit complete ISR test data to admin.');
+        }
+
+      } else {
+        // Create incomplete ISR submission with missing data
+        const incompleteSubmissionData = {
+          reportType: 'class_isr',
+          className: 'Grade 3 - Ruby (Test)',
+          grade: '3',
+          section: 'Ruby',
+          teacherId: currentUser.uid,
+          teacherName: `${teacherName} (Test)`,
+          schoolName: schoolName,
+          studentCount: 4,
+          students: [
+            {
+              studentId: 'STU006',
+              studentName: 'Lisa Torres',
+              age: '8',
+              gradeSection: '3-Ruby',
+              school: schoolName,
+              teacher: `${teacherName} (Test)`,
+              language: 'English' as const,
+              readingData: [], // Missing reading data
+              observations: {
+                wordByWord: false,
+                lacksExpression: false,
+                hardlyAudible: false,
+                disregardsPunctuation: false,
+                pointsToWords: false,
+                littleAnalysis: false,
+                otherObservations: '' // Missing observations
+              }
+            },
+            {
+              studentId: 'STU007',
+              studentName: 'Miguel Santos',
+              age: '8',
+              gradeSection: '3-Ruby',
+              school: schoolName,
+              teacher: `${teacherName} (Test)`,
+              language: 'Filipino' as const,
+              readingData: [
+                {
+                  level: 'I',
+                  levelStarted: true,
+                  set: 'A' as const,
+                  wordReading: { ind: false, ins: true, frus: false },
+                  comprehension: { ind: false, ins: false, frus: true },
+                  dateTaken: '' // Missing date
+                }
+              ],
+              observations: {
+                wordByWord: true,
+                lacksExpression: false,
+                hardlyAudible: false,
+                disregardsPunctuation: false,
+                pointsToWords: false,
+                littleAnalysis: false,
+                otherObservations: 'Needs more practice with vocabulary.' // Incomplete observations
+              }
+            },
+            {
+              studentId: '', // Missing student ID
+              studentName: 'Rosa Fernandez',
+              age: '7',
+              gradeSection: '3-Ruby',
+              school: schoolName,
+              teacher: `${teacherName} (Test)`,
+              language: 'Filipino' as const,
+              readingData: [
+                {
+                  level: 'K',
+                  levelStarted: true,
+                  set: 'A' as const,
+                  wordReading: { ind: false, ins: false, frus: true },
+                  comprehension: { ind: false, ins: false, frus: true },
+                  dateTaken: '2024-11-01'
+                }
+              ],
+              observations: {
+                wordByWord: true,
+                lacksExpression: true,
+                hardlyAudible: true,
+                disregardsPunctuation: true,
+                pointsToWords: true,
+                littleAnalysis: true,
+                otherObservations: 'Requires intensive support. Eager to learn but needs basic reading skills development.'
+              }
+            },
+            {
+              studentId: 'STU009',
+              studentName: '', // Missing student name
+              age: '', // Missing age
+              gradeSection: '3-Ruby',
+              school: schoolName,
+              teacher: `${teacherName} (Test)`,
+              language: 'English' as const,
+              readingData: [], // No reading data
+              observations: {
+                wordByWord: false,
+                lacksExpression: false,
+                hardlyAudible: false,
+                disregardsPunctuation: false,
+                pointsToWords: false,
+                littleAnalysis: false,
+                otherObservations: '' // Missing observations
+              }
+            }
+          ],
+          submissionDate: new Date().toISOString(),
+          status: 'pending'
+        };
+
+        // Send incomplete ISR submission to admin
+        const notificationId = await notificationService.sendISRSubmissionToAdmin(
+          currentUser.uid,
+          `${teacherName} (Test)`,
+          'Grade 3 - Ruby (Test)',
+          4,
+          incompleteSubmissionData
+        );
+
+        if (notificationId) {
+          alert(`⚠️ Incomplete ISR Test Data Submitted to Admin!\n\nDetails:\n- Class: Grade 3 - Ruby (Test)\n- Students: 4 with missing data\n- Teacher: ${teacherName} (Test)\n- Missing: student names/IDs, reading data, observations\n- Empty assessment dates and incomplete scores\n- Notification ID: ${notificationId}`);
+        } else {
+          alert('❌ Failed to submit incomplete ISR test data to admin.');
+        }
+      }
+
+    } catch (error) {
+      console.error('Error creating test submission:', error);
+      alert(`❌ Error creating ${type} test submission. Please check console for details.`);
+    }
+  };
+
   // Ensure header is not darkened on unmount
   useEffect(() => {
     return () => {
@@ -481,6 +841,23 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
             <option value="quarter">This Quarter</option>
             <option value="year">This Year</option>
           </select>
+          
+          {/* Testing Buttons */}
+          <button
+            onClick={() => handleTestSubmission('complete')}
+            className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors text-sm"
+          >
+            <i className="fas fa-check-circle"></i>
+            Test Complete ISR
+          </button>
+          
+          <button
+            onClick={() => handleTestSubmission('incomplete')}
+            className="flex items-center gap-2 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-medium transition-colors text-sm"
+          >
+            <i className="fas fa-exclamation-triangle"></i>
+            Test Incomplete ISR
+          </button>
         </div>
       </div>
 
@@ -590,65 +967,85 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
 
                               return (
                                 <>
-                                  {/* Test Submit Button */}
-                                  <div className="relative group">
-                                    <button
-                                      onClick={async () => {
-                                        try {
-                                          console.log('TEST: Submit Class ISR to Admin for', className);
 
-                                          // Get teacher profile for sender name
-                                          const teacherProfile = await getUserProfile();
-                                          const teacherName = teacherProfile?.displayName || teacherProfile?.email || 'Unknown Teacher';
-
-                                          // Send notification to admin
-                                          const notificationId = await notificationService.sendISRSubmissionToAdmin(
-                                            currentUser?.uid || '',
-                                            teacherName,
-                                            className,
-                                            classStudents.length,
-                                            {
-                                              students: classStudents.map(student => ({
-                                                id: student.id,
-                                                name: student.name,
-                                                grade: student.grade
-                                              })),
-                                              submissionType: 'test'
-                                            }
-                                          );
-
-                                          if (notificationId) {
-                                            alert(`✅ TEST: Successfully sent ISR submission notification to admin!\n\nDetails:\n- Class: ${className}\n- Students: ${classStudents.length}\n- Teacher: ${teacherName}\n- Notification ID: ${notificationId}`);
-                                          } else {
-                                            alert('❌ Failed to send notification to admin. Check console for errors.');
-                                          }
-                                        } catch (error) {
-                                          console.error('Error sending test notification:', error);
-                                          alert('❌ Error sending notification to admin. Check console for details.');
-                                        }
-                                      }}
-                                      className="px-3 py-1.5 text-xs font-medium rounded-md shadow-sm transition-all duration-200 bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
-                                      aria-label={`Test submit ISR for class ${className} to admin`}
-                                      title="Test submission to admin"
-                                    >
-                                      <i className="fas fa-flask mr-1"></i>
-                                      Test Submit
-                                    </button>
-
-                                    {/* Test Button Tooltip */}
-                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-10">
-                                      Test submit all {classStudents.length} student ISRs to admin
-                                      <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
-                                    </div>
-                                  </div>
 
                                   {/* Original Submit Button */}
                                   <div className="relative group">
                                     <button
-                                      onClick={() => {
+                                      onClick={async () => {
                                         if (isReady) {
-                                          console.log('Submit Class ISR to Admin for', className);
-                                          // TODO: Implement actual submission to admin
+                                          try {
+                                            console.log('Submit Class ISR to Admin for', className);
+                                            
+                                            // Get teacher profile for sender name
+                                            const teacherProfile = await getUserProfile();
+                                            const teacherName = teacherProfile?.displayName || teacherProfile?.email || 'Unknown Teacher';
+                                            
+                                            // Extract grade and section from className
+                                            const gradeMatch = className.match(/Grade\s*(\w+)/i);
+                                            const sectionMatch = className.match(/Section\s*(\w+)/i);
+                                            const grade = gradeMatch ? gradeMatch[1] : '';
+                                            const section = sectionMatch ? sectionMatch[1] : '';
+                                            
+                                            // Generate complete ISR data for each student
+                                            const studentsISRData = await Promise.all(
+                                              classStudents.map(async (student) => {
+                                                const isrData = await getISRDataAsync(student);
+                                                return {
+                                                  studentId: student.id || `student-${student.name}-${Date.now()}`,
+                                                  studentName: student.name?.replace(/\|/g, ' ') || 'Unknown Student',
+                                                  age: student.age?.toString() || '',
+                                                  gradeSection: student.grade || className,
+                                                  school: isrData.school || 'Unknown School',
+                                                  teacher: teacherName,
+                                                  language: isrData.language,
+                                                  levelStarted: isrData.levelStarted,
+                                                  readingData: isrData.readingData,
+                                                  observations: isrData.observations,
+                                                  // Preserve all original student data
+                                                  originalStudentData: {
+                                                    id: student.id,
+                                                    name: student.name,
+                                                    age: student.age,
+                                                    grade: student.grade
+                                                  }
+                                                };
+                                              })
+                                            );
+                                            
+                                            // Prepare complete submission data
+                                            const submissionData = {
+                                              reportType: 'class_isr',
+                                              className: className,
+                                              grade: grade,
+                                              section: section,
+                                              teacherId: currentUser?.uid || '',
+                                              teacherName: teacherName,
+                                              schoolName: teacherProfile?.school || 'Unknown School',
+                                              studentCount: classStudents.length,
+                                              students: studentsISRData,
+                                              submissionDate: new Date().toISOString(),
+                                              status: 'pending'
+                                            };
+                                            
+                                            // Send complete ISR submission to admin
+                                            const notificationId = await notificationService.sendISRSubmissionToAdmin(
+                                              currentUser?.uid || '',
+                                              teacherName,
+                                              className,
+                                              classStudents.length,
+                                              submissionData
+                                            );
+                                            
+                                            if (notificationId) {
+                                              alert(`✅ Successfully submitted ISR reports to admin!\n\nDetails:\n- Class: ${className}\n- Students: ${classStudents.length}\n- Teacher: ${teacherName}\n- Notification ID: ${notificationId}`);
+                                            } else {
+                                              alert('❌ Failed to submit ISR to admin. Please try again.');
+                                            }
+                                          } catch (error) {
+                                            console.error('Error submitting ISR to admin:', error);
+                                            alert('❌ Error submitting ISR to admin. Please check console for details.');
+                                          }
                                         }
                                       }}
                                       disabled={!isReady}

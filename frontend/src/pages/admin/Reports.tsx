@@ -29,7 +29,8 @@ import {
   CloudArrowUpIcon,
   DocumentDuplicateIcon,
   EnvelopeIcon,
-  TagIcon
+  TagIcon,
+  CogIcon
 } from '@heroicons/react/24/outline';
 import {
   HeartIcon as HeartIconSolid
@@ -37,6 +38,7 @@ import {
 import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { studentService } from '../../services/studentService';
+import ReportManagementHub from './ReportManagementHub';
 
 import * as XLSX from 'xlsx';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
@@ -83,7 +85,7 @@ interface ReportData {
 }
 
 const Reports: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'templates' | 'generated' | 'scheduled'>('templates');
+  const [activeTab, setActiveTab] = useState<'templates' | 'generated' | 'scheduled' | 'management'>('templates');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState<ReportTemplate | null>(null);
@@ -1735,7 +1737,8 @@ const Reports: React.FC = () => {
               {[
                 { key: 'templates', label: 'Report Templates', icon: DocumentChartBarIcon },
                 { key: 'generated', label: 'Generated Reports', icon: DocumentArrowDownIcon },
-                { key: 'scheduled', label: 'Scheduled Reports', icon: ClockIcon }
+                { key: 'scheduled', label: 'Scheduled Reports', icon: ClockIcon },
+                { key: 'management', label: 'Report Management', icon: CogIcon }
               ].map(tab => {
                 const Icon = tab.icon;
                 return (
@@ -2337,6 +2340,13 @@ const Reports: React.FC = () => {
               </div>
             </div>
           </div>
+        )}
+
+        {activeTab === 'management' && (
+          <ReportManagementHub 
+            adminId="admin-user-id" // This should come from auth context
+            adminName="System Administrator" // This should come from auth context
+          />
         )}
 
         {/* Generation Progress Modal */}

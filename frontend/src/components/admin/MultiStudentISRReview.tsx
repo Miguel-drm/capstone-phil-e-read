@@ -54,14 +54,13 @@ interface ISRSubmissionData {
   section: string;
   studentCount: number;
   submissionDate: Date;
-  status: 'pending' | 'approved' | 'rejected' | 'revision_requested';
+  status: 'pending' | 'approved' | 'rejected';
   students: ISRStudentData[];
 }
 
 interface MultiStudentISRReviewProps {
   submission: ISRSubmissionData;
   onApproveAll: () => void;
-  onRequestRevision: (message: string, issues: string[]) => void;
   onClose: () => void;
   isLoading?: boolean;
 }
@@ -69,15 +68,11 @@ interface MultiStudentISRReviewProps {
 const MultiStudentISRReview: React.FC<MultiStudentISRReviewProps> = ({
   submission,
   onApproveAll,
-  onRequestRevision,
   onClose,
   isLoading = false
 }) => {
   const [selectedStudentIndex, setSelectedStudentIndex] = useState(0);
   const [showISRViewer, setShowISRViewer] = useState(false);
-  const [showRevisionModal, setShowRevisionModal] = useState(false);
-  const [revisionMessage, setRevisionMessage] = useState('');
-  const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
   const [showAutoSelectNotification, setShowAutoSelectNotification] = useState(false);
 
   // Memoized values for better performance
@@ -203,77 +198,6 @@ const MultiStudentISRReview: React.FC<MultiStudentISRReviewProps> = ({
     };
   }, []);
 
-  const handleRequestRevision = useCallback(() => {
-    setShowRevisionModal(true);
-
-    // Auto-select all detected issues based on comprehensive data analysis
-    const detectedIssues: string[] = [];
-    const issueMapping = {
-      'Age not specified': 'Age not specified for some students',
-      'No reading assessment data': 'Missing reading assessment data',
-      'Word reading level not set': 'Word reading level not set',
-      'Comprehension level not set': 'Comprehension level not set',
-      'Assessment date missing': 'Assessment date missing',
-      'No reading observations recorded': 'No reading observations recorded'
-    };
-
-    // Analyze all students and collect unique issues
-    submission.students.forEach(student => {
-      const analysis = analyzeDataCompleteness(student);
-      
-      // Map analysis issues to modal options
-      analysis.issues.forEach(issue => {
-        const mappedIssue = issueMapping[issue as keyof typeof issueMapping];
-        if (mappedIssue && !detectedIssues.includes(mappedIssue)) {
-          detectedIssues.push(mappedIssue);
-        }
-      });
-
-      // Also check for warnings that should be flagged
-      analysis.warnings.forEach(warning => {
-        const mappedIssue = issueMapping[warning as keyof typeof issueMapping];
-        if (mappedIssue && !detectedIssues.includes(mappedIssue)) {
-          detectedIssues.push(mappedIssue);
-        }
-      });
-    });
-
-    // Check for incomplete student information (general check)
-    const hasIncompleteInfo = submission.students.some(student => 
-      !student.age || !student.studentName || !student.gradeSection
-    );
-    if (hasIncompleteInfo && !detectedIssues.includes('Incomplete student information')) {
-      detectedIssues.push('Incomplete student information');
-    }
-
-    // Auto-select all detected issues
-    setSelectedIssues(detectedIssues);
-    
-    // Show notification if issues were auto-selected
-    if (detectedIssues.length > 0) {
-      setShowAutoSelectNotification(true);
-      setTimeout(() => setShowAutoSelectNotification(false), 3000);
-    }
-  }, [submission.students, analyzeDataCompleteness]);
-
-  const handleSendRevisionRequest = useCallback(() => {
-    if (selectedIssues.length === 0 && !revisionMessage.trim()) {
-      return; // Don't send empty requests
-    }
-
-    onRequestRevision(revisionMessage, selectedIssues);
-    setShowRevisionModal(false);
-    setRevisionMessage('');
-    setSelectedIssues([]);
-  }, [revisionMessage, selectedIssues, onRequestRevision]);
-
-  const handleIssueToggle = useCallback((issue: string) => {
-    setSelectedIssues(prev =>
-      prev.includes(issue)
-        ? prev.filter(i => i !== issue)
-        : [...prev, issue]
-    );
-  }, []);
 
   // Memoized status indicator
   const getStatusIndicator = useCallback((student: ISRStudentData) => {
@@ -725,16 +649,6 @@ const MultiStudentISRReview: React.FC<MultiStudentISRReviewProps> = ({
                 {!isSubmissionApproved && !isSubmissionRejected ? (
                   <>
                     <button
-                      onClick={handleRequestRevision}
-                      className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-500 flex items-center gap-2"
-                      disabled={isLoading}
-                      aria-label="Request revision from teacher"
-                    >
-                      <PencilSquareIcon className="h-4 w-4" />
-                      {isLoading ? 'Processing...' : 'Request Revision'}
-                    </button>
-
-                    <button
                       onClick={onApproveAll}
                       className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-green-500 flex items-center gap-2"
                       disabled={isLoading || dataQualityAnalysis.incomplete > 0}
@@ -750,18 +664,6 @@ const MultiStudentISRReview: React.FC<MultiStudentISRReviewProps> = ({
                 ) : (
                   <>
                     {/* Status buttons showing current state */}
-                    <button
-                      className={`px-4 py-2 rounded-lg flex items-center gap-2 cursor-default ${submission.status === 'revision_requested'
-                        ? 'bg-amber-600 text-white'
-                        : 'bg-gray-200 text-gray-500'
-                        }`}
-                      disabled
-                      aria-label="Revision request status"
-                    >
-                      <PencilSquareIcon className="h-4 w-4" />
-                      REVISION REQUESTED
-                    </button>
-
                     <button
                       className={`px-6 py-2 rounded-lg flex items-center gap-2 cursor-default ${isSubmissionApproved
                         ? 'bg-green-600 text-white'
@@ -788,221 +690,7 @@ const MultiStudentISRReview: React.FC<MultiStudentISRReviewProps> = ({
             />
           )}
 
-          {/* Revision Request Modal */}
-          {showRevisionModal && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[999999] p-4">
-              <div className="bg-white rounded-xl max-w-2xl w-full max-h-[80vh] overflow-hidden shadow-2xl">
-                {/* Modal Header */}
-                <div className="bg-gradient-to-r from-amber-500 to-amber-600 text-white px-6 py-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <PencilSquareIcon className="h-6 w-6" />
-                      <div>
-                        <h3 className="text-lg font-semibold">Request Revision</h3>
-                        <p className="text-amber-100 text-sm">
-                          {submission.className} • {submission.teacherName}
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setShowRevisionModal(false)}
-                      className="text-white hover:text-amber-200 text-2xl font-bold p-1 rounded hover:bg-white hover:bg-opacity-20 transition-colors"
-                    >
-                      ×
-                    </button>
-                  </div>
-                </div>
-
-                {/* Modal Content */}
-                <div className="p-6 overflow-y-auto max-h-[60vh]">
-                  {/* Auto-selection notification */}
-                  {showAutoSelectNotification && selectedIssues.length > 0 && (
-                    <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg animate-pulse">
-                      <div className="flex items-center gap-2">
-                        <CheckIcon className="h-4 w-4 text-green-600" />
-                        <span className="text-sm font-medium text-green-800">
-                          {selectedIssues.length} issue{selectedIssues.length !== 1 ? 's' : ''} automatically detected and selected
-                        </span>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="mb-6">
-                    <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                      <InformationCircleIcon className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                      <div className="text-sm text-blue-800">
-                        <p className="font-medium mb-1">Collaborative Review Process</p>
-                        <p>Instead of rejecting the submission, you can request specific improvements from the teacher. This helps maintain a positive learning environment while ensuring data quality.</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Common Issues Checklist */}
-                  <div className="mb-6">
-                    <div className="flex items-center justify-between mb-3">
-                      <h4 className="font-semibold text-gray-900 flex items-center gap-2">
-                        <ExclamationTriangleIcon className="h-5 w-5 text-amber-600" />
-                        Issues Found (Select all that apply)
-                      </h4>
-                      <div className="flex items-center gap-2">
-                        {selectedIssues.length > 0 && (
-                          <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
-                            <CheckIcon className="h-4 w-4" />
-                            {selectedIssues.length} selected
-                          </div>
-                        )}
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => setSelectedIssues([
-                              'Age not specified for some students',
-                              'Missing reading assessment data',
-                              'Word reading level not set',
-                              'Comprehension level not set',
-                              'Assessment date missing',
-                              'No reading observations recorded',
-                              'Incomplete student information'
-                            ])}
-                            className="text-xs text-amber-600 hover:text-amber-700 px-2 py-1 rounded hover:bg-amber-50 transition-colors"
-                          >
-                            Select All
-                          </button>
-                          <span className="text-gray-300">|</span>
-                          <button
-                            onClick={() => setSelectedIssues([])}
-                            className="text-xs text-gray-600 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-50 transition-colors"
-                          >
-                            Clear All
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {selectedIssues.length > 0 && (
-                      <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                        <div className="flex items-start gap-2">
-                          <InformationCircleIcon className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                          <div className="text-sm text-amber-800">
-                            <p className="font-medium">Issues detected automatically</p>
-                            <p>Based on the data analysis, we've pre-selected the issues found in this submission. You can modify the selection as needed.</p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="space-y-2">
-                      {[
-                        'Age not specified for some students',
-                        'Missing reading assessment data',
-                        'Word reading level not set',
-                        'Comprehension level not set',
-                        'Assessment date missing',
-                        'No reading observations recorded',
-                        'Incomplete student information'
-                      ].map((issue) => {
-                        const isAutoSelected = selectedIssues.includes(issue);
-                        return (
-                          <label 
-                            key={issue} 
-                            className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-all duration-200 ${
-                              isAutoSelected 
-                                ? 'border-amber-300 bg-amber-50 hover:bg-amber-100' 
-                                : 'border-gray-200 hover:bg-gray-50'
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedIssues.includes(issue)}
-                              onChange={() => handleIssueToggle(issue)}
-                              className="w-4 h-4 text-amber-600 border-gray-300 rounded focus:ring-amber-500"
-                            />
-                            <span className={`text-sm flex-1 ${
-                              isAutoSelected ? 'text-amber-900 font-medium' : 'text-gray-700'
-                            }`}>
-                              {issue}
-                            </span>
-                            {isAutoSelected && (
-                              <div className="flex items-center gap-1 text-xs text-amber-700 bg-amber-200 px-2 py-1 rounded-full">
-                                <CheckIcon className="h-3 w-3" />
-                                Auto-detected
-                              </div>
-                            )}
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Custom Message */}
-                  <div className="mb-6">
-                    <label className="block text-sm font-semibold text-gray-900 mb-2">
-                      Additional Message (Optional)
-                    </label>
-                    <textarea
-                      value={revisionMessage}
-                      onChange={(e) => setRevisionMessage(e.target.value)}
-                      placeholder="Add any specific instructions or feedback for the teacher..."
-                      rows={4}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
-                    />
-                  </div>
-
-                  {/* Preview */}
-                  {(selectedIssues.length > 0 || revisionMessage.trim()) && (
-                    <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
-                      <h5 className="font-medium text-gray-900 mb-2 flex items-center gap-2">
-                        <ChatBubbleLeftRightIcon className="h-4 w-4" />
-                        Message Preview
-                      </h5>
-                      <div className="text-sm text-gray-700 space-y-2">
-                        <p>Dear {submission.teacherName},</p>
-                        <p>Thank you for submitting the ISR for {submission.className}. To ensure the highest quality of data, we've identified some areas that need attention:</p>
-
-                        {selectedIssues.length > 0 && (
-                          <ul className="list-disc list-inside space-y-1 ml-4">
-                            {selectedIssues.map((issue, index) => (
-                              <li key={index}>{issue}</li>
-                            ))}
-                          </ul>
-                        )}
-
-                        {revisionMessage.trim() && (
-                          <div className="mt-3 p-2 bg-white border-l-4 border-amber-400 rounded">
-                            <p className="italic">{revisionMessage}</p>
-                          </div>
-                        )}
-
-                        <p className="mt-3">Please review and update the submission when possible. Thank you for your cooperation!</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Modal Footer */}
-                <div className="bg-gray-50 px-6 py-4 flex justify-end gap-3">
-                  <button
-                    onClick={() => setShowRevisionModal(false)}
-                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSendRevisionRequest}
-                    disabled={selectedIssues.length === 0 && !revisionMessage.trim()}
-                    className="px-6 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
-                    title={selectedIssues.length === 0 && !revisionMessage.trim() ? 'Please select at least one issue or add a message' : `Send revision request with ${selectedIssues.length} issue${selectedIssues.length !== 1 ? 's' : ''}`}
-                  >
-                    <PencilSquareIcon className="h-4 w-4" />
-                    Send Revision Request
-                    {selectedIssues.length > 0 && (
-                      <span className="bg-amber-500 text-white text-xs px-2 py-0.5 rounded-full ml-1">
-                        {selectedIssues.length}
-                      </span>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Revision features removed - teachers can only submit complete ISR reports */}
         </div>
       </div>
     </>
