@@ -11,6 +11,7 @@ import Story, { IStory } from './models/Story.js';
 import GridFSService from './services/gridfsService.js';
 import teacherRoutes from './routes/teacherRoutes.js';
 import parentRoutes from './routes/parentRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 import { resultService } from './services/resultService.js';
 import type { Readable } from 'stream';
 // Removed Node Vosk integration; using external Python Vosk WS instead
@@ -562,9 +563,8 @@ app.get('/api/test', (req, res) => {
     app.use('/api/teachers', teacherRoutes);
     app.use('/api/parents', parentRoutes);
     
-    // Import and use admin routes
-    const adminRoutes = await import('./routes/adminRoutes.js');
-    app.use('/api/admin', adminRoutes.default);
+    // Use admin routes
+    app.use('/api/admin', adminRoutes);
 
     // Removed OpenAI Whisper transcription route; using external Python Vosk WS instead
 
