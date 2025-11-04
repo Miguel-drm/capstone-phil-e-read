@@ -3,6 +3,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useLocation } from 'react-router-dom';
 import NotificationDropdown from '../notifications/NotificationDropdown';
 import { notificationService } from '../../services/notificationService';
+import type { UserRole } from '../../services/authService';
 
 interface HeaderProps {
   isMobile: boolean;
@@ -67,7 +68,7 @@ const Header: React.FC<HeaderProps> = ({
       try {
         // Use role-specific logic for consistency
         let messages = [];
-        if (userRole === 'admin') {
+        if ((userRole as UserRole) === 'admin') {
           // Use admin-specific unread count
           const unreadCount = await notificationService.getAdminUnreadCount();
           setUnreadNotificationCount(unreadCount);
@@ -90,7 +91,7 @@ const Header: React.FC<HeaderProps> = ({
         let totalUnreadCount = unreadInboxMessages.length;
         
         // For teachers and parents, also include pending link requests
-        if (userRole === 'teacher' || userRole === 'parent') {
+        if ((userRole as UserRole) === 'teacher' || (userRole as UserRole) === 'parent') {
           try {
             const linkRequests = await notificationService.getAllLinkRequests(currentUser.uid);
             const pendingLinkRequests = linkRequests.filter(request => request.status === 'pending');
@@ -101,7 +102,7 @@ const Header: React.FC<HeaderProps> = ({
         }
         
         // Don't show badge for admin users
-        if (userRole === 'admin') {
+        if ((userRole as UserRole) === 'admin') {
           totalUnreadCount = 0;
         }
         
@@ -129,7 +130,7 @@ const Header: React.FC<HeaderProps> = ({
     
     try {
       // Listen to inbox messages based on user role
-      if (userRole === 'admin') {
+      if ((userRole as UserRole) === 'admin') {
         // For admin users, poll for unread count every 30 seconds
         const adminPollInterval = setInterval(async () => {
           try {
@@ -148,8 +149,8 @@ const Header: React.FC<HeaderProps> = ({
         // Apply same filtering logic as NotificationDropdown
         const filteredInboxMessages = messages.filter(msg => {
           if (msg.isArchived) return false;
-          if (userRole === 'teacher' && msg.senderRole === 'parent' && msg.isRead) return false;
-          if (userRole === 'parent' && msg.senderRole === 'teacher' && msg.isRead) return false;
+          if ((userRole as UserRole) === 'teacher' && msg.senderRole === 'parent' && msg.isRead) return false;
+          if ((userRole as UserRole) === 'parent' && msg.senderRole === 'teacher' && msg.isRead) return false;
           return true;
         });
         
@@ -160,7 +161,7 @@ const Header: React.FC<HeaderProps> = ({
         // No need to fetch them here as it's handled by the link requests listener
         
         // Don't show badge for admin users
-        if (userRole === 'admin') {
+        if ((userRole as UserRole) === 'admin') {
           totalUnreadCount = 0;
         }
         
@@ -177,8 +178,8 @@ const Header: React.FC<HeaderProps> = ({
       }
 
       // For teachers and parents, also listen to link requests changes
-      if (userRole === 'teacher' || userRole === 'parent') {
-        if (userRole === 'teacher') {
+      if ((userRole as UserRole) === 'teacher' || (userRole as UserRole) === 'parent') {
+        if ((userRole as UserRole) === 'teacher') {
           unsubscribeRequests = notificationService.subscribeToLinkRequests(currentUser.uid, async (requests) => {
           try {
             const messages = await notificationService.getInboxMessages(currentUser.uid, userRole || '');
@@ -186,8 +187,8 @@ const Header: React.FC<HeaderProps> = ({
             // Apply same filtering logic as NotificationDropdown
             const filteredInboxMessages = messages.filter(msg => {
               if (msg.isArchived) return false;
-              if (userRole === 'teacher' && msg.senderRole === 'parent' && msg.isRead) return false;
-              if (userRole === 'parent' && msg.senderRole === 'teacher' && msg.isRead) return false;
+              if ((userRole as UserRole) === 'teacher' && msg.senderRole === 'parent' && msg.isRead) return false;
+              if ((userRole as UserRole) === 'parent' && msg.senderRole === 'teacher' && msg.isRead) return false;
               return true;
             });
             
@@ -218,8 +219,8 @@ const Header: React.FC<HeaderProps> = ({
               // Apply same filtering logic as NotificationDropdown
               const filteredInboxMessages = messages.filter(msg => {
                 if (msg.isArchived) return false;
-                if (userRole === 'teacher' && msg.senderRole === 'parent' && msg.isRead) return false;
-                if (userRole === 'parent' && msg.senderRole === 'teacher' && msg.isRead) return false;
+                if ((userRole as UserRole) === 'teacher' && msg.senderRole === 'parent' && msg.isRead) return false;
+                if ((userRole as UserRole) === 'parent' && msg.senderRole === 'teacher' && msg.isRead) return false;
                 return true;
               });
               
