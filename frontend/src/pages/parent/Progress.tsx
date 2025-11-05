@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import PerformanceChart from '../../components/dashboard/teacher/PerformanceChart';
+import ParentProgressChart from '../../components/dashboard/parent/ParentProgressChart';
 import type { Student } from '../../services/studentService';
 import Loader from '../../components/Loader';
 import { formatDateHuman } from '@/utils/date';
@@ -380,14 +380,11 @@ const ProgressPage: React.FC = () => {
           </div>
         ) : (
           children.map(child => (
-              <PerformanceChart 
+              <ParentProgressChart 
                 key={child.id}
-              data={chartDataForChild(child.id)}
-                grades={[]} 
-              students={[child as unknown as Student]}
-              title={`${child.name}'s Learning Progress`}
-                targetLine={85} 
-              showStaticStudentInfo={true}
+                data={chartDataForChild(child.id)}
+                students={[child as unknown as Student]}
+                title={`${child.name}'s Learning Progress`}
               />
           ))
         )}
