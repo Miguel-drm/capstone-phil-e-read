@@ -65,7 +65,6 @@ const Sidebar: React.FC<SidebarProps> = ({
           { path: '/admin/parents', label: 'Parents', icon: 'parents' },
           { path: '/admin/isr', label: 'ISR Records', icon: 'isr' },
           { path: '/admin/reports', label: 'Reports', icon: 'reports' },
-          { path: '/admin/notifications', label: 'Notifications', icon: 'notifications' },
           { path: '/admin/resources', label: 'Resources', icon: 'resources' },
           { path: '/admin/profile', label: 'Profile', icon: 'profile' }
         ];
