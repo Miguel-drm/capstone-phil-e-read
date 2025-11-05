@@ -15,6 +15,7 @@ import {
   writeBatch,
   Timestamp
 } from 'firebase/firestore';
+import Result from '../models/Result.js';
 
 const router = express.Router();
 
@@ -490,6 +491,56 @@ router.get('/stats', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching admin stats:', error);
     res.status(500).json({ error: 'Failed to fetch admin statistics' });
+  }
+});
+
+// Test route to verify admin routes are working
+router.get('/test', async (req: Request, res: Response) => {
+  res.json({ message: 'Admin routes are working!', timestamp: new Date().toISOString() });
+});
+
+// Get all reading results (system-wide) for admin
+router.get('/results/all', async (req: Request, res: Response) => {
+  try {
+    console.log('Admin: Fetching all system-wide results');
+    
+    const results = await Result.find({}).sort({ createdAt: -1 }).exec();
+
+    console.log(`Admin: Found ${results.length} system-wide results`);
+    res.json(results);
+  } catch (error) {
+    console.error('Error fetching all results:', error);
+    res.status(500).json({ error: 'Failed to fetch all results' });
+  }
+});
+
+// Get system-wide reading results for admin progress chart
+router.get('/results/system-wide', async (req: Request, res: Response) => {
+  try {
+    console.log('Admin: Fetching system-wide results for progress chart');
+    
+    const allResults = await Result.find({}).sort({ createdAt: -1 }).exec();
+
+    console.log(`Admin: Found ${allResults.length} total system-wide results`);
+    res.json(allResults);
+  } catch (error) {
+    console.error('Error fetching system-wide results:', error);
+    res.status(500).json({ error: 'Failed to fetch system-wide results' });
+  }
+});
+
+// Get all test results (system-wide) for admin
+router.get('/results/tests/all', async (req: Request, res: Response) => {
+  try {
+    console.log('Admin: Fetching all system-wide test results');
+    
+    const results = await Result.find({ type: 'test' }).sort({ createdAt: -1 }).exec();
+
+    console.log(`Admin: Found ${results.length} system-wide test results`);
+    res.json(results);
+  } catch (error) {
+    console.error('Error fetching all test results:', error);
+    res.status(500).json({ error: 'Failed to fetch all test results' });
   }
 });
 

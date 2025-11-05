@@ -2,7 +2,7 @@ import React, { useEffect, useState, memo, useMemo } from 'react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { studentService, type Student } from '../../../services/studentService';
 import { type ClassGrade } from '../../../services/gradeService';
-import PerformanceChart from '../teacher/PerformanceChart';
+import ParentProgressChart from './ParentProgressChart';
 import { useNavigate } from 'react-router-dom';
 import { 
   BookOpenIcon, 
@@ -718,14 +718,11 @@ const ParentDashboard: React.FC = () => {
               </div>
               <div className="space-y-6">
                 {children.map((child) => (
-                <PerformanceChart
+                <ParentProgressChart
                   key={child.id}
-                    data={chartsByStudentId[child.id as string] || { assessmentPeriods: [], oralReadingScores: [], comprehensionScores: [], readingLevels: [] }}
-                    grades={[{ id: 'g', name: child.grade, description: '', ageRange: '', studentCount: 0, color: 'blue', isActive: true } as ClassGrade]}
+                  data={chartsByStudentId[child.id as string] || { assessmentPeriods: [], oralReadingScores: [], comprehensionScores: [], readingLevels: [] }}
                   students={[child]}
-                    title={`${child.name}'s Learning Progress`}
-                  targetLine={85}
-                  showStaticStudentInfo={true}
+                  title={`${child.name}'s Learning Progress`}
                 />
                 ))}
               </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import StatsCards from './StatsCards';
-import PerformanceChart from './PerformanceChart';
+import TeacherProgressChart from './TeacherProgressChart';
 import UpcomingSessions from './UpcomingSessions';
 import { useAuth } from '../../../contexts/AuthContext';
 import { gradeService, type ClassGrade } from '../../../services/gradeService';
@@ -347,7 +347,7 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
         <PendingLinkRequests />
         {/* Students Performance - full width */}
         <div>
-          <PerformanceChart
+          <TeacherProgressChart
             data={chartData}
             grades={grades}
             students={students}

@@ -13,6 +13,8 @@ export type Result = {
   sessionTitle?: string;
   book?: string;
   gradeId?: string;
+  grade?: string;
+  gradeName?: string;
   students?: string[];
   wordsRead?: number;
   totalWords?: number;
@@ -24,6 +26,11 @@ export type Result = {
   audioUrl?: string;
   storyUrl?: string;
   sessionDate?: Date;
+  // Reading level fields (various possible field names from database)
+  readingLevel?: string | number;
+  reading_level?: string | number;
+  level?: string | number;
+  readingLevelClassification?: string;
   // Test result fields
   testId?: string;
   testName?: string;
@@ -91,6 +98,42 @@ export const resultService = {
     return allResults.filter((r: any) => r.type === 'reading-session');
   },
 
+  async getTeacherTestResults(teacherId: string): Promise<Result[]> {
+    const response = await fetch(`/api/results/teacher/${teacherId}`);
+    if (!response.ok) throw new Error('Failed to fetch teacher test results');
+    const allResults = await response.json();
+    // Filter for test type
+    return allResults.filter((r: any) => r.type === 'test');
+  },
+
+  async getTeacherReadingResultsRealtime(teacherId: string, lastUpdated?: Date): Promise<Result[]> {
+    const url = new URL(`/api/results/teacher/${teacherId}`, window.location.origin);
+    if (lastUpdated) {
+      url.searchParams.append('since', lastUpdated.toISOString());
+    }
+    url.searchParams.append('realtime', 'true');
+
+    const response = await fetch(url.toString());
+    if (!response.ok) throw new Error('Failed to fetch real-time reading session results');
+    const allResults = await response.json();
+    // Filter for reading-session type
+    return allResults.filter((r: any) => r.type === 'reading-session');
+  },
+
+  async getTeacherTestResultsRealtime(teacherId: string, lastUpdated?: Date): Promise<Result[]> {
+    const url = new URL(`/api/results/teacher/${teacherId}`, window.location.origin);
+    if (lastUpdated) {
+      url.searchParams.append('since', lastUpdated.toISOString());
+    }
+    url.searchParams.append('realtime', 'true');
+
+    const response = await fetch(url.toString());
+    if (!response.ok) throw new Error('Failed to fetch real-time teacher test results');
+    const allResults = await response.json();
+    // Filter for test type
+    return allResults.filter((r: any) => r.type === 'test');
+  },
+
   async getCombinedResults(studentId: string): Promise<Result[]> {
     const response = await fetch(`/api/results/combined/${studentId}`);
     if (response.status === 404) return [];
@@ -130,6 +173,29 @@ export const resultService = {
       readingResultId: reading?._id || reading?.id,
       testResultId: test?._id || test?.id,
     };
+  },
+
+  // ADMIN-ONLY: System-wide data fetching methods
+  async getAllReadingSessionResults(): Promise<Result[]> {
+    const response = await fetch('/api/admin/results/all');
+    if (!response.ok) throw new Error('Failed to fetch all reading session results');
+    const allResults = await response.json();
+    // Filter for reading-session type
+    return allResults.filter((r: any) => r.type === 'reading-session');
+  },
+
+  async getAllTestResults(): Promise<Result[]> {
+    const response = await fetch('/api/admin/results/all');
+    if (!response.ok) throw new Error('Failed to fetch all test results');
+    const allResults = await response.json();
+    // Filter for test type
+    return allResults.filter((r: any) => r.type === 'test');
+  },
+
+  async getSystemWideResults(): Promise<Result[]> {
+    const response = await fetch('/api/admin/results/system-wide');
+    if (!response.ok) throw new Error('Failed to fetch system-wide results');
+    return await response.json();
   },
   // The following methods are commented out because they use Firebase/Firestore:
   // async getStudentComprehension(studentId: string): Promise<number | null> { ... }
