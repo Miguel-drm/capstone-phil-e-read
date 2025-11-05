@@ -2885,7 +2885,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
             <BellIcon className="h-5 w-5 text-gray-600" />
             <h3 className="text-lg font-semibold text-gray-900">Notifications</h3>
             {inboxCount > 0 && (
-              <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full animate-pulse">
+              <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">
                 {inboxCount}
               </span>
             )}
