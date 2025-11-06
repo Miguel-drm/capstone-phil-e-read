@@ -285,7 +285,7 @@ const TeacherActivityDashboard: React.FC<{
   totalTeachers: number;
   totalStudents: number;
   totalParents: number;
-}> = ({ totalTeachers, totalStudents, totalParents }) => {
+}> = ({ totalTeachers, totalStudents }) => {
   const [activeView, setActiveView] = useState<'activity' | 'engagement' | 'performance'>('activity');
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts | null>(null);
@@ -1714,10 +1714,10 @@ const AdminDashboard: React.FC = () => {
   // Grades 3–6 only for Phil-IRI visuals
   const gradeLabels = useMemo(() => ['Grade 3', 'Grade 4', 'Grade 5', 'Grade 6'], []);
 
-  const [gradeStudents, setGradeStudents] = useState<number[]>([0,0,0,0]);
-  const [gradeComprehension, setGradeComprehension] = useState<number[]>([0,0,0,0]);
+  const [, setGradeStudents] = useState<number[]>([0,0,0,0]);
+  const [, setGradeComprehension] = useState<number[]>([0,0,0,0]);
 
-  const [readingLevelGrouped, setReadingLevelGrouped] = useState<{ frustration:number[]; instructional:number[]; independent:number[] }>({ frustration:[0,0,0,0], instructional:[0,0,0,0], independent:[0,0,0,0] });
+  const [, setReadingLevelGrouped] = useState<{ frustration:number[]; instructional:number[]; independent:number[] }>({ frustration:[0,0,0,0], instructional:[0,0,0,0], independent:[0,0,0,0] });
 
 
 
