@@ -10,7 +10,7 @@ import { getAllParents, getUserProfile } from '../../services/authService';
 import { notificationService } from '../../services/notificationService';
 import { db } from '../../config/firebase';
 import Loader from '../../components/Loader';
-import { resultService } from '../../services/resultsService';
+
 import PillSelect from '../../components/ui/PillSelect';
 
 const ClassList: React.FC = () => {
@@ -42,6 +42,8 @@ const ClassList: React.FC = () => {
   const [isAddingStudentToGrade, setIsAddingStudentToGrade] = useState(false);
   const [selectedGrades, setSelectedGrades] = useState<string[]>([]);
   const [showArchived, setShowArchived] = useState<boolean>(false);
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', lrn: '' });
 
   // Extract section name from a grade name like "Grade 4 - Narra" => "Narra"
   const getSectionName = (name: string) => {
@@ -494,12 +496,60 @@ const ClassList: React.FC = () => {
   };
 
   const handleEditStudent = async (studentId: string) => {
-    setLoadingStudentId(studentId);
+    const student = students.find(s => s.id === studentId);
+    if (!student) {
+      showError('Not Found', 'Student not found.');
+      return;
+    }
+    
+    setEditingStudent(student);
+    setEditForm({
+      name: student.name || '',
+      lrn: student.lrn || ''
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingStudent?.id) return;
+    
+    // Validate required fields
+    if (!editForm.name.trim()) {
+      showError('Validation Error', 'Student name is required.');
+      return;
+    }
+
     try {
-      // No need to call showInfo here, as it's not used in the new implementation
+      setLoadingStudentId(editingStudent.id);
+      
+      // Update student with only name and LRN
+      await studentService.updateStudent(editingStudent.id, {
+        name: editForm.name.trim(),
+        lrn: editForm.lrn.trim()
+      });
+
+      // Update local state
+      setStudents(prev => prev.map(s => 
+        s.id === editingStudent.id 
+          ? { ...s, name: editForm.name.trim(), lrn: editForm.lrn.trim() }
+          : s
+      ));
+
+      // Close modal
+      setEditingStudent(null);
+      setEditForm({ name: '', lrn: '' });
+      
+      showSuccess('Updated', 'Student information updated successfully.');
+    } catch (error) {
+      console.error('Error updating student:', error);
+      showError('Update Failed', 'Failed to update student information.');
     } finally {
       setLoadingStudentId(null);
     }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingStudent(null);
+    setEditForm({ name: '', lrn: '' });
   };
 
   const handleViewProfile = async (studentId: string) => {
@@ -961,13 +1011,8 @@ const ClassList: React.FC = () => {
           // Enforce unique section name for this teacher (case-insensitive)
           const normalizedSection = section.toLowerCase();
           const duplicate = grades.some(g => {
-            // Check both old format (name field) and new format (section field)
-            if (g.section) {
-              return g.section.toLowerCase() === normalizedSection;
-            } else {
             const existingSection = getSectionName(g.name).toLowerCase();
             return existingSection === normalizedSection;
-            }
           });
           if (duplicate) {
             Swal.showValidationMessage('Section name already exists. Please choose a different section.');
@@ -987,8 +1032,6 @@ const ClassList: React.FC = () => {
       if (formValues) {
         const gradeData = {
           name: formValues.name.trim(),
-          gradeLevel: formValues.gradeLevel,
-          section: formValues.section.trim(),
           description: (formValues.description || '').trim(),
           color: formValues.color,
           isActive: true,
@@ -2036,6 +2079,87 @@ const ClassList: React.FC = () => {
                 <p className="text-xs mt-2">Please upload a valid .xlsx, .xls, or .csv file.</p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Edit Student Modal */}
+      {editingStudent && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">Edit Student</h3>
+              <p className="text-sm text-gray-600 mt-1">Update student name and LRN only</p>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Student Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Enter student name"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  LRN (Learner Reference Number)
+                </label>
+                <input
+                  type="text"
+                  value={editForm.lrn}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, lrn: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Enter LRN (optional)"
+                />
+              </div>
+              
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                <div className="flex items-start">
+                  <i className="fas fa-info-circle text-yellow-600 mt-0.5 mr-2"></i>
+                  <div className="text-sm text-yellow-800">
+                    <p className="font-medium">Note:</p>
+                    <p>Only the student's name and LRN can be modified. Other information like grade, reading level, and age cannot be changed here.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-6 border-t border-gray-200 flex justify-end space-x-3">
+              <button
+                onClick={handleCancelEdit}
+                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                disabled={loadingStudentId === editingStudent.id}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveEdit}
+                disabled={loadingStudentId === editingStudent.id || !editForm.name.trim()}
+                className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${
+                  loadingStudentId === editingStudent.id || !editForm.name.trim()
+                    ? 'bg-gray-400 text-white cursor-not-allowed'
+                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                }`}
+              >
+                {loadingStudentId === editingStudent.id ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-save"></i>
+                    Save Changes
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
