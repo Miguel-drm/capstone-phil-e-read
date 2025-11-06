@@ -1,21 +1,15 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { formatDateHuman } from '@/utils/date';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../config/firebase';
 import { collection, onSnapshot, query, where, addDoc, serverTimestamp, doc } from 'firebase/firestore';
 import { 
-  ClockIcon, 
   DocumentTextIcon,
   PaperAirplaneIcon,
-  EnvelopeIcon,
   PlusIcon,
   CheckCircleIcon,
   UserIcon,
   CalendarIcon,
-  ArrowTrendingUpIcon,
-  BookOpenIcon,
-  StarIcon,
-  SparklesIcon,
   AcademicCapIcon
 } from '@heroicons/react/24/outline';
 
@@ -39,22 +33,7 @@ const ReportsPage: React.FC = () => {
     status?: string;
     senderRole?: string;
   }>>([]);
-  const [metrics, setMetrics] = useState<{ 
-    totalSessions: number; 
-    avgScore: number; 
-    avgWpm: number; 
-    lastUpdated?: Date;
-    improvementTrend: 'up' | 'down' | 'stable';
-    streakDays: number;
-    totalReadingTime: number;
-  }>({ 
-    totalSessions: 0, 
-    avgScore: 0, 
-    avgWpm: 0, 
-    improvementTrend: 'stable',
-    streakDays: 0,
-    totalReadingTime: 0
-  });
+
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
@@ -62,179 +41,9 @@ const ReportsPage: React.FC = () => {
   const [isLoadingTeacher, setIsLoadingTeacher] = useState(false);
   const [reportType, setReportType] = useState<'issue' | 'bug' | 'general'>('issue');
 
-  const shareMailtoHref = useMemo(() => {
-    const to = encodeURIComponent(teacherEmail.trim());
-    
-    const getSubjectLine = () => {
-      if (subject) return subject;
-      const typeLabels = {
-        issue: 'Issue Report',
-        bug: 'Bug Report',
-        general: 'General Inquiry'
-      };
-      return `${typeLabels[reportType]} for ${childName}`;
-    };
-    
-    const subjectLine = encodeURIComponent(getSubjectLine());
-    
-    const getBodyTemplate = () => {
-      const typeTemplates = {
-        issue: [
-          `Dear ${teacherName || 'Teacher'},`,
-          '',
-          `I am writing to report an issue regarding ${childName}:`,
-          '',
-          message || 'Please provide details about the issue you are experiencing.',
-          '',
-          'I would appreciate your assistance in resolving this matter.'
-        ],
-        bug: [
-          `Dear ${teacherName || 'Teacher'},`,
-          '',
-          `I am reporting a technical issue I encountered:`,
-          '',
-          message || 'Please describe the bug or technical problem you experienced.',
-          '',
-          'Thank you for your attention to this matter.'
-        ],
-        general: [
-          `Dear ${teacherName || 'Teacher'},`,
-          '',
-          `I hope this message finds you well.`,
-          '',
-          message || 'Please write your message here.',
-          '',
-          'Thank you for your time.'
-        ]
-      };
-      
-      return [
-        ...typeTemplates[reportType],
-        '',
-        `Best regards,`,
-        `${currentUser?.displayName || currentUser?.email || 'Parent'}`
-      ];
-    };
-    
-    const body = encodeURIComponent(getBodyTemplate().join('\n'));
-    return `mailto:${to}?subject=${subjectLine}&body=${body}`;
-  }, [teacherEmail, teacherName, childName, subject, message, children, selectedChildId, metrics, currentUser, reportType]);
 
-  // Enhanced realtime metrics for parent's children
-  useEffect(() => {
-    if (!currentUser?.uid) return;
-    const studentsQ = query(collection(db, 'students'), where('parentId', '==', currentUser.uid));
-    const unsubStudents = onSnapshot(studentsQ, (snap) => {
-      const childIds = snap.docs.map(d => d.id);
-      if (childIds.length === 0) { 
-        setMetrics({ 
-          totalSessions: 0, 
-          avgScore: 0, 
-          avgWpm: 0, 
-          improvementTrend: 'stable',
-          streakDays: 0,
-          totalReadingTime: 0
-        }); 
-        return; 
-      }
-      
-      // Firestore 'in' queries are limited to 10 items, so we need to handle this properly
-      const batchSize = 10;
-      const batches = [];
-      for (let i = 0; i < childIds.length; i += batchSize) {
-        batches.push(childIds.slice(i, i + batchSize));
-      }
-      
-      // For now, let's just use the first batch to avoid the error
-      // In a production app, you'd want to combine results from multiple batches
-      const firstBatch = batches[0] || [];
-      if (firstBatch.length === 0) {
-        setMetrics({ 
-          totalSessions: 0, 
-          avgScore: 0, 
-          avgWpm: 0, 
-          improvementTrend: 'stable',
-          streakDays: 0,
-          totalReadingTime: 0
-        });
-        return;
-      }
-      
-      const resultsQ = query(collection(db, 'readingResults'), where('studentId', 'in', firstBatch));
-      const unsubResults = onSnapshot(resultsQ, (rs) => {
-        const rows = rs.docs.map(d => d.data() as any);
-        
-        // Calculate comprehensive metrics
-        const scores = rows.map(r => r.oralReadingScore ?? r.accuracy ?? r.score).filter((n: any) => typeof n === 'number') as number[];
-        const wpms = rows.map(r => r.readingSpeed ?? r.wpm ?? r.wordsPerMinute).filter((n: any) => typeof n === 'number') as number[];
-        const readingTimes = rows.map(r => r.readingTime ?? r.duration ?? r.timeSpent).filter((n: any) => typeof n === 'number') as number[];
-        
-        const avg = (arr: number[]) => arr.length ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.length) : 0;
-        const totalReadingTime = readingTimes.reduce((a,b) => a + b, 0);
-        
-        // Calculate improvement trend
-        const sortedScores = scores.sort((a, b) => a - b);
-        const recentScores = sortedScores.slice(-5);
-        const olderScores = sortedScores.slice(0, Math.min(5, sortedScores.length - 5));
-        const recentAvg = recentScores.length ? recentScores.reduce((a,b) => a + b, 0) / recentScores.length : 0;
-        const olderAvg = olderScores.length ? olderScores.reduce((a,b) => a + b, 0) / olderScores.length : 0;
-        
-        let improvementTrend: 'up' | 'down' | 'stable' = 'stable';
-        if (recentAvg > olderAvg + 5) improvementTrend = 'up';
-        else if (recentAvg < olderAvg - 5) improvementTrend = 'down';
-        
-        // Calculate streak (simplified - consecutive days with sessions)
-        const sessionDates = rows
-          .map(r => new Date((r as any).createdAt?.toDate?.() || (r as any).createdAt))
-          .filter(d => !isNaN(d.getTime()))
-          .map(d => d.toDateString())
-          .filter((date, index, arr) => arr.indexOf(date) === index)
-          .sort()
-          .reverse();
-        
-        let streakDays = 0;
-        let currentDate = new Date();
-        for (let i = 0; i < 30; i++) {
-          if (sessionDates.includes(currentDate.toDateString())) {
-            streakDays++;
-            currentDate.setDate(currentDate.getDate() - 1);
-          } else {
-            break;
-          }
-        }
-        
-        const last = rows
-          .map(r => new Date((r as any).createdAt?.toDate?.() || (r as any).createdAt))
-          .filter(d => !isNaN(d.getTime()))
-          .sort((a,b)=> b.getTime()-a.getTime())[0];
-          
-        setMetrics({ 
-          totalSessions: rows.length, 
-          avgScore: avg(scores), 
-          avgWpm: avg(wpms), 
-          lastUpdated: last,
-          improvementTrend,
-          streakDays,
-          totalReadingTime: Math.round(totalReadingTime / 60) // Convert to minutes
-        });
-      }, (error) => {
-        console.warn('Error fetching reading results:', error);
-        setMetrics({ 
-          totalSessions: 0, 
-          avgScore: 0, 
-          avgWpm: 0, 
-          improvementTrend: 'stable',
-          streakDays: 0,
-          totalReadingTime: 0
-        });
-      });
-      return () => unsubResults();
-    }, (error) => {
-      console.warn('Error fetching students:', error);
-      setChildren([]);
-    });
-    return () => unsubStudents();
-  }, [currentUser?.uid]);
+
+
 
   // Load parent's children with enhanced data
   useEffect(() => {
@@ -359,12 +168,12 @@ const ReportsPage: React.FC = () => {
         }
       });
       
-      setSentBanner('Report sent to your child\'s teacher.');
+      setSentBanner('Your report has been sent to the teacher! 📩');
       setTimeout(()=> setSentBanner(null), 3000);
       setMessage('');
     } catch (e) {
       console.error('Error sending report:', e);
-      setSentBanner('Failed to send. Please try again.');
+      setSentBanner('Oops! Something went wrong. Please try sending again.');
       setTimeout(()=> setSentBanner(null), 3000);
     } finally {
       setSending(false);
@@ -445,94 +254,33 @@ const ReportsPage: React.FC = () => {
   }, [currentUser?.uid]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-100">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+    <div className="p-6 space-y-6">
 
-        {/* Header */}
-        <div className="text-center space-y-4">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-full mb-4 shadow-lg">
-            <PaperAirplaneIcon className="w-8 h-8 text-white" />
-          </div>
-          <h1 className="text-4xl font-bold text-blue-900">
-            Parent-Teacher Communication
-          </h1>
-          <p className="text-lg text-blue-700 max-w-2xl mx-auto">
-            Send messages, report issues, or share updates with your child's teacher
-          </p>
-        </div>
-
-        {/* Quick Stats Overview */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white rounded-xl p-4 shadow-md border border-blue-100 hover:shadow-lg transition-all duration-300">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-2xl font-bold text-blue-900">{metrics.totalSessions}</p>
-                <p className="text-sm font-medium text-blue-600">Reading Sessions</p>
-              </div>
-              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                <BookOpenIcon className="w-5 h-5 text-blue-600" />
-              </div>
+        {/* Hero */}
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-red-50 via-orange-50 to-yellow-50 border border-gray-100">
+          <div className="px-6 py-6 sm:px-8 sm:py-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-extrabold text-red-900">Report to Teacher</h2>
+              <p className="text-sm text-red-700 mt-1">Report issues, concerns, or problems to your child's teacher</p>
             </div>
-          </div>
-          
-          <div className="bg-white rounded-xl p-4 shadow-md border border-blue-100 hover:shadow-lg transition-all duration-300">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-2xl font-bold text-blue-900">{metrics.avgScore}%</p>
-                <p className="text-sm font-medium text-blue-600">Average Score</p>
-                {metrics.improvementTrend === 'up' && (
-                  <div className="flex items-center mt-1">
-                    <ArrowTrendingUpIcon className="w-3 h-3 text-green-500 mr-1" />
-                    <span className="text-xs text-green-600 font-medium">Improving</span>
-                  </div>
-                )}
-              </div>
-              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                <StarIcon className="w-5 h-5 text-blue-600" />
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-xl p-4 shadow-md border border-blue-100 hover:shadow-lg transition-all duration-300">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-2xl font-bold text-blue-900">{metrics.avgWpm}</p>
-                <p className="text-sm font-medium text-blue-600">Words Per Minute</p>
-              </div>
-              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                <ClockIcon className="w-5 h-5 text-blue-600" />
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-xl p-4 shadow-md border border-blue-100 hover:shadow-lg transition-all duration-300">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-bold text-blue-900">
-                  {metrics.lastUpdated ? formatDateHuman(metrics.lastUpdated) : 'No data yet'}
-                </p>
-                <p className="text-sm font-medium text-blue-600">Last Session</p>
-                {metrics.streakDays > 0 && (
-                  <div className="flex items-center mt-1">
-                    <SparklesIcon className="w-3 h-3 text-blue-500 mr-1" />
-                    <span className="text-xs text-blue-600 font-medium">{metrics.streakDays} day streak</span>
-                  </div>
-                )}
-              </div>
-              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                <CalendarIcon className="w-5 h-5 text-blue-600" />
+            <div className="flex-shrink-0">
+              <div className="w-12 h-12 bg-red-600 rounded-xl flex items-center justify-center">
+                <PaperAirplaneIcon className="w-6 h-6 text-white" />
               </div>
             </div>
           </div>
         </div>
 
-        {/* Communication Form */}
-        <div className="bg-white rounded-xl shadow-lg border border-blue-100 p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-              <PaperAirplaneIcon className="w-5 h-5 text-white" />
+
+
+        {/* Report Form */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 sm:p-8">
+          <div className="text-center mb-8">
+            <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center mx-auto mb-4">
+              <PaperAirplaneIcon className="w-6 h-6 text-red-600" />
             </div>
-            <h3 className="text-xl font-bold text-blue-900">Send Message to Teacher</h3>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Create New Report</h2>
+            <p className="text-gray-600">Fill out the form below to report an issue to your child's teacher</p>
           </div>
           
           {sentBanner && (
@@ -544,60 +292,63 @@ const ReportsPage: React.FC = () => {
           
           <div className="space-y-4">
             {/* Report Type Selection */}
-            <div>
-              <label className="block text-sm font-semibold text-blue-900 mb-3">Message Type</label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="mb-6">
+              <label className="block text-lg font-semibold text-gray-900 mb-4">What type of report is this?</label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {[
-                  { type: 'issue', label: 'Report Issue', icon: '⚠️' },
-                  { type: 'bug', label: 'Bug Report', icon: '🐛' },
-                  { type: 'general', label: 'General Message', icon: '💬' }
-                ].map(({ type, label, icon }) => (
+                  { type: 'issue', label: 'Learning Issue', desc: 'Problems with reading or learning', icon: '📚', color: 'red' },
+                  { type: 'bug', label: 'Technical Problem', desc: 'App or website not working', icon: '🔧', color: 'yellow' },
+                  { type: 'general', label: 'General Concern', desc: 'Other questions or concerns', icon: '💭', color: 'blue' }
+                ].map(({ type, label, desc, icon, color }) => (
                   <button
                     key={type}
                     onClick={() => setReportType(type as any)}
-                    className={`p-3 rounded-lg border-2 transition-all duration-200 ${
+                    className={`p-4 rounded-xl border-2 transition-all duration-200 text-left ${
                       reportType === type
-                        ? 'border-blue-500 bg-blue-50 text-blue-700'
-                        : 'border-gray-200 bg-white text-gray-600 hover:border-blue-300 hover:bg-blue-50'
+                        ? `border-${color}-500 bg-${color}-50 text-${color}-700`
+                        : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'
                     }`}
                   >
-                    <div className="text-lg mb-1">{icon}</div>
-                    <div className="text-xs font-medium">{label}</div>
+                    <div className="text-2xl mb-2">{icon}</div>
+                    <div className="font-semibold text-sm mb-1">{label}</div>
+                    <div className="text-xs opacity-75">{desc}</div>
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
               <div>
-                <label className="block text-sm font-semibold text-blue-900 mb-2">Select Your Child</label>
+                <label className="block text-lg font-semibold text-gray-900 mb-3">Select your child</label>
                 <select
                   value={selectedChildId}
                   onChange={(e) => setSelectedChildId(e.target.value)}
-                  className="w-full border border-blue-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-blue-50 hover:bg-white transition-colors"
+                  className="w-full border-2 border-gray-300 rounded-xl px-4 py-3 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white hover:bg-gray-50 transition-colors"
                 >
                   {children.map(c => (
                     <option key={c.id} value={c.id}>
-                      {c.name} {c.grade && `(${c.grade})`}
+                      {c.name} {c.grade && `(Grade ${c.grade})`}
                     </option>
                   ))}
                 </select>
               </div>
 
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <UserIcon className="w-4 h-4 text-blue-600" />
+              <div className="p-4 bg-blue-50 border-2 border-blue-200 rounded-xl">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <UserIcon className="w-4 h-4 text-white" />
+                  </div>
                   <div>
-                    <p className="text-sm font-medium text-blue-900">Teacher</p>
+                    <p className="font-semibold text-blue-900 mb-1">Teacher Information</p>
                     {isLoadingTeacher ? (
                       <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin"></div>
-                        <span className="text-xs text-blue-700">Loading...</span>
+                        <div className="w-4 h-4 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin"></div>
+                        <span className="text-sm text-blue-700">Loading teacher info...</span>
                       </div>
                     ) : (
-                      <p className="text-xs text-blue-800">
+                      <p className="text-sm text-blue-800">
                         {teacherName && teacherEmail ? `${teacherName}` : 
-                         teacherEmail ? teacherEmail : 'No teacher assigned'}
+                         teacherEmail ? teacherEmail : 'No teacher assigned yet'}
                       </p>
                     )}
                   </div>
@@ -605,77 +356,75 @@ const ReportsPage: React.FC = () => {
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-semibold text-blue-900 mb-2">Subject (Optional)</label>
+            <div className="mb-6">
+              <label className="block text-lg font-semibold text-gray-900 mb-3">Report title (optional)</label>
               <input
                 type="text"
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
-                placeholder="Enter a subject line or leave blank for auto-generated..."
-                className="w-full border border-blue-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-blue-50 hover:bg-white transition-colors"
+                placeholder="Brief title for your report"
+                className="w-full border-2 border-gray-300 rounded-xl px-4 py-3 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white hover:bg-gray-50 transition-colors"
               />
             </div>
             
-            <div>
-              <label className="block text-sm font-semibold text-blue-900 mb-2">Your Message</label>
+            <div className="mb-8">
+              <label className="block text-lg font-semibold text-gray-900 mb-3">
+                Describe the {reportType === 'issue' ? 'learning issue' : reportType === 'bug' ? 'technical problem' : 'concern'}
+                <span className="text-red-500 ml-1">*</span>
+              </label>
               <textarea
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                rows={6}
+                rows={8}
                 placeholder={
-                  reportType === 'issue' ? "Describe the issue you are experiencing with your child's learning or the system..." :
-                  reportType === 'bug' ? "Describe the technical problem or bug you encountered..." :
-                  "Write your message to the teacher..."
+                  reportType === 'issue' ? "Please describe the learning problem or concern about your child. Include details like when it happens, what you've noticed, and any specific examples." :
+                  reportType === 'bug' ? "Please describe what's not working. Include what you were trying to do, what happened instead, and any error messages you saw." :
+                  "Please describe your concern or question for the teacher. Include any relevant details that would help them understand the situation."
                 }
-                className="w-full border border-blue-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none bg-blue-50 hover:bg-white transition-colors"
+                className="w-full border-2 border-gray-300 rounded-xl px-4 py-3 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none bg-white hover:bg-gray-50 transition-colors"
               />
+              <p className="text-sm text-gray-500 mt-2">Please provide as much detail as possible to help the teacher understand and address your concern.</p>
             </div>
             
-            <div className="flex flex-col sm:flex-row gap-3 justify-end pt-4">
-              <a
-                href={shareMailtoHref}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center justify-center gap-2 ${
-                  teacherEmail.trim() 
-                    ? 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-200' 
-                    : 'bg-gray-50 text-gray-400 cursor-not-allowed border border-gray-100'
-                }`}
-                aria-disabled={!teacherEmail.trim()}
-              >
-                <EnvelopeIcon className="w-4 h-4" />
-                Open Email
-              </a>
-              <button
-                onClick={handleSendToTeacher}
-                disabled={!teacherEmail || sending || !message.trim()}
-                className={`px-6 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center justify-center gap-2 ${
-                  !teacherEmail || sending || !message.trim()
-                    ? 'bg-gray-400 text-white cursor-not-allowed'
-                    : 'bg-blue-600 text-white hover:bg-blue-700 shadow-md hover:shadow-lg'
-                }`}
-              >
-                {sending ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    Sending...
-                  </>
-                ) : (
-                  <>
-                    <PaperAirplaneIcon className="w-4 h-4" />
-                    Send Message
-                  </>
-                )}
-              </button>
+            <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center pt-6 border-t border-gray-200">
+              <div className="flex-1">
+                <p className="text-sm text-gray-600 mb-2">Ready to send your report?</p>
+                <p className="text-xs text-gray-500">Your teacher will receive this report and can respond to you.</p>
+              </div>
+              <div className="flex-shrink-0">
+                <button
+                  onClick={handleSendToTeacher}
+                  disabled={!teacherEmail || sending || !message.trim()}
+                  className={`px-8 py-3 rounded-xl text-base font-semibold transition-all duration-200 flex items-center justify-center gap-3 min-w-[160px] ${
+                    !teacherEmail || sending || !message.trim()
+                      ? 'bg-gray-400 text-white cursor-not-allowed'
+                      : 'bg-red-600 text-white hover:bg-red-700 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5'
+                  }`}
+                >
+                  {sending ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Sending Report...
+                    </>
+                  ) : (
+                    <>
+                      <PaperAirplaneIcon className="w-5 h-5" />
+                      Send Report
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Message History */}
-        <div className="bg-white rounded-xl shadow-lg border border-blue-100 p-6">
+        {/* Previous Reports */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
               <DocumentTextIcon className="w-5 h-5 text-white" />
             </div>
-            <h3 className="text-xl font-bold text-blue-900">Message History</h3>
+            <h3 className="text-xl font-bold text-gray-900">Previous Reports</h3>
           </div>
 
           {isLoadingSaved ? (
@@ -695,12 +444,12 @@ const ReportsPage: React.FC = () => {
             </div>
           ) : savedReports.length === 0 ? (
             <div className="text-center py-12">
-              <div className="w-16 h-16 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-4">
-                <DocumentTextIcon className="w-8 h-8 text-blue-600" />
+              <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <DocumentTextIcon className="w-8 h-8 text-gray-600" />
               </div>
-              <h4 className="text-lg font-semibold text-blue-900 mb-2">No messages yet</h4>
-              <p className="text-blue-700 max-w-md mx-auto">
-                Your message history will appear here once you start communicating with your child's teacher.
+              <h4 className="text-lg font-semibold text-gray-900 mb-2">No reports yet</h4>
+              <p className="text-gray-600 max-w-md mx-auto">
+                Your reports to the teacher will appear here after you send your first report.
               </p>
             </div>
           ) : (
@@ -752,9 +501,9 @@ const ReportsPage: React.FC = () => {
                           r.reportType === 'bug' ? 'bg-yellow-100 text-yellow-700' :
                           'bg-blue-100 text-blue-700'
                         }`}>
-                          {r.reportType === 'issue' ? 'Issue Report' :
-                           r.reportType === 'bug' ? 'Bug Report' :
-                           'General Message'}
+                          {r.reportType === 'issue' ? 'Concern Shared' :
+                           r.reportType === 'bug' ? 'Tech Issue' :
+                           'General Chat'}
                         </div>
                       </div>
                     </div>
@@ -855,7 +604,6 @@ const ReportsPage: React.FC = () => {
             </div>
           </div>
         )}
-      </div>
     </div>
   );
 };
