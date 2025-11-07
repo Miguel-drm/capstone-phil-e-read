@@ -472,8 +472,8 @@ const Reading: React.FC = () => {
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 md:gap-6">
                 {readingSessions.map((session) => {
-                  // Get students for this session
-                  const sessionStudents = session.students.map((studentName: string) => {
+                  // Get students for this session (with safety check)
+                  const sessionStudents = (session.students || []).map((studentName: string) => {
                     const student = students.find(s => s.name === studentName);
                     return {
                       id: student?.id || studentName,

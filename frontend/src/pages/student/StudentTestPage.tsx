@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { doc, getDoc, collection, addDoc, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc, Timestamp, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { resultService } from '../../services/resultsService';
 import { getAuth } from 'firebase/auth';
@@ -247,6 +247,42 @@ const StudentTestPage: React.FC = () => {
     }
   };
 
+  // Function to save quiz answers to Firebase
+  const saveQuizAnswersToFirebase = async (testResultData: any) => {
+    try {
+      const quizAnswerData = {
+        testId: testResultData.testId,
+        testName: testResultData.testName,
+        testCategory: testResultData.testCategory || '',
+        studentId: testResultData.studentId || '',
+        studentName: testResultData.studentName || '',
+        teacherId: testResultData.teacherId || '',
+        
+        // Quiz results
+        totalQuestions: testResultData.totalQuestions,
+        correctAnswers: testResultData.correctAnswers,
+        score: testResultData.score,
+        comprehension: testResultData.comprehension,
+        
+        // Detailed answers
+        answers: testResultData.answers || [],
+        
+        // Timestamps
+        createdAt: serverTimestamp(),
+        testDate: testResultData.testDate || new Date(),
+      };
+
+      await addDoc(collection(db, "quizAnswers"), quizAnswerData);
+      
+      if ((import.meta as any)?.env?.MODE === "development") {
+        console.debug("Quiz answers saved to Firebase for test:", testResultData.testId);
+      }
+    } catch (error) {
+      console.error("Error saving quiz answers to Firebase:", error);
+      // Don't throw error - allow MongoDB save to succeed even if Firebase fails
+    }
+  };
+
   // New: Save result handler for modal
   const handleSaveResult = async () => {
     console.log('Save Result button clicked');
@@ -290,7 +326,13 @@ const StudentTestPage: React.FC = () => {
         return;
       }
       console.log('Authenticated user:', auth.currentUser.uid, 'Role:', userRole);
+      
+      // Save to MongoDB
       await resultService.createTestResult(testResultData);
+      
+      // Save to Firebase as well
+      await saveQuizAnswersToFirebase(testResultData);
+      
       setSavingResult(false);
       setSaveSuccess(true);
     } catch (error) {
