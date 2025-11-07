@@ -690,30 +690,56 @@ const ClassList: React.FC = () => {
       printStyles.id = printStyleId;
       printStyles.textContent = `
         @media print {
+          * { 
+            -webkit-print-color-adjust: exact !important;
+            color-adjust: exact !important;
+          }
           body * { visibility: hidden; }
           .print-content, .print-content * { visibility: visible; }
           .print-content { 
             position: absolute; 
-            left: 0; 
-            top: 0; 
-            width: 100%; 
+            left: 50% !important;
+            top: 50% !important;
+            width: 100% !important; 
+            max-width: 8.5in !important;
             background: white !important;
-            border: 2px solid black !important;
+            border: 1px solid black !important;
             font-family: 'Courier New', monospace !important;
-            font-size: 12px !important;
-            line-height: 1.4 !important;
+            font-size: 10px !important;
+            line-height: 1.2 !important;
+            padding: 0.5in !important;
+            margin: 0 !important;
+            box-sizing: border-box !important;
+            transform: translate(-50%, -50%) scale(0.85) !important;
+            transform-origin: center center !important;
           }
           .no-print { display: none !important; }
           @page { 
-            margin: 0.75in; 
-            size: A4;
+            margin: 0.5in !important; 
+            size: A4 !important;
           }
           table { 
             border-collapse: collapse !important; 
+            width: 100% !important;
+            font-size: 9px !important;
+          }
+          table td, table th {
+            padding: 4px !important;
+            font-size: 9px !important;
           }
           .underline {
             border-bottom: 1px solid black !important;
             text-decoration: none !important;
+            display: inline-block !important;
+          }
+          .mb-6, .mb-8 {
+            margin-bottom: 0.5rem !important;
+          }
+          .mb-4 {
+            margin-bottom: 0.3rem !important;
+          }
+          .space-y-2 > * + * {
+            margin-top: 0.2rem !important;
           }
         }
       `;
@@ -1981,12 +2007,12 @@ const ClassList: React.FC = () => {
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50 sticky top-0 z-10">
                       <tr>
-                        <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
-                        <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">LRN</th>
-                        <th scope="col" className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Form</th>
-                        <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Parent</th>
+                        <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
+                        <th scope="col" className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">LRN</th>
+                        <th scope="col" className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Form</th>
+                        <th scope="col" className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Parent</th>
 
-                        <th scope="col" className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                        <th scope="col" className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
@@ -2006,11 +2032,11 @@ const ClassList: React.FC = () => {
                         const hoverBg = hoverBgMap[badgeColor] || 'hover:bg-blue-50';
                         return (
                           <tr key={student.id} className={`transition-colors ${hoverBg}`}>
-                            <td className="px-4 py-3 whitespace-nowrap">
+                            <td className="px-3 py-2 whitespace-nowrap">
                               <div className="flex items-center">
-                                <div className="flex-shrink-0 h-8 w-8">
-                                  <div className={`h-8 w-8 rounded-full flex items-center justify-center ${badgeColor}`}>
-                                    <span className="font-medium text-sm">
+                                <div className="flex-shrink-0 h-7 w-7">
+                                  <div className={`h-7 w-7 rounded-full flex items-center justify-center ${badgeColor}`}>
+                                    <span className="font-medium text-xs">
                                       {(() => {
                                         const studentFullName = student.name || '';
                                         let initial = '';
@@ -2039,19 +2065,20 @@ const ClassList: React.FC = () => {
                                 </div>
                               </div>
                             </td>
-                            <td className="px-4 py-3 whitespace-nowrap">
+                            <td className="px-3 py-2 whitespace-nowrap text-center">
                               <div className="text-sm text-gray-900 select-none">{student.lrn || '-'}</div>
                             </td>
-                            <td className="px-4 py-3 whitespace-nowrap text-center">
-                              <button
-                                onClick={() => handleGenerateForm(student)}
-                                disabled={loadingStudentId === student.id}
-                                className={`font-semibold px-3 py-1 rounded text-xs transition-colors flex items-center gap-1 ${loadingStudentId === student.id
-                                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                    : 'bg-green-100 hover:bg-green-200 text-green-700'
-                                  }`}
-                                title={`Generate Phil-IRI Form 3A for ${student.name}`}
-                              >
+                            <td className="px-3 py-2 whitespace-nowrap text-center">
+                              <div className="flex justify-center">
+                                <button
+                                  onClick={() => handleGenerateForm(student)}
+                                  disabled={loadingStudentId === student.id}
+                                  className={`font-semibold px-2 py-1 rounded text-xs transition-colors flex items-center gap-1 ${loadingStudentId === student.id
+                                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                      : 'bg-green-100 hover:bg-green-200 text-green-700'
+                                    }`}
+                                  title={`Generate Phil-IRI Form 3A for ${student.name}`}
+                                >
                                 {loadingStudentId === student.id ? (
                                   <>
                                     <div className="w-3 h-3 border-2 border-gray-300 border-t-green-600 rounded-full animate-spin"></div>
@@ -2063,10 +2090,11 @@ const ClassList: React.FC = () => {
                                     Form 3A
                                   </>
                                 )}
-                              </button>
+                                </button>
+                              </div>
                             </td>
-                            <td className="px-4 py-3 whitespace-nowrap text-left align-middle">
-                              <div className="flex items-center h-8">
+                            <td className="px-3 py-2 whitespace-nowrap text-center align-middle">
+                              <div className="flex justify-center items-center h-6">
                                 {student.parentId ? (
                                   <span
                                     className="px-2 py-0.5 text-xs font-medium text-green-700 bg-green-100 rounded-full cursor-default select-none"
@@ -2077,16 +2105,16 @@ const ClassList: React.FC = () => {
                                 ) : (
                                   <button
                                     onClick={() => student.id && handleLinkParent(student.id)}
-                                    className="inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 cursor-pointer select-none"
+                                    className="inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 cursor-pointer select-none"
                                   >
-                                    <><i className="fas fa-link mr-1.5"></i>Link Parent</>
+                                    <><i className="fas fa-link mr-1"></i>Link Parent</>
                                   </button>
                                 )}
                               </div>
                             </td>
 
-                            <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
-                              <div className="flex justify-end space-x-2">
+                            <td className="px-3 py-2 whitespace-nowrap text-right text-sm font-medium">
+                              <div className="flex justify-end space-x-1">
                                 <button
                                   onClick={() => student.id && handleViewProfile(student.id)}
                                   className="text-blue-600 hover:text-blue-900 select-none"
@@ -2397,14 +2425,14 @@ const ClassList: React.FC = () => {
                 </div>
               ) : (
                 /* Form Content */
-                <div className="print-content bg-white p-8 rounded-lg font-mono text-sm border-2 border-gray-400 print:border-black print:shadow-none max-w-4xl mx-auto">
+                <div className="print-content bg-white p-6 rounded-lg font-mono text-sm border-2 border-gray-400 print:border-black print:shadow-none max-w-4xl mx-auto print:p-4 print:rounded-none">
                   <div className="text-right mb-6 font-bold text-base">
                     {formData.formTitle}
                   </div>
 
                   {/* PART A */}
-                  <div className="mb-8">
-                    <div className="font-bold mb-4 text-base">PART A</div>
+                  <div className="mb-6 print:mb-4">
+                    <div className="font-bold mb-3 text-base print:mb-2">PART A</div>
 
                     <div className="mb-4 space-y-2">
                       <div className="flex justify-between">
@@ -2413,7 +2441,7 @@ const ClassList: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="mb-6">
+                    <div className="mb-4 print:mb-3">
                       <div className="flex justify-between items-center">
                         <div>
                           <span>Sagot sa mga Tanong: Marka: <span className="underline inline-block min-w-[30px] text-center">{formData.partA.correctAnswers}</span></span>
@@ -2447,13 +2475,13 @@ const ClassList: React.FC = () => {
 
                   {/* PART B */}
                   <div>
-                    <div className="font-bold mb-4 text-base">PART B</div>
+                    <div className="font-bold mb-3 text-base print:mb-2">PART B</div>
 
                     <div className="mb-4">
                       <div className="font-bold text-sm">Word Reading (Pagbasa)</div>
                     </div>
 
-                    <div className="mb-6 space-y-2">
+                    <div className="mb-4 space-y-2 print:mb-3">
                       <div className="flex items-center space-x-8">
                         <span>Seleksyon: <span className="underline inline-block min-w-[150px] text-center">{formData.partB.wordReading.selection}</span></span>
                         <span>Level: <span className="underline inline-block min-w-[40px] text-center">{formData.partB.wordReading.level}</span></span>
