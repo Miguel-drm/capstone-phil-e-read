@@ -31,7 +31,7 @@ import {
 import { studentService } from "@/services/studentService";
 import Swal from "sweetalert2";
 import { db } from "@/config/firebase";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, addDoc, serverTimestamp } from "firebase/firestore";
 
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -77,6 +77,10 @@ const ReadingSessionPage: React.FC = () => {
   const [storyLanguage, setStoryLanguage] = useState<"english" | "tagalog">(
     "english"
   );
+  
+  // Refs for auto-scrolling to current word
+  const currentWordRef = useRef<HTMLSpanElement>(null);
+  const storyContentRef = useRef<HTMLDivElement>(null);
   // Derived metrics are calculated from elapsed time and transcript
 
   // Debug state removed
@@ -897,6 +901,7 @@ const ReadingSessionPage: React.FC = () => {
   }, [storyText, pdfContent]);
 
   // Update the useEffect that tracks transcript and currentWordIndex, using realWords for matching
+  // Only move forward - never go backwards
   useEffect(() => {
     if (!transcript || !realWords.length) return;
     const transcriptWords = transcript.split(/\s+/).filter(Boolean);
@@ -906,8 +911,9 @@ const ReadingSessionPage: React.FC = () => {
       console.debug("Real words:", realWords);
       console.debug("Words read:", idx);
     }
-    setCurrentWordIndex(idx);
-    setWordsRead(idx);
+    // Only update if the new index is greater than current (prevent going backwards)
+    setCurrentWordIndex((prevIndex) => Math.max(prevIndex, idx));
+    setWordsRead((prevRead) => Math.max(prevRead, idx));
   }, [transcript, realWords]);
 
   // Reset miscues at the start of each session
@@ -1010,6 +1016,31 @@ const ReadingSessionPage: React.FC = () => {
     if (match) setResolvedTestId(match.id);
   }, [tests, currentSession]);
 
+  // Auto-scroll to current word when it changes
+  useEffect(() => {
+    if (currentWordRef.current && storyContentRef.current && isRecording) {
+      const wordElement = currentWordRef.current;
+      const container = storyContentRef.current;
+      
+      // Calculate position relative to container
+      const wordRect = wordElement.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      
+      // Check if word is outside visible area
+      const isAboveView = wordRect.top < containerRect.top;
+      const isBelowView = wordRect.bottom > containerRect.bottom;
+      
+      if (isAboveView || isBelowView) {
+        // Smooth scroll to center the word in view
+        const scrollOffset = wordElement.offsetTop - container.offsetTop - (container.clientHeight / 2) + (wordRect.height / 2);
+        container.scrollTo({
+          top: scrollOffset,
+          behavior: 'smooth'
+        });
+      }
+    }
+  }, [currentWordIndex, isRecording]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -1044,6 +1075,45 @@ const ReadingSessionPage: React.FC = () => {
   }
 
   const isCompleted = (currentSession?.status as any) === "completed";
+
+  // Function to save reading session data to Firebase
+  const saveReadingSessionToFirebase = async (
+    studentId: string,
+    studentName: string
+  ) => {
+    try {
+      const readingSessionData = {
+        sessionId: sessionId,
+        sessionTitle: currentSession?.title || "",
+        book: currentSession?.book || "",
+        studentId: studentId,
+        studentName: studentName,
+        teacherId: currentSession?.teacherId || "",
+        gradeId: currentSession?.gradeId || "",
+        
+        // Reading metrics
+        wordsRead: wordsRead,
+        totalWords: words.length,
+        miscues: miscues,
+        oralReadingScore: parseFloat(oralReadingScore),
+        readingSpeed: parseInt(readingSpeedWPM),
+        elapsedTime: elapsedTime,
+        
+        // Timestamps
+        createdAt: serverTimestamp(),
+        sessionDate: new Date(),
+      };
+
+      await addDoc(collection(db, "readingSessions"), readingSessionData);
+      
+      if ((import.meta as any)?.env?.MODE === "development") {
+        console.debug("Reading session saved to Firebase for student:", studentId);
+      }
+    } catch (error) {
+      console.error("Error saving reading session to Firebase:", error);
+      // Don't throw error - allow MongoDB save to succeed even if Firebase fails
+    }
+  };
 
   const handleCompleteSession = async () => {
     if (!sessionId || !currentSession) return;
@@ -1086,6 +1156,11 @@ const ReadingSessionPage: React.FC = () => {
           sessionDate: new Date(),
         };
         await resultService.createReadingSessionResult(readingSessionResult);
+        
+        // Save to Firebase as well
+        const studentName = studentNames[studentId] || studentId;
+        await saveReadingSessionToFirebase(studentId, studentName);
+        
         setCompletedStudents((prev) => ({ ...prev, [studentId]: true }));
       }
       
@@ -1124,21 +1199,14 @@ const ReadingSessionPage: React.FC = () => {
 
   // formatTime helper removed (unused)
 
-  // In the rendering, highlight only if the display word is the current real word
-  // To do this, map realWords to their positions in the display words array
-  // We'll build a mapping from real word index to display word index
-  function getDisplayWordIndexForRealWord(
-    realWordIdx: number,
-    displayWords: string[]
-  ): number {
-    let count = 0;
-    for (let i = 0; i < displayWords.length; i++) {
-      if (/\w+/.test(displayWords[i])) {
-        if (count === realWordIdx) return i;
-        count++;
-      }
-    }
-    return -1;
+  // Helper to check if a word index matches the current word
+  function isWordCurrent(realWordIndex: number): boolean {
+    return realWordIndex === currentWordIndex;
+  }
+
+  // Helper to check if a word has been read (index < currentWordIndex)
+  function isWordRead(realWordIndex: number): boolean {
+    return realWordIndex < currentWordIndex;
   }
 
   return (
@@ -1223,13 +1291,24 @@ const ReadingSessionPage: React.FC = () => {
                 {isLoadingPdf && <span>Loading PDF…</span>}
               </div>
             </div>
-            <div className="max-h-[20rem] sm:max-h-[30rem] lg:max-h-[38rem] overflow-y-auto custom-scrollbar prose prose-sm sm:prose-base lg:prose-xl prose-blue bg-white/60 rounded-lg sm:rounded-xl p-4 sm:p-6 lg:p-8 text-sm sm:text-base lg:text-[1.35rem] leading-relaxed tracking-wide">
+            <div 
+              ref={storyContentRef}
+              className="max-h-[20rem] sm:max-h-[30rem] lg:max-h-[38rem] overflow-y-auto custom-scrollbar prose prose-sm sm:prose-base lg:prose-xl prose-blue bg-white/60 rounded-lg sm:rounded-xl p-4 sm:p-6 lg:p-8 text-sm sm:text-base lg:text-[1.35rem] leading-relaxed tracking-wide"
+            >
               {storyText || pdfContent ? (
                 (storyText ? storyText : pdfContent)
                   .split("\n\n")
                   .filter((p) => p.trim().length > 0)
                   .map((paragraph, paragraphIndex, paragraphs) => {
                   const wordsInParagraph = paragraph.trim().split(/\s+/);
+                  // Calculate the starting real word index for this paragraph
+                  const paragraphStartIndex = paragraphs
+                    .slice(0, paragraphIndex)
+                    .reduce((acc, p) => {
+                      const paraWords = p.trim().split(/\s+/);
+                      return acc + paraWords.filter(w => /\w+/.test(w)).length;
+                    }, 0);
+                  
                   return (
                       <div
                         key={paragraphIndex}
@@ -1237,36 +1316,55 @@ const ReadingSessionPage: React.FC = () => {
                       >
                       <p className="text-gray-800 leading-relaxed flex flex-wrap gap-y-1 sm:gap-y-2 lg:gap-y-3">
                         {wordsInParagraph.map((word, wordIndex) => {
-                            const globalWordIndex =
-                              paragraphs
-                            .slice(0, paragraphIndex)
-                                .reduce(
-                                  (acc, p) =>
-                                    acc + p.trim().split(/\s+/).length,
-                                  0
-                                ) + wordIndex;
-                            const isCurrentWord =
-                              getDisplayWordIndexForRealWord(
-                                currentWordIndex,
-                                wordsInParagraph
-                              ) === globalWordIndex;
                           const isSpecialChar = !/\w+/.test(word);
+                          
+                          // Calculate real word index (only count alphanumeric words)
+                          let realWordIndex = -1;
+                          if (!isSpecialChar) {
+                            let count = 0;
+                            for (let i = 0; i <= wordIndex; i++) {
+                              if (/\w+/.test(wordsInParagraph[i])) {
+                                if (i === wordIndex) {
+                                  realWordIndex = paragraphStartIndex + count;
+                                  break;
+                                }
+                                count++;
+                              }
+                            }
+                          }
+                          
+                          const isCurrent = !isSpecialChar && isWordCurrent(realWordIndex);
+                          const isRead = !isSpecialChar && isWordRead(realWordIndex);
+                          
                           return (
                             <span
                               key={`${paragraphIndex}-${wordIndex}`}
-                            className={
-                              isSpecialChar
-                                    ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none not-allowed"
-                                : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl transition-all duration-200 ` +
-                                  (isCurrentWord
-                                        ? "bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold scale-105 sm:scale-110 animate-pulse"
-                                        : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
-                                }
-                                style={
-                                  isCurrentWord
-                                    ? { boxShadow: "0 0 8px 2px #a5b4fc" }
-                                    : {}
-                                }
+                              ref={isCurrent ? currentWordRef : null}
+                              className={
+                                isSpecialChar
+                                  ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"
+                                  : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl transition-all duration-300 ease-in-out ` +
+                                    (isCurrent
+                                      ? "bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 text-white font-bold z-10 relative animate-[word-highlight_0.5s_ease-out]"
+                                      : isRead
+                                      ? "bg-green-50 text-green-700 opacity-80"
+                                      : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
+                              }
+                              style={
+                                isCurrent
+                                  ? { 
+                                      boxShadow: "0 0 12px 4px rgba(139, 92, 246, 0.5)",
+                                      transform: "scale(1.1)",
+                                      transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)"
+                                    }
+                                  : isRead
+                                  ? {
+                                      transition: "all 0.2s ease-in-out"
+                                    }
+                                  : {
+                                      transition: "all 0.2s ease-in-out"
+                                    }
+                              }
                             >
                               {word}
                             </span>
