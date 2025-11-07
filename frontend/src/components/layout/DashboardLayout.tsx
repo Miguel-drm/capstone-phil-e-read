@@ -59,15 +59,15 @@ const sessionsData = [
   }
 ];
 
-export const EditProfileModalContext = createContext({ openEditProfileModal: () => {} });
-export const BannerContext = createContext({ banner: '', setBanner: (_url: string) => {} });
+export const EditProfileModalContext = createContext({ openEditProfileModal: () => { } });
+export const BannerContext = createContext({ banner: '', setBanner: (_url: string) => { } });
 
 const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   const { currentUser, userRole, userProfile } = useAuth();
   const [isMobile, setIsMobile] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  
+
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [showSessionsModal, setShowSessionsModal] = useState(false);
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
@@ -85,19 +85,19 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   }, [userProfile]);
 
   if (!currentUser) {
-    return null; 
+    return null;
   }
 
   useEffect(() => {
     const checkScreenSize = () => {
       const width = window.innerWidth;
       setIsMobile(width < 768);
-      
-      
+
+
       if (width >= 1024) {
         setSidebarOpen(false);
       }
-      
+
 
       if (width >= 768 && width < 1024) {
         setSidebarCollapsed(true);
@@ -172,13 +172,13 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
             onToggleCollapse={toggleSidebarCollapse}
           />
           {/* Main Content Area */}
-          <div className={`flex-1 flex flex-col min-h-screen transition-all duration-300 ease-in-out w-full min-w-0 ${getMainContentMargin()}`}> 
+          <div className={`flex-1 flex flex-col min-h-screen transition-all duration-300 ease-in-out w-full min-w-0 ${getMainContentMargin()}`}>
             {/* Header */}
             <Header
               isMobile={isMobile}
               onMenuToggle={handleHeaderMenuClick}
               isSidebarCollapsed={sidebarCollapsed}
-              {...(userRole === 'teacher' ? { onShowSessionsModal: () => setShowSessionsModal(true) } : {})}
+              {...(userRole !== 'teacher' ? { onShowSessionsModal: () => setShowSessionsModal(true) } : {})}
             />
             {/* Content Container */}
             <main className={
@@ -221,7 +221,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
           </div>
           {/* Mobile Overlay */}
           {isMobile && sidebarOpen && (
-            <div 
+            <div
               className="fixed inset-0 z-40 lg:hidden"
               onClick={toggleSidebar}
             />
@@ -234,8 +234,8 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
               aria-label="Back to top"
               title="Back to top"
             >
-              <KeyboardArrowUpIcon 
-                className="text-white group-hover:scale-110 transition-transform duration-200" 
+              <KeyboardArrowUpIcon
+                className="text-white group-hover:scale-110 transition-transform duration-200"
               />
             </button>
           )}

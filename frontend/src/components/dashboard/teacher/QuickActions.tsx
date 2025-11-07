@@ -119,11 +119,7 @@ export default function QuickActions() {
           <span className="text-xs md:text-sm font-medium text-[#2C3E50] text-center">Settings</span>
         </button>
       </div>
-      
-      {/* Debug info */}
-      <div className="mt-4 p-2 bg-gray-100 rounded text-xs text-gray-600">
-        Debug: userRole = {userRole || 'undefined'}
-      </div>
+
     </div>
   );
 }
