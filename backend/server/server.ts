@@ -14,6 +14,7 @@ import parentRoutes from './routes/parentRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import { resultService } from './services/resultService.js';
 import type { Readable } from 'stream';
+import { adminDb, firestoreAdmin } from './config/firebaseAdmin.js';
 // Removed Node Vosk integration; using external Python Vosk WS instead
 
 dotenv.config();
@@ -500,15 +501,149 @@ app.get('/api/test', (req, res) => {
     });
 
     // --- Results API ---
-    app.post('/api/results', async (req: Request, res: Response) => {
+    app.post('/api/results', (async (req: Request, res: Response) => {
       try {
+        // Log incoming data for debugging
+        console.log('📝 POST /api/results - Received data:', {
+          body: req.body,
+          hasTeacherId: !!req.body.teacherId,
+          hasType: !!req.body.type,
+          type: req.body.type
+        });
+
+        // Validate required fields
+        if (!req.body.teacherId) {
+          res.status(400).json({ 
+            error: 'Missing required field: teacherId',
+            receivedData: Object.keys(req.body)
+          });
+          return;
+        }
+
+        if (!req.body.type) {
+          res.status(400).json({ 
+            error: 'Missing required field: type',
+            receivedData: Object.keys(req.body)
+          });
+          return;
+        }
+
+        if (!['reading-session', 'test'].includes(req.body.type)) {
+          res.status(400).json({ 
+            error: 'Invalid type. Must be "reading-session" or "test"',
+            receivedType: req.body.type
+          });
+          return;
+        }
+
+        // Save to MongoDB
         const result = await resultService.createResult(req.body);
+        console.log('✅ Result saved to MongoDB:', result._id);
+
+        // Also save to Firebase Firestore
+        if (adminDb && firestoreAdmin) {
+          try {
+            const firebaseResultData: any = {
+              // Common fields
+              teacherId: req.body.teacherId,
+              type: req.body.type,
+              createdAt: firestoreAdmin.firestore.FieldValue.serverTimestamp(),
+              updatedAt: firestoreAdmin.firestore.FieldValue.serverTimestamp(),
+              
+              // Reading session fields
+              ...(req.body.type === 'reading-session' && {
+                sessionId: req.body.sessionId,
+                sessionTitle: req.body.sessionTitle,
+                book: req.body.book,
+                gradeId: req.body.gradeId,
+                studentId: req.body.studentId,
+                students: req.body.students,
+                wordsRead: req.body.wordsRead,
+                totalWords: req.body.totalWords,
+                miscues: req.body.miscues,
+                oralReadingScore: req.body.oralReadingScore,
+                readingSpeed: req.body.readingSpeed,
+                elapsedTime: req.body.elapsedTime,
+                transcript: req.body.transcript,
+                audioUrl: req.body.audioUrl,
+                storyUrl: req.body.storyUrl,
+                sessionDate: req.body.sessionDate ? firestoreAdmin.firestore.Timestamp.fromDate(new Date(req.body.sessionDate)) : null,
+              }),
+              
+              // Test result fields
+              ...(req.body.type === 'test' && {
+                testId: req.body.testId,
+                testName: req.body.testName,
+                testCategory: req.body.testCategory,
+                studentId: req.body.studentId,
+                studentName: req.body.studentName,
+                totalQuestions: req.body.totalQuestions,
+                correctAnswers: req.body.correctAnswers,
+                score: req.body.score,
+                comprehension: req.body.comprehension,
+                answers: req.body.answers || [],
+                testDate: req.body.testDate ? firestoreAdmin.firestore.Timestamp.fromDate(new Date(req.body.testDate)) : null,
+              }),
+            };
+
+            // Remove undefined/null fields
+            Object.keys(firebaseResultData).forEach(key => {
+              if (firebaseResultData[key] === undefined || firebaseResultData[key] === null) {
+                delete firebaseResultData[key];
+              }
+            });
+
+            const firebaseDocRef = await adminDb.collection('results').add(firebaseResultData);
+            console.log('✅ Result saved to Firebase:', firebaseDocRef.id);
+          } catch (firebaseError) {
+            console.error('⚠️  Error saving to Firebase (MongoDB save succeeded):', firebaseError);
+            // Don't fail the request if Firebase save fails - MongoDB save already succeeded
+          }
+        } else {
+          console.warn('⚠️  Firebase Admin not initialized - skipping Firebase save');
+        }
+
         res.status(201).json(result);
+        return;
       } catch (error) {
-        console.error('Error saving result:', error);
-        res.status(500).json({ error: 'Failed to save result' });
+        console.error('❌ Error saving result:', error);
+        
+        // Provide more specific error messages
+        if (error instanceof Error) {
+          // Check for validation errors
+          if (error.name === 'ValidationError') {
+            res.status(400).json({ 
+              error: 'Validation error',
+              details: error.message,
+              validationErrors: (error as any).errors
+            });
+            return;
+          }
+          
+          // Check for duplicate key errors
+          if ((error as any).code === 11000) {
+            res.status(400).json({ 
+              error: 'Duplicate entry',
+              details: error.message
+            });
+            return;
+          }
+
+          res.status(500).json({ 
+            error: 'Failed to save result',
+            details: error.message,
+            errorName: error.name
+          });
+          return;
+        }
+
+        res.status(500).json({ 
+          error: 'Failed to save result',
+          details: 'Unknown error occurred'
+        });
+        return;
       }
-    });
+    }) as express.RequestHandler);
 
     app.get('/api/results/teacher/:teacherId', async (req: Request, res: Response) => {
       try {
