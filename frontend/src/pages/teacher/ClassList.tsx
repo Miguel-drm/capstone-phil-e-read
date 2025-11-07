@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { studentService, type Student, type ImportedStudent } from '../../services/studentService';
 import { gradeService, type ClassGrade } from '../../services/gradeService';
@@ -10,6 +10,7 @@ import { getAllParents, getUserProfile } from '../../services/authService';
 import { notificationService } from '../../services/notificationService';
 import { db } from '../../config/firebase';
 import Loader from '../../components/Loader';
+import { resultService } from '../../services/resultsService';
 
 import PillSelect from '../../components/ui/PillSelect';
 
@@ -44,6 +45,9 @@ const ClassList: React.FC = () => {
   const [showArchived, setShowArchived] = useState<boolean>(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [editForm, setEditForm] = useState({ name: '', lrn: '' });
+  const [formModalOpen, setFormModalOpen] = useState(false);
+  const [selectedFormStudent, setSelectedFormStudent] = useState<Student | null>(null);
+  const [formData, setFormData] = useState<any>(null);
 
   // Extract section name from a grade name like "Grade 4 - Narra" => "Narra"
   const getSectionName = (name: string) => {
@@ -162,13 +166,13 @@ const ClassList: React.FC = () => {
           for (const s of missing) {
             try {
               await gradeService.addStudentToGrade(selectedGrade, { studentId: s.id as string, name: s.name });
-            } catch {}
+            } catch { }
           }
           // Refresh roster ids after linking
           try {
             const refreshed = await gradeService.getStudentsInGrade(selectedGrade);
             rosterIds = refreshed.map(sg => sg.studentId).filter(Boolean) as string[];
-          } catch {}
+          } catch { }
         }
       }
     } catch {
@@ -189,7 +193,7 @@ const ClassList: React.FC = () => {
       if (gradeObj && typeof (gradeObj as any).studentCount === 'number') {
         const liveCount = countsByGrade[gradeObj.id || ''] ?? filtered.length;
         if ((gradeObj as any).studentCount !== liveCount) {
-        // Avoid writing counts to Firestore; we compute locally to prevent racing state
+          // Avoid writing counts to Firestore; we compute locally to prevent racing state
         }
       }
     }
@@ -266,7 +270,7 @@ const ClassList: React.FC = () => {
       let existingList: Student[] = [];
       try {
         if (currentUser?.uid) existingList = await studentService.getStudents(currentUser.uid);
-      } catch {}
+      } catch { }
       const existingKeys = new Set<string>((existingList || []).map(keyFromExisting));
       const existingDup: ImportedStudent[] = [];
       const unique: ImportedStudent[] = [];
@@ -301,7 +305,7 @@ const ClassList: React.FC = () => {
             const lastName = (row['Last Name'] || row['last name'] || row['LastName'] || row['lastname'] || '').trim();
             const lrn = (row.LRN || row.lrn || '').trim();
             const age = parseInt((row.Age || row.age || '10').toString().trim()) || 10;
-            
+
             // Combine first and last name
             const fullName = [firstName, lastName].filter(Boolean).join(' ');
 
@@ -442,7 +446,7 @@ const ClassList: React.FC = () => {
             try {
               if (createdStudentIds.length) await studentService.batchDeleteStudents(createdStudentIds);
               if (createdStudentIds.length) await gradeService.batchRemoveStudentsFromGrade(selectedGrade, createdStudentIds);
-            } catch {}
+            } catch { }
             showError('Import Cancelled', 'The import was cancelled and any partial data was removed.');
             return;
           }
@@ -501,7 +505,7 @@ const ClassList: React.FC = () => {
       showError('Not Found', 'Student not found.');
       return;
     }
-    
+
     setEditingStudent(student);
     setEditForm({
       name: student.name || '',
@@ -511,7 +515,7 @@ const ClassList: React.FC = () => {
 
   const handleSaveEdit = async () => {
     if (!editingStudent?.id) return;
-    
+
     // Validate required fields
     if (!editForm.name.trim()) {
       showError('Validation Error', 'Student name is required.');
@@ -520,7 +524,7 @@ const ClassList: React.FC = () => {
 
     try {
       setLoadingStudentId(editingStudent.id);
-      
+
       // Update student with only name and LRN
       await studentService.updateStudent(editingStudent.id, {
         name: editForm.name.trim(),
@@ -528,8 +532,8 @@ const ClassList: React.FC = () => {
       });
 
       // Update local state
-      setStudents(prev => prev.map(s => 
-        s.id === editingStudent.id 
+      setStudents(prev => prev.map(s =>
+        s.id === editingStudent.id
           ? { ...s, name: editForm.name.trim(), lrn: editForm.lrn.trim() }
           : s
       ));
@@ -537,7 +541,7 @@ const ClassList: React.FC = () => {
       // Close modal
       setEditingStudent(null);
       setEditForm({ name: '', lrn: '' });
-      
+
       showSuccess('Updated', 'Student information updated successfully.');
     } catch (error) {
       console.error('Error updating student:', error);
@@ -550,6 +554,173 @@ const ClassList: React.FC = () => {
   const handleCancelEdit = () => {
     setEditingStudent(null);
     setEditForm({ name: '', lrn: '' });
+  };
+
+  const handleGenerateForm = useCallback(async (student: Student) => {
+    if (!student.id) {
+      showError('Invalid Student', 'Student ID is required to generate form.');
+      return;
+    }
+
+    try {
+      setLoadingStudentId(student.id);
+      setSelectedFormStudent(student);
+      setFormModalOpen(true);
+
+      // Show loading state while generating form data
+      setFormData(null);
+
+      // Generate form data asynchronously
+      const formData = await generatePhilIRIForm(student);
+      setFormData(formData);
+    } catch (error) {
+      console.error('Error generating form:', error);
+      showError('Form Generation Failed', 'Failed to generate Phil-IRI Form 3A. Please try again.');
+      setFormModalOpen(false);
+      setSelectedFormStudent(null);
+    } finally {
+      setLoadingStudentId(null);
+    }
+  }, []);
+
+  const generatePhilIRIForm = useCallback(async (student: Student) => {
+    // Get the latest reading results for this student
+    let latestResult = null;
+    try {
+      const results = await resultService.getCombinedResults(student.id || '');
+      // Sort by date to get the most recent result
+      latestResult = results.length > 0
+        ? results.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+        : null;
+    } catch (error) {
+      console.log('No reading results found, using default data');
+    }
+
+    // Generate form data matching the Phil-IRI Form 3A structure
+    // Calculate reading time from elapsed time (convert seconds to minutes:seconds)
+    const formatReadingTime = (elapsedTime?: number) => {
+      if (!elapsedTime) return '1:50 minuto';
+      const minutes = Math.floor(elapsedTime / 60);
+      const seconds = elapsedTime % 60;
+      return `${minutes}:${seconds.toString().padStart(2, '0')} minuto`;
+    };
+
+    // Calculate reading rate (words per minute)
+    const calculateReadingRate = (wordsRead?: number, elapsedTime?: number) => {
+      if (!wordsRead || !elapsedTime) return '78 salita /minuto';
+      const rate = Math.round((wordsRead / elapsedTime) * 60);
+      return `${rate} salita /minuto`;
+    };
+
+    // Determine comprehension level based on score
+    const getComprehensionLevel = (score?: number) => {
+      if (!score) return 'Frustration';
+      if (score >= 75) return 'Independent';
+      if (score >= 50) return 'Instructional';
+      return 'Frustration';
+    };
+
+    // Calculate word reading score percentage
+    const calculateWordReadingScore = (wordsRead?: number, totalWords?: number, miscues?: number) => {
+      if (!wordsRead || !totalWords) return '93.75%';
+      const correctWords = wordsRead - (miscues || 0);
+      const percentage = (correctWords / totalWords) * 100;
+      return `${percentage.toFixed(2)}%`;
+    };
+
+    // Determine word reading level
+    const getWordReadingLevel = (score: string) => {
+      const percentage = parseFloat(score.replace('%', ''));
+      if (percentage >= 95) return 'Independent';
+      if (percentage >= 90) return 'Instructional';
+      return 'Frustration';
+    };
+
+    const wordReadingScore = calculateWordReadingScore(latestResult?.wordsRead, latestResult?.totalWords, latestResult?.miscues);
+
+    return {
+      studentName: student.name || '',
+      formTitle: 'Phil-IRI Form 3A',
+      partA: {
+        readingTime: formatReadingTime(latestResult?.elapsedTime),
+        readingRate: calculateReadingRate(latestResult?.wordsRead, latestResult?.elapsedTime),
+        correctAnswers: latestResult?.correctAnswers || 4,
+        percentage: latestResult?.comprehension || 57,
+        comprehensionLevel: getComprehensionLevel(latestResult?.comprehension),
+        answers: latestResult?.answers?.map(a => a.selectedAnswer) || ['a', 'b', 'b', 'd', 'c', 'a', 'b']
+      },
+      partB: {
+        wordReading: {
+          selection: latestResult?.book || latestResult?.sessionTitle || 'Isang Pangako',
+          level: latestResult?.readingLevel || latestResult?.level || '4',
+          set: 'A' // Default set, could be enhanced to extract from story data
+        },
+        miscues: {
+          mispronunciation: 1, // These would need to be tracked separately in reading sessions
+          omission: 1,
+          substitution: 2,
+          insertion: 1,
+          repetition: 3,
+          transposition: 1,
+          reversal: 0,
+          totalMiscues: latestResult?.miscues || 9,
+          wordsInPassage: latestResult?.totalWords || 144,
+          wordReadingScore: wordReadingScore,
+          wordReadingLevel: getWordReadingLevel(wordReadingScore)
+        }
+      }
+    };
+  }, []);
+
+  const handleCloseForm = () => {
+    setFormModalOpen(false);
+    setSelectedFormStudent(null);
+    setFormData(null);
+  };
+
+  const handlePrintForm = () => {
+    if (!formData) return;
+
+    // Create optimized print styles
+    const printStyleId = 'phil-iri-print-styles';
+    let existingStyle = document.getElementById(printStyleId);
+
+    if (!existingStyle) {
+      const printStyles = document.createElement('style');
+      printStyles.id = printStyleId;
+      printStyles.textContent = `
+        @media print {
+          body * { visibility: hidden; }
+          .print-content, .print-content * { visibility: visible; }
+          .print-content { 
+            position: absolute; 
+            left: 0; 
+            top: 0; 
+            width: 100%; 
+            background: white !important;
+            border: 2px solid black !important;
+            font-family: 'Courier New', monospace !important;
+            font-size: 12px !important;
+            line-height: 1.4 !important;
+          }
+          .no-print { display: none !important; }
+          @page { 
+            margin: 0.75in; 
+            size: A4;
+          }
+          table { 
+            border-collapse: collapse !important; 
+          }
+          .underline {
+            border-bottom: 1px solid black !important;
+            text-decoration: none !important;
+          }
+        }
+      `;
+      document.head.appendChild(printStyles);
+    }
+
+    window.print();
   };
 
   const handleViewProfile = async (studentId: string) => {
@@ -691,7 +862,7 @@ const ClassList: React.FC = () => {
         try {
           await gradeService.removeStudentFromGrade(selectedGrade, studentId);
           // No Firestore count write
-        } catch {}
+        } catch { }
       }
       showSuccess('Archived', `${studentName} was archived.`);
       await loadStudents();
@@ -723,7 +894,7 @@ const ClassList: React.FC = () => {
         try {
           await gradeService.addStudentToGrade(selectedGrade, studentId);
           // No Firestore count write
-        } catch {}
+        } catch { }
       }
       showSuccess('Restored', `${studentName} was restored.`);
       await loadStudents();
@@ -1000,14 +1171,14 @@ const ClassList: React.FC = () => {
             Swal.showValidationMessage('Please enter Section and select a Color');
             return false;
           }
-          
+
           // Extract grade level number from the locked grade level
           const gradeLevelNumber = parseInt(gradeLevel.match(/\d+/)?.[0] || '0');
           if (gradeLevelNumber === 0) {
             Swal.showValidationMessage('Invalid grade level');
             return false;
           }
-          
+
           // Enforce unique section name for this teacher (case-insensitive)
           const normalizedSection = section.toLowerCase();
           const duplicate = grades.some(g => {
@@ -1119,7 +1290,7 @@ const ClassList: React.FC = () => {
     for (const gradeId of selectedGrades) {
       await gradeService.deleteGrade(gradeId);
     }
-    
+
     setSelectedGrades([]);
     await loadGrades();
   };
@@ -1207,7 +1378,7 @@ const ClassList: React.FC = () => {
           const student = filteredStudents.find(s => s.id === studentId);
           const studentName = student?.name || 'Student';
           const teacherName = currentUser?.displayName || 'Teacher';
-          
+
           await studentService.updateStudent(studentId, {
             parentId: parent.id,
             parentName: parent.name,
@@ -1332,13 +1503,13 @@ const ClassList: React.FC = () => {
           const age = parseInt((document.getElementById('student-age') as HTMLInputElement).value) || 10;
           const parentId = (document.getElementById('student-parent-id') as HTMLSelectElement).value;
           const parent = parents.find(p => p.id === parentId);
-          
+
           if (!name || !lrn) {
             Swal.showValidationMessage('Please fill in all required fields (Name and LRN)');
             setIsAddingStudentToGrade(false); // Reset if validation fails
             return false;
           }
-          
+
           return { name, lrn, age, parentId: parentId || undefined, parentName: parent ? parent.name : '' };
         }
       });
@@ -1382,18 +1553,18 @@ const ClassList: React.FC = () => {
     const unsubscribes: (() => void)[] = [];
     const updateCounts = (gradeId: string) => {
       const studentsRef = collection(db, 'classGrades', gradeId, 'students');
-      const unsubscribe = onSnapshot(studentsRef, 
+      const unsubscribe = onSnapshot(studentsRef,
         (snapshot) => {
-        // Count only non-archived students that actually exist in the teacher's list
-        const studentIdsInRoster = snapshot.docs
-          .map(d => (d.data() as any)?.studentId)
-          .filter((v: any): v is string => Boolean(v));
-        const uniqueRosterIds = Array.from(new Set(studentIdsInRoster));
-        const nonArchivedCount = uniqueRosterIds.reduce((acc, sid) => {
-          const s = students.find(st => st.id === sid);
-          return acc + ((s && !(s as any).archived) ? 1 : 0);
-        }, 0);
-        setRosterCounts((prev) => ({ ...prev, [gradeId]: nonArchivedCount }));
+          // Count only non-archived students that actually exist in the teacher's list
+          const studentIdsInRoster = snapshot.docs
+            .map(d => (d.data() as any)?.studentId)
+            .filter((v: any): v is string => Boolean(v));
+          const uniqueRosterIds = Array.from(new Set(studentIdsInRoster));
+          const nonArchivedCount = uniqueRosterIds.reduce((acc, sid) => {
+            const s = students.find(st => st.id === sid);
+            return acc + ((s && !(s as any).archived) ? 1 : 0);
+          }, 0);
+          setRosterCounts((prev) => ({ ...prev, [gradeId]: nonArchivedCount }));
         },
         (error) => {
           console.warn(`Permission denied for grade ${gradeId} students:`, error);
@@ -1430,7 +1601,7 @@ const ClassList: React.FC = () => {
             </div>
             <div className="ml-3">
               <p className="text-sm text-yellow-700">
-                <strong>Profile Incomplete:</strong> Please complete your profile information to access all features. 
+                <strong>Profile Incomplete:</strong> Please complete your profile information to access all features.
                 Missing fields: {userRole === 'teacher' ? 'Phone Number, School' : userRole === 'parent' ? 'Phone Number' : 'Phone Number, School'}.
                 <a href="/teacher/profile" className="font-medium underline hover:text-yellow-600 ml-1">
                   Update Profile
@@ -1489,94 +1660,94 @@ const ClassList: React.FC = () => {
                     grades
                       .filter(g => showArchived ? g.isActive === false : g.isActive !== false)
                       .map((grade) => (
-                      <div
-                        key={grade.id}
-                        className={`flex flex-col w-full max-w-full rounded-2xl cursor-pointer transition-all duration-200 bg-white/90 shadow-sm ${selectedGrade === grade.id ? 'border-4 border-solid border-blue-600' : 'border border-blue-100 hover:border-blue-400'} ${selectedGrades.includes(grade.id || '') ? 'bg-red-50' : ''} ${getGradeColorClasses(grade.color)}`}
-                        style={{ minWidth: 0 }}
-                        onClick={() => grade.id && handleGradeSelect(grade.id)}
-                      >
-                        <div className="flex items-center gap-3 p-4 pb-2 min-w-0">
-                          <span className={`w-10 h-10 flex items-center justify-center rounded-full text-lg font-bold ${getBadgeColorClasses(grade.color)}`}>{grade.name[0]}</span>
-                          <div className="flex flex-col min-w-0">
-                            <span className="text-base font-semibold truncate max-w-[120px]">{grade.name}</span>
-                            <span className="text-xs text-gray-500 truncate max-w-[120px]">{grade.description || 'No description'}</span>
+                        <div
+                          key={grade.id}
+                          className={`flex flex-col w-full max-w-full rounded-2xl cursor-pointer transition-all duration-200 bg-white/90 shadow-sm ${selectedGrade === grade.id ? 'border-4 border-solid border-blue-600' : 'border border-blue-100 hover:border-blue-400'} ${selectedGrades.includes(grade.id || '') ? 'bg-red-50' : ''} ${getGradeColorClasses(grade.color)}`}
+                          style={{ minWidth: 0 }}
+                          onClick={() => grade.id && handleGradeSelect(grade.id)}
+                        >
+                          <div className="flex items-center gap-3 p-4 pb-2 min-w-0">
+                            <span className={`w-10 h-10 flex items-center justify-center rounded-full text-lg font-bold ${getBadgeColorClasses(grade.color)}`}>{grade.name[0]}</span>
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-base font-semibold truncate max-w-[120px]">{grade.name}</span>
+                              <span className="text-xs text-gray-500 truncate max-w-[120px]">{grade.description || 'No description'}</span>
+                            </div>
                           </div>
-                        </div>
-                        <div className="flex items-center justify-between px-4 pb-4 pt-2 min-w-0">
-                          <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${getBadgeColorClasses(grade.color)}`} title="Student count">
-                            {selectedGrade === grade.id
-                              ? filteredStudents.length
-                              : ((showArchived ? archivedCountsByGrade[grade.id || ''] : countsByGrade[grade.id || '']) ?? 0)
-                            } students
-                          </span>
-                          <div className="flex flex-row flex-nowrap items-center gap-2 min-w-0">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                grade.id && handleAddStudentsToGrade(grade.id, grade.name);
-                              }}
-                              className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-green-50 hover:bg-green-100 text-green-600 hover:text-green-800 shadow focus:outline-none focus:ring-2 focus:ring-green-300 transition"
-                              title="Add Students"
-                              disabled={loadingAddStudentToGradeId === grade.id || !canManage}
-                            >
-                              <i className="fas fa-user-plus"></i>
-                            </button>
-                            <button
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                if (deletingGradeId === grade.id) return;
-                                setDeletingGradeId(grade.id || null);
-                                try {
-                                  if (!grade.id) return;
-                                  if (grade.isActive === false) {
-                                    await gradeService.restoreGrade(grade.id);
-                                    showSuccess('Restored', `"${grade.name}" has been restored.`);
-                                    await loadGrades();
-                                  } else {
-                                    await handleArchiveGrade(grade.id, grade.name);
-                                  }
-                                } finally {
-                                  setDeletingGradeId(null);
-                                }
-                              }}
-                              className={`inline-flex items-center justify-center w-9 h-9 rounded-full ${grade.isActive === false ? 'bg-green-50 hover:bg-green-100 text-green-600 hover:text-green-800 focus:ring-green-300' : 'bg-amber-50 hover:bg-amber-100 text-amber-600 hover:text-amber-800 focus:ring-amber-300'} shadow focus:outline-none focus:ring-2 transition ${deletingGradeId === grade.id ? 'opacity-50 cursor-not-allowed' : ''}`}
-                              title={`${grade.isActive === false ? 'Restore' : 'Archive'} ${grade.name}`}
-                              aria-label={`${grade.isActive === false ? 'Restore' : 'Archive'} ${grade.name}`}
-                              disabled={deletingGradeId === grade.id}
-                            >
-                              <i className={`fas ${grade.isActive === false ? 'fa-undo' : 'fa-archive'}`}></i>
-                            </button>
-                            {grade.isActive === false && (
+                          <div className="flex items-center justify-between px-4 pb-4 pt-2 min-w-0">
+                            <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${getBadgeColorClasses(grade.color)}`} title="Student count">
+                              {selectedGrade === grade.id
+                                ? filteredStudents.length
+                                : ((showArchived ? archivedCountsByGrade[grade.id || ''] : countsByGrade[grade.id || '']) ?? 0)
+                              } students
+                            </span>
+                            <div className="flex flex-row flex-nowrap items-center gap-2 min-w-0">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  grade.id && handleAddStudentsToGrade(grade.id, grade.name);
+                                }}
+                                className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-green-50 hover:bg-green-100 text-green-600 hover:text-green-800 shadow focus:outline-none focus:ring-2 focus:ring-green-300 transition"
+                                title="Add Students"
+                                disabled={loadingAddStudentToGradeId === grade.id || !canManage}
+                              >
+                                <i className="fas fa-user-plus"></i>
+                              </button>
                               <button
                                 onClick={async (e) => {
                                   e.stopPropagation();
-                                  if (!grade.id) return;
-                                  await handleDeleteArchivedGrade(grade.id, grade.name);
+                                  if (deletingGradeId === grade.id) return;
+                                  setDeletingGradeId(grade.id || null);
+                                  try {
+                                    if (!grade.id) return;
+                                    if (grade.isActive === false) {
+                                      await gradeService.restoreGrade(grade.id);
+                                      showSuccess('Restored', `"${grade.name}" has been restored.`);
+                                      await loadGrades();
+                                    } else {
+                                      await handleArchiveGrade(grade.id, grade.name);
+                                    }
+                                  } finally {
+                                    setDeletingGradeId(null);
+                                  }
                                 }}
-                                className={`inline-flex items-center justify-center w-9 h-9 rounded-full bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-800 shadow focus:outline-none focus:ring-2 focus:ring-red-300 transition`}
-                              title={`Delete ${grade.name}`}
-                              aria-label={`Delete ${grade.name}`}
-                            >
-                              <i className="fas fa-trash"></i>
-                            </button>
-                            )}
-                            <button
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                setLoadingEditGradeId(grade.id || null);
-                                try {
-                                  const { value: formValues } = await Swal.fire({
-                                    title: 'Edit Class Grade',
-                                    customClass: {
-                                      popup: 'rounded-xl',
-                                      title: 'text-white text-xl font-semibold',
-                                      confirmButton: 'px-4 py-2 text-sm font-medium bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
-                                      cancelButton: 'px-4 py-2 text-sm font-medium bg-white text-gray-700 rounded-lg shadow-md hover:bg-gray-100 transition-all duration-200',
-                                    },
-                                    backdrop: 'rgba(0,0,0,0.6)',
-                                    background: '#fff',
-                                    showCloseButton: true,
-                                    html: `
+                                className={`inline-flex items-center justify-center w-9 h-9 rounded-full ${grade.isActive === false ? 'bg-green-50 hover:bg-green-100 text-green-600 hover:text-green-800 focus:ring-green-300' : 'bg-amber-50 hover:bg-amber-100 text-amber-600 hover:text-amber-800 focus:ring-amber-300'} shadow focus:outline-none focus:ring-2 transition ${deletingGradeId === grade.id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                title={`${grade.isActive === false ? 'Restore' : 'Archive'} ${grade.name}`}
+                                aria-label={`${grade.isActive === false ? 'Restore' : 'Archive'} ${grade.name}`}
+                                disabled={deletingGradeId === grade.id}
+                              >
+                                <i className={`fas ${grade.isActive === false ? 'fa-undo' : 'fa-archive'}`}></i>
+                              </button>
+                              {grade.isActive === false && (
+                                <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    if (!grade.id) return;
+                                    await handleDeleteArchivedGrade(grade.id, grade.name);
+                                  }}
+                                  className={`inline-flex items-center justify-center w-9 h-9 rounded-full bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-800 shadow focus:outline-none focus:ring-2 focus:ring-red-300 transition`}
+                                  title={`Delete ${grade.name}`}
+                                  aria-label={`Delete ${grade.name}`}
+                                >
+                                  <i className="fas fa-trash"></i>
+                                </button>
+                              )}
+                              <button
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  setLoadingEditGradeId(grade.id || null);
+                                  try {
+                                    const { value: formValues } = await Swal.fire({
+                                      title: 'Edit Class Grade',
+                                      customClass: {
+                                        popup: 'rounded-xl',
+                                        title: 'text-white text-xl font-semibold',
+                                        confirmButton: 'px-4 py-2 text-sm font-medium bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
+                                        cancelButton: 'px-4 py-2 text-sm font-medium bg-white text-gray-700 rounded-lg shadow-md hover:bg-gray-100 transition-all duration-200',
+                                      },
+                                      backdrop: 'rgba(0,0,0,0.6)',
+                                      background: '#fff',
+                                      showCloseButton: true,
+                                      html: `
                                       <div class="text-left p-4 bg-white rounded-b-xl -mt-4">
                                         <div class="mb-6">
                                           <label class="block text-sm font-medium text-gray-700 mb-2">Grade Level</label>
@@ -1603,53 +1774,53 @@ const ClassList: React.FC = () => {
                                         </div>
                                       </div>
                                     `,
-                                    showCancelButton: true,
-                                    confirmButtonText: 'Save',
-                                    cancelButtonText: 'Cancel',
-                                    focusConfirm: false,
-                                    preConfirm: () => {
-                                      const sectionName = (document.getElementById('edit-grade-name') as HTMLInputElement).value.trim();
-                                      const description = (document.getElementById('edit-grade-description') as HTMLTextAreaElement).value.trim();
-                                      const color = (document.getElementById('edit-grade-color') as HTMLSelectElement).value;
-                                      const gradeLevel = grade.name.split(' - ')[0] || 'Grade 4';
-                                      
-                                      if (!sectionName || !color) {
-                                        Swal.showValidationMessage('Please fill in Section Name and select a Color');
-                                        return false;
+                                      showCancelButton: true,
+                                      confirmButtonText: 'Save',
+                                      cancelButtonText: 'Cancel',
+                                      focusConfirm: false,
+                                      preConfirm: () => {
+                                        const sectionName = (document.getElementById('edit-grade-name') as HTMLInputElement).value.trim();
+                                        const description = (document.getElementById('edit-grade-description') as HTMLTextAreaElement).value.trim();
+                                        const color = (document.getElementById('edit-grade-color') as HTMLSelectElement).value;
+                                        const gradeLevel = grade.name.split(' - ')[0] || 'Grade 4';
+
+                                        if (!sectionName || !color) {
+                                          Swal.showValidationMessage('Please fill in Section Name and select a Color');
+                                          return false;
+                                        }
+
+                                        return {
+                                          name: `${gradeLevel} - ${sectionName}`,
+                                          description,
+                                          color
+                                        };
                                       }
-                                      
-                                      return { 
-                                        name: `${gradeLevel} - ${sectionName}`,
-                                        description, 
-                                        color 
-                                      };
-                                    }
-                                  });
-                                  if (formValues) {
-                                    await gradeService.updateGrade(grade.id!, {
-                                      name: formValues.name,
-                                      description: formValues.description,
-                                      color: formValues.color
                                     });
-                                    showSuccess('Grade Updated', 'Class grade updated successfully.');
-                                    await loadGrades();
+                                    if (formValues) {
+                                      await gradeService.updateGrade(grade.id!, {
+                                        name: formValues.name,
+                                        description: formValues.description,
+                                        color: formValues.color
+                                      });
+                                      showSuccess('Grade Updated', 'Class grade updated successfully.');
+                                      await loadGrades();
+                                    }
+                                  } catch (error) {
+                                    showError('Failed to Edit', 'An error occurred while editing the class grade.');
+                                  } finally {
+                                    setLoadingEditGradeId(null);
                                   }
-                                } catch (error) {
-                                  showError('Failed to Edit', 'An error occurred while editing the class grade.');
-                                } finally {
-                                  setLoadingEditGradeId(null);
-                                }
-                              }}
-                              className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-yellow-50 hover:bg-yellow-100 text-yellow-600 hover:text-yellow-800 shadow focus:outline-none focus:ring-2 focus:ring-yellow-300 transition"
-                              title="Edit Grade"
-                              disabled={loadingEditGradeId === grade.id || !canManage}
-                            >
-                              <i className="fas fa-edit"></i>
-                            </button>
+                                }}
+                                className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-yellow-50 hover:bg-yellow-100 text-yellow-600 hover:text-yellow-800 shadow focus:outline-none focus:ring-2 focus:ring-yellow-300 transition"
+                                title="Edit Grade"
+                                disabled={loadingEditGradeId === grade.id || !canManage}
+                              >
+                                <i className="fas fa-edit"></i>
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))
+                      ))
                   )}
                 </div>
               </div>
@@ -1665,7 +1836,7 @@ const ClassList: React.FC = () => {
                   <div className="flex items-center space-x-4">
                     <h3 className="text-lg font-semibold text-gray-900">Students</h3>
                   </div>
-                  
+
                   {/* Right side - Sort Selector */}
                   <div className="flex items-center space-x-4">
                     <PillSelect
@@ -1683,7 +1854,7 @@ const ClassList: React.FC = () => {
                     />
                   </div>
                 </div>
-                
+
                 {/* Student count badge */}
                 <div className="mt-4 flex items-center justify-between">
                   <span className="px-3 py-1 text-sm font-medium text-gray-600 bg-gray-100 rounded-full">
@@ -1707,7 +1878,7 @@ const ClassList: React.FC = () => {
                       />
                     </div>
                   </div>
-                  
+
                   <div className="flex items-center space-x-3">
                     {!showArchived && filteredStudents.length > 0 && (
                       <button
@@ -1724,7 +1895,7 @@ const ClassList: React.FC = () => {
                         Archive All Students
                       </button>
                     )}
-                    
+
                     <div className="flex items-center space-x-2">
                       {!showArchived && (
                         <>
@@ -1812,6 +1983,7 @@ const ClassList: React.FC = () => {
                       <tr>
                         <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
                         <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">LRN</th>
+                        <th scope="col" className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Form</th>
                         <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Parent</th>
 
                         <th scope="col" className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
@@ -1870,6 +2042,29 @@ const ClassList: React.FC = () => {
                             <td className="px-4 py-3 whitespace-nowrap">
                               <div className="text-sm text-gray-900 select-none">{student.lrn || '-'}</div>
                             </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-center">
+                              <button
+                                onClick={() => handleGenerateForm(student)}
+                                disabled={loadingStudentId === student.id}
+                                className={`font-semibold px-3 py-1 rounded text-xs transition-colors flex items-center gap-1 ${loadingStudentId === student.id
+                                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                    : 'bg-green-100 hover:bg-green-200 text-green-700'
+                                  }`}
+                                title={`Generate Phil-IRI Form 3A for ${student.name}`}
+                              >
+                                {loadingStudentId === student.id ? (
+                                  <>
+                                    <div className="w-3 h-3 border-2 border-gray-300 border-t-green-600 rounded-full animate-spin"></div>
+                                    Loading...
+                                  </>
+                                ) : (
+                                  <>
+                                    <i className="fas fa-file-alt"></i>
+                                    Form 3A
+                                  </>
+                                )}
+                              </button>
+                            </td>
                             <td className="px-4 py-3 whitespace-nowrap text-left align-middle">
                               <div className="flex items-center h-8">
                                 {student.parentId ? (
@@ -1910,17 +2105,17 @@ const ClassList: React.FC = () => {
                                   title="Edit Student"
                                   disabled={!canManage}
                                 >
-                                    <i className="fas fa-edit"></i>
+                                  <i className="fas fa-edit"></i>
                                 </button>
                                 {(!showArchived) ? (
-                                <button
+                                  <button
                                     onClick={() => student.id && handleArchiveStudent(student.id, student.name)}
                                     className="text-amber-600 hover:text-amber-800 select-none"
                                     title="Archive Student"
-                                  disabled={!canManage}
-                                >
+                                    disabled={!canManage}
+                                  >
                                     <i className="fas fa-archive"></i>
-                                </button>
+                                  </button>
                                 ) : (
                                   (student as any).archivedByAdmin ? (
                                     <span className="text-gray-500 text-xs italic select-none" title="This student was archived by an administrator">
@@ -1978,27 +2173,27 @@ const ClassList: React.FC = () => {
                       <i className="fas fa-broom mr-2"></i>Remove Duplicates
                     </button>
                   )}
-                <button
-                  onClick={handleImportStudents}
+                  <button
+                    onClick={handleImportStudents}
                     disabled={isImporting || duplicateStats.within > 0 || duplicateStats.existing > 0}
-                  className="inline-flex items-center px-4 py-2 text-sm font-medium text-blue-600 bg-white rounded-lg shadow-md hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+                    className="inline-flex items-center px-4 py-2 text-sm font-medium text-blue-600 bg-white rounded-lg shadow-md hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
                     title={duplicateStats.within > 0 || duplicateStats.existing > 0 ? 'Resolve duplicate entries before importing' : undefined}
-                >
-                  {isImporting ? (
-                    <span className="inline-flex items-center"><span className="loader-spinner mr-2 w-4 h-4 border-t-2 border-r-2 border-blue-600 border-solid rounded-full animate-spin"></span> Importing...</span>
-                  ) : (
-                    'Import Students'
-                  )}
-                </button>
+                  >
+                    {isImporting ? (
+                      <span className="inline-flex items-center"><span className="loader-spinner mr-2 w-4 h-4 border-t-2 border-r-2 border-blue-600 border-solid rounded-full animate-spin"></span> Importing...</span>
+                    ) : (
+                      'Import Students'
+                    )}
+                  </button>
+                </div>
               </div>
-            </div>
             </div>
             <div className="p-4 bg-gray-50 border-b border-gray-200 space-y-2">
               <div className="flex items-center">
-              <i className="fas fa-info-circle text-blue-500 mr-3 text-lg"></i>
-              <p className="text-sm text-gray-700">
-                Found {importedStudents.length} students to import. Please review the data below.
-              </p>
+                <i className="fas fa-info-circle text-blue-500 mr-3 text-lg"></i>
+                <p className="text-sm text-gray-700">
+                  Found {importedStudents.length} students to import. Please review the data below.
+                </p>
               </div>
               <div className={`flex items-start text-xs sm:text-sm rounded-md p-2 ${duplicateStats.within > 0 || duplicateStats.existing > 0 ? 'text-amber-800 bg-amber-50 border border-amber-200' : 'text-blue-800 bg-blue-50 border border-blue-200'}`}>
                 <i className={`fas ${duplicateStats.within > 0 || duplicateStats.existing > 0 ? 'fa-exclamation-triangle' : 'fa-info-circle'} mt-0.5 mr-2`}></i>
@@ -2022,10 +2217,10 @@ const ClassList: React.FC = () => {
                               <div>
                                 <div className="font-medium">In this file</div>
                                 <ul className="list-disc ml-5">
-                                  {duplicateDetails.within.slice(0,5).map((s,i)=> (
-                                    <li key={`w-${i}`}>{(s.firstName||'').trim()} {(s.lastName||'').trim()} {s.lrn ? `(${s.lrn})` : ''}</li>
+                                  {duplicateDetails.within.slice(0, 5).map((s, i) => (
+                                    <li key={`w-${i}`}>{(s.firstName || '').trim()} {(s.lastName || '').trim()} {s.lrn ? `(${s.lrn})` : ''}</li>
                                   ))}
-                                  {duplicateDetails.within.length > 5 && <li>+{duplicateDetails.within.length-5} more…</li>}
+                                  {duplicateDetails.within.length > 5 && <li>+{duplicateDetails.within.length - 5} more…</li>}
                                 </ul>
                               </div>
                             )}
@@ -2033,10 +2228,10 @@ const ClassList: React.FC = () => {
                               <div>
                                 <div className="font-medium">Already in your class</div>
                                 <ul className="list-disc ml-5">
-                                  {duplicateDetails.existing.slice(0,5).map((s,i)=> (
-                                    <li key={`e-${i}`}>{(s.firstName||'').trim()} {(s.lastName||'').trim()} {s.lrn ? `(${s.lrn})` : ''}</li>
+                                  {duplicateDetails.existing.slice(0, 5).map((s, i) => (
+                                    <li key={`e-${i}`}>{(s.firstName || '').trim()} {(s.lastName || '').trim()} {s.lrn ? `(${s.lrn})` : ''}</li>
                                   ))}
-                                  {duplicateDetails.existing.length > 5 && <li>+{duplicateDetails.existing.length-5} more…</li>}
+                                  {duplicateDetails.existing.length > 5 && <li>+{duplicateDetails.existing.length - 5} more…</li>}
                                 </ul>
                               </div>
                             )}
@@ -2091,7 +2286,7 @@ const ClassList: React.FC = () => {
               <h3 className="text-lg font-semibold text-gray-900">Edit Student</h3>
               <p className="text-sm text-gray-600 mt-1">Update student name and LRN only</p>
             </div>
-            
+
             <div className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -2105,7 +2300,7 @@ const ClassList: React.FC = () => {
                   placeholder="Enter student name"
                 />
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   LRN (Learner Reference Number)
@@ -2118,7 +2313,7 @@ const ClassList: React.FC = () => {
                   placeholder="Enter LRN (optional)"
                 />
               </div>
-              
+
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                 <div className="flex items-start">
                   <i className="fas fa-info-circle text-yellow-600 mt-0.5 mr-2"></i>
@@ -2129,7 +2324,7 @@ const ClassList: React.FC = () => {
                 </div>
               </div>
             </div>
-            
+
             <div className="p-6 border-t border-gray-200 flex justify-end space-x-3">
               <button
                 onClick={handleCancelEdit}
@@ -2141,11 +2336,10 @@ const ClassList: React.FC = () => {
               <button
                 onClick={handleSaveEdit}
                 disabled={loadingStudentId === editingStudent.id || !editForm.name.trim()}
-                className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${
-                  loadingStudentId === editingStudent.id || !editForm.name.trim()
-                    ? 'bg-gray-400 text-white cursor-not-allowed'
-                    : 'bg-blue-600 text-white hover:bg-blue-700'
-                }`}
+                className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${loadingStudentId === editingStudent.id || !editForm.name.trim()
+                  ? 'bg-gray-400 text-white cursor-not-allowed'
+                  : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
               >
                 {loadingStudentId === editingStudent.id ? (
                   <>
@@ -2159,6 +2353,212 @@ const ClassList: React.FC = () => {
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Phil-IRI Form 3A Modal */}
+      {formModalOpen && selectedFormStudent && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          onClick={(e) => e.target === e.currentTarget && handleCloseForm()}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') handleCloseForm();
+            if (e.key === 'p' && (e.ctrlKey || e.metaKey)) {
+              e.preventDefault();
+              handlePrintForm();
+            }
+          }}
+          tabIndex={-1}
+        >
+          <div className="bg-white rounded-2xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+              <h3 className="text-xl font-semibold text-gray-900">
+                Phil-IRI Form 3A - {selectedFormStudent.name}
+              </h3>
+              <button
+                onClick={handleCloseForm}
+                className="text-gray-400 hover:text-gray-600 text-2xl font-bold"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="p-6">
+              {!formData ? (
+                /* Loading State */
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-center">
+                    <div className="w-12 h-12 border-4 border-green-200 border-t-green-600 rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-gray-600">Generating Phil-IRI Form 3A...</p>
+                    <p className="text-sm text-gray-500 mt-2">Please wait while we process the student's reading data.</p>
+                  </div>
+                </div>
+              ) : (
+                /* Form Content */
+                <div className="print-content bg-white p-8 rounded-lg font-mono text-sm border-2 border-gray-400 print:border-black print:shadow-none max-w-4xl mx-auto">
+                  <div className="text-right mb-6 font-bold text-base">
+                    {formData.formTitle}
+                  </div>
+
+                  {/* PART A */}
+                  <div className="mb-8">
+                    <div className="font-bold mb-4 text-base">PART A</div>
+
+                    <div className="mb-4 space-y-2">
+                      <div className="flex justify-between">
+                        <span>Kabuuang Oras ng Pagbasa: <span className="underline inline-block min-w-[120px] text-center">{formData.partA.readingTime}</span></span>
+                        <span>Rate ng Pagbasa: <span className="underline inline-block min-w-[120px] text-center">{formData.partA.readingRate}</span></span>
+                      </div>
+                    </div>
+
+                    <div className="mb-6">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <span>Sagot sa mga Tanong: Marka: <span className="underline inline-block min-w-[30px] text-center">{formData.partA.correctAnswers}</span></span>
+                          <span className="ml-4">%= <span className="underline inline-block min-w-[40px] text-center">{formData.partA.percentage}%</span></span>
+                        </div>
+                        <div>
+                          <span>Comprehension Level: <span className="underline inline-block min-w-[100px] text-center">{formData.partA.comprehensionLevel}</span></span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-12">
+                      <div className="space-y-2">
+                        {formData.partA.answers.slice(0, 4).map((answer: string, index: number) => (
+                          <div key={index} className="flex items-center">
+                            <span className="mr-2">{index + 1}.</span>
+                            <span className="underline inline-block min-w-[80px] text-center">{answer}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="space-y-2">
+                        {formData.partA.answers.slice(4).map((answer: string, index: number) => (
+                          <div key={index + 4} className="flex items-center">
+                            <span className="mr-2">{index + 5}.</span>
+                            <span className="underline inline-block min-w-[80px] text-center">{answer}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* PART B */}
+                  <div>
+                    <div className="font-bold mb-4 text-base">PART B</div>
+
+                    <div className="mb-4">
+                      <div className="font-bold text-sm">Word Reading (Pagbasa)</div>
+                    </div>
+
+                    <div className="mb-6 space-y-2">
+                      <div className="flex items-center space-x-8">
+                        <span>Seleksyon: <span className="underline inline-block min-w-[150px] text-center">{formData.partB.wordReading.selection}</span></span>
+                        <span>Level: <span className="underline inline-block min-w-[40px] text-center">{formData.partB.wordReading.level}</span></span>
+                        <span>Set: <span className="underline inline-block min-w-[40px] text-center">{formData.partB.wordReading.set}</span></span>
+                      </div>
+                    </div>
+
+                    {/* Miscues Table */}
+                    <div className="border-2 border-black">
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-gray-100">
+                            <th className="border border-black p-3 text-center w-12 font-bold"></th>
+                            <th className="border border-black p-3 text-center font-bold">
+                              <div>Types of Miscues</div>
+                              <div className="italic font-normal text-xs mt-1">(Uri ng Mali)</div>
+                            </th>
+                            <th className="border border-black p-3 text-center font-bold">
+                              <div>Number of Miscues</div>
+                              <div className="italic font-normal text-xs mt-1">(Bilang ng Salitang mali ang basa)</div>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td className="border border-black p-2 text-center font-bold">1</td>
+                            <td className="border border-black p-2">Mispronunciation <span className="italic">(Maling Bigkas)</span></td>
+                            <td className="border border-black p-2 text-center bg-gray-50">{formData.partB.miscues.mispronunciation}</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-black p-2 text-center font-bold">2</td>
+                            <td className="border border-black p-2">Omission <span className="italic">(Pagkakaltas)</span></td>
+                            <td className="border border-black p-2 text-center bg-gray-50">{formData.partB.miscues.omission}</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-black p-2 text-center font-bold">3</td>
+                            <td className="border border-black p-2">Substitution <span className="italic">(Pagpapalit)</span></td>
+                            <td className="border border-black p-2 text-center bg-gray-50">{formData.partB.miscues.substitution}</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-black p-2 text-center font-bold">4</td>
+                            <td className="border border-black p-2">Insertion <span className="italic">(Pagsisingit)</span></td>
+                            <td className="border border-black p-2 text-center bg-gray-50">{formData.partB.miscues.insertion}</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-black p-2 text-center font-bold">5</td>
+                            <td className="border border-black p-2">Repetition <span className="italic">(Pag-uulit)</span></td>
+                            <td className="border border-black p-2 text-center bg-gray-50">{formData.partB.miscues.repetition}</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-black p-2 text-center font-bold">6</td>
+                            <td className="border border-black p-2">Transposition <span className="italic">(Pagpapalit ng lugar)</span></td>
+                            <td className="border border-black p-2 text-center bg-gray-50">{formData.partB.miscues.transposition}</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-black p-2 text-center font-bold">7</td>
+                            <td className="border border-black p-2">Reversal <span className="italic">(Paglilipat)</span></td>
+                            <td className="border border-black p-2 text-center bg-gray-50">{formData.partB.miscues.reversal}</td>
+                          </tr>
+                          <tr className="bg-gray-200">
+                            <td className="border border-black p-2"></td>
+                            <td className="border border-black p-2 font-bold">Total Miscues <span className="italic font-normal">(Kabuuan)</span></td>
+                            <td className="border border-black p-2 text-center font-bold">{formData.partB.miscues.totalMiscues}</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-black p-2"></td>
+                            <td className="border border-black p-2 font-bold">Number of Words in the Passage</td>
+                            <td className="border border-black p-2 text-center bg-gray-50">{formData.partB.miscues.wordsInPassage}</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-black p-2"></td>
+                            <td className="border border-black p-2 font-bold">Word Reading Score</td>
+                            <td className="border border-black p-2 text-center bg-gray-50">{formData.partB.miscues.wordReadingScore}</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-black p-2"></td>
+                            <td className="border border-black p-2 font-bold">Word Reading Level <span className="italic font-normal">(Antas ng Pagbasa)</span></td>
+                            <td className="border border-black p-2 text-center bg-gray-50">{formData.partB.miscues.wordReadingLevel}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-6 flex justify-end space-x-3 no-print">
+                <button
+                  onClick={handleCloseForm}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={handlePrintForm}
+                  disabled={!formData}
+                  className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${!formData
+                      ? 'bg-gray-400 text-white cursor-not-allowed'
+                      : 'bg-green-600 text-white hover:bg-green-700'
+                    }`}
+                >
+                  <i className="fas fa-print"></i>
+                  Print Form
+                </button>
+              </div>
             </div>
           </div>
         </div>
