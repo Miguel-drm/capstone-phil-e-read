@@ -24,14 +24,13 @@ import "pdfjs-dist/build/pdf.worker.entry";
 import {
   calculateOralReadingScore,
   calculateReadingSpeedWPM,
-  calculateMiscues,
-  calculateWordsRead,
   formatElapsedTime,
 } from "@/utils/readingMetrics";
 import { studentService } from "@/services/studentService";
 import Swal from "sweetalert2";
 import { db } from "@/config/firebase";
 import { collection, getDocs, addDoc, serverTimestamp } from "firebase/firestore";
+import { doubleMetaphone } from "double-metaphone";
 
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -77,7 +76,7 @@ const ReadingSessionPage: React.FC = () => {
   const [storyLanguage, setStoryLanguage] = useState<"english" | "tagalog">(
     "english"
   );
-  
+
   // Refs for auto-scrolling to current word
   const currentWordRef = useRef<HTMLSpanElement>(null);
   const storyContentRef = useRef<HTMLDivElement>(null);
@@ -117,12 +116,27 @@ const ReadingSessionPage: React.FC = () => {
       ? calculateReadingSpeedWPM(wordsRead, elapsedTime).toString()
       : "0";
 
-  // Helper: Normalize text for comparison (lowercase, remove all non-word characters)
-  const normalize = (text: string) =>
-    text
-      .toLowerCase()
-      .replace(/[^\w\s]/g, "")
-      .trim();
+  // Helper: Convert numbers to words (0-100)
+  const numberToWord = (num: string): string => {
+    const numberMap: { [key: string]: string } = {
+      '0': 'zero', '1': 'one', '2': 'two', '3': 'three', '4': 'four',
+      '5': 'five', '6': 'six', '7': 'seven', '8': 'eight', '9': 'nine',
+      '10': 'ten', '11': 'eleven', '12': 'twelve', '13': 'thirteen',
+      '14': 'fourteen', '15': 'fifteen', '16': 'sixteen', '17': 'seventeen',
+      '18': 'eighteen', '19': 'nineteen', '20': 'twenty', '30': 'thirty',
+      '40': 'forty', '50': 'fifty', '60': 'sixty', '70': 'seventy',
+      '80': 'eighty', '90': 'ninety', '100': 'hundred'
+    };
+    return numberMap[num] || num;
+  };
+
+  // Helper: Normalize text for comparison (lowercase, convert numbers to words, remove punctuation)
+  const normalize = (text: string) => {
+    let normalized = text.toLowerCase().replace(/[^\w\s]/g, '').trim();
+    // Convert standalone numbers to words
+    normalized = normalized.replace(/\b\d+\b/g, (match) => numberToWord(match));
+    return normalized;
+  };
 
   // Helper: Check if a word contains any alphanumeric character
   const isWordAlphanumeric = (word: string) => /[a-zA-Z0-9]/.test(word);
@@ -131,48 +145,6 @@ const ReadingSessionPage: React.FC = () => {
   function extractWordsFromText(text: string): string[] {
     // This regex matches words with at least one alphanumeric character
     return text.match(/\b\w+\b/g) || [];
-  }
-
-  // Helper: Simple Soundex implementation (for browser, no deps)
-  function soundex(s: string): string {
-    const a = s
-      .toLowerCase()
-      .replace(/[^a-z]/g, "")
-      .split("");
-    if (!a.length) return "";
-    const f = a.shift()!;
-    const codes: { [key: string]: string } = {
-      a: "",
-      e: "",
-      i: "",
-      o: "",
-      u: "",
-      y: "",
-      h: "",
-      w: "",
-      b: "1",
-      f: "1",
-      p: "1",
-      v: "1",
-      c: "2",
-      g: "2",
-      j: "2",
-      k: "2",
-      q: "2",
-      s: "2",
-      x: "2",
-      z: "2",
-      d: "3",
-      t: "3",
-      l: "4",
-      m: "5",
-      n: "5",
-      r: "6",
-    };
-    let r = f + a.map((c) => codes[c] || "").join("");
-    r = r.replace(/(\d)\1+/g, "$1");
-    r = r.replace(/[^a-z\d]/g, "");
-    return (r + "000").slice(0, 4);
   }
 
   // Levenshtein distance implementation
@@ -195,17 +167,200 @@ const ReadingSessionPage: React.FC = () => {
   }
 
   /**
-   * Returns true if spokenWord and expectedWord are phonetically similar (Soundex) or have Levenshtein distance <= 1.
-   * For production, consider using 'natural' or 'double-metaphone' npm packages.
+   * Improved pronunciation matching with Filipino accent tolerance.
+   * Handles common pronunciation variations for Filipino English speakers.
    */
   function isWordMatch(spokenWord: string, expectedWord: string): boolean {
     const normSpoken = normalize(spokenWord);
     const normExpected = normalize(expectedWord);
     if (!normSpoken || !normExpected) return false;
-    // Phonetic match
-    if (soundex(normSpoken) === soundex(normExpected)) return true;
-    // Fuzzy match
-    if (levenshtein(normSpoken, normExpected) <= 1) return true;
+
+    // Debug logging
+    if ((import.meta as any)?.env?.MODE === "development") {
+      console.debug(`Comparing: "${normSpoken}" vs "${normExpected}"`);
+    }
+
+    // Exact match
+    if (normSpoken === normExpected) {
+      if ((import.meta as any)?.env?.MODE === "development") {
+        console.debug("✓ Exact match");
+      }
+      return true;
+    }
+
+    // Filipino accent variations and children's speech patterns
+    const accentMap: { [key: string]: string[] } = {
+      // Filipino accent variations
+      'the': ['da', 'de', 'duh', 'di'],
+      'this': ['dis', 'dees'],
+      'that': ['dat', 'det'],
+      'three': ['tree', 'tri'],
+      'think': ['tink', 'tingk'],
+      'thing': ['ting'],
+      'with': ['wit', 'wid'],
+      'they': ['dey', 'day'],
+      'them': ['dem'],
+      'there': ['der', 'dere'],
+      'their': ['der', 'deir'],
+      'then': ['den'],
+      'than': ['dan'],
+      'through': ['tru', 'troo'],
+      'thought': ['tot', 'taught'],
+      'though': ['do', 'dough'],
+      'these': ['dis', 'dees'],
+      'those': ['dos', 'dose'],
+      'other': ['oder', 'udder'],
+      'another': ['anoder', 'anudder'],
+      'brother': ['broder', 'brudder'],
+      'mother': ['moder', 'mudder'],
+      'father': ['fader', 'fadder'],
+      'weather': ['weder', 'wedder'],
+      'whether': ['weder', 'wedder'],
+      'together': ['togeder', 'togedder'],
+
+      // Children's speech: past tense -ed endings (often dropped or mispronounced)
+      'looked': ['look', 'looke', 'lookt'],
+      'walked': ['walk', 'walke', 'walkt'],
+      'talked': ['talk', 'talke', 'talkt'],
+      'picked': ['pick', 'picke', 'pickt'],
+      'noticed': ['notice', 'notic', 'notis'],
+      'wanted': ['want', 'wante', 'wantid'],
+      'needed': ['need', 'neede', 'needid'],
+      'started': ['start', 'starte', 'startid'],
+      'ended': ['end', 'ende', 'endid'],
+      'asked': ['ask', 'aske', 'askt'],
+      'helped': ['help', 'helpe', 'helpt'],
+      'jumped': ['jump', 'jumpe', 'jumpt'],
+      'played': ['play', 'playe', 'playd'],
+      'stayed': ['stay', 'staye', 'stayd'],
+      'tried': ['try', 'trie', 'tryd'],
+      'turned': ['turn', 'turne', 'turnd'],
+      'learned': ['learn', 'learne', 'learnd'],
+      'opened': ['open', 'opene', 'opend'],
+      'closed': ['close', 'clos', 'closd'],
+      'lived': ['live', 'liv', 'livd'],
+      'loved': ['love', 'lov', 'lovd'],
+      'moved': ['move', 'mov', 'movd'],
+      'used': ['use', 'us', 'usd'],
+      'called': ['call', 'calle', 'calld'],
+      'worked': ['work', 'worke', 'workt'],
+      'seemed': ['seem', 'seeme', 'seemd'],
+      'showed': ['show', 'showe', 'showd'],
+      'followed': ['follow', 'followe', 'followd'],
+      'happened': ['happen', 'happene', 'happend'],
+      'appeared': ['appear', 'appeare', 'appeard'],
+      'believed': ['believe', 'believ', 'believd'],
+      'received': ['receive', 'receiv', 'receivd'],
+
+      // Common irregular verbs children struggle with
+      'saw': ['see', 'sow', 'so'],
+      'said': ['say', 'sed', 'sayed'],
+      'went': ['go', 'goed', 'wented'],
+      'came': ['come', 'comed', 'camed'],
+      'took': ['take', 'taked', 'taked'],
+      'gave': ['give', 'gived', 'gaved'],
+      'made': ['make', 'maked', 'maded'],
+      'got': ['get', 'getted', 'goted'],
+      'found': ['find', 'finded', 'founded'],
+      'told': ['tell', 'telled', 'tolded'],
+      'knew': ['know', 'knowed', 'knewed'],
+      'felt': ['feel', 'feeled', 'felted'],
+      'left': ['leave', 'leaved', 'lefted'],
+      'kept': ['keep', 'keeped', 'kepted'],
+      'held': ['hold', 'holded', 'helded'],
+      'brought': ['bring', 'bringed', 'broughted'],
+      'began': ['begin', 'begined', 'beganed'],
+      'ran': ['run', 'runned', 'raned'],
+      'stood': ['stand', 'standed', 'stooded'],
+      'heard': ['hear', 'heared', 'herd'],
+      'became': ['become', 'becomed', 'becamed'],
+      'put': ['put', 'putted', 'puted'],
+      'let': ['let', 'letted', 'leted'],
+      'read': ['read', 'readed', 'red'],
+      'met': ['meet', 'meeted', 'meted'],
+      'sat': ['sit', 'sitted', 'sated'],
+      'spoke': ['speak', 'speaked', 'spoked'],
+      'wrote': ['write', 'writed', 'wroted'],
+      'ate': ['eat', 'eated', 'ated'],
+      'drank': ['drink', 'drinked', 'dranked'],
+      'sang': ['sing', 'singed', 'sanged'],
+      'swam': ['swim', 'swimmed', 'swamed'],
+      'flew': ['fly', 'flyed', 'flewed'],
+      'drew': ['draw', 'drawed', 'drewed'],
+      'grew': ['grow', 'growed', 'grewed'],
+      'threw': ['throw', 'throwed', 'threwed'],
+      'wore': ['wear', 'weared', 'wored'],
+      'broke': ['break', 'breaked', 'broked'],
+      'chose': ['choose', 'choosed', 'chosed'],
+      'drove': ['drive', 'drived', 'droved'],
+      'rode': ['ride', 'rided', 'roded'],
+      'woke': ['wake', 'waked', 'woked'],
+      'froze': ['freeze', 'freezed', 'frosed'],
+      'stole': ['steal', 'stealed', 'stoled']
+    };
+
+    // Check if expected word has accent variations
+    if (accentMap[normExpected]) {
+      if (accentMap[normExpected].includes(normSpoken)) {
+        return true;
+      }
+    }
+
+    // Also check reverse - if spoken word is in the map
+    for (const [standard, variations] of Object.entries(accentMap)) {
+      if (variations.includes(normSpoken) && standard === normExpected) {
+        return true;
+      }
+    }
+
+    // Calculate similarity metrics
+    const distance = levenshtein(normSpoken, normExpected);
+    const maxLength = Math.max(normSpoken.length, normExpected.length);
+    const similarity = 1 - (distance / maxLength);
+
+    // For very short words (3 chars or less), be strict
+    if (normExpected.length <= 3) {
+      // Allow only 85%+ similarity (e.g., "the" vs "tea" = 66%, won't match)
+      return similarity >= 0.85;
+    }
+
+    // For short words (4 chars), allow small variations
+    if (normExpected.length === 4) {
+      // Allow 75%+ similarity (e.g., "lost" vs "loss" = 75%, will match)
+      if (similarity >= 0.75) return true;
+    }
+
+    // For medium words (5-7 chars), be more lenient
+    if (normExpected.length >= 5 && normExpected.length <= 7) {
+      // Allow 70%+ similarity for common reading words
+      if (similarity >= 0.70) return true;
+    }
+
+    // Double Metaphone phonetic match for longer words
+    const [primary1, secondary1] = doubleMetaphone(normSpoken);
+    const [primary2, secondary2] = doubleMetaphone(normExpected);
+
+    // Check if any phonetic codes match
+    if (primary1 === primary2 ||
+      (secondary1 && secondary1 === secondary2) ||
+      (secondary1 && secondary1 === primary2) ||
+      (primary1 === secondary2)) {
+      // Additional validation: words should be similar length
+      if (Math.abs(normSpoken.length - normExpected.length) <= 2) {
+        return true;
+      }
+    }
+
+    // For longer words (8+ chars), allow up to 2 character difference
+    if (maxLength >= 8 && distance <= 2) {
+      return true;
+    }
+
+    // For medium words (5-7 chars), allow 1 character difference
+    if (maxLength >= 5 && maxLength < 8 && distance === 1) {
+      return true;
+    }
+
     return false;
   }
 
@@ -238,23 +393,23 @@ const ReadingSessionPage: React.FC = () => {
       navigator.mediaDevices
         .getUserMedia({ audio: true })
         .then((stream) => {
-        const mediaRecorder = new MediaRecorder(stream);
-        mediaRecorderRef.current = mediaRecorder;
-        const audioChunks: BlobPart[] = [];
-        mediaRecorder.ondataavailable = (e) => {
-          if (e.data.size > 0) audioChunks.push(e.data);
-        };
-        mediaRecorder.onstop = () => {
+          const mediaRecorder = new MediaRecorder(stream);
+          mediaRecorderRef.current = mediaRecorder;
+          const audioChunks: BlobPart[] = [];
+          mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) audioChunks.push(e.data);
+          };
+          mediaRecorder.onstop = () => {
             const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
-          setAudioBlob(audioBlob);
-          setAudioUrl(URL.createObjectURL(audioBlob));
-        };
-        mediaRecorder.start();
+            setAudioBlob(audioBlob);
+            setAudioUrl(URL.createObjectURL(audioBlob));
+          };
+          mediaRecorder.start();
         })
         .catch(() => {
           alert("Microphone access denied or not available.");
-        setIsRecording(false);
-      });
+          setIsRecording(false);
+        });
     } else {
       alert("MediaRecorder not supported in this browser.");
       setIsRecording(false);
@@ -276,7 +431,8 @@ const ReadingSessionPage: React.FC = () => {
           audioContextRef.current = ctx;
           const src = ctx.createMediaStreamSource(stream);
           sourceNodeRef.current = src;
-          const script = ctx.createScriptProcessor(4096, 1, 1);
+          // Reduced buffer size from 4096 to 2048 for lower latency (faster recognition)
+          const script = ctx.createScriptProcessor(2048, 1, 1);
           scriptNodeRef.current = script;
 
           // Downsample Float32 (48k) to Int16 (16k)
@@ -320,11 +476,15 @@ const ReadingSessionPage: React.FC = () => {
           ws.onmessage = (evt) => {
             try {
               const msg = JSON.parse(evt.data);
-              if (msg.text || msg.partial) {
-                const text = msg.text || msg.partial;
-                setTranscript(text);
+              // Process both final and partial results immediately for faster response
+              if (msg.text) {
+                // Final result - update transcript
+                setTranscript(msg.text);
+              } else if (msg.partial) {
+                // Partial result - update transcript immediately for instant feedback
+                setTranscript(msg.partial);
               }
-            } catch {}
+            } catch { }
           };
           ws.onerror = () => {
             console.warn("Vosk WS error, falling back to Web Speech");
@@ -340,16 +500,16 @@ const ReadingSessionPage: React.FC = () => {
         const cleanupVosk = () => {
           try {
             scriptNodeRef.current?.disconnect();
-          } catch {}
+          } catch { }
           try {
             sourceNodeRef.current?.disconnect();
-          } catch {}
+          } catch { }
           try {
             audioContextRef.current?.close();
-          } catch {}
+          } catch { }
           try {
             voskSocketRef.current?.close();
-          } catch {}
+          } catch { }
           scriptNodeRef.current = null;
           sourceNodeRef.current = null;
           audioContextRef.current = null;
@@ -368,6 +528,8 @@ const ReadingSessionPage: React.FC = () => {
           recognitionRef.current = recognition;
           recognition.continuous = true;
           recognition.interimResults = true;
+          // Optimize for faster recognition
+          recognition.maxAlternatives = 1; // Only get top result for speed
           const selectRecognitionLang = (lang: "english" | "tagalog") => {
             if (lang === "tagalog") {
               const preferred = (navigator.languages || []).map((l) =>
@@ -389,9 +551,27 @@ const ReadingSessionPage: React.FC = () => {
                 runningTranscript += event.results[i][0].transcript + " ";
               else interim += event.results[i][0].transcript;
             }
+            // Update immediately for instant feedback
             setTranscript(runningTranscript + interim);
           };
-          recognition.onerror = (_e: any) => {};
+          recognition.onerror = (e: any) => {
+            console.warn("Speech recognition error:", e.error);
+            // Don't restart on 'no-speech' or 'aborted' errors during normal operation
+            if (e.error === 'no-speech' || e.error === 'audio-capture') {
+              // These are recoverable, recognition will auto-restart
+            }
+          };
+          recognition.onend = () => {
+            // Auto-restart if still recording
+            if (isRecording && !isPaused && recognitionRef.current) {
+              console.log("Speech recognition ended, restarting...");
+              try {
+                recognition.start();
+              } catch (e) {
+                console.warn("Failed to restart recognition:", e);
+              }
+            }
+          };
           recognition.start();
         };
 
@@ -412,8 +592,30 @@ const ReadingSessionPage: React.FC = () => {
           recognition.interimResults = true;
           recognition.lang = "fil-PH";
           setSttProvider("webspeech");
-          recognition.onresult = (e: any) =>
-            setTranscript(e.results[0][0].transcript || "");
+          let runningTranscript = "";
+          recognition.onresult = (event: any) => {
+            let interim = "";
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+              if (event.results[i].isFinal)
+                runningTranscript += event.results[i][0].transcript + " ";
+              else interim += event.results[i][0].transcript;
+            }
+            setTranscript(runningTranscript + interim);
+          };
+          recognition.onerror = (e: any) => {
+            console.warn("Speech recognition error:", e.error);
+          };
+          recognition.onend = () => {
+            // Auto-restart if still recording
+            if (isRecording && !isPaused && recognitionRef.current) {
+              console.log("Speech recognition ended, restarting...");
+              try {
+                recognition.start();
+              } catch (e) {
+                console.warn("Failed to restart recognition:", e);
+              }
+            }
+          };
           recognition.start();
         }
       }
@@ -450,7 +652,20 @@ const ReadingSessionPage: React.FC = () => {
           }
           setTranscript(runningTranscript + interim);
         };
-        recognition.onerror = (_e: any) => {};
+        recognition.onerror = (e: any) => {
+          console.warn("Speech recognition error:", e.error);
+        };
+        recognition.onend = () => {
+          // Auto-restart if still recording
+          if (isRecording && !isPaused && recognitionRef.current) {
+            console.log("Speech recognition ended, restarting...");
+            try {
+              recognition.start();
+            } catch (e) {
+              console.warn("Failed to restart recognition:", e);
+            }
+          }
+        };
         recognition.start();
       } else {
         alert("SpeechRecognition not supported in this browser.");
@@ -465,8 +680,8 @@ const ReadingSessionPage: React.FC = () => {
     const target =
       storyLanguage === "tagalog"
         ? (navigator.languages || [])
-            .map((l) => l.toLowerCase())
-            .includes("fil-ph")
+          .map((l) => l.toLowerCase())
+          .includes("fil-ph")
           ? "fil-PH"
           : "tl-PH"
         : "en-US";
@@ -476,15 +691,15 @@ const ReadingSessionPage: React.FC = () => {
         const wasRunning = isRecording && !isPaused;
         try {
           rec.stop();
-        } catch {}
+        } catch { }
         rec.lang = target;
         if (wasRunning) {
           try {
             rec.start();
-          } catch {}
+          } catch { }
         }
       }
-    } catch {}
+    } catch { }
   }, [storyLanguage, isRecording, isPaused]);
 
   // Stop recording and speech recognition
@@ -506,16 +721,16 @@ const ReadingSessionPage: React.FC = () => {
       // Stop Vosk stream if active
       try {
         scriptNodeRef.current?.disconnect();
-      } catch {}
+      } catch { }
       try {
         sourceNodeRef.current?.disconnect();
-      } catch {}
+      } catch { }
       try {
         audioContextRef.current?.close();
-      } catch {}
+      } catch { }
       try {
         voskSocketRef.current?.close();
-      } catch {}
+      } catch { }
       scriptNodeRef.current = null;
       sourceNodeRef.current = null;
       audioContextRef.current = null;
@@ -596,7 +811,7 @@ const ReadingSessionPage: React.FC = () => {
     try {
       setIsLoadingPdf(true);
       setPdfError(null);
-      
+
       if ((import.meta as any)?.env?.MODE === "development")
         console.debug("Fetching PDF from URL:", pdfUrl);
       const response = await fetch(pdfUrl);
@@ -614,7 +829,7 @@ const ReadingSessionPage: React.FC = () => {
         }
         throw new Error(errorMessage);
       }
-      
+
       // Get the PDF as an array buffer
       const pdfArrayBuffer = await response.arrayBuffer();
       if ((import.meta as any)?.env?.MODE === "development")
@@ -639,11 +854,11 @@ const ReadingSessionPage: React.FC = () => {
           cMapUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/",
           cMapPacked: true,
         });
-        
+
         const pdf = await loadingTask.promise;
         if ((import.meta as any)?.env?.MODE === "development")
           console.debug("PDF loaded successfully, pages:", pdf.numPages);
-        
+
         let fullText = "";
         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
           if ((import.meta as any)?.env?.MODE === "development")
@@ -663,7 +878,7 @@ const ReadingSessionPage: React.FC = () => {
             fullText.length
           );
         setPdfContent(fullText);
-        
+
         // Split content into words and update state
         const wordArray = fullText
           .split(/\s+/)
@@ -736,20 +951,20 @@ const ReadingSessionPage: React.FC = () => {
           // Get the full story details
           const fullStory =
             await UnifiedStoryService.getInstance().getStoryById(story._id);
-          
+
           if (!fullStory) {
             throw new Error("Failed to fetch story details");
           }
 
           if ((import.meta as any)?.env?.MODE === "development")
             console.debug("Full story details:", {
-            id: fullStory._id,
-            title: fullStory.title,
-            language: fullStory.language,
-            hasTextContent: !!fullStory.textContent,
-            textContentLength: fullStory.textContent?.length,
+              id: fullStory._id,
+              title: fullStory.title,
+              language: fullStory.language,
+              hasTextContent: !!fullStory.textContent,
+              textContentLength: fullStory.textContent?.length,
               textContentPreview: fullStory.textContent?.substring(0, 100),
-          });
+            });
 
           // Set story language for speech recognition
           if (fullStory.language) {
@@ -900,40 +1115,126 @@ const ReadingSessionPage: React.FC = () => {
     }
   }, [storyText, pdfContent]);
 
-  // Update the useEffect that tracks transcript and currentWordIndex, using realWords for matching
-  // Only move forward - never go backwards
+  // Simpler, more reliable word matching - only check the last spoken word
+  const lastTranscriptRef = useRef<string>("");
+  const matchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
-    if (!transcript || !realWords.length) return;
-    const transcriptWords = transcript.split(/\s+/).filter(Boolean);
-    const idx = calculateWordsRead(transcriptWords, realWords, isWordMatch);
-    if ((import.meta as any)?.env?.MODE === "development") {
-      console.debug("Transcript:", transcriptWords);
-      console.debug("Real words:", realWords);
-      console.debug("Words read:", idx);
+    if (!transcript || !realWords.length || currentWordIndex >= realWords.length) return;
+
+    // Only process if transcript actually changed
+    if (transcript === lastTranscriptRef.current) return;
+    lastTranscriptRef.current = transcript;
+
+    // Clear any pending match check
+    if (matchTimeoutRef.current) {
+      clearTimeout(matchTimeoutRef.current);
     }
-    // Only update if the new index is greater than current (prevent going backwards)
-    setCurrentWordIndex((prevIndex) => Math.max(prevIndex, idx));
-    setWordsRead((prevRead) => Math.max(prevRead, idx));
-  }, [transcript, realWords]);
+
+    // Small delay to let speech recognition stabilize
+    matchTimeoutRef.current = setTimeout(() => {
+      const transcriptWords = transcript.split(/\s+/).filter(Boolean);
+      if (transcriptWords.length === 0) return;
+
+      const expectedWord = realWords[currentWordIndex];
+
+      console.log(`🎤 Full transcript: "${transcript}"`);
+      console.log(`📝 Expected word: "${expectedWord}" at index ${currentWordIndex}`);
+
+      // Check ALL words in transcript (not just last 3)
+      // This ensures we don't miss words that were said earlier
+      const wordsToCheck = transcriptWords;
+      console.log(`🔍 Checking all ${wordsToCheck.length} words in transcript`);
+
+      let matched = false;
+      let wordsAdvanced = 0;
+
+      for (const spokenWord of wordsToCheck) {
+        const normalizedSpoken = normalize(spokenWord);
+        const normalizedExpected = normalize(expectedWord);
+        
+        // First check: exact word match
+        if (isWordMatch(spokenWord, expectedWord)) {
+          console.log(`✅ MATCH! "${spokenWord}" = "${expectedWord}"`);
+          wordsAdvanced = 1;
+          matched = true;
+          break;
+        }
+        
+        // Quick check: if expected word is contained in spoken word (for fast readers)
+        // Example: "loski" contains "lost"
+        if (normalizedSpoken.includes(normalizedExpected) && normalizedExpected.length >= 3) {
+          console.log(`✅ CONTAINS MATCH! "${spokenWord}" contains "${expectedWord}"`);
+          wordsAdvanced = 1;
+          matched = true;
+          break;
+        }
+
+        // Second check: compound word (child said multiple words together)
+        // Example: "luski" or "loski" from "lost" + "key"
+        // normalizedSpoken already declared above
+
+        // Check if this word contains the current expected word AND the next word
+        if (currentWordIndex + 1 < realWords.length) {
+          const nextExpectedWord = realWords[currentWordIndex + 1];
+          const normalizedExpected = normalize(expectedWord);
+          const normalizedNext = normalize(nextExpectedWord);
+
+          console.log(`🔬 Compound check: "${normalizedSpoken}" vs "${normalizedExpected}" + "${normalizedNext}"`);
+
+          // Method 1: Check if spoken word contains both expected words
+          const containsBoth = normalizedSpoken.includes(normalizedExpected) &&
+            normalizedSpoken.includes(normalizedNext);
+
+          // Method 2: Check if it's a blend (more lenient)
+          // "luski" from "lost" (los) + "key" (ki)
+          const firstPart = normalizedExpected.substring(0, Math.min(3, normalizedExpected.length));
+          const lastPart = normalizedNext.substring(Math.max(0, normalizedNext.length - 2));
+          const isBlend = normalizedSpoken.length >= 4 &&
+            normalizedSpoken.includes(firstPart) &&
+            normalizedSpoken.includes(lastPart);
+
+          // Method 3: Similarity check - if very similar to concatenation
+          const concatenated = normalizedExpected + normalizedNext;
+          const similarity = 1 - (levenshtein(normalizedSpoken, concatenated) / Math.max(normalizedSpoken.length, concatenated.length));
+          const isSimilarToConcatenation = similarity >= 0.6; // 60% similar
+
+          console.log(`  Contains both: ${containsBoth}`);
+          console.log(`  Is blend: ${isBlend} (has "${firstPart}" and "${lastPart}")`);
+          console.log(`  Similarity to "${concatenated}": ${(similarity * 100).toFixed(0)}%`);
+
+          if (containsBoth || isBlend || isSimilarToConcatenation) {
+            console.log(`✅ COMPOUND MATCH! "${spokenWord}" = "${expectedWord}" + "${nextExpectedWord}"`);
+            console.log(`📈 Advancing 2 words from ${currentWordIndex} to ${currentWordIndex + 2}`);
+            wordsAdvanced = 2;
+            matched = true;
+            break;
+          }
+        }
+      }
+
+      if (matched && wordsAdvanced > 0) {
+        const newIndex = currentWordIndex + wordsAdvanced;
+        setCurrentWordIndex(newIndex);
+        setWordsRead(newIndex);
+      } else {
+        console.log(`❌ No match found in recent words`);
+      }
+    }, 150); // 150ms delay to ensure we capture all words
+
+    return () => {
+      if (matchTimeoutRef.current) {
+        clearTimeout(matchTimeoutRef.current);
+      }
+    };
+  }, [transcript, realWords, currentWordIndex]);
 
   // Reset miscues at the start of each session
   useEffect(() => {
     setMiscues(0);
+    setWordsRead(0);
+    setCurrentWordIndex(0);
   }, [sessionId]);
-
-  // Update miscues calculation to use realWords and isWordMatch
-  useEffect(() => {
-    if (!transcript || !realWords.length) return;
-    const transcriptWords = transcript.split(/\s+/).filter(Boolean);
-    const miscuesCount = calculateMiscues(
-      transcriptWords,
-      realWords,
-      isWordMatch
-    );
-    if ((import.meta as any)?.env?.MODE === "development")
-      console.debug("Miscues:", miscuesCount);
-    setMiscues(miscuesCount);
-  }, [transcript, realWords]);
 
   const [studentNames, setStudentNames] = useState<{ [id: string]: string }>(
     {}
@@ -1021,15 +1322,15 @@ const ReadingSessionPage: React.FC = () => {
     if (currentWordRef.current && storyContentRef.current && isRecording) {
       const wordElement = currentWordRef.current;
       const container = storyContentRef.current;
-      
+
       // Calculate position relative to container
       const wordRect = wordElement.getBoundingClientRect();
       const containerRect = container.getBoundingClientRect();
-      
+
       // Check if word is outside visible area
       const isAboveView = wordRect.top < containerRect.top;
       const isBelowView = wordRect.bottom > containerRect.bottom;
-      
+
       if (isAboveView || isBelowView) {
         // Smooth scroll to center the word in view
         const scrollOffset = wordElement.offsetTop - container.offsetTop - (container.clientHeight / 2) + (wordRect.height / 2);
@@ -1090,7 +1391,7 @@ const ReadingSessionPage: React.FC = () => {
         studentName: studentName,
         teacherId: currentSession?.teacherId || "",
         gradeId: currentSession?.gradeId || "",
-        
+
         // Reading metrics
         wordsRead: wordsRead,
         totalWords: words.length,
@@ -1098,14 +1399,14 @@ const ReadingSessionPage: React.FC = () => {
         oralReadingScore: parseFloat(oralReadingScore),
         readingSpeed: parseInt(readingSpeedWPM),
         elapsedTime: elapsedTime,
-        
+
         // Timestamps
         createdAt: serverTimestamp(),
         sessionDate: new Date(),
       };
 
       await addDoc(collection(db, "readingSessions"), readingSessionData);
-      
+
       if ((import.meta as any)?.env?.MODE === "development") {
         console.debug("Reading session saved to Firebase for student:", studentId);
       }
@@ -1127,7 +1428,7 @@ const ReadingSessionPage: React.FC = () => {
 
       // Update session status to completed
       await readingSessionService.updateSessionStatus(sessionId, "completed");
-      
+
       // Save detailed results to the new results collection
       for (const studentId of currentSession.students) {
         const readingSessionResult = {
@@ -1138,7 +1439,7 @@ const ReadingSessionPage: React.FC = () => {
           studentId, // <-- Add this field
           teacherId: currentSession.teacherId,
           type: "reading-session" as const,
-          
+
           // Reading metrics
           wordsRead: wordsRead,
           totalWords: words.length,
@@ -1146,24 +1447,24 @@ const ReadingSessionPage: React.FC = () => {
           oralReadingScore: parseFloat(oralReadingScore),
           readingSpeed: parseInt(readingSpeedWPM),
           elapsedTime: elapsedTime,
-          
+
           // Additional data
           transcript: transcript,
           audioUrl: audioUrl || undefined,
           storyUrl: currentSession.storyUrl,
-          
+
           // Timestamps
           sessionDate: new Date(),
         };
         await resultService.createReadingSessionResult(readingSessionResult);
-        
+
         // Save to Firebase as well
         const studentName = studentNames[studentId] || studentId;
         await saveReadingSessionToFirebase(studentId, studentName);
-        
+
         setCompletedStudents((prev) => ({ ...prev, [studentId]: true }));
       }
-      
+
       // Update local state
       setCurrentSession({
         ...currentSession,
@@ -1177,7 +1478,7 @@ const ReadingSessionPage: React.FC = () => {
         text: "All data has been saved successfully.",
         confirmButtonText: "OK",
       });
-      
+
       // Optionally navigate back to sessions list
       // navigate('/teacher/reading');
     } catch (error) {
@@ -1230,13 +1531,12 @@ const ReadingSessionPage: React.FC = () => {
           {currentSession && (
             <span
               className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-full text-sm sm:text-base font-semibold transition-all duration-200
-              ${
-                currentSession.status === "completed"
+              ${currentSession.status === "completed"
                   ? "bg-green-100 text-green-700"
                   : currentSession.status === "in-progress"
-                  ? "bg-blue-100 text-blue-700 animate-pulse"
-                  : "bg-yellow-100 text-yellow-700"
-              }`}
+                    ? "bg-blue-100 text-blue-700 animate-pulse"
+                    : "bg-yellow-100 text-yellow-700"
+                }`}
             >
               {currentSession.status.charAt(0).toUpperCase() +
                 currentSession.status.slice(1)}
@@ -1291,7 +1591,7 @@ const ReadingSessionPage: React.FC = () => {
                 {isLoadingPdf && <span>Loading PDF…</span>}
               </div>
             </div>
-            <div 
+            <div
               ref={storyContentRef}
               className="max-h-[20rem] sm:max-h-[30rem] lg:max-h-[38rem] overflow-y-auto custom-scrollbar prose prose-sm sm:prose-base lg:prose-xl prose-blue bg-white/60 rounded-lg sm:rounded-xl p-4 sm:p-6 lg:p-8 text-sm sm:text-base lg:text-[1.35rem] leading-relaxed tracking-wide"
             >
@@ -1300,80 +1600,80 @@ const ReadingSessionPage: React.FC = () => {
                   .split("\n\n")
                   .filter((p) => p.trim().length > 0)
                   .map((paragraph, paragraphIndex, paragraphs) => {
-                  const wordsInParagraph = paragraph.trim().split(/\s+/);
-                  // Calculate the starting real word index for this paragraph
-                  const paragraphStartIndex = paragraphs
-                    .slice(0, paragraphIndex)
-                    .reduce((acc, p) => {
-                      const paraWords = p.trim().split(/\s+/);
-                      return acc + paraWords.filter(w => /\w+/.test(w)).length;
-                    }, 0);
-                  
-                  return (
+                    const wordsInParagraph = paragraph.trim().split(/\s+/);
+                    // Calculate the starting real word index for this paragraph
+                    const paragraphStartIndex = paragraphs
+                      .slice(0, paragraphIndex)
+                      .reduce((acc, p) => {
+                        const paraWords = p.trim().split(/\s+/);
+                        return acc + paraWords.filter(w => /\w+/.test(w)).length;
+                      }, 0);
+
+                    return (
                       <div
                         key={paragraphIndex}
                         className="mb-4 sm:mb-6 lg:mb-8 last:mb-0"
                       >
-                      <p className="text-gray-800 leading-relaxed flex flex-wrap gap-y-1 sm:gap-y-2 lg:gap-y-3">
-                        {wordsInParagraph.map((word, wordIndex) => {
-                          const isSpecialChar = !/\w+/.test(word);
-                          
-                          // Calculate real word index (only count alphanumeric words)
-                          let realWordIndex = -1;
-                          if (!isSpecialChar) {
-                            let count = 0;
-                            for (let i = 0; i <= wordIndex; i++) {
-                              if (/\w+/.test(wordsInParagraph[i])) {
-                                if (i === wordIndex) {
-                                  realWordIndex = paragraphStartIndex + count;
-                                  break;
+                        <p className="text-gray-800 leading-relaxed flex flex-wrap gap-y-1 sm:gap-y-2 lg:gap-y-3">
+                          {wordsInParagraph.map((word, wordIndex) => {
+                            const isSpecialChar = !/\w+/.test(word);
+
+                            // Calculate real word index (only count alphanumeric words)
+                            let realWordIndex = -1;
+                            if (!isSpecialChar) {
+                              let count = 0;
+                              for (let i = 0; i <= wordIndex; i++) {
+                                if (/\w+/.test(wordsInParagraph[i])) {
+                                  if (i === wordIndex) {
+                                    realWordIndex = paragraphStartIndex + count;
+                                    break;
+                                  }
+                                  count++;
                                 }
-                                count++;
                               }
                             }
-                          }
-                          
-                          const isCurrent = !isSpecialChar && isWordCurrent(realWordIndex);
-                          const isRead = !isSpecialChar && isWordRead(realWordIndex);
-                          
-                          return (
-                            <span
-                              key={`${paragraphIndex}-${wordIndex}`}
-                              ref={isCurrent ? currentWordRef : null}
-                              className={
-                                isSpecialChar
-                                  ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"
-                                  : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl transition-all duration-300 ease-in-out ` +
+
+                            const isCurrent = !isSpecialChar && isWordCurrent(realWordIndex);
+                            const isRead = !isSpecialChar && isWordRead(realWordIndex);
+
+                            return (
+                              <span
+                                key={`${paragraphIndex}-${wordIndex}`}
+                                ref={isCurrent ? currentWordRef : null}
+                                className={
+                                  isSpecialChar
+                                    ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"
+                                    : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl transition-all duration-300 ease-in-out ` +
                                     (isCurrent
                                       ? "bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 text-white font-bold z-10 relative animate-[word-highlight_0.5s_ease-out]"
                                       : isRead
-                                      ? "bg-green-50 text-green-700 opacity-80"
-                                      : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
-                              }
-                              style={
-                                isCurrent
-                                  ? { 
+                                        ? "bg-green-50 text-green-700 opacity-80"
+                                        : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
+                                }
+                                style={
+                                  isCurrent
+                                    ? {
                                       boxShadow: "0 0 12px 4px rgba(139, 92, 246, 0.5)",
                                       transform: "scale(1.1)",
                                       transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)"
                                     }
-                                  : isRead
-                                  ? {
-                                      transition: "all 0.2s ease-in-out"
-                                    }
-                                  : {
-                                      transition: "all 0.2s ease-in-out"
-                                    }
-                              }
-                            >
-                              {word}
-                            </span>
-                          );
-                        })}
-                      </p>
-                    </div>
-                  );
-                })
+                                    : isRead
+                                      ? {
+                                        transition: "all 0.2s ease-in-out"
+                                      }
+                                      : {
+                                        transition: "all 0.2s ease-in-out"
+                                      }
+                                }
+                              >
+                                {word}
+                              </span>
+                            );
+                          })}
+                        </p>
+                      </div>
+                    );
+                  })
               ) : (
                 <div className="text-center text-gray-400 py-12">
                   No story content available
@@ -1416,12 +1716,12 @@ const ReadingSessionPage: React.FC = () => {
                       <span className="truncate max-w-[60px] sm:max-w-none">
                         {studentNames[student] || student}
                       </span>
-                    {completedStudents[student] && (
-                      <span className="ml-1 inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full bg-green-200 text-green-800 text-[10px] font-semibold">
-                        ✓
-                      </span>
-                    )}
-                  </span>
+                      {completedStudents[student] && (
+                        <span className="ml-1 inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full bg-green-200 text-green-800 text-[10px] font-semibold">
+                          ✓
+                        </span>
+                      )}
+                    </span>
                   )
                 )}
               </div>
@@ -1486,156 +1786,154 @@ const ReadingSessionPage: React.FC = () => {
 
       {/* Session Controls */}
       {!isCompleted && (
-      <section className="w-full px-4 sm:px-8 pb-8 relative z-10">
-        <div className="bg-white/80 rounded-2xl lg:rounded-3xl border border-blue-100 p-4 sm:p-6 lg:p-8 flex flex-col items-center gap-4 sm:gap-6">
-          {/* Language selector + STT Provider/Vosk status badge */}
-          <div className="w-full flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 -mt-2 -mb-2">
-            <div className="flex items-center gap-2">
+        <section className="w-full px-4 sm:px-8 pb-8 relative z-10">
+          <div className="bg-white/80 rounded-2xl lg:rounded-3xl border border-blue-100 p-4 sm:p-6 lg:p-8 flex flex-col items-center gap-4 sm:gap-6">
+            {/* Language selector + STT Provider/Vosk status badge */}
+            <div className="w-full flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 -mt-2 -mb-2">
+              <div className="flex items-center gap-2">
                 <label
                   htmlFor="recognition-language"
                   className="text-xs sm:text-sm font-semibold text-blue-900"
                 >
                   Language:
                 </label>
-              <select
-                id="recognition-language"
-                value={storyLanguage}
+                <select
+                  id="recognition-language"
+                  value={storyLanguage}
                   onChange={(e) =>
                     setStoryLanguage(e.target.value as "english" | "tagalog")
                   }
-                className="text-xs sm:text-sm px-2 py-1 rounded-md border border-blue-200 bg-white text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-300"
-              >
-                <option value="english">English</option>
-                <option value="tagalog">Tagalog</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
-              {/* Always show Vosk status for Tagalog stories */}
+                  className="text-xs sm:text-sm px-2 py-1 rounded-md border border-blue-200 bg-white text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                >
+                  <option value="english">English</option>
+                  <option value="tagalog">Tagalog</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+                {/* Always show Vosk status for Tagalog stories */}
                 {storyLanguage === "tagalog" && (
                   <span
-                    className={`inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold ${
-                      voskStatus === "connected"
-                        ? "bg-green-100 text-green-800"
-                        : voskStatus === "connecting"
+                    className={`inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold ${voskStatus === "connected"
+                      ? "bg-green-100 text-green-800"
+                      : voskStatus === "connecting"
                         ? "bg-yellow-100 text-yellow-800"
                         : "bg-red-100 text-red-800"
-                    }`}
+                      }`}
                   >
                     <span
-                      className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${
-                        voskStatus === "connected"
-                          ? "bg-green-500"
-                          : voskStatus === "connecting"
+                      className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${voskStatus === "connected"
+                        ? "bg-green-500"
+                        : voskStatus === "connecting"
                           ? "bg-yellow-500"
                           : "bg-red-500"
-                      }`}
+                        }`}
                     ></span>
                     <span className="hidden sm:inline">
                       {voskStatus === "connected"
                         ? "Vosk (Tagalog) connected"
                         : voskStatus === "connecting"
-                        ? "Vosk (Tagalog) connecting…"
-                        : "Vosk (Tagalog) disconnected"}
+                          ? "Vosk (Tagalog) connecting…"
+                          : "Vosk (Tagalog) disconnected"}
                     </span>
                     <span className="sm:hidden">
                       {voskStatus === "connected"
                         ? "Vosk"
                         : voskStatus === "connecting"
-                        ? "Vosk..."
-                        : "Vosk"}
+                          ? "Vosk..."
+                          : "Vosk"}
                     </span>
-                </span>
-              )}
-              {/* If we fell back, show a small fallback label */}
+                  </span>
+                )}
+                {/* If we fell back, show a small fallback label */}
                 {storyLanguage === "tagalog" && sttProvider === "webspeech" && (
-                <span className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                  <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500"></span>
+                  <span className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                    <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500"></span>
                     <span className="hidden sm:inline">
                       Fallback: Web Speech
                     </span>
-                  <span className="sm:hidden">Web Speech</span>
-                </span>
-              )}
-              {/* For English */}
+                    <span className="sm:hidden">Web Speech</span>
+                  </span>
+                )}
+                {/* For English */}
                 {storyLanguage !== "tagalog" && sttProvider === "webspeech" && (
-                <span className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                  <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500"></span>
-                  <span className="hidden sm:inline">Web Speech</span>
-                  <span className="sm:hidden">Web Speech</span>
-                </span>
-              )}
+                  <span className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                    <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500"></span>
+                    <span className="hidden sm:inline">Web Speech</span>
+                    <span className="sm:hidden">Web Speech</span>
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
-          <div className="flex items-center gap-2 sm:gap-4 mb-2">
-            <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 text-blue-500" />
+            <div className="flex items-center gap-2 sm:gap-4 mb-2">
+              <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 text-blue-500" />
               <h4 className="text-base sm:text-lg font-bold text-blue-900">
                 Session Controls
               </h4>
-          </div>
-          <div className="flex flex-row flex-wrap justify-center gap-3 sm:gap-4 lg:gap-6 w-full">
-            {!isRecording ? (
-              <button
-                onClick={handleStartRecording}
-                className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 hover:from-blue-600 hover:to-purple-600 transition-all duration-200"
-                title="Start Session"
-              >
-                <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-                <span className="hidden sm:inline">Start</span>
-                <span className="sm:hidden">Start</span>
-              </button>
-            ) : (
-              <>
-                {isPaused ? (
-                  <button
-                    onClick={handleResumeRecording}
-                    className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-green-400 to-blue-400 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
-                    title="Resume Recording"
-                  >
-                    <PlayIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-                    <span className="hidden sm:inline">Resume</span>
-                    <span className="sm:hidden">Resume</span>
-                  </button>
-                ) : (
-                  <button
-                    onClick={handlePauseRecording}
-                    className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-yellow-400 to-orange-400 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
-                    title="Pause Recording"
-                  >
-                    <PauseIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-                    <span className="hidden sm:inline">Pause</span>
-                    <span className="sm:hidden">Pause</span>
-                  </button>
-                )}
+            </div>
+            <div className="flex flex-row flex-wrap justify-center gap-3 sm:gap-4 lg:gap-6 w-full">
+              {!isRecording ? (
                 <button
-                  onClick={handleStopRecording}
-                  className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-red-500 to-pink-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
-                  title="Stop Recording"
+                  onClick={handleStartRecording}
+                  className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 hover:from-blue-600 hover:to-purple-600 transition-all duration-200"
+                  title="Start Session"
                 >
-                  <StopIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-                  <span className="hidden sm:inline">Stop</span>
-                  <span className="sm:hidden">Stop</span>
+                  <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                  <span className="hidden sm:inline">Start</span>
+                  <span className="sm:hidden">Start</span>
                 </button>
-              </>
-            )}
-            {!isCompleted && (
+              ) : (
+                <>
+                  {isPaused ? (
+                    <button
+                      onClick={handleResumeRecording}
+                      className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-green-400 to-blue-400 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
+                      title="Resume Recording"
+                    >
+                      <PlayIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                      <span className="hidden sm:inline">Resume</span>
+                      <span className="sm:hidden">Resume</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handlePauseRecording}
+                      className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-yellow-400 to-orange-400 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
+                      title="Pause Recording"
+                    >
+                      <PauseIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                      <span className="hidden sm:inline">Pause</span>
+                      <span className="sm:hidden">Pause</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={handleStopRecording}
+                    className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-red-500 to-pink-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
+                    title="Stop Recording"
+                  >
+                    <StopIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                    <span className="hidden sm:inline">Stop</span>
+                    <span className="sm:hidden">Stop</span>
+                  </button>
+                </>
+              )}
+              {!isCompleted && (
+                <button
+                  onClick={handleCompleteSession}
+                  className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-green-500 to-blue-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
+                  title="Complete Session"
+                >
+                  <ChartBarIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                  <span className="hidden sm:inline">Complete Session</span>
+                  <span className="sm:hidden">Complete</span>
+                </button>
+              )}
+            </div>
+            {/* Download Audio Button (show only if audioUrl exists) */}
+            {audioUrl && (
               <button
-                onClick={handleCompleteSession}
-                className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-green-500 to-blue-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
-                title="Complete Session"
+                onClick={handleDownloadAudio}
+                className="mt-4 sm:mt-6 flex items-center gap-1 sm:gap-2 px-4 sm:px-6 py-2 sm:py-3 rounded-full bg-gradient-to-r from-green-400 to-blue-400 text-white text-sm sm:text-base lg:text-lg font-bold hover:scale-105 transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-400"
+                title="Download audio recording"
               >
-                <ChartBarIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-                <span className="hidden sm:inline">Complete Session</span>
-                <span className="sm:hidden">Complete</span>
-              </button>
-            )}
-          </div>
-          {/* Download Audio Button (show only if audioUrl exists) */}
-          {audioUrl && (
-            <button
-              onClick={handleDownloadAudio}
-              className="mt-4 sm:mt-6 flex items-center gap-1 sm:gap-2 px-4 sm:px-6 py-2 sm:py-3 rounded-full bg-gradient-to-r from-green-400 to-blue-400 text-white text-sm sm:text-base lg:text-lg font-bold hover:scale-105 transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-400"
-              title="Download audio recording"
-            >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6"
@@ -1650,55 +1948,54 @@ const ReadingSessionPage: React.FC = () => {
                     d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"
                   />
                 </svg>
-              <span className="hidden sm:inline">Download Audio</span>
-              <span className="sm:hidden">Download</span>
-            </button>
-          )}
-        </div>
-      </section>
+                <span className="hidden sm:inline">Download Audio</span>
+                <span className="sm:hidden">Download</span>
+              </button>
+            )}
+          </div>
+        </section>
       )}
-    {/* Bottom Quiz Button */}
-    <div className="w-full px-4 sm:px-8 py-4 mt-auto bg-white/80 border-t border-blue-100">
-      <div className="max-w-6xl mx-auto">
-        <button
-          onClick={() => {
-            if (!currentSession) return;
-            // choose student deterministically: first completed, else first in list
+      {/* Bottom Quiz Button */}
+      <div className="w-full px-4 sm:px-8 py-4 mt-auto bg-white/80 border-t border-blue-100">
+        <div className="max-w-6xl mx-auto">
+          <button
+            onClick={() => {
+              if (!currentSession) return;
+              // choose student deterministically: first completed, else first in list
               const completedIds = Object.keys(completedStudents).filter(
                 (id) => completedStudents[id]
               );
               const studentId =
                 currentSession.students.length === 1
-              ? currentSession.students[0]
+                  ? currentSession.students[0]
                   : completedIds[0] || currentSession.students[0];
-            const studentName = studentNames[studentId] || studentId;
-            if (!resolvedTestId) {
+              const studentName = studentNames[studentId] || studentId;
+              if (!resolvedTestId) {
                 alert("No test found for this story.");
-              return;
-            }
-            if (!isCompleted) {
+                return;
+              }
+              if (!isCompleted) {
                 alert("Please complete the reading session first.");
-              return;
-            }
-            navigate(`/student/test/${resolvedTestId}` as any, {
+                return;
+              }
+              navigate(`/student/test/${resolvedTestId}` as any, {
                 state: {
                   studentId,
                   studentName,
                   teacherId: currentSession.teacherId,
                 },
-            });
-          }}
-          disabled={!isCompleted || !resolvedTestId}
-            className={`w-full py-4 rounded-2xl text-white font-bold text-lg transition-all duration-200 ${
-              !isCompleted || !resolvedTestId
-                ? "bg-gray-300 cursor-not-allowed"
-                : "bg-gradient-to-r from-indigo-500 to-blue-500 hover:from-indigo-600 hover:to-blue-600 hover:scale-[1.01]"
-            } `}
-        >
-          Quiz
-        </button>
+              });
+            }}
+            disabled={!isCompleted || !resolvedTestId}
+            className={`w-full py-4 rounded-2xl text-white font-bold text-lg transition-all duration-200 ${!isCompleted || !resolvedTestId
+              ? "bg-gray-300 cursor-not-allowed"
+              : "bg-gradient-to-r from-indigo-500 to-blue-500 hover:from-indigo-600 hover:to-blue-600 hover:scale-[1.01]"
+              } `}
+          >
+            Quiz
+          </button>
+        </div>
       </div>
-    </div>
     </div>
   );
 };
