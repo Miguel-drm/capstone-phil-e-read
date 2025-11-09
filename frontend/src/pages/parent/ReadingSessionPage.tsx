@@ -11,13 +11,12 @@ import 'pdfjs-dist/build/pdf.worker.entry';
 import {
   calculateOralReadingScore,
   calculateReadingSpeedWPM,
-  calculateMiscues,
-  calculateWordsRead,
   formatElapsedTime
 } from '@/utils/readingMetrics';
 import { studentService } from '@/services/studentService';
 import { formatDateHuman } from '@/utils/date';
 import Swal from 'sweetalert2';
+import { doubleMetaphone } from 'double-metaphone';
 
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -78,34 +77,33 @@ const ReadingSessionPage: React.FC = () => {
   // Real-time Reading Speed (WPM)
   const readingSpeedWPM = elapsedTime > 0 ? calculateReadingSpeedWPM(wordsRead, elapsedTime).toString() : '0';
 
-  // Helper: Normalize text for comparison (lowercase, remove all non-word characters)
-  const normalize = (text: string) => text.toLowerCase().replace(/[^\w\s]/g, '').trim();
+  // Helper: Convert numbers to words (0-100)
+  const numberToWord = (num: string): string => {
+    const numberMap: { [key: string]: string } = {
+      '0': 'zero', '1': 'one', '2': 'two', '3': 'three', '4': 'four',
+      '5': 'five', '6': 'six', '7': 'seven', '8': 'eight', '9': 'nine',
+      '10': 'ten', '11': 'eleven', '12': 'twelve', '13': 'thirteen',
+      '14': 'fourteen', '15': 'fifteen', '16': 'sixteen', '17': 'seventeen',
+      '18': 'eighteen', '19': 'nineteen', '20': 'twenty', '30': 'thirty',
+      '40': 'forty', '50': 'fifty', '60': 'sixty', '70': 'seventy',
+      '80': 'eighty', '90': 'ninety', '100': 'hundred'
+    };
+    return numberMap[num] || num;
+  };
+
+  // Helper: Normalize text for comparison (lowercase, convert numbers to words, remove punctuation)
+  const normalize = (text: string) => {
+    let normalized = text.toLowerCase().replace(/[^\w\s]/g, '').trim();
+    // Convert standalone numbers to words
+    normalized = normalized.replace(/\b\d+\b/g, (match) => numberToWord(match));
+    return normalized;
+  };
 
 
   // Helper: Extract all readable words (alphanumeric only) from text, skipping punctuation/symbols
   function extractWordsFromText(text: string): string[] {
     // This regex matches words with at least one alphanumeric character
     return text.match(/\b\w+\b/g) || [];
-  }
-
-  // Helper: Simple Soundex implementation (for browser, no deps)
-  function soundex(s: string): string {
-    const a = s.toLowerCase().replace(/[^a-z]/g, '').split('');
-    if (!a.length) return '';
-    const f = a.shift()!;
-    const codes: { [key: string]: string } = {
-      a: '', e: '', i: '', o: '', u: '', y: '', h: '', w: '',
-      b: '1', f: '1', p: '1', v: '1',
-      c: '2', g: '2', j: '2', k: '2', q: '2', s: '2', x: '2', z: '2',
-      d: '3', t: '3',
-      l: '4',
-      m: '5', n: '5',
-      r: '6'
-    };
-    let r = f + a.map(c => codes[c] || '').join('');
-    r = r.replace(/(\d)\1+/g, '$1');
-    r = r.replace(/[^a-z\d]/g, '');
-    return (r + '000').slice(0, 4);
   }
 
   // Levenshtein distance implementation
@@ -128,17 +126,196 @@ const ReadingSessionPage: React.FC = () => {
   }
 
   /**
-   * Returns true if spokenWord and expectedWord are phonetically similar (Soundex) or have Levenshtein distance <= 1.
-   * For production, consider using 'natural' or 'double-metaphone' npm packages.
+   * Improved pronunciation matching with Filipino accent tolerance.
+   * Handles common pronunciation variations for Filipino English speakers.
    */
   function isWordMatch(spokenWord: string, expectedWord: string): boolean {
     const normSpoken = normalize(spokenWord);
     const normExpected = normalize(expectedWord);
     if (!normSpoken || !normExpected) return false;
-    // Phonetic match
-    if (soundex(normSpoken) === soundex(normExpected)) return true;
-    // Fuzzy match
-    if (levenshtein(normSpoken, normExpected) <= 1) return true;
+
+    // Debug logging
+    console.debug(`Comparing: "${normSpoken}" vs "${normExpected}"`);
+
+    // Exact match
+    if (normSpoken === normExpected) {
+      console.debug("✓ Exact match");
+      return true;
+    }
+
+    // Filipino accent variations and children's speech patterns
+    const accentMap: { [key: string]: string[] } = {
+      // Filipino accent variations
+      'the': ['da', 'de', 'duh', 'di'],
+      'this': ['dis', 'dees'],
+      'that': ['dat', 'det'],
+      'three': ['tree', 'tri'],
+      'think': ['tink', 'tingk'],
+      'thing': ['ting'],
+      'with': ['wit', 'wid'],
+      'they': ['dey', 'day'],
+      'them': ['dem'],
+      'there': ['der', 'dere'],
+      'their': ['der', 'deir'],
+      'then': ['den'],
+      'than': ['dan'],
+      'through': ['tru', 'troo'],
+      'thought': ['tot', 'taught'],
+      'though': ['do', 'dough'],
+      'these': ['dis', 'dees'],
+      'those': ['dos', 'dose'],
+      'other': ['oder', 'udder'],
+      'another': ['anoder', 'anudder'],
+      'brother': ['broder', 'brudder'],
+      'mother': ['moder', 'mudder'],
+      'father': ['fader', 'fadder'],
+      'weather': ['weder', 'wedder'],
+      'whether': ['weder', 'wedder'],
+      'together': ['togeder', 'togedder'],
+      
+      // Children's speech: past tense -ed endings (often dropped or mispronounced)
+      'looked': ['look', 'looke', 'lookt'],
+      'walked': ['walk', 'walke', 'walkt'],
+      'talked': ['talk', 'talke', 'talkt'],
+      'picked': ['pick', 'picke', 'pickt'],
+      'noticed': ['notice', 'notic', 'notis'],
+      'wanted': ['want', 'wante', 'wantid'],
+      'needed': ['need', 'neede', 'needid'],
+      'started': ['start', 'starte', 'startid'],
+      'ended': ['end', 'ende', 'endid'],
+      'asked': ['ask', 'aske', 'askt'],
+      'helped': ['help', 'helpe', 'helpt'],
+      'jumped': ['jump', 'jumpe', 'jumpt'],
+      'played': ['play', 'playe', 'playd'],
+      'stayed': ['stay', 'staye', 'stayd'],
+      'tried': ['try', 'trie', 'tryd'],
+      'turned': ['turn', 'turne', 'turnd'],
+      'learned': ['learn', 'learne', 'learnd'],
+      'opened': ['open', 'opene', 'opend'],
+      'closed': ['close', 'clos', 'closd'],
+      'lived': ['live', 'liv', 'livd'],
+      'loved': ['love', 'lov', 'lovd'],
+      'moved': ['move', 'mov', 'movd'],
+      'used': ['use', 'us', 'usd'],
+      'called': ['call', 'calle', 'calld'],
+      'worked': ['work', 'worke', 'workt'],
+      'seemed': ['seem', 'seeme', 'seemd'],
+      'showed': ['show', 'showe', 'showd'],
+      'followed': ['follow', 'followe', 'followd'],
+      'happened': ['happen', 'happene', 'happend'],
+      'appeared': ['appear', 'appeare', 'appeard'],
+      'believed': ['believe', 'believ', 'believd'],
+      'received': ['receive', 'receiv', 'receivd'],
+      
+      // Common irregular verbs children struggle with
+      'saw': ['see', 'sow', 'so'],
+      'said': ['say', 'sed', 'sayed'],
+      'went': ['go', 'goed', 'wented'],
+      'came': ['come', 'comed', 'camed'],
+      'took': ['take', 'taked', 'taked'],
+      'gave': ['give', 'gived', 'gaved'],
+      'made': ['make', 'maked', 'maded'],
+      'got': ['get', 'getted', 'goted'],
+      'found': ['find', 'finded', 'founded'],
+      'told': ['tell', 'telled', 'tolded'],
+      'knew': ['know', 'knowed', 'knewed'],
+      'felt': ['feel', 'feeled', 'felted'],
+      'left': ['leave', 'leaved', 'lefted'],
+      'kept': ['keep', 'keeped', 'kepted'],
+      'held': ['hold', 'holded', 'helded'],
+      'brought': ['bring', 'bringed', 'broughted'],
+      'began': ['begin', 'begined', 'beganed'],
+      'ran': ['run', 'runned', 'raned'],
+      'stood': ['stand', 'standed', 'stooded'],
+      'heard': ['hear', 'heared', 'herd'],
+      'became': ['become', 'becomed', 'becamed'],
+      'put': ['put', 'putted', 'puted'],
+      'let': ['let', 'letted', 'leted'],
+      'read': ['read', 'readed', 'red'],
+      'met': ['meet', 'meeted', 'meted'],
+      'sat': ['sit', 'sitted', 'sated'],
+      'spoke': ['speak', 'speaked', 'spoked'],
+      'wrote': ['write', 'writed', 'wroted'],
+      'ate': ['eat', 'eated', 'ated'],
+      'drank': ['drink', 'drinked', 'dranked'],
+      'sang': ['sing', 'singed', 'sanged'],
+      'swam': ['swim', 'swimmed', 'swamed'],
+      'flew': ['fly', 'flyed', 'flewed'],
+      'drew': ['draw', 'drawed', 'drewed'],
+      'grew': ['grow', 'growed', 'grewed'],
+      'threw': ['throw', 'throwed', 'threwed'],
+      'wore': ['wear', 'weared', 'wored'],
+      'broke': ['break', 'breaked', 'broked'],
+      'chose': ['choose', 'choosed', 'chosed'],
+      'drove': ['drive', 'drived', 'droved'],
+      'rode': ['ride', 'rided', 'roded'],
+      'woke': ['wake', 'waked', 'woked'],
+      'froze': ['freeze', 'freezed', 'frosed'],
+      'stole': ['steal', 'stealed', 'stoled']
+    };
+
+    // Check if expected word has accent variations
+    if (accentMap[normExpected]) {
+      if (accentMap[normExpected].includes(normSpoken)) {
+        return true;
+      }
+    }
+
+    // Also check reverse - if spoken word is in the map
+    for (const [standard, variations] of Object.entries(accentMap)) {
+      if (variations.includes(normSpoken) && standard === normExpected) {
+        return true;
+      }
+    }
+
+    // Calculate similarity metrics
+    const distance = levenshtein(normSpoken, normExpected);
+    const maxLength = Math.max(normSpoken.length, normExpected.length);
+    const similarity = 1 - (distance / maxLength);
+
+    // For very short words (3 chars or less), be strict
+    if (normExpected.length <= 3) {
+      // Allow only 85%+ similarity (e.g., "the" vs "tea" = 66%, won't match)
+      return similarity >= 0.85;
+    }
+
+    // For short words (4 chars), allow small variations
+    if (normExpected.length === 4) {
+      // Allow 75%+ similarity (e.g., "lost" vs "loss" = 75%, will match)
+      if (similarity >= 0.75) return true;
+    }
+
+    // For medium words (5-7 chars), be more lenient
+    if (normExpected.length >= 5 && normExpected.length <= 7) {
+      // Allow 70%+ similarity for common reading words
+      if (similarity >= 0.70) return true;
+    }
+
+    // Double Metaphone phonetic match for longer words
+    const [primary1, secondary1] = doubleMetaphone(normSpoken);
+    const [primary2, secondary2] = doubleMetaphone(normExpected);
+
+    // Check if any phonetic codes match
+    if (primary1 === primary2 ||
+      (secondary1 && secondary1 === secondary2) ||
+      (secondary1 && secondary1 === primary2) ||
+      (primary1 === secondary2)) {
+      // Additional validation: words should be similar length
+      if (Math.abs(normSpoken.length - normExpected.length) <= 2) {
+        return true;
+      }
+    }
+
+    // For longer words (8+ chars), allow up to 2 character difference
+    if (maxLength >= 8 && distance <= 2) {
+      return true;
+    }
+
+    // For medium words (5-7 chars), allow 1 character difference
+    if (maxLength >= 5 && maxLength < 8 && distance === 1) {
+      return true;
+    }
+    
     return false;
   }
 
@@ -192,7 +369,8 @@ const ReadingSessionPage: React.FC = () => {
           audioContextRef.current = ctx;
           const src = ctx.createMediaStreamSource(stream);
           sourceNodeRef.current = src;
-          const script = ctx.createScriptProcessor(4096, 1, 1);
+          // Reduced buffer size from 4096 to 2048 for lower latency (faster recognition)
+          const script = ctx.createScriptProcessor(2048, 1, 1);
           scriptNodeRef.current = script;
 
           // Downsample Float32 (48k) to Int16 (16k)
@@ -236,9 +414,13 @@ const ReadingSessionPage: React.FC = () => {
           ws.onmessage = (evt) => {
             try {
               const msg = JSON.parse(evt.data);
-              if (msg.text || msg.partial) {
-                const text = msg.text || msg.partial;
-                setTranscript(text);
+              // Process both final and partial results immediately for faster response
+              if (msg.text) {
+                // Final result - update transcript
+                setTranscript(msg.text);
+              } else if (msg.partial) {
+                // Partial result - update transcript immediately for instant feedback
+                setTranscript(msg.partial);
               }
             } catch {}
           };
@@ -274,6 +456,8 @@ const ReadingSessionPage: React.FC = () => {
           recognitionRef.current = recognition;
           recognition.continuous = true;
           recognition.interimResults = true;
+          // Optimize for faster recognition
+          recognition.maxAlternatives = 1; // Only get top result for speed
           const selectRecognitionLang = (lang: 'english' | 'tagalog') => {
             if (lang === 'tagalog') {
               const preferred = (navigator.languages || []).map(l => l.toLowerCase());
@@ -292,9 +476,23 @@ const ReadingSessionPage: React.FC = () => {
               if (event.results[i].isFinal) runningTranscript += event.results[i][0].transcript + ' ';
               else interim += event.results[i][0].transcript;
             }
+            // Update immediately for instant feedback
             setTranscript(runningTranscript + interim);
           };
-          recognition.onerror = (_e: any) => {};
+          recognition.onerror = (e: any) => {
+            console.warn('Speech recognition error:', e.error);
+          };
+          recognition.onend = () => {
+            // Auto-restart if still recording
+            if (isRecording && !isPaused && recognitionRef.current) {
+              console.log('Speech recognition ended, restarting...');
+              try {
+                recognition.start();
+              } catch (e) {
+                console.warn('Failed to restart recognition:', e);
+              }
+            }
+          };
           recognition.start();
         };
 
@@ -345,7 +543,20 @@ const ReadingSessionPage: React.FC = () => {
           }
           setTranscript(runningTranscript + interim);
         };
-        recognition.onerror = (_e: any) => {};
+        recognition.onerror = (e: any) => {
+          console.warn('Speech recognition error:', e.error);
+        };
+        recognition.onend = () => {
+          // Auto-restart if still recording
+          if (isRecording && !isPaused && recognitionRef.current) {
+            console.log('Speech recognition ended, restarting...');
+            try {
+              recognition.start();
+            } catch (e) {
+              console.warn('Failed to restart recognition:', e);
+            }
+          }
+        };
         recognition.start();
       } else {
         alert('SpeechRecognition not supported in this browser.');
@@ -636,31 +847,71 @@ const ReadingSessionPage: React.FC = () => {
     }
   }, [storyText, pdfContent]);
 
+  // Track which transcript words we've already processed
+  const [processedTranscriptLength, setProcessedTranscriptLength] = useState(0);
+
   // Update the useEffect that tracks transcript and currentWordIndex, using realWords for matching
+  // Check if new words in transcript match the current highlighted word
   useEffect(() => {
     if (!transcript || !realWords.length) return;
+
     const transcriptWords = transcript.split(/\s+/).filter(Boolean);
-    const idx = calculateWordsRead(transcriptWords, realWords, isWordMatch);
-    console.log('Transcript:', transcriptWords);
-    console.log('Real words:', realWords);
-    console.log('Words read:', idx);
-    setCurrentWordIndex(idx);
-    setWordsRead(idx);
-  }, [transcript, realWords]);
+    if (transcriptWords.length === 0) return;
+
+    // Only process new words that we haven't checked yet
+    if (transcriptWords.length <= processedTranscriptLength) return;
+
+    // Get the newly added words
+    const newWords = transcriptWords.slice(processedTranscriptLength);
+    
+    console.log('New words:', newWords);
+    console.log('Current expected word:', realWords[currentWordIndex]);
+    console.log('Current index:', currentWordIndex);
+
+    // Check each new word against the current expected word
+    let tempIndex = currentWordIndex;
+    let matchesFound = 0;
+    let miscuesFound = 0;
+
+    for (const spokenWord of newWords) {
+      const currentExpectedWord = realWords[tempIndex];
+      
+      if (!currentExpectedWord) {
+        // Reached end of story
+        break;
+      }
+
+      if (isWordMatch(spokenWord, currentExpectedWord)) {
+        // Match found! Move to next word
+        tempIndex++;
+        matchesFound++;
+        console.log('✓ Match:', spokenWord, '=', currentExpectedWord);
+      } else {
+        // No match - this is a miscue, but we still continue listening
+        miscuesFound++;
+        console.log('✗ Miscue:', spokenWord, '≠', currentExpectedWord);
+      }
+    }
+
+    // Update state with all changes at once
+    if (matchesFound > 0) {
+      setCurrentWordIndex((prev) => prev + matchesFound);
+      setWordsRead((prev) => prev + matchesFound);
+    }
+    if (miscuesFound > 0) {
+      setMiscues((prev) => prev + miscuesFound);
+    }
+
+    // Update processed length
+    setProcessedTranscriptLength(transcriptWords.length);
+  }, [transcript, realWords, currentWordIndex, processedTranscriptLength]);
 
   // Reset miscues at the start of each session
   useEffect(() => {
     setMiscues(0);
   }, [sessionId]);
 
-  // Update miscues calculation to use realWords and isWordMatch
-  useEffect(() => {
-    if (!transcript || !realWords.length) return;
-    const transcriptWords = transcript.split(/\s+/).filter(Boolean);
-    const miscuesCount = calculateMiscues(transcriptWords, realWords, isWordMatch);
-    console.log('Miscues:', miscuesCount);
-    setMiscues(miscuesCount);
-  }, [transcript, realWords]);
+  // Miscues are now tracked in the main word matching loop above
 
   const [studentNames, setStudentNames] = useState<{ [id: string]: string }>({});
 
