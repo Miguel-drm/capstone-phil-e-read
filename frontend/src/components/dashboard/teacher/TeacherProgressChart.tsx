@@ -2,15 +2,20 @@
  * TEACHER-ONLY COMPONENT: Student Reading Progress Chart
  * 
  * This component is exclusively for teacher accounts and displays:
- * - Student Reading Progress with grade-level bars (Grade III, IV, V, VI)
+ * - Student Reading Progress with class and student selection
  * - Three metric toggles: Oral Reading, Comprehension, Reading Level
- * - Class and student selection dropdowns
- * - Real-time data fetching from teacher's reading results
+ * - Real-time data fetching with optimized performance
+ * - Class-based student filtering
  * 
- * This file is completely separate from parent/admin components.
+ * Features:
+ * - Class dropdown to select specific classes
+ * - Student dropdown filtered by selected class
+ * - Individual student progress tracking
+ * - Aggregated class progress when "All Students" is selected
+ * - Optimized data fetching and caching
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import * as echarts from 'echarts';
 import { type Student } from '../../../services/studentService';
 import { type ClassGrade } from '../../../services/gradeService';
@@ -31,16 +36,7 @@ interface TeacherProgressChartProps {
   targetLine?: number;
 }
 
-// Helper function to map grade names to array indices
-const getGradeIndex = (grade: string | undefined): number => {
-  if (!grade) return -1;
-  const upper = grade.toUpperCase();
-  if (upper.includes('III') || upper.includes('3')) return 0;
-  if (upper.includes('IV') || upper.includes('4')) return 1;
-  if (upper.includes('V ') || upper.endsWith(' V') || (upper.includes('5') && !upper.includes('6'))) return 2;
-  if (upper.includes('VI') || upper.includes('6')) return 3;
-  return -1;
-};
+
 
 const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
   data,
@@ -51,10 +47,12 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
 }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts | null>(null);
-  const [selectedGrade, setSelectedGrade] = useState<string>('');
-  const [selectedStudent, setSelectedStudent] = useState<string>('');
-  const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
+  const dataCache = useRef<Map<string, any>>(new Map());
+
+  // State management
   const [selectedMetric, setSelectedMetric] = useState<'oral' | 'comprehension' | 'reading-level'>('oral');
+  const [selectedClass, setSelectedClass] = useState<string>('');
+  const [selectedStudent, setSelectedStudent] = useState<string>('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [forceChartInit, setForceChartInit] = useState(0);
@@ -101,8 +99,47 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
     }) || [])
   };
 
-  const safeGrades = Array.isArray(grades) ? grades : [];
-  const safeStudents = Array.isArray(students) ? students : [];
+  // Memoized safe data
+  const safeGrades = useMemo(() => Array.isArray(grades) ? grades : [], [grades]);
+  const safeStudents = useMemo(() => Array.isArray(students) ? students : [], [students]);
+
+  // Memoized filtered students based on selected class
+  const filteredStudents = useMemo(() => {
+    if (!selectedClass) return safeStudents;
+
+    const selectedGrade = safeGrades.find(g => g.id === selectedClass);
+    if (!selectedGrade) return [];
+
+    return safeStudents.filter(student => {
+      if (!student.grade || !selectedGrade.name) return false;
+
+      const studentGrade = student.grade.toLowerCase().trim();
+      const gradeName = selectedGrade.name.toLowerCase().trim();
+
+      // Multiple matching strategies for better compatibility
+      return studentGrade === gradeName ||
+        studentGrade.includes(gradeName) ||
+        gradeName.includes(studentGrade) ||
+        (student as any).gradeId === selectedGrade.id;
+    });
+  }, [selectedClass, safeStudents, safeGrades]);
+
+  // Auto-select first class if none selected
+  useEffect(() => {
+    if (safeGrades.length > 0 && !selectedClass) {
+      setSelectedClass(safeGrades[0].id || '');
+    }
+  }, [safeGrades, selectedClass]);
+
+  // Reset student selection when class changes
+  useEffect(() => {
+    if (selectedStudent && selectedStudent !== 'ALL_STUDENTS') {
+      const isStudentInClass = filteredStudents.some(s => s.id === selectedStudent);
+      if (!isStudentInClass) {
+        setSelectedStudent('');
+      }
+    }
+  }, [selectedClass, filteredStudents, selectedStudent]);
 
   // Get current metric data for chart rendering
   const getCurrentData = () => {
@@ -156,300 +193,201 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
 
   const currentMetric = getCurrentData();
 
-  // Initialize grade selection
-  useEffect(() => {
-    if (safeGrades.length > 0 && !selectedGrade) {
-      setSelectedGrade(safeGrades[0].id || '');
-    }
-  }, [safeGrades, selectedGrade]);
 
-  // Filter students by selected grade
-  useEffect(() => {
-    if (selectedGrade) {
-      const grade = safeGrades.find(g => g.id === selectedGrade);
-      if (grade) {
-        setFilteredStudents(safeStudents.filter(s => s.grade === grade.name));
+
+  // Optimized data fetching with caching
+  const fetchStudentData = useCallback(async (studentId: string) => {
+    const cacheKey = `student-${studentId}`;
+    const cached = dataCache.current.get(cacheKey);
+
+    // Return cached data if it's less than 5 minutes old
+    if (cached && (Date.now() - cached.timestamp) < 5 * 60 * 1000) {
+      return cached.data;
+    }
+
+    try {
+      const [readingResults, testResults] = await Promise.all([
+        resultService.getReadingResults(studentId),
+        resultService.getTestResults(studentId)
+      ]);
+
+      const data = { readingResults, testResults };
+      dataCache.current.set(cacheKey, { data, timestamp: Date.now() });
+      return data;
+    } catch (error) {
+      console.warn(`Error fetching data for student ${studentId}:`, error);
+      return { readingResults: [], testResults: [] };
+    }
+  }, []);
+
+  // Process student data into chart format
+  const processStudentData = useCallback((readingResults: any[], testResults: any[]) => {
+    const sortedReadingResults = readingResults.sort((a, b) =>
+      new Date(a.createdAt || a.sessionDate || 0).getTime() - new Date(b.createdAt || b.sessionDate || 0).getTime()
+    );
+
+    const sortedTestResults = testResults.sort((a, b) =>
+      new Date(a.createdAt || a.testDate || 0).getTime() - new Date(b.createdAt || b.testDate || 0).getTime()
+    );
+
+    const maxSessions = Math.max(sortedReadingResults.length, sortedTestResults.length, 4);
+    const sessionLabels = Array.from({ length: maxSessions }, (_, i) => `Session ${i + 1}`);
+
+    const oralScores: number[] = [];
+    const compScores: number[] = [];
+    const levelScores: number[] = [];
+
+    for (let i = 0; i < maxSessions; i++) {
+      const readingResult = sortedReadingResults[i];
+      const testResult = sortedTestResults[i];
+
+      // Oral reading score
+      oralScores[i] = readingResult?.oralReadingScore
+        ? Math.max(0, Math.min(100, readingResult.oralReadingScore))
+        : 0;
+
+      // Comprehension score
+      if (testResult?.comprehension) {
+        compScores[i] = Math.max(0, Math.min(100, testResult.comprehension));
+      } else if (testResult?.score) {
+        compScores[i] = Math.max(0, Math.min(100, testResult.score));
       } else {
-        setFilteredStudents([]);
+        compScores[i] = 0;
       }
-    } else {
-      setFilteredStudents([]);
+
+      // Reading level
+      if (readingResult) {
+        const readingLevelField = readingResult.readingLevel || readingResult.reading_level || readingResult.level;
+        if (readingLevelField) {
+          const level = String(readingLevelField).toLowerCase().trim();
+          if (level.includes('independent')) levelScores[i] = 3;
+          else if (level.includes('instructional')) levelScores[i] = 2;
+          else if (level.includes('frustration')) levelScores[i] = 1;
+          else levelScores[i] = 0;
+        } else {
+          // Derive from oral reading score
+          if (oralScores[i] >= 95) levelScores[i] = 3;
+          else if (oralScores[i] >= 85) levelScores[i] = 2;
+          else if (oralScores[i] > 0) levelScores[i] = 1;
+          else levelScores[i] = 0;
+        }
+      } else {
+        levelScores[i] = 0;
+      }
     }
-    setSelectedStudent('');
-  }, [selectedGrade, safeStudents, safeGrades]);
 
-  // REAL-TIME: Fetch teacher reading results and reading levels from database
+    return {
+      assessmentPeriods: sessionLabels,
+      oralReadingScores: oralScores,
+      comprehensionScores: compScores,
+      readingLevels: levelScores
+    };
+  }, []);
+
+  // Main data fetching effect
   useEffect(() => {
-    const labels = ['Grade III', 'Grade IV', 'Grade V', 'Grade VI'];
-
     if (!currentUser?.uid) {
       console.warn('TeacherProgressChart: No teacher user ID found');
       return;
     }
 
-    const fetchTeacherReadingResults = async () => {
+    const fetchData = async () => {
       try {
         setIsRefreshing(true);
-        console.log('TeacherProgressChart: Fetching real-time reading results for teacher:', currentUser.uid);
 
-        // Test API endpoints directly
-        console.log('TeacherProgressChart: Testing API endpoints...');
-        try {
-          const testResponse = await fetch(`/api/results/teacher/${currentUser.uid}`);
-          console.log('TeacherProgressChart: API response status:', testResponse.status);
-          if (testResponse.ok) {
-            const testData = await testResponse.json();
-            console.log('TeacherProgressChart: Raw API data:', testData.slice(0, 5));
-
-            // If no data exists, offer to create sample data
-            if (testData.length === 0) {
-              console.log('TeacherProgressChart: No data found in database. To test with sample data, you can:');
-              console.log('1. Add reading session results via the Reading Session page');
-              console.log('2. Add test results via the assessment features');
-              console.log('3. Add student reading levels in the student records');
-              console.log('4. Or use the demonstration data that will be generated automatically');
-            }
-          } else {
-            console.error('TeacherProgressChart: API error:', testResponse.statusText);
-          }
-        } catch (apiError) {
-          console.error('TeacherProgressChart: API call failed:', apiError);
+        if (!selectedStudent) {
+          // No student selected - show empty data
+          setComputedData({
+            assessmentPeriods: ['Session 1', 'Session 2', 'Session 3', 'Session 4'],
+            oralReadingScores: [],
+            comprehensionScores: [],
+            readingLevels: []
+          });
+          return;
         }
 
-        // Fetch reading session results from database
-        console.log('TeacherProgressChart: Calling getReadingSessionResults for teacher:', currentUser.uid);
-        const results = await resultService.getReadingSessionResults(currentUser.uid);
-        console.log('TeacherProgressChart: Fetched', results.length, 'reading results from database');
-        console.log('TeacherProgressChart: Sample reading results:', results.slice(0, 3));
+        if (selectedStudent === 'ALL_STUDENTS') {
+          // Aggregate data for all students in selected class
+          const studentsToProcess = selectedClass ? filteredStudents : safeStudents;
 
-        // Fetch test results for comprehension data
-        console.log('TeacherProgressChart: Calling getTeacherTestResults for teacher:', currentUser.uid);
-        const testResults = await resultService.getTeacherTestResults(currentUser.uid);
-        console.log('TeacherProgressChart: Fetched', testResults.length, 'test results from database');
-        console.log('TeacherProgressChart: Sample test results:', testResults.slice(0, 3));
-
-        // ALSO fetch student reading levels from student records (since reading levels might be stored there)
-        console.log('TeacherProgressChart: Also checking student records for reading levels...');
-        console.log('TeacherProgressChart: Available students:', safeStudents.map(s => ({
-          name: s.name,
-          grade: s.grade,
-          readingLevel: s.readingLevel
-        })));
-
-        const studentReadingLevels: Record<string, any> = {};
-
-        // Group students by grade and get their reading levels
-        safeStudents.forEach(student => {
-          const gradeIndex = getGradeIndex(student.grade);
-          console.log(`TeacherProgressChart: Student ${student.name} - Grade: ${student.grade} -> Index: ${gradeIndex}, Reading Level: ${student.readingLevel}`);
-
-          if (gradeIndex >= 0 && student.readingLevel) {
-            if (!studentReadingLevels[gradeIndex]) {
-              studentReadingLevels[gradeIndex] = [];
-            }
-            studentReadingLevels[gradeIndex].push(student.readingLevel);
-          }
-        });
-
-        console.log('TeacherProgressChart: Student reading levels by grade:', studentReadingLevels);
-
-        // Process results to compute averages by grade
-        const oralSums = [0, 0, 0, 0];
-        const oralCounts = [0, 0, 0, 0];
-        const compSums = [0, 0, 0, 0];
-        const compCounts = [0, 0, 0, 0];
-        const levelSums = [0, 0, 0, 0];
-        const levelCounts = [0, 0, 0, 0];
-
-        // Process reading session results for oral reading scores
-        results.forEach(result => {
-          // Map grade to index
-          let gradeName = '';
-          if (result.gradeId) {
-            const grade = grades.find(g => g.id === result.gradeId);
-            gradeName = grade?.name || '';
-          }
-
-          const gradeIndex = getGradeIndex(gradeName);
-          if (gradeIndex < 0) return;
-
-          // Process oral reading score
-          if (typeof result.oralReadingScore === 'number') {
-            oralSums[gradeIndex] += Math.max(0, Math.min(100, result.oralReadingScore));
-            oralCounts[gradeIndex] += 1;
-          }
-        });
-
-        // Process test results for comprehension scores
-        testResults.forEach(result => {
-          // Map grade to index - try multiple grade field names
-          let gradeName = '';
-          const resultAny = result as any;
-          if (result.gradeId) {
-            const grade = grades.find(g => g.id === result.gradeId);
-            gradeName = grade?.name || '';
-          } else if (resultAny.grade) {
-            gradeName = resultAny.grade;
-          } else if (resultAny.gradeName) {
-            gradeName = resultAny.gradeName;
-          }
-
-          const gradeIndex = getGradeIndex(gradeName);
-          if (gradeIndex < 0) return;
-
-          // Process comprehension score from test results
-          if (typeof result.comprehension === 'number') {
-            compSums[gradeIndex] += Math.max(0, Math.min(100, result.comprehension));
-            compCounts[gradeIndex] += 1;
-          } else if (typeof result.score === 'number') {
-            // Fallback to score field if comprehension is not available
-            compSums[gradeIndex] += Math.max(0, Math.min(100, result.score));
-            compCounts[gradeIndex] += 1;
-          }
-        });
-
-        // Process reading levels from student records (PRIMARY SOURCE)
-        console.log('TeacherProgressChart: Processing reading levels from student records...');
-        Object.keys(studentReadingLevels).forEach(gradeIndexStr => {
-          const gradeIndex = parseInt(gradeIndexStr);
-          const readingLevels = studentReadingLevels[gradeIndex];
-
-          if (readingLevels && readingLevels.length > 0) {
-            console.log(`TeacherProgressChart: Processing ${readingLevels.length} reading levels for grade index ${gradeIndex}`);
-
-            // Process student reading levels for this grade
-            readingLevels.forEach((level: any) => {
-              let levelValue = 2; // default to Instructional
-              const levelStr = String(level).toLowerCase().trim();
-
-              if (levelStr.includes('independent') || levelStr === '3' || levelStr === 'ind' || levelStr.includes('mastery')) {
-                levelValue = 3;
-              } else if (levelStr.includes('instructional') || levelStr === '2' || levelStr === 'ins' || levelStr.includes('developing')) {
-                levelValue = 2;
-              } else if (levelStr.includes('frustration') || levelStr === '1' || levelStr === 'frus' || levelStr.includes('below')) {
-                levelValue = 1;
-              }
-
-              levelSums[gradeIndex] += levelValue;
-              levelCounts[gradeIndex] += 1;
-
-              console.log(`TeacherProgressChart: Student reading level "${level}" -> ${levelValue} for grade index ${gradeIndex}`);
+          if (studentsToProcess.length === 0) {
+            setComputedData({
+              assessmentPeriods: ['Session 1', 'Session 2', 'Session 3', 'Session 4'],
+              oralReadingScores: [],
+              comprehensionScores: [],
+              readingLevels: []
             });
-          } else {
-            console.log(`TeacherProgressChart: No reading levels found for grade index ${gradeIndex}`);
+            return;
           }
-        });
 
-        // If no student reading levels found, try to derive from oral reading scores as fallback
-        if (Object.keys(studentReadingLevels).length === 0) {
-          console.log('TeacherProgressChart: No student reading levels found, trying to derive from oral reading scores...');
-          for (let i = 0; i < 4; i++) {
-            if (oralCounts[i] > 0) {
-              const avgOralScore = oralSums[i] / oralCounts[i];
-              let levelValue = 0; // No default value - only use if we can derive it
+          const allStudentsData = await Promise.all(
+            studentsToProcess.map(student => fetchStudentData(student.id!))
+          );
 
-              if (avgOralScore >= 95) {
-                levelValue = 3; // Independent
-              } else if (avgOralScore >= 85) {
-                levelValue = 2; // Instructional
-              } else if (avgOralScore > 0) {
-                levelValue = 1; // Frustration
+          // Aggregate data
+          const aggregatedOralScores: number[] = [];
+          const aggregatedCompScores: number[] = [];
+          const aggregatedLevelScores: number[] = [];
+
+          for (let sessionIndex = 0; sessionIndex < 4; sessionIndex++) {
+            let oralSum = 0, oralCount = 0;
+            let compSum = 0, compCount = 0;
+            let levelSum = 0, levelCount = 0;
+
+            allStudentsData.forEach(({ readingResults, testResults }) => {
+              const readingResult = readingResults[sessionIndex];
+              const testResult = testResults[sessionIndex];
+
+              if (readingResult?.oralReadingScore) {
+                oralSum += readingResult.oralReadingScore;
+                oralCount++;
               }
 
-              if (levelValue > 0) {
-                levelSums[i] = levelValue;
-                levelCounts[i] = 1;
-                console.log(`TeacherProgressChart: Derived reading level ${levelValue} from oral score ${avgOralScore} for grade index ${i}`);
+              if (testResult?.comprehension) {
+                compSum += testResult.comprehension;
+                compCount++;
+              } else if (testResult?.score) {
+                compSum += testResult.score;
+                compCount++;
               }
-            }
+
+              if (readingResult) {
+                const readingLevelField = readingResult.readingLevel || readingResult.reading_level || readingResult.level;
+                if (readingLevelField) {
+                  const level = String(readingLevelField).toLowerCase().trim();
+                  let levelValue = 2;
+                  if (level.includes('independent')) levelValue = 3;
+                  else if (level.includes('instructional')) levelValue = 2;
+                  else if (level.includes('frustration')) levelValue = 1;
+                  levelSum += levelValue;
+                  levelCount++;
+                }
+              }
+            });
+
+            aggregatedOralScores[sessionIndex] = oralCount > 0 ? Math.round(oralSum / oralCount) : 0;
+            aggregatedCompScores[sessionIndex] = compCount > 0 ? Math.round(compSum / compCount) : 0;
+            aggregatedLevelScores[sessionIndex] = levelCount > 0 ? Math.round(levelSum / levelCount) : 0;
           }
+
+          setComputedData({
+            assessmentPeriods: ['Session 1', 'Session 2', 'Session 3', 'Session 4'],
+            oralReadingScores: aggregatedOralScores,
+            comprehensionScores: aggregatedCompScores,
+            readingLevels: aggregatedLevelScores
+          });
+        } else {
+          // Individual student data
+          const { readingResults, testResults } = await fetchStudentData(selectedStudent);
+          const processedData = processStudentData(readingResults, testResults);
+          setComputedData(processedData);
         }
-
-        // Calculate averages - ONLY from real database data (no mock data)
-        const oralScores = oralSums.map((sum, i) => oralCounts[i] > 0 ? Math.round(sum / oralCounts[i]) : 0);
-        const compScores = compSums.map((sum, i) => compCounts[i] > 0 ? Math.round(sum / compCounts[i]) : 0);
-        const levelScores = levelSums.map((sum, i) => levelCounts[i] > 0 ? Math.round(sum / levelCounts[i]) : 0);
-
-        // Check if we have any real data at all
-        const hasRealOralData = oralCounts.some(count => count > 0);
-        const hasRealCompData = compCounts.some(count => count > 0);
-        const hasRealLevelData = levelCounts.some(count => count > 0);
-
-        console.log('TeacherProgressChart: Data availability check:', {
-          hasRealOralData,
-          hasRealCompData,
-          hasRealLevelData,
-          totalResults: results.length,
-          totalTestResults: testResults.length,
-          totalStudents: safeStudents.length
-        });
-
-        console.log('TeacherProgressChart: Computed REAL-TIME scores from database:', {
-          oralScores,
-          compScores,
-          levelScores,
-          oralCounts,
-          compCounts,
-          levelCounts,
-          readingResultsCount: results.length,
-          testResultsCount: testResults.length,
-          dataFreshness: 'Real-time',
-          lastUpdated: new Date().toISOString(),
-          dataSource: {
-            oralFromDatabase: hasRealOralData,
-            compFromDatabase: hasRealCompData,
-            levelFromDatabase: hasRealLevelData
-          }
-        });
-
-        // Log sample reading level data for debugging
-        const sampleReadingLevels = results.slice(0, 10).map(r => {
-          const rAny = r as any;
-          return {
-            gradeId: r.gradeId,
-            oralReadingScore: r.oralReadingScore,
-            readingLevel: rAny.readingLevel,
-            reading_level: rAny.reading_level,
-            level: rAny.level,
-            readingLevelClassification: rAny.readingLevelClassification,
-            allFields: Object.keys(rAny).filter(key => key.toLowerCase().includes('level') || key.toLowerCase().includes('reading')) // Show reading-related fields
-          };
-        });
-        console.log('TeacherProgressChart: Sample reading session data from database:', sampleReadingLevels);
-
-        // Also log test results sample
-        const sampleTestResults = testResults.slice(0, 5).map(r => {
-          const rAny = r as any;
-          return {
-            gradeId: r.gradeId,
-            comprehension: r.comprehension,
-            score: r.score,
-            allFields: Object.keys(rAny).filter(key => key.toLowerCase().includes('level') || key.toLowerCase().includes('reading') || key.toLowerCase().includes('comp'))
-          };
-        });
-        console.log('TeacherProgressChart: Sample test results from database:', sampleTestResults);
-
-        // Log the actual computed level counts to see if data is being processed
-        console.log('TeacherProgressChart: Level counts by grade:', {
-          'Grade III': levelCounts[0],
-          'Grade IV': levelCounts[1],
-          'Grade V': levelCounts[2],
-          'Grade VI': levelCounts[3]
-        });
-
-        setComputedData({
-          assessmentPeriods: labels,
-          oralReadingScores: oralScores,
-          comprehensionScores: compScores,
-          readingLevels: levelScores
-        });
 
         setLastUpdated(new Date());
-
       } catch (error) {
-        console.error('TeacherProgressChart: Error fetching reading results:', error);
+        console.error('TeacherProgressChart: Error fetching data:', error);
         setComputedData({
-          assessmentPeriods: labels,
+          assessmentPeriods: ['Session 1', 'Session 2', 'Session 3', 'Session 4'],
           oralReadingScores: [],
           comprehensionScores: [],
           readingLevels: []
@@ -459,44 +397,25 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
       }
     };
 
-    // Initial fetch
-    fetchTeacherReadingResults();
+    fetchData();
 
-    // REAL-TIME: Set up polling for live data updates
-    const pollInterval = setInterval(() => {
-      console.log('TeacherProgressChart: Polling for real-time data updates...');
-      fetchTeacherReadingResults();
-    }, 15000); // Poll every 15 seconds for real-time updates
+    // Set up polling for real-time updates (reduced frequency for better performance)
+    const pollInterval = setInterval(fetchData, 30000); // Poll every 30 seconds
 
-    // Note: WebSocket support can be added later when server supports it
-
-    // REAL-TIME: Set up visibility change listener for immediate refresh
+    // Set up visibility change listener
     const handleVisibilityChange = () => {
       if (!document.hidden) {
-        console.log('TeacherProgressChart: Tab became visible, refreshing data...');
-        fetchTeacherReadingResults();
+        fetchData();
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // REAL-TIME: Set up focus listener for immediate refresh
-    const handleWindowFocus = () => {
-      console.log('TeacherProgressChart: Window focused, refreshing data...');
-      fetchTeacherReadingResults();
-    };
-
-    window.addEventListener('focus', handleWindowFocus);
-
-    // Cleanup
     return () => {
       clearInterval(pollInterval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleWindowFocus);
-
-      // WebSocket cleanup would go here when implemented
     };
-  }, [currentUser?.uid, selectedGrade, selectedStudent, grades]);
+  }, [currentUser?.uid, selectedStudent, selectedClass, filteredStudents, safeStudents, fetchStudentData, processStudentData]);
 
   // Initialize and update chart
   useEffect(() => {
@@ -784,7 +703,11 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
         <div className="flex flex-col lg:grid lg:grid-cols-3 lg:items-center mb-3 lg:mb-4 space-y-2 lg:space-y-0">
           <div className="flex items-center gap-3">
             <h3 className="text-base md:text-lg font-semibold text-[#2C3E50] whitespace-nowrap flex-shrink-0">
-              {title}
+              {selectedStudent === 'ALL_STUDENTS'
+                ? `Class Progress (${filteredStudents.length} students)`
+                : selectedStudent
+                  ? `${filteredStudents.find(s => s.id === selectedStudent)?.name || 'Student'}'s Progress`
+                  : title}
             </h3>
             {/* Real-time indicator */}
             <div className="flex items-center gap-2">
@@ -843,107 +766,69 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
             </div>
           </div>
 
-          {/* Grade and Student Selectors + Refresh Controls - right aligned */}
+          {/* Class and Student Selectors + Refresh Controls - right aligned */}
           <div className="lg:justify-self-end">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {/* Class Selector */}
+              <div className="inline-flex items-center bg-gray-100 rounded-full p-1 shadow-inner">
+                <PillSelect
+                  ariaLabel="Select Class"
+                  options={safeGrades.length === 0
+                    ? [{ label: 'No Classes', value: '' }]
+                    : safeGrades.map(g => ({ label: g.name, value: g.id || '' }))}
+                  value={selectedClass}
+                  onChange={setSelectedClass}
+                  placeholder="Select Class"
+                />
+              </div>
+
+              {/* Student Selector */}
+              <div className="inline-flex items-center bg-gray-100 rounded-full p-1 shadow-inner">
+                <PillSelect
+                  ariaLabel="Select Student"
+                  options={(() => {
+                    const options: PillOption[] = [
+                      { label: 'Select Student', value: '' }
+                    ];
+
+                    if (filteredStudents.length > 0) {
+                      // Add "All Students" option
+                      options.push({
+                        label: `📊 All Students (${filteredStudents.length})`,
+                        value: 'ALL_STUDENTS'
+                      });
+
+                      // Add individual students
+                      filteredStudents.forEach(student => {
+                        options.push({
+                          label: `👤 ${student.name || 'Unknown Student'}`,
+                          value: student.id || ''
+                        });
+                      });
+                    }
+
+                    return options;
+                  })()}
+                  value={selectedStudent}
+                  onChange={setSelectedStudent}
+                  disabled={filteredStudents.length === 0}
+                  placeholder={filteredStudents.length === 0 ? "No Students" : "Select Student"}
+                />
+              </div>
+
               {/* Manual Refresh Button */}
               <button
                 onClick={() => {
-                  console.log('TeacherProgressChart: Manual refresh triggered');
-                  const fetchTeacherReadingResults = async () => {
-                    try {
-                      setIsRefreshing(true);
-                      const results = await resultService.getReadingSessionResults(currentUser?.uid || '');
-                      const testResults = await resultService.getTeacherTestResults(currentUser?.uid || '');
-
-                      // Process data (same logic as in useEffect)
-                      const labels = ['Grade III', 'Grade IV', 'Grade V', 'Grade VI'];
-                      const oralSums = [0, 0, 0, 0];
-                      const oralCounts = [0, 0, 0, 0];
-                      const compSums = [0, 0, 0, 0];
-                      const compCounts = [0, 0, 0, 0];
-                      const levelSums = [0, 0, 0, 0];
-                      const levelCounts = [0, 0, 0, 0];
-
-                      results.forEach(result => {
-                        let gradeName = '';
-                        if (result.gradeId) {
-                          const grade = grades.find(g => g.id === result.gradeId);
-                          gradeName = grade?.name || '';
-                        }
-
-                        const gradeIndex = getGradeIndex(gradeName);
-                        if (gradeIndex < 0) return;
-
-                        if (typeof result.oralReadingScore === 'number') {
-                          oralSums[gradeIndex] += Math.max(0, Math.min(100, result.oralReadingScore));
-                          oralCounts[gradeIndex] += 1;
-                        }
-
-                        const resultAny = result as any;
-                        const readingLevelField = resultAny.readingLevel || resultAny.reading_level || resultAny.level || resultAny.readingLevelClassification;
-
-                        if (readingLevelField) {
-                          let levelValue = 2;
-                          const level = String(readingLevelField).toLowerCase().trim();
-
-                          if (level.includes('independent') || level === '3' || level === 'ind') {
-                            levelValue = 3;
-                          } else if (level.includes('instructional') || level === '2' || level === 'ins') {
-                            levelValue = 2;
-                          } else if (level.includes('frustration') || level === '1' || level === 'frus') {
-                            levelValue = 1;
-                          }
-
-                          levelSums[gradeIndex] += levelValue;
-                          levelCounts[gradeIndex] += 1;
-                        }
-                      });
-
-                      testResults.forEach(result => {
-                        let gradeName = '';
-                        const resultAny = result as any;
-                        if (result.gradeId) {
-                          const grade = grades.find(g => g.id === result.gradeId);
-                          gradeName = grade?.name || '';
-                        } else if (resultAny.grade) {
-                          gradeName = resultAny.grade;
-                        } else if (resultAny.gradeName) {
-                          gradeName = resultAny.gradeName;
-                        }
-
-                        const gradeIndex = getGradeIndex(gradeName);
-                        if (gradeIndex < 0) return;
-
-                        if (typeof result.comprehension === 'number') {
-                          compSums[gradeIndex] += Math.max(0, Math.min(100, result.comprehension));
-                          compCounts[gradeIndex] += 1;
-                        } else if (typeof result.score === 'number') {
-                          compSums[gradeIndex] += Math.max(0, Math.min(100, result.score));
-                          compCounts[gradeIndex] += 1;
-                        }
-                      });
-
-                      const oralScores = oralSums.map((sum, i) => oralCounts[i] > 0 ? Math.round(sum / oralCounts[i]) : 0);
-                      const compScores = compSums.map((sum, i) => compCounts[i] > 0 ? Math.round(sum / compCounts[i]) : 0);
-                      const levelScores = levelSums.map((sum, i) => levelCounts[i] > 0 ? Math.round(sum / levelCounts[i]) : 2);
-
-                      setComputedData({
-                        assessmentPeriods: labels,
-                        oralReadingScores: oralScores,
-                        comprehensionScores: compScores,
-                        readingLevels: levelScores
-                      });
-
-                      setLastUpdated(new Date());
-                      console.log('TeacherProgressChart: Manual refresh completed');
-                    } catch (error) {
-                      console.error('TeacherProgressChart: Manual refresh error:', error);
-                    } finally {
-                      setIsRefreshing(false);
-                    }
-                  };
-                  fetchTeacherReadingResults();
+                  // Clear cache for selected student
+                  if (selectedStudent && selectedStudent !== 'ALL_STUDENTS') {
+                    dataCache.current.delete(`student-${selectedStudent}`);
+                  } else if (selectedStudent === 'ALL_STUDENTS') {
+                    // Clear cache for all students in class
+                    filteredStudents.forEach(s => {
+                      dataCache.current.delete(`student-${s.id}`);
+                    });
+                  }
+                  setLastUpdated(new Date());
                 }}
                 disabled={isRefreshing}
                 className={`p-2 rounded-lg transition-colors ${isRefreshing
@@ -954,25 +839,6 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
               >
                 <i className={`fas fa-sync-alt text-sm ${isRefreshing ? 'animate-spin' : ''}`}></i>
               </button>
-
-              {/* Grade and Student Selectors */}
-              <div className="inline-flex items-center bg-gray-100 rounded-full p-1 shadow-inner gap-1 max-w-full overflow-hidden">
-                <PillSelect
-                  ariaLabel="Select Class"
-                  options={(safeGrades.length === 0 ? [{ label: 'No Classes', value: '' }] : safeGrades.map(g => ({ label: g.name, value: g.id || '' }))) as PillOption[]}
-                  value={selectedGrade}
-                  onChange={setSelectedGrade}
-                  placeholder="No Classes"
-                />
-                <PillSelect
-                  ariaLabel="Select Student"
-                  options={[{ label: 'Select Student', value: '' }, ...((Array.isArray(filteredStudents) ? filteredStudents : []).map(s => ({ label: s.name.replace(' | ', ' '), value: s.id || '' })))]}
-                  value={selectedStudent}
-                  onChange={setSelectedStudent}
-                  disabled={!selectedGrade}
-                  placeholder="Select Student"
-                />
-              </div>
             </div>
 
             {/* Last Updated Timestamp with Freshness Indicator */}
@@ -992,6 +858,7 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
                   }
                 })()}
               </div>
+
             </div>
           </div>
         </div>
@@ -1000,22 +867,71 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
           <div ref={chartRef} className="w-full h-full" style={{ minHeight: '320px' }} />
 
           {/* No Data Overlay */}
-          {safeData.oralReadingScores.every(score => score === 0) &&
-            safeData.comprehensionScores.every(score => score === 0) &&
-            safeData.readingLevels.every(level => level === 0) && (
-              <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-95">
-                <div className="text-center text-gray-500">
-                  <i className="fas fa-chart-bar text-4xl mb-4 text-gray-300"></i>
-                  <h3 className="text-lg font-medium mb-2">No Reading Data Available</h3>
-                  <p className="text-sm mb-4">Start by adding reading sessions and assessments to see progress data.</p>
-                  <div className="text-xs text-gray-400">
-                    <p>• Add reading sessions to track oral reading scores</p>
-                    <p>• Add comprehension tests to track understanding</p>
-                    <p>• Update student profiles with reading levels</p>
-                  </div>
+          {safeStudents.length === 0 ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-95">
+              <div className="text-center text-gray-500">
+                <i className="fas fa-users text-4xl mb-4 text-gray-300"></i>
+                <h3 className="text-lg font-medium mb-2">No Students Found</h3>
+                <p className="text-sm mb-4">You need to add students to your classes first.</p>
+                <div className="text-xs text-gray-400 mb-4">
+                  <p>• Go to "Class List" in the sidebar</p>
+                  <p>• Add students to your classes</p>
+                  <p>• Ensure students are assigned to the correct grades</p>
+                </div>
+                <button
+                  onClick={() => window.location.href = '/teacher/class-list'}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                >
+                  <i className="fas fa-plus mr-2"></i>
+                  Go to Class List
+                </button>
+              </div>
+            </div>
+          ) : filteredStudents.length === 0 && selectedClass ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-95">
+              <div className="text-center text-gray-500">
+                <i className="fas fa-user-slash text-4xl mb-4 text-gray-300"></i>
+                <h3 className="text-lg font-medium mb-2">No Students in Selected Class</h3>
+                <p className="text-sm mb-4">The selected class doesn't have any students yet.</p>
+                <div className="text-xs text-gray-400">
+                  <p>• Select a different class from the dropdown</p>
+                  <p>• Or add students to this class</p>
                 </div>
               </div>
-            )}
+            </div>
+          ) : !selectedStudent ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-95">
+              <div className="text-center text-gray-500">
+                <i className="fas fa-user-graduate text-4xl mb-4 text-gray-300"></i>
+                <h3 className="text-lg font-medium mb-2">Select a Student</h3>
+                <p className="text-sm mb-4">Choose a student to view their reading progress.</p>
+                <div className="text-xs text-gray-400">
+                  <p>• Select "📊 All Students" to see class averages</p>
+                  <p>• Choose a specific student for individual progress</p>
+                  <p>• Use the class dropdown to filter students</p>
+                </div>
+              </div>
+            </div>
+          ) : (safeData.oralReadingScores.every(score => score === 0) &&
+            safeData.comprehensionScores.every(score => score === 0) &&
+            safeData.readingLevels.every(level => level === 0)) && (
+            <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-95">
+              <div className="text-center text-gray-500">
+                <i className="fas fa-chart-bar text-4xl mb-4 text-gray-300"></i>
+                <h3 className="text-lg font-medium mb-2">No Reading Data Available</h3>
+                <p className="text-sm mb-4">
+                  {selectedStudent === 'ALL_STUDENTS'
+                    ? 'No reading data found for students in this class.'
+                    : `No reading data found for ${filteredStudents.find(s => s.id === selectedStudent)?.name || 'this student'}.`}
+                </p>
+                <div className="text-xs text-gray-400">
+                  <p>• Add reading sessions to track oral reading scores</p>
+                  <p>• Add comprehension tests to track understanding</p>
+                  <p>• Update student profiles with reading levels</p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Chart Loading/Retry Overlay */}
           {!chartInstance.current &&

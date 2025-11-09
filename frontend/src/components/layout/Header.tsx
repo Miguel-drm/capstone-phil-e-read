@@ -350,8 +350,8 @@ const Header: React.FC<HeaderProps> = ({
                 onClose={() => setIsNotificationsOpen(false)} 
               />
             </div>
-            {/* Upcoming Sessions Button for larger screens - Hidden for teachers */}
-            {!isMobile && onShowSessionsModal && userRole !== 'teacher' && (
+            {/* Upcoming Sessions Button for larger screens - Hidden for teachers, parents, and admins */}
+            {!isMobile && onShowSessionsModal && userRole !== 'teacher' && userRole !== 'parent' && userRole !== 'admin' && (
               <button
                 className="flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all duration-200 text-sm font-semibold"
                 onClick={onShowSessionsModal}
@@ -408,8 +408,8 @@ const Header: React.FC<HeaderProps> = ({
                     <div className="px-4 py-2 text-xs text-gray-500">
                       {userRole}
                     </div>
-                    {/* Upcoming Sessions in dropdown for mobile only - Hidden for teachers */}
-                    {isMobile && onShowSessionsModal && userRole !== 'teacher' && (
+                    {/* Upcoming Sessions in dropdown for mobile only - Hidden for teachers, parents, and admins */}
+                    {isMobile && onShowSessionsModal && userRole !== 'teacher' && userRole !== 'parent' && userRole !== 'admin' && (
                       <button
                         onClick={onShowSessionsModal}
                         className="w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 focus:outline-none flex items-center gap-2"
