@@ -411,8 +411,8 @@ const ReadingSessionPage: React.FC = () => {
           setIsRecording(false);
         });
     } else {
-      alert("MediaRecorder not supported in this browser.");
-      setIsRecording(false);
+      console.warn("MediaRecorder not supported in this browser. Speech recognition will still work.");
+      // Don't stop recording - speech recognition can still work
     }
 
     // Choose STT path: Vosk (WS) for Tagalog if enabled, else Web Speech
