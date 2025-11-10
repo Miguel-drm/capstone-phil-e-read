@@ -167,25 +167,44 @@ const ReadingSessionPage: React.FC = () => {
   }
 
   /**
-   * Improved pronunciation matching with Filipino accent tolerance.
-   * Handles common pronunciation variations for Filipino English speakers.
+   * Universal pronunciation matching for children's reading.
+   * Handles common patterns globally without hardcoding specific words.
    */
   function isWordMatch(spokenWord: string, expectedWord: string): boolean {
     const normSpoken = normalize(spokenWord);
     const normExpected = normalize(expectedWord);
     if (!normSpoken || !normExpected) return false;
 
-    // Debug logging
-    if ((import.meta as any)?.env?.MODE === "development") {
-      console.debug(`Comparing: "${normSpoken}" vs "${normExpected}"`);
+    // Exact match
+    if (normSpoken === normExpected) return true;
+
+    // UNIVERSAL PATTERN 1: Dropped -ed endings (for ANY word)
+    // "carved" accepts "carve", "carv"
+    if (normExpected.endsWith('ed')) {
+      const root = normExpected.slice(0, -2); // Remove 'ed'
+      const rootE = normExpected.slice(0, -1); // Remove 'd' only
+      if (normSpoken === root || normSpoken === rootE || normSpoken === root + 't') {
+        return true;
+      }
     }
 
-    // Exact match
-    if (normSpoken === normExpected) {
-      if ((import.meta as any)?.env?.MODE === "development") {
-        console.debug("✓ Exact match");
+    // UNIVERSAL PATTERN 2: Dropped -ing endings
+    // "walking" accepts "walk", "walkin"
+    if (normExpected.endsWith('ing')) {
+      const root = normExpected.slice(0, -3);
+      if (normSpoken === root || normSpoken === normExpected.slice(0, -1)) {
+        return true;
       }
-      return true;
+    }
+
+    // UNIVERSAL PATTERN 3: Dropped -s/-es endings (plurals/verbs)
+    // "looks" accepts "look", "takes" accepts "take"
+    if (normExpected.endsWith('s') && normExpected.length > 2) {
+      const root = normExpected.slice(0, -1);
+      const rootEs = normExpected.endsWith('es') ? normExpected.slice(0, -2) : null;
+      if (normSpoken === root || (rootEs && normSpoken === rootEs)) {
+        return true;
+      }
     }
 
     // Filipino accent variations and children's speech patterns
@@ -431,8 +450,8 @@ const ReadingSessionPage: React.FC = () => {
           audioContextRef.current = ctx;
           const src = ctx.createMediaStreamSource(stream);
           sourceNodeRef.current = src;
-          // Reduced buffer size from 4096 to 2048 for lower latency (faster recognition)
-          const script = ctx.createScriptProcessor(2048, 1, 1);
+          // Ultra-low buffer size (1024) for fastest possible recognition (<1 second response)
+          const script = ctx.createScriptProcessor(1024, 1, 1);
           scriptNodeRef.current = script;
 
           // Downsample Float32 (48k) to Int16 (16k)
@@ -556,9 +575,15 @@ const ReadingSessionPage: React.FC = () => {
           };
           recognition.onerror = (e: any) => {
             console.warn("Speech recognition error:", e.error);
-            // Don't restart on 'no-speech' or 'aborted' errors during normal operation
-            if (e.error === 'no-speech' || e.error === 'audio-capture') {
+
+            // Handle different error types
+            if (e.error === 'network') {
+              console.warn("Network error - speech recognition will auto-retry when connection is restored");
+              // Will auto-restart via onend handler
+            } else if (e.error === 'no-speech' || e.error === 'audio-capture') {
               // These are recoverable, recognition will auto-restart
+            } else if (e.error === 'not-allowed') {
+              console.error("Microphone permission denied. Please allow microphone access.");
             }
           };
           recognition.onend = () => {
@@ -1117,21 +1142,27 @@ const ReadingSessionPage: React.FC = () => {
 
   // Simpler, more reliable word matching - only check the last spoken word
   const lastTranscriptRef = useRef<string>("");
+  const lastProcessedIndexRef = useRef<number>(-1);
   const matchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (!transcript || !realWords.length || currentWordIndex >= realWords.length) return;
 
-    // Only process if transcript actually changed
-    if (transcript === lastTranscriptRef.current) return;
+    // Process if transcript changed OR if we moved to a new word
+    const transcriptChanged = transcript !== lastTranscriptRef.current;
+    const indexChanged = currentWordIndex !== lastProcessedIndexRef.current;
+
+    if (!transcriptChanged && !indexChanged) return;
+
     lastTranscriptRef.current = transcript;
+    lastProcessedIndexRef.current = currentWordIndex;
 
     // Clear any pending match check
     if (matchTimeoutRef.current) {
       clearTimeout(matchTimeoutRef.current);
     }
 
-    // Small delay to let speech recognition stabilize
+    // Ultra-fast response for fast readers (50ms delay)
     matchTimeoutRef.current = setTimeout(() => {
       const transcriptWords = transcript.split(/\s+/).filter(Boolean);
       if (transcriptWords.length === 0) return;
@@ -1141,10 +1172,10 @@ const ReadingSessionPage: React.FC = () => {
       console.log(`🎤 Full transcript: "${transcript}"`);
       console.log(`📝 Expected word: "${expectedWord}" at index ${currentWordIndex}`);
 
-      // Check ALL words in transcript (not just last 3)
-      // This ensures we don't miss words that were said earlier
-      const wordsToCheck = transcriptWords;
-      console.log(`🔍 Checking all ${wordsToCheck.length} words in transcript`);
+      // Check only the last 5 words (most recent) to ensure sequential reading
+      // This prevents matching words said earlier and enforces reading order
+      const wordsToCheck = transcriptWords.slice(-5);
+      console.log(`🔍 Checking last ${wordsToCheck.length} words: [${wordsToCheck.join(', ')}]`);
 
       let matched = false;
       let wordsAdvanced = 0;
@@ -1152,7 +1183,7 @@ const ReadingSessionPage: React.FC = () => {
       for (const spokenWord of wordsToCheck) {
         const normalizedSpoken = normalize(spokenWord);
         const normalizedExpected = normalize(expectedWord);
-        
+
         // First check: exact word match
         if (isWordMatch(spokenWord, expectedWord)) {
           console.log(`✅ MATCH! "${spokenWord}" = "${expectedWord}"`);
@@ -1160,7 +1191,7 @@ const ReadingSessionPage: React.FC = () => {
           matched = true;
           break;
         }
-        
+
         // Quick check: if expected word is contained in spoken word (for fast readers)
         // Example: "loski" contains "lost"
         if (normalizedSpoken.includes(normalizedExpected) && normalizedExpected.length >= 3) {
@@ -1197,7 +1228,7 @@ const ReadingSessionPage: React.FC = () => {
           // Method 3: Similarity check - if very similar to concatenation
           const concatenated = normalizedExpected + normalizedNext;
           const similarity = 1 - (levenshtein(normalizedSpoken, concatenated) / Math.max(normalizedSpoken.length, concatenated.length));
-          const isSimilarToConcatenation = similarity >= 0.6; // 60% similar
+          const isSimilarToConcatenation = similarity >= 0.5; // 50% similar (lowered for children's fast reading)
 
           console.log(`  Contains both: ${containsBoth}`);
           console.log(`  Is blend: ${isBlend} (has "${firstPart}" and "${lastPart}")`);
@@ -1220,7 +1251,7 @@ const ReadingSessionPage: React.FC = () => {
       } else {
         console.log(`❌ No match found in recent words`);
       }
-    }, 150); // 150ms delay to ensure we capture all words
+    }, 50); // 50ms delay for ultra-fast response (optimized for fast readers)
 
     return () => {
       if (matchTimeoutRef.current) {
