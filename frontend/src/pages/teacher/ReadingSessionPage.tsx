@@ -28,7 +28,7 @@ import {
 import { studentService } from "@/services/studentService";
 import Swal from "sweetalert2";
 import { db } from "@/config/firebase";
-import { collection, getDocs, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, getDocs } from "firebase/firestore";
 import { doubleMetaphone } from "double-metaphone";
 import { isrResultService } from "@/services/ISRresultService";
 import { useAuth } from "@/contexts/AuthContext";
@@ -1793,26 +1793,46 @@ const ReadingSessionPage: React.FC = () => {
   >([]);
   const [resolvedTestId, setResolvedTestId] = useState<string>("");
 
-  // Fetch student names when currentSession changes
+  // Extract student names from currentSession (students now contains both id and name)
   useEffect(() => {
-    const fetchNames = async () => {
-      if (!currentSession?.students) return;
-      const names: { [id: string]: string } = {};
-      await Promise.all(
-        currentSession.students.map(async (id) => {
+    if (!currentSession?.students) return;
+    
+    // If students is an array of objects with id and name, use them directly
+    const names: { [id: string]: string } = {};
+    currentSession.students.forEach((student) => {
+      // Handle both old format (string[]) and new format ({id, name}[])
+      if (typeof student === 'string') {
+        // Old format: just ID, fetch name
+        names[student] = student; // Temporary, will be fetched below
+      } else if (student && typeof student === 'object' && 'id' in student && 'name' in student) {
+        // New format: object with id and name
+        names[student.id] = student.name;
+      }
+    });
+    
+    // For old format strings, try to fetch names (backward compatibility)
+    const idsToFetch = currentSession.students
+      .filter(s => typeof s === 'string')
+      .map(s => s as string);
+    
+    if (idsToFetch.length > 0) {
+      Promise.all(
+        idsToFetch.map(async (id) => {
           try {
             const student = await studentService.getStudent(id);
             if (student && student.name) {
               names[id] = student.name;
+            } else {
+              names[id] = id; // Fallback to ID if name not found
             }
           } catch (e) {
-            // ignore error, fallback to ID
+            names[id] = id; // Fallback to ID on error
           }
         })
-      );
+      ).then(() => setStudentNames(names));
+    } else {
       setStudentNames(names);
-    };
-    fetchNames();
+    }
   }, [currentSession]);
 
   // Fetch available tests (admin-authored)
@@ -1921,52 +1941,17 @@ const ReadingSessionPage: React.FC = () => {
 
   const isCompleted = (currentSession?.status as any) === "completed";
 
-  // Function to save reading session data to Firebase
-  const saveReadingSessionToFirebase = async (
-    studentId: string,
-    studentName: string
-  ) => {
-    try {
-      const readingSessionData = {
-        sessionId: sessionId,
-        sessionTitle: currentSession?.title || "",
-        book: currentSession?.book || "",
-        studentId: studentId,
-        studentName: studentName,
-        teacherId: currentSession?.teacherId || "",
-        gradeId: currentSession?.gradeId || "",
-
-        // Reading metrics
-        wordsRead: wordsRead,
-        totalWords: words.length,
-        miscues: miscues,
-        miscueTypes: miscueTypes, // Detailed breakdown
-        oralReadingScore: parseFloat(oralReadingScore),
-        readingSpeed: parseInt(readingSpeedWPM),
-        elapsedTime: elapsedTime,
-
-        // Timestamps
-        createdAt: serverTimestamp(),
-        sessionDate: new Date(),
-      };
-
-      await addDoc(collection(db, "readingSessions"), readingSessionData);
-
-      if ((import.meta as any)?.env?.MODE === "development") {
-        console.debug("Reading session saved to Firebase for student:", studentId);
-      }
-    } catch (error) {
-      console.error("Error saving reading session to Firebase:", error);
-      // Don't throw error - allow MongoDB save to succeed even if Firebase fails
-    }
-  };
-
   // Function to save ISR result to MongoDB
   const saveISRResult = async (
     studentId: string,
     studentName: string
   ) => {
     try {
+      // Validate required fields
+      if (!studentId || studentId.trim() === "") {
+        throw new Error("Student ID is required to save ISR result");
+      }
+      
       if (!currentSession || !currentStory) {
         console.warn("Cannot save ISR result: missing session or story data");
         return;
@@ -2025,18 +2010,16 @@ const ReadingSessionPage: React.FC = () => {
         return (currentStory as any)?.readingLevel || (currentStory as any)?.level || "4";
       };
 
-      // Calculate miscue breakdown (we only have total, so distribute proportionally)
-      // This is a simplified breakdown - in a real system, you'd track each type separately
-      const totalMiscues = miscues;
+      // Use the actual tracked miscue types from the reading session
       const miscueBreakdown = {
-        mispronunciation: Math.max(0, Math.floor(totalMiscues * 0.3)),
-        omission: Math.max(0, Math.floor(totalMiscues * 0.2)),
-        substitution: Math.max(0, Math.floor(totalMiscues * 0.25)),
-        insertion: Math.max(0, Math.floor(totalMiscues * 0.1)),
-        repetition: Math.max(0, Math.floor(totalMiscues * 0.1)),
-        transposition: Math.max(0, Math.floor(totalMiscues * 0.03)),
-        reversal: Math.max(0, Math.floor(totalMiscues * 0.02)),
-        totalMiscues: totalMiscues,
+        mispronunciation: miscueTypes.mispronunciation || 0,
+        omission: miscueTypes.omission || 0,
+        substitution: miscueTypes.substitution || 0,
+        insertion: miscueTypes.insertion || 0,
+        repetition: miscueTypes.repetition || 0,
+        transposition: miscueTypes.transposition || 0,
+        reversal: miscueTypes.reversal || 0,
+        totalMiscues: miscues,
       };
 
       const wordReadingScore = calculateWordReadingScore();
@@ -2057,19 +2040,27 @@ const ReadingSessionPage: React.FC = () => {
         console.warn("Could not fetch student grade:", error);
       }
 
-      // Create ISR result data
+      // Validate teacherId
+      const teacherIdValue = currentSession.teacherId || currentUser?.uid;
+      if (!teacherIdValue || teacherIdValue.trim() === "") {
+        throw new Error("Teacher ID is required to save ISR result");
+      }
+
+      // Create ISR result data matching MongoDB document structure
       const isrResultData = {
-        studentId: studentId,
-        studentName: studentName,
-        teacherId: currentSession.teacherId || currentUser?.uid || "",
-        teacherName: teacherName,
-        gradeSection: gradeSection,
-        school: schoolName,
+        studentId: studentId.trim(), // Ensure it's a valid string
+        studentName: studentName.trim(),
+        teacherId: teacherIdValue.trim(),
+        teacherName: teacherName.trim(),
+        gradeSection: gradeSection || undefined, // Use undefined instead of empty string
+        school: schoolName || undefined, // Use undefined instead of empty string
         formTitle: "Phil-IRI Form 3A",
         language: isrLanguage,
-        sessionId: sessionId || "",
-        sessionTitle: currentSession.title || "",
-        book: currentSession.book || currentStory.title || "",
+        sessionId: sessionId && sessionId.trim() !== "" ? sessionId.trim() : undefined, // Optional field
+        sessionTitle: currentSession.title || undefined,
+        book: currentSession.book || currentStory.title || undefined,
+        testId: undefined, // Optional - can be added later when quiz is completed
+        testName: undefined, // Optional - can be added later when quiz is completed
         assessmentDate: new Date(),
         partA: {
           readingTime: formatReadingTime(elapsedTime),
@@ -2092,15 +2083,28 @@ const ReadingSessionPage: React.FC = () => {
         },
       };
 
+      // Log the data structure before saving (for debugging)
+      if ((import.meta as any)?.env?.MODE === "development") {
+        console.debug("📝 Saving ISR result to MongoDB:", {
+          studentId: isrResultData.studentId,
+          studentName: isrResultData.studentName,
+          teacherId: isrResultData.teacherId,
+          formTitle: isrResultData.formTitle,
+          hasPartA: !!isrResultData.partA,
+          hasPartB: !!isrResultData.partB,
+          structure: isrResultData
+        });
+      }
+
       // Save to MongoDB
-      await isrResultService.createISRResult(isrResultData);
+      const savedResultId = await isrResultService.createISRResult(isrResultData);
 
       if ((import.meta as any)?.env?.MODE === "development") {
-        console.debug("ISR result saved to MongoDB for student:", studentId, isrResultData);
+        console.debug("✅ ISR result saved successfully with ID:", savedResultId);
       }
     } catch (error) {
       console.error("Error saving ISR result to MongoDB:", error);
-      // Don't throw error - allow Firebase save to succeed even if MongoDB fails
+      throw error; // Re-throw to show error to user
     }
   };
 
@@ -2117,14 +2121,26 @@ const ReadingSessionPage: React.FC = () => {
       // Update session status to completed
       await readingSessionService.updateSessionStatus(sessionId, "completed");
 
-      // Save to Firebase and MongoDB (ISR results) for each student
-      for (const studentId of currentSession.students) {
-        const studentName = studentNames[studentId] || studentId;
+      // Save ISR results to MongoDB for each student
+      for (const student of currentSession.students) {
+        // Handle both old format (string[]) and new format ({id, name}[])
+        let studentId: string;
+        let studentName: string;
         
-        // Save to Firebase
-        await saveReadingSessionToFirebase(studentId, studentName);
+        if (typeof student === 'string') {
+          // Old format: just ID
+          studentId = student;
+          studentName = studentNames[studentId] || studentId;
+        } else if (student && typeof student === 'object' && 'id' in student && 'name' in student) {
+          // New format: object with id and name
+          studentId = student.id;
+          studentName = student.name;
+        } else {
+          console.warn('Invalid student format:', student);
+          continue;
+        }
         
-        // Save ISR result to MongoDB
+        // Save ISR result to MongoDB (single source of truth)
         await saveISRResult(studentId, studentName);
 
         setCompletedStudents((prev) => ({ ...prev, [studentId]: true }));
@@ -2411,21 +2427,29 @@ const ReadingSessionPage: React.FC = () => {
               </span>
               <div className="flex flex-wrap gap-1 sm:gap-2 justify-center">
                 {currentSession?.students.map(
-                  (student: string, idx: number) => (
-                    <span
-                      key={idx}
-                      className="inline-flex items-center gap-1 sm:gap-2 px-1.5 sm:px-2 py-0.5 rounded-full text-xs font-medium bg-blue-200 text-blue-800"
-                    >
-                      <span className="truncate max-w-[60px] sm:max-w-none">
-                        {studentNames[student] || student}
-                      </span>
-                      {completedStudents[student] && (
-                        <span className="ml-1 inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full bg-green-200 text-green-800 text-[10px] font-semibold">
-                          ✓
+                  (student, idx: number) => {
+                    // Handle both old format (string) and new format ({id, name})
+                    const studentId = typeof student === 'string' ? student : student.id;
+                    const studentName = typeof student === 'string' 
+                      ? (studentNames[student] || student)
+                      : student.name;
+                    
+                    return (
+                      <span
+                        key={idx}
+                        className="inline-flex items-center gap-1 sm:gap-2 px-1.5 sm:px-2 py-0.5 rounded-full text-xs font-medium bg-blue-200 text-blue-800"
+                      >
+                        <span className="truncate max-w-[60px] sm:max-w-none">
+                          {studentName}
                         </span>
-                      )}
-                    </span>
-                  )
+                        {completedStudents[studentId] && (
+                          <span className="ml-1 inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full bg-green-200 text-green-800 text-[10px] font-semibold">
+                            ✓
+                          </span>
+                        )}
+                      </span>
+                    );
+                  }
                 )}
               </div>
             </div>
@@ -2825,11 +2849,22 @@ const ReadingSessionPage: React.FC = () => {
               const completedIds = Object.keys(completedStudents).filter(
                 (id) => completedStudents[id]
               );
+              
+              // Extract student IDs from students array (handle both old and new format)
+              const studentIds = currentSession.students.map(s => 
+                typeof s === 'string' ? s : s.id
+              );
+              
               const studentId =
                 currentSession.students.length === 1
-                  ? currentSession.students[0]
-                  : completedIds[0] || currentSession.students[0];
-              const studentName = studentNames[studentId] || studentId;
+                  ? studentIds[0]
+                  : completedIds[0] || studentIds[0];
+              
+              // Get student name (handle both old and new format)
+              const firstStudent = currentSession.students[0];
+              const studentName = typeof firstStudent === 'string'
+                ? (studentNames[studentId] || studentId)
+                : firstStudent.name;
               if (!resolvedTestId) {
                 alert("No test found for this story.");
                 return;

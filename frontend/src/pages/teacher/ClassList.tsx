@@ -49,6 +49,9 @@ const ClassList: React.FC = () => {
   const [selectedFormStudent, setSelectedFormStudent] = useState<Student | null>(null);
   const [formData, setFormData] = useState<any>(null);
   const [hasISRData, setHasISRData] = useState(false);
+  // Track which students have completed reading sessions (have ISR results)
+  const [studentsWithCompletedSessions, setStudentsWithCompletedSessions] = useState<Set<string>>(new Set());
+  const [loadingISRStatus, setLoadingISRStatus] = useState<boolean>(false);
 
   // Extract section name from a grade name like "Grade 4 - Narra" => "Narra"
   const getSectionName = (name: string) => {
@@ -115,6 +118,55 @@ const ClassList: React.FC = () => {
   useEffect(() => {
     filterStudents();
   }, [students, searchQuery, sortBy, showArchived, selectedGrade]);
+
+  // Fetch ISR results status for filtered students to show who has completed sessions
+  useEffect(() => {
+    const fetchISRStatus = async () => {
+      if (filteredStudents.length === 0) {
+        setStudentsWithCompletedSessions(new Set());
+        return;
+      }
+
+      setLoadingISRStatus(true);
+      try {
+        const studentIds = filteredStudents
+          .map(s => s.id)
+          .filter((id): id is string => Boolean(id));
+
+        // Fetch ISR results for all filtered students in parallel
+        const isrStatusPromises = studentIds.map(async (studentId) => {
+          try {
+            const results = await isrResultService.getISRResultsByStudent(studentId);
+            return { studentId, hasResults: results && results.length > 0 };
+          } catch (error) {
+            console.error(`Error fetching ISR results for student ${studentId}:`, error);
+            return { studentId, hasResults: false };
+          }
+        });
+
+        const statuses = await Promise.all(isrStatusPromises);
+        const completedSet = new Set<string>();
+        statuses.forEach(({ studentId, hasResults }) => {
+          if (hasResults) {
+            completedSet.add(studentId);
+          }
+        });
+
+        setStudentsWithCompletedSessions(completedSet);
+      } catch (error) {
+        console.error('Error fetching ISR status:', error);
+      } finally {
+        setLoadingISRStatus(false);
+      }
+    };
+
+    // Only fetch if we have filtered students
+    if (filteredStudents.length > 0) {
+      fetchISRStatus();
+    } else {
+      setStudentsWithCompletedSessions(new Set());
+    }
+  }, [filteredStudents]);
 
   const loadStudents = async () => {
     if (!currentUser?.uid) return;
@@ -633,6 +685,9 @@ const ClassList: React.FC = () => {
         formData: {
           studentName: latestISRResult.studentName || student.name || '',
           formTitle: latestISRResult.formTitle || 'Phil-IRI Form 3A',
+          sessionTitle: latestISRResult.sessionTitle || '',
+          assessmentDate: latestISRResult.assessmentDate || latestISRResult.createdAt || null,
+          book: latestISRResult.book || '',
           partA: {
             readingTime: formatReadingTime(latestISRResult.partA.readingTime),
             readingRate: formatReadingRate(latestISRResult.partA.readingRate),
@@ -2103,15 +2158,35 @@ const ClassList: React.FC = () => {
                               <div className="text-sm text-gray-900 select-none">{student.lrn || '-'}</div>
                             </td>
                             <td className="px-3 py-2 whitespace-nowrap text-center">
-                              <div className="flex justify-center">
+                              <div className="flex justify-center items-center gap-2">
+                                {loadingISRStatus ? (
+                                  <div className="w-3 h-3 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin" title="Checking for completed sessions..."></div>
+                                ) : (
+                                  student.id && studentsWithCompletedSessions.has(student.id) && (
+                                    <span
+                                      className="px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 bg-blue-100 rounded-full"
+                                      title="Has completed reading session(s)"
+                                    >
+                                      <i className="fas fa-check-circle mr-0.5"></i>
+                                      Completed
+                                    </span>
+                                  )
+                                )}
                                 <button
                                   onClick={() => handleGenerateForm(student)}
-                                  disabled={loadingStudentId === student.id}
-                                  className={`font-semibold px-2 py-1 rounded text-xs transition-colors flex items-center gap-1 ${loadingStudentId === student.id
+                                  disabled={loadingStudentId === student.id || loadingISRStatus}
+                                  className={`font-semibold px-2 py-1 rounded text-xs transition-colors flex items-center gap-1 ${loadingStudentId === student.id || loadingISRStatus
                                       ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                      : 'bg-green-100 hover:bg-green-200 text-green-700'
+                                      : student.id && studentsWithCompletedSessions.has(student.id)
+                                      ? 'bg-green-100 hover:bg-green-200 text-green-700'
+                                      : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
                                     }`}
-                                  title={`Generate Phil-IRI Form 3A for ${student.name}`}
+                                  title={loadingISRStatus
+                                    ? 'Checking for completed sessions...'
+                                    : student.id && studentsWithCompletedSessions.has(student.id)
+                                    ? `View Phil-IRI Form 3A for ${student.name} (has completed session data)`
+                                    : `Generate Phil-IRI Form 3A for ${student.name} (no completed sessions yet)`
+                                  }
                                 >
                                 {loadingStudentId === student.id ? (
                                   <>
@@ -2441,19 +2516,31 @@ const ClassList: React.FC = () => {
                   Phil-IRI Form 3A - {selectedFormStudent.name}
                 </h3>
                 {formData && (
-                  <p className="text-sm text-gray-600 mt-1">
+                  <div className="text-sm text-gray-600 mt-1 space-y-1">
                     {hasISRData ? (
-                      <span className="text-green-600">
-                        <i className="fas fa-check-circle mr-1"></i>
-                        Displaying saved assessment data
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-green-600">
+                          <i className="fas fa-check-circle mr-1"></i>
+                          Displaying data from completed reading session
+                        </span>
+                        {formData.sessionTitle && (
+                          <span className="text-xs text-gray-500">
+                            ({formData.sessionTitle})
+                          </span>
+                        )}
+                        {formData.assessmentDate && (
+                          <span className="text-xs text-gray-500">
+                            - {new Date(formData.assessmentDate).toLocaleDateString()}
+                          </span>
+                        )}
+                      </div>
                     ) : (
                       <span className="text-amber-600">
                         <i className="fas fa-info-circle mr-1"></i>
-                        No assessment data found - showing template form
+                        No completed reading session data found - showing template form
                       </span>
                     )}
-                  </p>
+                  </div>
                 )}
               </div>
               <button

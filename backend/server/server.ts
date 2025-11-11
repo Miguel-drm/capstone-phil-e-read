@@ -42,13 +42,35 @@ const upload = multer({
 
 const audioUpload = multer({ storage: multer.memoryStorage() });
 
-// Middleware
+// Middleware - CORS configuration
+// Allow localhost:3000 for local development and production URLs
+const allowedOrigins = [
+  'http://localhost:3000',  // Main frontend port
+  'https://phil-e-read-1.onrender.com',
+  'https://phil-e-read-7p2c.onrender.com',
+  'https://phileread-api.onrender.com'
+];
+
 app.use(cors({
-  origin: isProduction
-    ? 'https://phileread-api.onrender.com'
-    : true, // Allow all origins in development
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, Postman, or same-origin requests)
+    if (!origin) return callback(null, true);
+    
+    // In development, allow all localhost origins
+    if (!isProduction && (origin.includes('localhost') || origin.includes('127.0.0.1'))) {
+      return callback(null, true);
+    }
+    
+    // Check if origin is in allowed list
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.warn(`⚠️ CORS blocked origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
   optionsSuccessStatus: 200
 }));
