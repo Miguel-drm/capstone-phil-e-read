@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as echarts from 'echarts';
 import { type Student } from '../../../services/studentService';
 import { useAuth } from '../../../contexts/AuthContext';
-import { resultService } from '../../../services/resultsService';
 
 interface ParentProgressChartProps {
   data: {
@@ -127,13 +126,11 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
         const selectedChild = students[0];
         console.log('ParentProgressChart: Fetching data for child:', selectedChild.name);
 
-        // Fetch reading session results for the child
-        const results = await resultService.getReadingResults(selectedChild.id || '');
-        console.log('ParentProgressChart: Fetched', results.length, 'reading results for child');
-
-        // Fetch test results for comprehension data
-        const testResults = await resultService.getTestResults(selectedChild.id || '');
-        console.log('ParentProgressChart: Fetched', testResults.length, 'test results for child');
+        // Results fetching removed - MongoDB results service no longer available
+        // Return empty arrays
+        const results: any[] = [];
+        const testResults: any[] = [];
+        console.log('ParentProgressChart: Results service removed, using empty data');
 
         // Process results chronologically
         const processedResults = [...results, ...testResults].sort((a, b) => {

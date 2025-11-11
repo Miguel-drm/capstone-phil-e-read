@@ -5,7 +5,6 @@ import UpcomingSessions from './UpcomingSessions';
 import { useAuth } from '../../../contexts/AuthContext';
 import { gradeService, type ClassGrade } from '../../../services/gradeService';
 import { studentService, type Student } from '../../../services/studentService';
-import { resultService, type CombinedStudentMetrics } from '../../../services/resultsService';
 import ClassPerformanceChart from './ClassPerformanceChart';
 import ReadingLevelDistributionChart from './ReadingLevelDistributionChart';
 import RecentActivity from './RecentActivity';
@@ -303,39 +302,12 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
         let validScores = 0;
 
         for (const student of studentsInClass) {
-          try {
-            // Get combined metrics for this student
-            const metrics: CombinedStudentMetrics = await resultService.getStudentCombinedMetrics(student.id!);
-            
-            // Calculate overall performance score
-            let studentScore = 0;
-            let scoreCount = 0;
-
-            // Use oral reading score if available
-            if (metrics.oralReadingScore !== undefined) {
-              studentScore += metrics.oralReadingScore;
-              scoreCount++;
-            }
-
-            // Use comprehension score if available
-            if (metrics.comprehension !== undefined) {
-              studentScore += metrics.comprehension;
-              scoreCount++;
-            }
-
-            // If we have at least one score, use it
-            if (scoreCount > 0) {
-              totalScore += studentScore / scoreCount;
-              validScores++;
-            }
-          } catch (error) {
-            console.log(`No performance data for student ${student.name}:`, error);
-            // If no data available, use a default score based on performance level
-            const defaultScore = student.performance === 'Excellent' ? 85 : 
-                                student.performance === 'Good' ? 75 : 65;
-            totalScore += defaultScore;
-            validScores++;
-          }
+          // Results fetching removed - MongoDB results service no longer available
+          // Use default score based on performance level
+          const defaultScore = student.performance === 'Excellent' ? 85 : 
+                              student.performance === 'Good' ? 75 : 65;
+          totalScore += defaultScore;
+          validScores++;
         }
 
         // Calculate class average
