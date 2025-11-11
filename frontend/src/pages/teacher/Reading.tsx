@@ -293,13 +293,19 @@ const Reading: React.FC = () => {
           // Build single-student session
           return loadStudentsByGrade(gradeId).then(gradeStudents => {
             const found = gradeStudents.find(s => (s.id || s.name) === selectedStudentKey);
-            const selectedName = found?.name || selectedStudentKey;
+            // Store both student ID and name in the students array
+            const selectedStudentId = found?.id || selectedStudentKey;
+            const selectedStudentName = found?.name || selectedStudentKey;
+            if (!selectedStudentId || !selectedStudentName) {
+              Swal.showValidationMessage('Student ID and name are required');
+              return false;
+            }
             return {
               title,
               book,
               storyUrl,
               gradeId,
-              students: [selectedName],
+              students: [{ id: selectedStudentId, name: selectedStudentName }], // Store both ID and name
               status: 'pending' as const,
               teacherId: currentUser?.uid
             };
@@ -467,11 +473,18 @@ const Reading: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 md:gap-6">
                 {readingSessions.map((session) => {
                   // Get students for this session (with safety check)
-                  const sessionStudents = (session.students || []).map((studentName: string) => {
-                    const student = students.find(s => s.name === studentName);
+                  // Handle both old format (string[]) and new format ({id, name}[])
+                  const sessionStudents = (session.students || []).map((student) => {
+                    // If it's already the new format (object with id and name), use it directly
+                    if (typeof student === 'object' && student !== null && 'id' in student && 'name' in student) {
+                      return { id: student.id, name: student.name };
+                    }
+                    // Old format: string (student name or ID), try to find the student
+                    const studentName = typeof student === 'string' ? student : '';
+                    const foundStudent = students.find(s => s.name === studentName || s.id === studentName);
                     return {
-                      id: student?.id || studentName,
-                      name: student?.name || studentName
+                      id: foundStudent?.id || studentName,
+                      name: foundStudent?.name || studentName
                     };
                   });
 

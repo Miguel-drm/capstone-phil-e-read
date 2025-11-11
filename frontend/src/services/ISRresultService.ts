@@ -1,5 +1,32 @@
 // ISR Result Service - Save Phil-IRI Form 3A results to MongoDB
 
+// Get API base URL from environment variable
+// For local development, always use localhost:5000
+// For production, use the environment variable
+const getApiBase = (): string => {
+  // If running on localhost, always use local backend
+  if (typeof window !== 'undefined' && 
+      (window.location.hostname === 'localhost' || 
+       window.location.hostname === '127.0.0.1')) {
+    return 'http://localhost:5000';
+  }
+  
+  // Otherwise, use environment variable or default to localhost
+  const envUrl = (import.meta as any)?.env?.VITE_API_URL;
+  if (envUrl && envUrl.trim()) {
+    return String(envUrl).replace(/\/$/, '');
+  }
+  
+  return 'http://localhost:5000';
+};
+
+const API_BASE = getApiBase();
+
+// Log the API base URL in development mode for debugging
+if ((import.meta as any)?.env?.MODE === 'development') {
+  console.log('🔗 ISR Result Service API Base URL:', API_BASE);
+}
+
 export type MiscueTypes = {
   mispronunciation: number; // Maling Bigkas
   omission: number; // Pagkakaltas
@@ -73,7 +100,7 @@ export const isrResultService = {
    */
   async createISRResult(result: Omit<ISRResult, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
     try {
-      const response = await fetch('/api/isr-results', {
+      const response = await fetch(`${API_BASE}/api/isr-results`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -103,7 +130,7 @@ export const isrResultService = {
    */
   async getISRResultsByStudent(studentId: string): Promise<ISRResult[]> {
     try {
-      const response = await fetch(`/api/isr-results/student/${studentId}`);
+      const response = await fetch(`${API_BASE}/api/isr-results/student/${studentId}`);
       if (!response.ok) {
         if (response.status === 404) return [];
         throw new Error('Failed to fetch ISR results');
@@ -122,7 +149,7 @@ export const isrResultService = {
    */
   async getISRResultsByTeacher(teacherId: string): Promise<ISRResult[]> {
     try {
-      const response = await fetch(`/api/isr-results/teacher/${teacherId}`);
+      const response = await fetch(`${API_BASE}/api/isr-results/teacher/${teacherId}`);
       if (!response.ok) {
         if (response.status === 404) return [];
         throw new Error('Failed to fetch teacher ISR results');
@@ -141,7 +168,7 @@ export const isrResultService = {
    */
   async getISRResultById(resultId: string): Promise<ISRResult | null> {
     try {
-      const response = await fetch(`/api/isr-results/${resultId}`);
+      const response = await fetch(`${API_BASE}/api/isr-results/${resultId}`);
       if (response.status === 404) return null;
       if (!response.ok) throw new Error('Failed to fetch ISR result');
       return await response.json();
@@ -162,7 +189,7 @@ export const isrResultService = {
     updates: Partial<Omit<ISRResult, 'id' | 'createdAt'>>
   ): Promise<ISRResult> {
     try {
-      const response = await fetch(`/api/isr-results/${resultId}`, {
+      const response = await fetch(`${API_BASE}/api/isr-results/${resultId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -189,7 +216,7 @@ export const isrResultService = {
    */
   async deleteISRResult(resultId: string): Promise<void> {
     try {
-      const response = await fetch(`/api/isr-results/${resultId}`, {
+      const response = await fetch(`${API_BASE}/api/isr-results/${resultId}`, {
         method: 'DELETE',
       });
 

@@ -107,11 +107,11 @@ const PartBSchema = new Schema({
 }, { _id: false });
 
 const ISRResultSchema: Schema = new Schema({
-  studentId: { type: String, required: true },
+  studentId: { type: String, required: true, index: true }, // Indexed for faster queries
   studentName: { type: String, required: true },
   gradeSection: String,
   school: String,
-  teacherId: { type: String, required: true },
+  teacherId: { type: String, required: true, index: true }, // Indexed for faster queries
   teacherName: String,
   formTitle: { type: String, required: true, default: 'Phil-IRI Form 3A' },
   partA: { type: PartASchema, required: true },
@@ -129,6 +129,11 @@ const ISRResultSchema: Schema = new Schema({
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 });
+
+// Create compound indexes for common query patterns
+ISRResultSchema.index({ studentId: 1, createdAt: -1 }); // For fetching student results sorted by date
+ISRResultSchema.index({ teacherId: 1, createdAt: -1 }); // For fetching teacher results sorted by date
+ISRResultSchema.index({ sessionId: 1 }); // For fetching results by session
 
 // Update the updatedAt field before saving
 ISRResultSchema.pre('save', function(next) {
