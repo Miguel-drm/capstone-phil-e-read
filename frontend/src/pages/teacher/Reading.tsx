@@ -27,8 +27,21 @@ const Reading: React.FC = () => {
   const loadSessions = useCallback(async () => {
     if (!currentUser?.uid) return;
     try {
+      console.log('🔍 Loading sessions for teacher:', currentUser.uid);
       const sessions = await readingSessionService.getTeacherSessions(currentUser.uid);
-      setReadingSessions(sessions);
+      console.log('📚 Loaded sessions:', sessions.length);
+      console.log('Sessions details:', sessions.map(s => ({ 
+        id: s.id, 
+        title: s.title, 
+        teacherId: s.teacherId,
+        matchesCurrentTeacher: s.teacherId === currentUser.uid 
+      })));
+      
+      // ADDITIONAL FILTER: Ensure only sessions for this teacher are shown
+      const filteredSessions = sessions.filter(s => s.teacherId === currentUser.uid);
+      console.log('✅ Filtered sessions:', filteredSessions.length);
+      
+      setReadingSessions(filteredSessions);
     } catch (error) {
       console.error('Error loading sessions:', error);
     }

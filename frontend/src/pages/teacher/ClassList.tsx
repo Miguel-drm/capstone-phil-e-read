@@ -1064,16 +1064,29 @@ const ClassList: React.FC = () => {
   const loadGrades = async () => {
     if (!currentUser?.uid) return;
     try {
-      console.log('Starting to load grades...');
+      console.log('🔍 Loading classes for teacher:', currentUser.uid);
       const gradesData = await gradeService.getGradesByTeacherAll(currentUser.uid); // include active and archived
-      console.log('Grades loaded successfully:', gradesData);
+      console.log('📚 Loaded classes:', gradesData.length);
+      console.log('Classes details:', gradesData.map(g => ({ 
+        id: g.id, 
+        name: g.name, 
+        teacherId: g.teacherId,
+        matchesCurrentTeacher: g.teacherId === currentUser.uid 
+      })));
+      
+      // ADDITIONAL FILTER: Ensure only classes for this teacher are shown
+      const filteredGrades = gradesData.filter(g => g.teacherId === currentUser.uid);
+      console.log('✅ Filtered classes:', filteredGrades.length);
+      
+      // Continue with filtered grades
+      console.log('Grades loaded successfully:', filteredGrades);
       // Get all students for the teacher
       let allStudents: Student[] = students;
       if (!allStudents.length && currentUser?.uid) {
         allStudents = await studentService.getStudents(currentUser.uid);
       }
       // Get student counts for each grade
-      const gradesWithCounts = await Promise.all(gradesData.map(async (grade) => {
+      const gradesWithCounts = await Promise.all(filteredGrades.map(async (grade) => {
         try {
           if (grade.id) {
             // counts handled via realtime subscription; return grade as-is
