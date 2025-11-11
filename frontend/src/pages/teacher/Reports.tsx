@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { studentService, type Student } from '../../services/studentService';
-import { resultService } from '../../services/resultsService';
 import { getUserProfile } from '../../services/authService';
 import { UnifiedStoryService } from '../../services/UnifiedStoryService';
 import { notificationService } from '../../services/notificationService';
@@ -57,27 +56,18 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
   }, [currentUser?.uid]);
 
   useEffect(() => {
-    const fetchResults = async () => {
-      const reading: Record<string, any[]> = {};
-      const test: Record<string, any[]> = {};
-      for (const student of students) {
-        if (student.id) {
-          try {
-            reading[student.id] = await resultService.getReadingResults(student.id);
-          } catch (e) {
-            reading[student.id] = [];
-          }
-          try {
-            test[student.id] = await resultService.getTestResults(student.id);
-          } catch (e) {
-            test[student.id] = [];
-          }
-        }
+    // Results fetching removed - MongoDB results service no longer available
+    // Data will be empty arrays
+    const reading: Record<string, any[]> = {};
+    const test: Record<string, any[]> = {};
+    for (const student of students) {
+      if (student.id) {
+        reading[student.id] = [];
+        test[student.id] = [];
       }
-      setStudentReadingResults(reading);
-      setStudentTestResults(test);
-    };
-    if (students.length > 0) fetchResults();
+    }
+    setStudentReadingResults(reading);
+    setStudentTestResults(test);
   }, [students]);
 
   // Group students by class

@@ -10,7 +10,7 @@ import { getAllParents, getUserProfile } from '../../services/authService';
 import { notificationService } from '../../services/notificationService';
 import { db } from '../../config/firebase';
 import Loader from '../../components/Loader';
-import { resultService } from '../../services/resultsService';
+import { isrResultService, type ISRResult } from '../../services/ISRresultService';
 
 import PillSelect from '../../components/ui/PillSelect';
 
@@ -48,6 +48,7 @@ const ClassList: React.FC = () => {
   const [formModalOpen, setFormModalOpen] = useState(false);
   const [selectedFormStudent, setSelectedFormStudent] = useState<Student | null>(null);
   const [formData, setFormData] = useState<any>(null);
+  const [hasISRData, setHasISRData] = useState(false);
 
   // Extract section name from a grade name like "Grade 4 - Narra" => "Narra"
   const getSectionName = (name: string) => {
@@ -571,8 +572,9 @@ const ClassList: React.FC = () => {
       setFormData(null);
 
       // Generate form data asynchronously
-      const formData = await generatePhilIRIForm(student);
-      setFormData(formData);
+      const { formData: generatedFormData, hasISRData: hasData } = await generatePhilIRIForm(student);
+      setFormData(generatedFormData);
+      setHasISRData(hasData);
     } catch (error) {
       console.error('Error generating form:', error);
       showError('Form Generation Failed', 'Failed to generate Phil-IRI Form 3A. Please try again.');
@@ -583,92 +585,123 @@ const ClassList: React.FC = () => {
     }
   }, []);
 
-  const generatePhilIRIForm = useCallback(async (student: Student) => {
-    // Get the latest reading results for this student
-    let latestResult = null;
+  const generatePhilIRIForm = useCallback(async (student: Student): Promise<{ formData: any; hasISRData: boolean }> => {
+    // Fetch ISR results for this student
+    let latestISRResult: ISRResult | null = null;
+    
     try {
-      const results = await resultService.getCombinedResults(student.id || '');
-      // Sort by date to get the most recent result
-      latestResult = results.length > 0
-        ? results.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
-        : null;
-    } catch (error) {
-      console.log('No reading results found, using default data');
-    }
-
-    // Generate form data matching the Phil-IRI Form 3A structure
-    // Calculate reading time from elapsed time (convert seconds to minutes:seconds)
-    const formatReadingTime = (elapsedTime?: number) => {
-      if (!elapsedTime) return '1:50 minuto';
-      const minutes = Math.floor(elapsedTime / 60);
-      const seconds = elapsedTime % 60;
-      return `${minutes}:${seconds.toString().padStart(2, '0')} minuto`;
-    };
-
-    // Calculate reading rate (words per minute)
-    const calculateReadingRate = (wordsRead?: number, elapsedTime?: number) => {
-      if (!wordsRead || !elapsedTime) return '78 salita /minuto';
-      const rate = Math.round((wordsRead / elapsedTime) * 60);
-      return `${rate} salita /minuto`;
-    };
-
-    // Determine comprehension level based on score
-    const getComprehensionLevel = (score?: number) => {
-      if (!score) return 'Frustration';
-      if (score >= 75) return 'Independent';
-      if (score >= 50) return 'Instructional';
-      return 'Frustration';
-    };
-
-    // Calculate word reading score percentage
-    const calculateWordReadingScore = (wordsRead?: number, totalWords?: number, miscues?: number) => {
-      if (!wordsRead || !totalWords) return '93.75%';
-      const correctWords = wordsRead - (miscues || 0);
-      const percentage = (correctWords / totalWords) * 100;
-      return `${percentage.toFixed(2)}%`;
-    };
-
-    // Determine word reading level
-    const getWordReadingLevel = (score: string) => {
-      const percentage = parseFloat(score.replace('%', ''));
-      if (percentage >= 95) return 'Independent';
-      if (percentage >= 90) return 'Instructional';
-      return 'Frustration';
-    };
-
-    const wordReadingScore = calculateWordReadingScore(latestResult?.wordsRead, latestResult?.totalWords, latestResult?.miscues);
-
-    return {
-      studentName: student.name || '',
-      formTitle: 'Phil-IRI Form 3A',
-      partA: {
-        readingTime: formatReadingTime(latestResult?.elapsedTime),
-        readingRate: calculateReadingRate(latestResult?.wordsRead, latestResult?.elapsedTime),
-        correctAnswers: latestResult?.correctAnswers || 4,
-        percentage: latestResult?.comprehension || 57,
-        comprehensionLevel: getComprehensionLevel(latestResult?.comprehension),
-        answers: latestResult?.answers?.map(a => a.selectedAnswer) || ['a', 'b', 'b', 'd', 'c', 'a', 'b']
-      },
-      partB: {
-        wordReading: {
-          selection: latestResult?.book || latestResult?.sessionTitle || 'Isang Pangako',
-          level: latestResult?.readingLevel || latestResult?.level || '4',
-          set: 'A' // Default set, could be enhanced to extract from story data
-        },
-        miscues: {
-          mispronunciation: 1, // These would need to be tracked separately in reading sessions
-          omission: 1,
-          substitution: 2,
-          insertion: 1,
-          repetition: 3,
-          transposition: 1,
-          reversal: 0,
-          totalMiscues: latestResult?.miscues || 9,
-          wordsInPassage: latestResult?.totalWords || 144,
-          wordReadingScore: wordReadingScore,
-          wordReadingLevel: getWordReadingLevel(wordReadingScore)
+      if (student.id) {
+        const isrResults = await isrResultService.getISRResultsByStudent(student.id);
+        // Get the most recent result (sorted by createdAt descending)
+        if (isrResults && isrResults.length > 0) {
+          // Sort by createdAt to get the latest
+          const sorted = isrResults.sort((a, b) => {
+            const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return dateB - dateA;
+          });
+          latestISRResult = sorted[0];
         }
       }
+    } catch (error) {
+      console.error('Error fetching ISR results:', error);
+      // Continue with default values if fetch fails
+    }
+
+    // Helper functions for fallback/default values
+    const formatReadingTime = (readingTime?: string) => {
+      return readingTime || '1:50 minuto';
+    };
+
+    const formatReadingRate = (readingRate?: number) => {
+      if (readingRate !== undefined && readingRate !== null) {
+        return `${readingRate} salita /minuto`;
+      }
+      return '78 salita /minuto';
+    };
+
+    const formatWordReadingScore = (score?: number) => {
+      if (score !== undefined && score !== null) {
+        return `${score.toFixed(2)}%`;
+      }
+      return '93.75%';
+    };
+
+    // If we have an ISR result, use it; otherwise use defaults
+    if (latestISRResult) {
+      return {
+        formData: {
+          studentName: latestISRResult.studentName || student.name || '',
+          formTitle: latestISRResult.formTitle || 'Phil-IRI Form 3A',
+          partA: {
+            readingTime: formatReadingTime(latestISRResult.partA.readingTime),
+            readingRate: formatReadingRate(latestISRResult.partA.readingRate),
+            correctAnswers: latestISRResult.partA.correctAnswers || 0,
+            percentage: latestISRResult.partA.percentage || 0,
+            comprehensionLevel: latestISRResult.partA.comprehensionLevel || 'Frustration',
+            answers: latestISRResult.partA.answers || []
+          },
+          partB: {
+            wordReading: {
+              selection: latestISRResult.partB.wordReading.selection || 'Isang Pangako',
+              level: latestISRResult.partB.wordReading.level || '4',
+              set: latestISRResult.partB.wordReading.set || 'A'
+            },
+            miscues: {
+              mispronunciation: latestISRResult.partB.miscues.mispronunciation || 0,
+              omission: latestISRResult.partB.miscues.omission || 0,
+              substitution: latestISRResult.partB.miscues.substitution || 0,
+              insertion: latestISRResult.partB.miscues.insertion || 0,
+              repetition: latestISRResult.partB.miscues.repetition || 0,
+              transposition: latestISRResult.partB.miscues.transposition || 0,
+              reversal: latestISRResult.partB.miscues.reversal || 0,
+              totalMiscues: latestISRResult.partB.miscues.totalMiscues || 0,
+              // Note: These fields are in partB in ISR result, but form expects them in miscues
+              wordsInPassage: latestISRResult.partB.wordsInPassage || 0,
+              wordReadingScore: formatWordReadingScore(latestISRResult.partB.wordReadingScore),
+              wordReadingLevel: latestISRResult.partB.wordReadingLevel || 'Frustration'
+            }
+          }
+        },
+        hasISRData: true
+      };
+    }
+
+    // Fallback to blank template if no ISR result found
+    return {
+      formData: {
+        studentName: student.name || '',
+        formTitle: 'Phil-IRI Form 3A',
+        partA: {
+          readingTime: '',
+          readingRate: '',
+          correctAnswers: 0,
+          percentage: 0,
+          comprehensionLevel: 'Frustration' as const,
+          answers: []
+        },
+        partB: {
+          wordReading: {
+            selection: '',
+            level: '',
+            set: 'A' as const
+          },
+          miscues: {
+            mispronunciation: 0,
+            omission: 0,
+            substitution: 0,
+            insertion: 0,
+            repetition: 0,
+            transposition: 0,
+            reversal: 0,
+            totalMiscues: 0,
+            wordsInPassage: 0,
+            wordReadingScore: '',
+            wordReadingLevel: 'Frustration' as const
+          }
+        }
+      },
+      hasISRData: false
     };
   }, []);
 
@@ -676,6 +709,7 @@ const ClassList: React.FC = () => {
     setFormModalOpen(false);
     setSelectedFormStudent(null);
     setFormData(null);
+    setHasISRData(false);
   };
 
   const handlePrintForm = () => {
@@ -2402,9 +2436,26 @@ const ClassList: React.FC = () => {
         >
           <div className="bg-white rounded-2xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-xl font-semibold text-gray-900">
-                Phil-IRI Form 3A - {selectedFormStudent.name}
-              </h3>
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900">
+                  Phil-IRI Form 3A - {selectedFormStudent.name}
+                </h3>
+                {formData && (
+                  <p className="text-sm text-gray-600 mt-1">
+                    {hasISRData ? (
+                      <span className="text-green-600">
+                        <i className="fas fa-check-circle mr-1"></i>
+                        Displaying saved assessment data
+                      </span>
+                    ) : (
+                      <span className="text-amber-600">
+                        <i className="fas fa-info-circle mr-1"></i>
+                        No assessment data found - showing template form
+                      </span>
+                    )}
+                  </p>
+                )}
+              </div>
               <button
                 onClick={handleCloseForm}
                 className="text-gray-400 hover:text-gray-600 text-2xl font-bold"
@@ -2436,39 +2487,57 @@ const ClassList: React.FC = () => {
 
                     <div className="mb-4 space-y-2">
                       <div className="flex justify-between">
-                        <span>Kabuuang Oras ng Pagbasa: <span className="underline inline-block min-w-[120px] text-center">{formData.partA.readingTime}</span></span>
-                        <span>Rate ng Pagbasa: <span className="underline inline-block min-w-[120px] text-center">{formData.partA.readingRate}</span></span>
+                        <span>Kabuuang Oras ng Pagbasa: <span className="underline inline-block min-w-[120px] text-center">{formData.partA.readingTime || '\u00A0'}</span></span>
+                        <span>Rate ng Pagbasa: <span className="underline inline-block min-w-[120px] text-center">{formData.partA.readingRate || '\u00A0'}</span></span>
                       </div>
                     </div>
 
                     <div className="mb-4 print:mb-3">
                       <div className="flex justify-between items-center">
                         <div>
-                          <span>Sagot sa mga Tanong: Marka: <span className="underline inline-block min-w-[30px] text-center">{formData.partA.correctAnswers}</span></span>
-                          <span className="ml-4">%= <span className="underline inline-block min-w-[40px] text-center">{formData.partA.percentage}%</span></span>
+                          <span>Sagot sa mga Tanong: Marka: <span className="underline inline-block min-w-[30px] text-center">{formData.partA.correctAnswers || '\u00A0'}</span></span>
+                          <span className="ml-4">%= <span className="underline inline-block min-w-[40px] text-center">{formData.partA.percentage ? `${formData.partA.percentage}%` : '\u00A0'}</span></span>
                         </div>
                         <div>
-                          <span>Comprehension Level: <span className="underline inline-block min-w-[100px] text-center">{formData.partA.comprehensionLevel}</span></span>
+                          <span>Comprehension Level: <span className="underline inline-block min-w-[100px] text-center">{formData.partA.comprehensionLevel || '\u00A0'}</span></span>
                         </div>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-12">
                       <div className="space-y-2">
-                        {formData.partA.answers.slice(0, 4).map((answer: string, index: number) => (
-                          <div key={index} className="flex items-center">
-                            <span className="mr-2">{index + 1}.</span>
-                            <span className="underline inline-block min-w-[80px] text-center">{answer}</span>
-                          </div>
-                        ))}
+                        {formData.partA.answers && formData.partA.answers.length > 0 ? (
+                          formData.partA.answers.slice(0, 4).map((answer: string, index: number) => (
+                            <div key={index} className="flex items-center">
+                              <span className="mr-2">{index + 1}.</span>
+                              <span className="underline inline-block min-w-[80px] text-center">{answer || '\u00A0'}</span>
+                            </div>
+                          ))
+                        ) : (
+                          [1, 2, 3, 4].map((num) => (
+                            <div key={num} className="flex items-center">
+                              <span className="mr-2">{num}.</span>
+                              <span className="underline inline-block min-w-[80px] text-center">{'\u00A0'}</span>
+                            </div>
+                          ))
+                        )}
                       </div>
                       <div className="space-y-2">
-                        {formData.partA.answers.slice(4).map((answer: string, index: number) => (
-                          <div key={index + 4} className="flex items-center">
-                            <span className="mr-2">{index + 5}.</span>
-                            <span className="underline inline-block min-w-[80px] text-center">{answer}</span>
-                          </div>
-                        ))}
+                        {formData.partA.answers && formData.partA.answers.length > 4 ? (
+                          formData.partA.answers.slice(4).map((answer: string, index: number) => (
+                            <div key={index + 4} className="flex items-center">
+                              <span className="mr-2">{index + 5}.</span>
+                              <span className="underline inline-block min-w-[80px] text-center">{answer || '\u00A0'}</span>
+                            </div>
+                          ))
+                        ) : (
+                          [5, 6, 7].map((num) => (
+                            <div key={num} className="flex items-center">
+                              <span className="mr-2">{num}.</span>
+                              <span className="underline inline-block min-w-[80px] text-center">{'\u00A0'}</span>
+                            </div>
+                          ))
+                        )}
                       </div>
                     </div>
                   </div>
@@ -2483,9 +2552,9 @@ const ClassList: React.FC = () => {
 
                     <div className="mb-4 space-y-2 print:mb-3">
                       <div className="flex items-center space-x-8">
-                        <span>Seleksyon: <span className="underline inline-block min-w-[150px] text-center">{formData.partB.wordReading.selection}</span></span>
-                        <span>Level: <span className="underline inline-block min-w-[40px] text-center">{formData.partB.wordReading.level}</span></span>
-                        <span>Set: <span className="underline inline-block min-w-[40px] text-center">{formData.partB.wordReading.set}</span></span>
+                        <span>Seleksyon: <span className="underline inline-block min-w-[150px] text-center">{formData.partB.wordReading.selection || '\u00A0'}</span></span>
+                        <span>Level: <span className="underline inline-block min-w-[40px] text-center">{formData.partB.wordReading.level || '\u00A0'}</span></span>
+                        <span>Set: <span className="underline inline-block min-w-[40px] text-center">{formData.partB.wordReading.set || '\u00A0'}</span></span>
                       </div>
                     </div>
 
@@ -2549,17 +2618,17 @@ const ClassList: React.FC = () => {
                           <tr>
                             <td className="border border-black p-2"></td>
                             <td className="border border-black p-2 font-bold">Number of Words in the Passage</td>
-                            <td className="border border-black p-2 text-center bg-gray-50">{formData.partB.miscues.wordsInPassage}</td>
+                            <td className="border border-black p-2 text-center bg-gray-50">{formData.partB.miscues.wordsInPassage || '\u00A0'}</td>
                           </tr>
                           <tr>
                             <td className="border border-black p-2"></td>
                             <td className="border border-black p-2 font-bold">Word Reading Score</td>
-                            <td className="border border-black p-2 text-center bg-gray-50">{formData.partB.miscues.wordReadingScore}</td>
+                            <td className="border border-black p-2 text-center bg-gray-50">{formData.partB.miscues.wordReadingScore || '\u00A0'}</td>
                           </tr>
                           <tr>
                             <td className="border border-black p-2"></td>
                             <td className="border border-black p-2 font-bold">Word Reading Level <span className="italic font-normal">(Antas ng Pagbasa)</span></td>
-                            <td className="border border-black p-2 text-center bg-gray-50">{formData.partB.miscues.wordReadingLevel}</td>
+                            <td className="border border-black p-2 text-center bg-gray-50">{formData.partB.miscues.wordReadingLevel || '\u00A0'}</td>
                           </tr>
                         </tbody>
                       </table>

@@ -2,7 +2,6 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { doc, getDoc, collection, addDoc, Timestamp, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../config/firebase';
-import { resultService } from '../../services/resultsService';
 import { getAuth } from 'firebase/auth';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -327,10 +326,7 @@ const StudentTestPage: React.FC = () => {
       }
       console.log('Authenticated user:', auth.currentUser.uid, 'Role:', userRole);
       
-      // Save to MongoDB
-      await resultService.createTestResult(testResultData);
-      
-      // Save to Firebase as well
+      // Save to Firebase
       await saveQuizAnswersToFirebase(testResultData);
       
       setSavingResult(false);
