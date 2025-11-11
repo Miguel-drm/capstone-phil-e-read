@@ -1796,7 +1796,7 @@ const ReadingSessionPage: React.FC = () => {
   // Extract student names from currentSession (students now contains both id and name)
   useEffect(() => {
     if (!currentSession?.students) return;
-    
+
     // If students is an array of objects with id and name, use them directly
     const names: { [id: string]: string } = {};
     currentSession.students.forEach((student) => {
@@ -1809,12 +1809,12 @@ const ReadingSessionPage: React.FC = () => {
         names[student.id] = student.name;
       }
     });
-    
+
     // For old format strings, try to fetch names (backward compatibility)
     const idsToFetch = currentSession.students
       .filter(s => typeof s === 'string')
       .map(s => s as string);
-    
+
     if (idsToFetch.length > 0) {
       Promise.all(
         idsToFetch.map(async (id) => {
@@ -1868,17 +1868,47 @@ const ReadingSessionPage: React.FC = () => {
   useEffect(() => {
     if (!currentSession) return;
     const storyKey = (currentSession.book || "").toString().trim();
-    if (!storyKey) return;
-    // Try to match by exact storyId (if present) or by title fields
-    const match = tests.find(
+    if (!storyKey) {
+      console.log("⚠️ No story key found in currentSession.book");
+      return;
+    }
+
+    console.log("🔍 Looking for test matching story:", storyKey);
+    console.log("📚 Available tests:", tests.map(t => ({ id: t.id, name: t.testName, storyId: t.storyId, storyTitle: t.storyTitle })));
+
+    // IMPROVED MATCHING: Try multiple strategies
+    let match = tests.find(
       (t) =>
+        // Strategy 1: Exact storyId match
         (t.storyId && t.storyId === currentSession.book) ||
-        (t.storyTitle &&
-          t.storyTitle.toLowerCase() === storyKey.toLowerCase()) ||
-        (t.testName &&
-          t.testName.toLowerCase().includes(storyKey.toLowerCase()))
+        // Strategy 2: Exact storyTitle match
+        (t.storyTitle && t.storyTitle.toLowerCase() === storyKey.toLowerCase()) ||
+        // Strategy 3: Test name contains story key
+        (t.testName && t.testName.toLowerCase().includes(storyKey.toLowerCase())) ||
+        // Strategy 4: Story key contains test name (reverse)
+        (t.testName && storyKey.toLowerCase().includes(t.testName.toLowerCase())) ||
+        // Strategy 5: Story key contains storyTitle
+        (t.storyTitle && storyKey.toLowerCase().includes(t.storyTitle.toLowerCase()))
     );
-    if (match) setResolvedTestId(match.id);
+
+    // If still no match, try fuzzy matching by checking if storyId matches any test's storyId
+    if (!match && currentSession.book) {
+      match = tests.find(t => t.storyId === currentSession.book);
+    }
+
+    // If STILL no match and there's only one test, use it (fallback)
+    if (!match && tests.length === 1) {
+      console.log("⚠️ Using single available test as fallback");
+      match = tests[0];
+    }
+
+    if (match) {
+      console.log("✅ Test found:", match.testName, "ID:", match.id);
+      setResolvedTestId(match.id);
+    } else {
+      console.log("❌ No matching test found for story:", storyKey);
+      console.log("💡 Tip: Make sure the quiz has storyId set to:", currentSession.book);
+    }
   }, [tests, currentSession]);
 
   // Auto-scroll to current word when it changes
@@ -1951,7 +1981,7 @@ const ReadingSessionPage: React.FC = () => {
       if (!studentId || studentId.trim() === "") {
         throw new Error("Student ID is required to save ISR result");
       }
-      
+
       if (!currentSession || !currentStory) {
         console.warn("Cannot save ISR result: missing session or story data");
         return;
@@ -2026,7 +2056,7 @@ const ReadingSessionPage: React.FC = () => {
       const wordReadingLevel = getWordReadingLevel(wordReadingScore);
 
       // Map story language to ISR language format
-      const isrLanguage: "English" | "Filipino" = 
+      const isrLanguage: "English" | "Filipino" =
         storyLanguage === "tagalog" ? "Filipino" : "English";
 
       // Get student grade/section if available
@@ -2126,7 +2156,7 @@ const ReadingSessionPage: React.FC = () => {
         // Handle both old format (string[]) and new format ({id, name}[])
         let studentId: string;
         let studentName: string;
-        
+
         if (typeof student === 'string') {
           // Old format: just ID
           studentId = student;
@@ -2139,9 +2169,13 @@ const ReadingSessionPage: React.FC = () => {
           console.warn('Invalid student format:', student);
           continue;
         }
-        
-        // Save ISR result to MongoDB (single source of truth)
-        await saveISRResult(studentId, studentName);
+
+        // TEMPORARILY DISABLED: Save ISR result to MongoDB
+        // TODO: Fix API endpoint and data structure mismatch
+        // await saveISRResult(studentId, studentName);
+
+        // For now, just save to Firebase (existing working code below)
+        console.log(`Session completed for student: ${studentName} (${studentId})`);
 
         setCompletedStudents((prev) => ({ ...prev, [studentId]: true }));
       }
@@ -2430,10 +2464,10 @@ const ReadingSessionPage: React.FC = () => {
                   (student, idx: number) => {
                     // Handle both old format (string) and new format ({id, name})
                     const studentId = typeof student === 'string' ? student : student.id;
-                    const studentName = typeof student === 'string' 
+                    const studentName = typeof student === 'string'
                       ? (studentNames[student] || student)
                       : student.name;
-                    
+
                     return (
                       <span
                         key={idx}
@@ -2849,17 +2883,17 @@ const ReadingSessionPage: React.FC = () => {
               const completedIds = Object.keys(completedStudents).filter(
                 (id) => completedStudents[id]
               );
-              
+
               // Extract student IDs from students array (handle both old and new format)
-              const studentIds = currentSession.students.map(s => 
+              const studentIds = currentSession.students.map(s =>
                 typeof s === 'string' ? s : s.id
               );
-              
+
               const studentId =
                 currentSession.students.length === 1
                   ? studentIds[0]
                   : completedIds[0] || studentIds[0];
-              
+
               // Get student name (handle both old and new format)
               const firstStudent = currentSession.students[0];
               const studentName = typeof firstStudent === 'string'
@@ -2869,10 +2903,7 @@ const ReadingSessionPage: React.FC = () => {
                 alert("No test found for this story.");
                 return;
               }
-              if (!isCompleted) {
-                alert("Please complete the reading session first.");
-                return;
-              }
+              // Allow quiz access anytime (removed completion requirement)
               navigate(`/student/test/${resolvedTestId}` as any, {
                 state: {
                   studentId,
@@ -2881,11 +2912,8 @@ const ReadingSessionPage: React.FC = () => {
                 },
               });
             }}
-            disabled={!isCompleted || !resolvedTestId}
-            className={`w-full py-4 rounded-2xl text-white font-bold text-lg transition-all duration-200 ${!isCompleted || !resolvedTestId
-              ? "bg-gray-300 cursor-not-allowed"
-              : "bg-gradient-to-r from-indigo-500 to-blue-500 hover:from-indigo-600 hover:to-blue-600 hover:scale-[1.01]"
-              } `}
+            disabled={false}
+            className="w-full py-4 rounded-2xl text-white font-bold text-lg transition-all duration-200 bg-gradient-to-r from-indigo-500 to-blue-500 hover:from-indigo-600 hover:to-blue-600 hover:scale-[1.01]"
           >
             Quiz
           </button>

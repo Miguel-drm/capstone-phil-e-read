@@ -127,9 +127,23 @@ const Resources: React.FC = () => {
     for (let q of questions) {
       if (!q.question.trim()) return 'All questions must have text.';
       const trimmedChoices = q.choices.map(c => c.trim());
-      if (trimmedChoices.some(c => !c)) return 'All choices must have text.';
-      const unique = new Set(trimmedChoices);
-      if (unique.size < trimmedChoices.length) return 'Choices must be unique.';
+      
+      // IMPROVED LOGIC: Allow empty choice D, but require at least 3 choices (A, B, C)
+      const filledChoices = trimmedChoices.filter(c => c !== '');
+      
+      // Must have at least 3 choices filled
+      if (filledChoices.length < 3) {
+        return 'Each question must have at least 3 choices (A, B, C). Choice D is optional.';
+      }
+      
+      // First 3 choices (A, B, C) must always be filled
+      if (!trimmedChoices[0] || !trimmedChoices[1] || !trimmedChoices[2]) {
+        return 'Choices A, B, and C are required. Only choice D is optional.';
+      }
+      
+      // Check uniqueness only for filled choices
+      const unique = new Set(filledChoices);
+      if (unique.size < filledChoices.length) return 'Choices must be unique.';
     }
     return null;
   };
