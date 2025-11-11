@@ -1,7 +1,6 @@
 import React, {useEffect, useState, useRef, useMemo} from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { readingSessionService, type ReadingSession } from '@/services/readingSessionService';
-import { resultService } from '@/services/resultsService';
 import { UnifiedStoryService } from '@/services/UnifiedStoryService';
 import type { Story } from '@/types/Story';
 import { ArrowLeftIcon, XCircleIcon, BookOpenIcon, UserGroupIcon, ChartBarIcon, MicrophoneIcon, PlayIcon, PauseIcon, StopIcon } from '@heroicons/react/24/outline';
@@ -976,36 +975,6 @@ const ReadingSessionPage: React.FC = () => {
     try {
       // Update session status to completed
       await readingSessionService.updateSessionStatus(sessionId, 'completed');
-      
-      // Save detailed results to the new results collection
-      for (const studentId of currentSession.students) {
-        const readingSessionResult = {
-          sessionId: sessionId,
-          sessionTitle: currentSession.title,
-          book: currentSession.book,
-          gradeId: currentSession.gradeId,
-          studentId, // <-- Add this field
-          teacherId: currentSession.teacherId,
-          type: 'reading-session' as const,
-          
-          // Reading metrics
-          wordsRead: wordsRead,
-          totalWords: words.length,
-          miscues: miscues,
-          oralReadingScore: parseFloat(oralReadingScore),
-          readingSpeed: parseInt(readingSpeedWPM),
-          elapsedTime: elapsedTime,
-          
-          // Additional data
-          transcript: transcript,
-          audioUrl: audioUrl || undefined,
-          storyUrl: currentSession.storyUrl,
-          
-          // Timestamps
-          sessionDate: new Date()
-        };
-        await resultService.createReadingSessionResult(readingSessionResult);
-      }
       
       // Update local state
       setCurrentSession({

@@ -4,7 +4,6 @@ import { useAuth } from '../../contexts/AuthContext';
 import { gradeService, type ClassGrade } from '../../services/gradeService';
 import { studentService, type Student } from '../../services/studentService';
 import { readingSessionService, type ReadingSession } from '../../services/readingSessionService';
-import { resultService, type Result } from '../../services/resultsService';
 import { UnifiedStoryService } from '../../services/UnifiedStoryService';
 import { getUserProfile } from '../../services/authService';
 import type { Story } from '../../types/Story';
@@ -23,7 +22,7 @@ const Reading: React.FC = () => {
   const [storiesLoading, setStoriesLoading] = useState(true);
   const [storiesError, setStoriesError] = useState<string | null>(null);
   const [teacherGradeLevel, setTeacherGradeLevel] = useState<string | null>(null);
-  const [sessionResults, setSessionResults] = useState<Map<string, Result[]>>(new Map());
+  const [sessionResults, setSessionResults] = useState<Map<string, any[]>>(new Map());
 
   const loadSessions = useCallback(async () => {
     if (!currentUser?.uid) return;
@@ -102,18 +101,13 @@ const Reading: React.FC = () => {
   const loadSessionResults = useCallback(async () => {
     if (!currentUser?.uid || readingSessions.length === 0) return;
     try {
-      const resultsMap = new Map<string, Result[]>();
+      // Results fetching removed - MongoDB results service no longer available
+      const resultsMap = new Map<string, any[]>();
       
-      // Load results for each session
+      // Set empty arrays for all sessions
       for (const session of readingSessions) {
         if (session.id) {
-          try {
-            const results = await resultService.getReadingSessionResults(session.id);
-            resultsMap.set(session.id, results);
-          } catch (error) {
-            console.error(`Error loading results for session ${session.id}:`, error);
-            resultsMap.set(session.id, []);
-          }
+          resultsMap.set(session.id, []);
         }
       }
       

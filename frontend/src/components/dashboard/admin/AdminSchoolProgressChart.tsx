@@ -12,7 +12,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as echarts from 'echarts';
 import { useAuth } from '../../../contexts/AuthContext';
-import { resultService } from '../../../services/resultsService';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 
@@ -289,41 +288,11 @@ const AdminSchoolProgressChart: React.FC<AdminSchoolProgressChartProps> = ({
         let allReadingResults: any[] = [];
         let allTestResults: any[] = [];
 
-        // Try to get ALL data using admin service methods
-        try {
-          console.log('AdminSchoolProgressChart: Trying to get ALL reading session results using admin methods...');
-          allReadingResults = await resultService.getAllReadingSessionResults();
-          console.log(`AdminSchoolProgressChart: Got ${allReadingResults.length} reading results from admin method`);
-          
-          allTestResults = await resultService.getAllTestResults();
-          console.log(`AdminSchoolProgressChart: Got ${allTestResults.length} test results from admin method`);
-        } catch (adminError) {
-          console.log('AdminSchoolProgressChart: Admin methods failed, falling back to individual teacher fetching...');
-        }
-
-        // If admin methods didn't work, fall back to individual teacher fetching
-        if (allReadingResults.length === 0 && allTestResults.length === 0) {
-          console.log('AdminSchoolProgressChart: Using individual teacher fetching as fallback...');
-          
-          for (const teacherId of teacherIds) {
-            try {
-              // Fetch reading session results from database
-              console.log(`AdminSchoolProgressChart: Calling getReadingSessionResults for teacher: ${teacherId}`);
-              const results = await resultService.getReadingSessionResults(teacherId);
-              console.log(`AdminSchoolProgressChart: Fetched ${results.length} reading results from teacher ${teacherId}`);
-              allReadingResults.push(...results);
-
-              // Fetch test results for comprehension data
-              console.log(`AdminSchoolProgressChart: Calling getTeacherTestResults for teacher: ${teacherId}`);
-              const testResults = await resultService.getTeacherTestResults(teacherId);
-              console.log(`AdminSchoolProgressChart: Fetched ${testResults.length} test results from teacher ${teacherId}`);
-              allTestResults.push(...testResults);
-
-            } catch (error) {
-              console.error(`AdminSchoolProgressChart: Error fetching results for teacher ${teacherId}:`, error);
-            }
-          }
-        }
+        // Results fetching removed - MongoDB results service no longer available
+        // Return empty arrays
+        allReadingResults = [];
+        allTestResults = [];
+        console.log('AdminSchoolProgressChart: Results service removed, using empty data');
 
         console.log(`AdminSchoolProgressChart: Total reading results: ${allReadingResults.length}`);
         console.log(`AdminSchoolProgressChart: Total test results: ${allTestResults.length}`);
@@ -481,16 +450,8 @@ const AdminSchoolProgressChart: React.FC<AdminSchoolProgressChartProps> = ({
           }
         });
 
-        // Log sample reading level data for debugging (EXACT COPY FROM TEACHER)
-        const allResults = [];
-        for (const teacherId of teacherIds) {
-          try {
-            const results = await resultService.getReadingSessionResults(teacherId);
-            allResults.push(...results);
-          } catch (error) {
-            // Skip failed teachers
-          }
-        }
+        // Results fetching removed - MongoDB results service no longer available
+        const allResults: any[] = [];
 
         const sampleReadingLevels = allResults.slice(0, 10).map(r => {
           const rAny = r as any;

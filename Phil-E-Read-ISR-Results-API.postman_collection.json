@@ -1,0 +1,262 @@
+{
+	"info": {
+		"name": "Phil-E-Read ISR Results API",
+		"description": "API collection for ISR Result Service endpoints (Phil-IRI Form 3A)",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "isr-results-service"
+	},
+	"item": [
+		{
+			"name": "Create ISR Result",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"studentId\": \"{{studentId}}\",\n  \"studentName\": \"Juan Dela Cruz\",\n  \"gradeSection\": \"Grade 4 - Narra\",\n  \"school\": \"Bagong Silang Elementary School\",\n  \"teacherId\": \"{{teacherId}}\",\n  \"teacherName\": \"Maria Santos\",\n  \"formTitle\": \"Phil-IRI Form 3A\",\n  \"partA\": {\n    \"readingTime\": \"1:50 minuto\",\n    \"readingRate\": 78,\n    \"correctAnswers\": 4,\n    \"percentage\": 57,\n    \"comprehensionLevel\": \"Frustration\",\n    \"answers\": [\"a\", \"b\", \"b\", \"d\", \"c\", \"a\", \"b\"]\n  },\n  \"partB\": {\n    \"wordReading\": {\n      \"selection\": \"Isang Pangako\",\n      \"level\": \"4\",\n      \"set\": \"A\"\n    },\n    \"miscues\": {\n      \"mispronunciation\": 1,\n      \"omission\": 1,\n      \"substitution\": 2,\n      \"insertion\": 1,\n      \"repetition\": 3,\n      \"transposition\": 1,\n      \"reversal\": 0,\n      \"totalMiscues\": 9\n    },\n    \"wordsInPassage\": 144,\n    \"wordReadingScore\": 93.75,\n    \"wordReadingLevel\": \"Instructional\"\n  },\n  \"sessionId\": \"session123\",\n  \"sessionTitle\": \"Reading Session - Isang Pangako\",\n  \"book\": \"Isang Pangako\",\n  \"language\": \"Filipino\",\n  \"assessmentDate\": \"2024-01-15T10:00:00Z\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/isr-results",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"isr-results"
+					]
+				},
+				"description": "Create a new ISR result (Phil-IRI Form 3A) for a student"
+			},
+			"response": []
+		},
+		{
+			"name": "Get ISR Results by Student",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/isr-results/student/{{studentId}}",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"isr-results",
+						"student",
+						"{{studentId}}"
+					]
+				},
+				"description": "Get all ISR results for a specific student"
+			},
+			"response": []
+		},
+		{
+			"name": "Get ISR Results by Teacher",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/isr-results/teacher/{{teacherId}}",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"isr-results",
+						"teacher",
+						"{{teacherId}}"
+					]
+				},
+				"description": "Get all ISR results for a specific teacher"
+			},
+			"response": []
+		},
+		{
+			"name": "Get ISR Result by ID",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/isr-results/{{resultId}}",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"isr-results",
+						"{{resultId}}"
+					]
+				},
+				"description": "Get a specific ISR result by its ID"
+			},
+			"response": []
+		},
+		{
+			"name": "Update ISR Result",
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"partA\": {\n    \"readingTime\": \"2:15 minuto\",\n    \"readingRate\": 85,\n    \"correctAnswers\": 5,\n    \"percentage\": 71,\n    \"comprehensionLevel\": \"Instructional\",\n    \"answers\": [\"a\", \"b\", \"c\", \"d\", \"c\", \"a\", \"b\"]\n  },\n  \"partB\": {\n    \"wordReading\": {\n      \"selection\": \"Isang Pangako\",\n      \"level\": \"4\",\n      \"set\": \"A\"\n    },\n    \"miscues\": {\n      \"mispronunciation\": 0,\n      \"omission\": 1,\n      \"substitution\": 1,\n      \"insertion\": 0,\n      \"repetition\": 2,\n      \"transposition\": 0,\n      \"reversal\": 0,\n      \"totalMiscues\": 4\n    },\n    \"wordsInPassage\": 144,\n    \"wordReadingScore\": 97.22,\n    \"wordReadingLevel\": \"Independent\"\n  }\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/isr-results/{{resultId}}",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"isr-results",
+						"{{resultId}}"
+					]
+				},
+				"description": "Update an existing ISR result. Only include fields that need to be updated."
+			},
+			"response": []
+		},
+		{
+			"name": "Delete ISR Result",
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/isr-results/{{resultId}}",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"isr-results",
+						"{{resultId}}"
+					]
+				},
+				"description": "Delete an ISR result by its ID"
+			},
+			"response": []
+		},
+		{
+			"name": "Examples",
+			"item": [
+				{
+					"name": "Create ISR Result - English",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"studentId\": \"{{studentId}}\",\n  \"studentName\": \"John Smith\",\n  \"gradeSection\": \"Grade 3 - Diamond\",\n  \"school\": \"Elementary School\",\n  \"teacherId\": \"{{teacherId}}\",\n  \"teacherName\": \"Jane Doe\",\n  \"formTitle\": \"Phil-IRI Form 3A\",\n  \"partA\": {\n    \"readingTime\": \"2:30 minuto\",\n    \"readingRate\": 95,\n    \"correctAnswers\": 6,\n    \"percentage\": 86,\n    \"comprehensionLevel\": \"Independent\",\n    \"answers\": [\"a\", \"b\", \"c\", \"d\", \"c\", \"a\", \"b\"]\n  },\n  \"partB\": {\n    \"wordReading\": {\n      \"selection\": \"The Cat in the Hat\",\n      \"level\": \"3\",\n      \"set\": \"B\"\n    },\n    \"miscues\": {\n      \"mispronunciation\": 0,\n      \"omission\": 0,\n      \"substitution\": 1,\n      \"insertion\": 0,\n      \"repetition\": 1,\n      \"transposition\": 0,\n      \"reversal\": 0,\n      \"totalMiscues\": 2\n    },\n    \"wordsInPassage\": 200,\n    \"wordReadingScore\": 99.0,\n    \"wordReadingLevel\": \"Independent\"\n  },\n  \"sessionId\": \"session456\",\n  \"sessionTitle\": \"Reading Session - The Cat in the Hat\",\n  \"book\": \"The Cat in the Hat\",\n  \"language\": \"English\",\n  \"assessmentDate\": \"2024-01-20T14:00:00Z\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/isr-results",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"isr-results"
+							]
+						},
+						"description": "Example: Create ISR result for English reading assessment"
+					},
+					"response": []
+				},
+				{
+					"name": "Create ISR Result - Filipino (Complete)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"studentId\": \"{{studentId}}\",\n  \"studentName\": \"Maria Garcia\",\n  \"gradeSection\": \"Grade 4 - Narra\",\n  \"school\": \"Bagong Silang Elementary School\",\n  \"teacherId\": \"{{teacherId}}\",\n  \"teacherName\": \"Pedro Santos\",\n  \"formTitle\": \"Phil-IRI Form 3A\",\n  \"partA\": {\n    \"readingTime\": \"1:50 minuto\",\n    \"readingRate\": 78,\n    \"correctAnswers\": 4,\n    \"percentage\": 57,\n    \"comprehensionLevel\": \"Frustration\",\n    \"answers\": [\"a\", \"b\", \"b\", \"d\", \"c\", \"a\", \"b\"]\n  },\n  \"partB\": {\n    \"wordReading\": {\n      \"selection\": \"Isang Pangako\",\n      \"level\": \"4\",\n      \"set\": \"A\"\n    },\n    \"miscues\": {\n      \"mispronunciation\": 1,\n      \"omission\": 1,\n      \"substitution\": 2,\n      \"insertion\": 1,\n      \"repetition\": 3,\n      \"transposition\": 1,\n      \"reversal\": 0,\n      \"totalMiscues\": 9\n    },\n    \"wordsInPassage\": 144,\n    \"wordReadingScore\": 93.75,\n    \"wordReadingLevel\": \"Instructional\"\n  },\n  \"sessionId\": \"session789\",\n  \"sessionTitle\": \"Reading Session - Isang Pangako\",\n  \"book\": \"Isang Pangako\",\n  \"testId\": \"test123\",\n  \"testName\": \"Comprehension Test - Isang Pangako\",\n  \"language\": \"Filipino\",\n  \"assessmentDate\": \"2024-01-15T10:00:00Z\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/isr-results",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"isr-results"
+							]
+						},
+						"description": "Example: Create ISR result for Filipino reading assessment with complete data (matches Phil-IRI Form 3A image)"
+					},
+					"response": []
+				},
+				{
+					"name": "Create ISR Result - Minimal Data",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"studentId\": \"{{studentId}}\",\n  \"studentName\": \"Student Name\",\n  \"teacherId\": \"{{teacherId}}\",\n  \"formTitle\": \"Phil-IRI Form 3A\",\n  \"partA\": {\n    \"readingTime\": \"1:30 minuto\",\n    \"readingRate\": 80,\n    \"correctAnswers\": 5,\n    \"percentage\": 71,\n    \"comprehensionLevel\": \"Instructional\",\n    \"answers\": [\"a\", \"b\", \"c\", \"d\", \"a\", \"b\", \"c\"]\n  },\n  \"partB\": {\n    \"wordReading\": {\n      \"selection\": \"Story Title\",\n      \"level\": \"3\",\n      \"set\": \"A\"\n    },\n    \"miscues\": {\n      \"mispronunciation\": 0,\n      \"omission\": 0,\n      \"substitution\": 0,\n      \"insertion\": 0,\n      \"repetition\": 0,\n      \"transposition\": 0,\n      \"reversal\": 0,\n      \"totalMiscues\": 0\n    },\n    \"wordsInPassage\": 150,\n    \"wordReadingScore\": 100.0,\n    \"wordReadingLevel\": \"Independent\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/isr-results",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"isr-results"
+							]
+						},
+						"description": "Example: Create ISR result with minimal required fields only"
+					},
+					"response": []
+				}
+			],
+			"description": "Example requests for different scenarios"
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:3000",
+			"type": "string"
+		},
+		{
+			"key": "studentId",
+			"value": "student123",
+			"type": "string"
+		},
+		{
+			"key": "teacherId",
+			"value": "teacher123",
+			"type": "string"
+		},
+		{
+			"key": "resultId",
+			"value": "isr_result_123",
+			"type": "string"
+		}
+	]
+}
+

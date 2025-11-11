@@ -1,0 +1,176 @@
+{
+  "info": {
+    "name": "ISR Results API",
+    "description": "API collection for managing Individual Summary Record (ISR) results - Phil-IRI Form 3A",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Create ISR Result",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"studentId\": \"STUDENT_ID_HERE\",\n  \"studentName\": \"Juan Dela Cruz\",\n  \"teacherId\": \"TEACHER_ID_HERE\",\n  \"teacherName\": \"Ms. Maria Santos\",\n  \"gradeSection\": \"Grade 4 - Narra\",\n  \"school\": \"Sample Elementary School\",\n  \"formTitle\": \"Phil-IRI Form 3A\",\n  \"language\": \"Filipino\",\n  \"assessmentDate\": \"2024-01-15T00:00:00.000Z\",\n  \"partA\": {\n    \"readingTime\": \"1:50 minuto\",\n    \"readingRate\": 78,\n    \"correctAnswers\": 5,\n    \"percentage\": 71.43,\n    \"comprehensionLevel\": \"Instructional\",\n    \"answers\": [\"a\", \"b\", \"b\", \"d\", \"c\", \"a\", \"b\"]\n  },\n  \"partB\": {\n    \"wordReading\": {\n      \"selection\": \"Isang Pangako\",\n      \"level\": \"4\",\n      \"set\": \"A\"\n    },\n    \"miscues\": {\n      \"mispronunciation\": 2,\n      \"omission\": 1,\n      \"substitution\": 3,\n      \"insertion\": 1,\n      \"repetition\": 2,\n      \"transposition\": 1,\n      \"reversal\": 0,\n      \"totalMiscues\": 10\n    },\n    \"wordsInPassage\": 144,\n    \"wordReadingScore\": 93.06,\n    \"wordReadingLevel\": \"Independent\"\n  },\n  \"sessionId\": \"SESSION_ID_OPTIONAL\",\n  \"sessionTitle\": \"Reading Session - January 2024\",\n  \"book\": \"Isang Pangako\",\n  \"testId\": \"TEST_ID_OPTIONAL\",\n  \"testName\": \"Quarter 1 Assessment\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:5000/api/isr-results",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "5000",
+          "path": [
+            "api",
+            "isr-results"
+          ]
+        },
+        "description": "Create a new ISR result for a specific student. Replace STUDENT_ID_HERE and TEACHER_ID_HERE with actual IDs."
+      },
+      "response": []
+    },
+    {
+      "name": "Get ISR Results by Student ID",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:5000/api/isr-results/student/:studentId",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "5000",
+          "path": [
+            "api",
+            "isr-results",
+            "student",
+            ":studentId"
+          ],
+          "variable": [
+            {
+              "key": "studentId",
+              "value": "STUDENT_ID_HERE",
+              "description": "The student's ID"
+            }
+          ]
+        },
+        "description": "Get all ISR results for a specific student. Replace :studentId with the actual student ID."
+      },
+      "response": []
+    },
+    {
+      "name": "Get ISR Result by ID",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:5000/api/isr-results/:id",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "5000",
+          "path": [
+            "api",
+            "isr-results",
+            ":id"
+          ],
+          "variable": [
+            {
+              "key": "id",
+              "value": "ISR_RESULT_ID_HERE",
+              "description": "The ISR result document ID"
+            }
+          ]
+        },
+        "description": "Get a specific ISR result by its document ID."
+      },
+      "response": []
+    },
+    {
+      "name": "Update ISR Result",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"partA\": {\n    \"readingTime\": \"2:05 minuto\",\n    \"readingRate\": 85,\n    \"correctAnswers\": 6,\n    \"percentage\": 85.71,\n    \"comprehensionLevel\": \"Independent\",\n    \"answers\": [\"a\", \"b\", \"c\", \"d\", \"c\", \"a\", \"b\"]\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:5000/api/isr-results/:id",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "5000",
+          "path": [
+            "api",
+            "isr-results",
+            ":id"
+          ],
+          "variable": [
+            {
+              "key": "id",
+              "value": "ISR_RESULT_ID_HERE"
+            }
+          ]
+        },
+        "description": "Update an existing ISR result. Only include fields you want to update."
+      },
+      "response": []
+    },
+    {
+      "name": "Delete ISR Result",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:5000/api/isr-results/:id",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "5000",
+          "path": [
+            "api",
+            "isr-results",
+            ":id"
+          ],
+          "variable": [
+            {
+              "key": "id",
+              "value": "ISR_RESULT_ID_HERE"
+            }
+          ]
+        },
+        "description": "Delete an ISR result by its document ID."
+      },
+      "response": []
+    }
+  ]
+}
+

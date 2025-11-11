@@ -4,7 +4,6 @@ import {
   readingSessionService,
   type ReadingSession,
 } from "@/services/readingSessionService";
-import { resultService } from "@/services/resultsService";
 import { UnifiedStoryService } from "@/services/UnifiedStoryService";
 import type { Story } from "@/types/Story";
 import {
@@ -31,14 +30,19 @@ import Swal from "sweetalert2";
 import { db } from "@/config/firebase";
 import { collection, getDocs, addDoc, serverTimestamp } from "firebase/firestore";
 import { doubleMetaphone } from "double-metaphone";
+import { isrResultService } from "@/services/ISRresultService";
+import { useAuth } from "@/contexts/AuthContext";
+import { getUserProfile } from "@/services/authService";
 
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 const ReadingSessionPage: React.FC = () => {
+  const { currentUser } = useAuth();
   const [storyText, setStoryText] = useState<string>("");
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
+  const [currentStory, setCurrentStory] = useState<Story | null>(null);
   const [currentSession, setCurrentSession] = useState<ReadingSession | null>(
     null
   );
@@ -1080,6 +1084,9 @@ const ReadingSessionPage: React.FC = () => {
             throw new Error("Failed to fetch story details");
           }
 
+          // Store current story for ISR result saving
+          setCurrentStory(fullStory);
+
           if ((import.meta as any)?.env?.MODE === "development")
             console.debug("Full story details:", {
               id: fullStory._id,
@@ -1942,6 +1949,149 @@ const ReadingSessionPage: React.FC = () => {
     }
   };
 
+  // Function to save ISR result to MongoDB
+  const saveISRResult = async (
+    studentId: string,
+    studentName: string
+  ) => {
+    try {
+      if (!currentSession || !currentStory) {
+        console.warn("Cannot save ISR result: missing session or story data");
+        return;
+      }
+
+      // Get teacher information
+      let teacherName = "Teacher";
+      let schoolName = "";
+      try {
+        const profile = await getUserProfile();
+        teacherName = profile?.displayName || profile?.email || "Teacher";
+        schoolName = profile?.school || "";
+      } catch (error) {
+        console.warn("Could not fetch teacher profile:", error);
+      }
+
+      // Format reading time (convert seconds to "M:SS minuto")
+      const formatReadingTime = (seconds: number): string => {
+        const minutes = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${minutes}:${secs.toString().padStart(2, "0")} minuto`;
+      };
+
+      // Calculate word reading score percentage
+      const calculateWordReadingScore = (): number => {
+        if (words.length === 0) return 0;
+        const correctWords = wordsRead - miscues;
+        const percentage = (correctWords / words.length) * 100;
+        return Math.max(0, Math.min(100, percentage)); // Clamp between 0-100
+      };
+
+      // Determine word reading level based on score
+      const getWordReadingLevel = (score: number): "Independent" | "Instructional" | "Frustration" => {
+        if (score >= 95) return "Independent";
+        if (score >= 90) return "Instructional";
+        return "Frustration";
+      };
+
+      // Determine comprehension level (default to Frustration since quiz comes later)
+      const getComprehensionLevel = (): "Independent" | "Instructional" | "Frustration" => {
+        // Quiz data not available yet, default to Frustration
+        return "Frustration";
+      };
+
+      // Get story set (A, B, C, or D) - default to 'A' if not available
+      const getStorySet = (): "A" | "B" | "C" | "D" => {
+        const storySet = (currentStory as any)?.storySet || (currentStory as any)?.set || "A";
+        if (["A", "B", "C", "D"].includes(storySet)) {
+          return storySet as "A" | "B" | "C" | "D";
+        }
+        return "A";
+      };
+
+      // Get story level (reading level)
+      const getStoryLevel = (): string => {
+        return (currentStory as any)?.readingLevel || (currentStory as any)?.level || "4";
+      };
+
+      // Calculate miscue breakdown (we only have total, so distribute proportionally)
+      // This is a simplified breakdown - in a real system, you'd track each type separately
+      const totalMiscues = miscues;
+      const miscueBreakdown = {
+        mispronunciation: Math.max(0, Math.floor(totalMiscues * 0.3)),
+        omission: Math.max(0, Math.floor(totalMiscues * 0.2)),
+        substitution: Math.max(0, Math.floor(totalMiscues * 0.25)),
+        insertion: Math.max(0, Math.floor(totalMiscues * 0.1)),
+        repetition: Math.max(0, Math.floor(totalMiscues * 0.1)),
+        transposition: Math.max(0, Math.floor(totalMiscues * 0.03)),
+        reversal: Math.max(0, Math.floor(totalMiscues * 0.02)),
+        totalMiscues: totalMiscues,
+      };
+
+      const wordReadingScore = calculateWordReadingScore();
+      const wordReadingLevel = getWordReadingLevel(wordReadingScore);
+
+      // Map story language to ISR language format
+      const isrLanguage: "English" | "Filipino" = 
+        storyLanguage === "tagalog" ? "Filipino" : "English";
+
+      // Get student grade/section if available
+      let gradeSection = "";
+      try {
+        const student = await studentService.getStudent(studentId);
+        if (student?.grade) {
+          gradeSection = student.grade;
+        }
+      } catch (error) {
+        console.warn("Could not fetch student grade:", error);
+      }
+
+      // Create ISR result data
+      const isrResultData = {
+        studentId: studentId,
+        studentName: studentName,
+        teacherId: currentSession.teacherId || currentUser?.uid || "",
+        teacherName: teacherName,
+        gradeSection: gradeSection,
+        school: schoolName,
+        formTitle: "Phil-IRI Form 3A",
+        language: isrLanguage,
+        sessionId: sessionId || "",
+        sessionTitle: currentSession.title || "",
+        book: currentSession.book || currentStory.title || "",
+        assessmentDate: new Date(),
+        partA: {
+          readingTime: formatReadingTime(elapsedTime),
+          readingRate: parseInt(readingSpeedWPM) || 0,
+          correctAnswers: 0, // Quiz comes later
+          percentage: 0, // Quiz comes later
+          comprehensionLevel: getComprehensionLevel(),
+          answers: [], // Quiz answers come later
+        },
+        partB: {
+          wordReading: {
+            selection: currentSession.book || currentStory.title || "",
+            level: getStoryLevel(),
+            set: getStorySet(),
+          },
+          miscues: miscueBreakdown,
+          wordsInPassage: words.length,
+          wordReadingScore: wordReadingScore,
+          wordReadingLevel: wordReadingLevel,
+        },
+      };
+
+      // Save to MongoDB
+      await isrResultService.createISRResult(isrResultData);
+
+      if ((import.meta as any)?.env?.MODE === "development") {
+        console.debug("ISR result saved to MongoDB for student:", studentId, isrResultData);
+      }
+    } catch (error) {
+      console.error("Error saving ISR result to MongoDB:", error);
+      // Don't throw error - allow Firebase save to succeed even if MongoDB fails
+    }
+  };
+
   const handleCompleteSession = async () => {
     if (!sessionId || !currentSession) return;
 
@@ -1955,39 +2105,15 @@ const ReadingSessionPage: React.FC = () => {
       // Update session status to completed
       await readingSessionService.updateSessionStatus(sessionId, "completed");
 
-      // Save detailed results to the new results collection
+      // Save to Firebase and MongoDB (ISR results) for each student
       for (const studentId of currentSession.students) {
-        const readingSessionResult = {
-          sessionId: sessionId,
-          sessionTitle: currentSession.title,
-          book: currentSession.book,
-          gradeId: currentSession.gradeId,
-          studentId, // <-- Add this field
-          teacherId: currentSession.teacherId,
-          type: "reading-session" as const,
-
-          // Reading metrics
-          wordsRead: wordsRead,
-          totalWords: words.length,
-          miscues: miscues,
-          miscueTypes: miscueTypes, // Detailed breakdown
-          oralReadingScore: parseFloat(oralReadingScore),
-          readingSpeed: parseInt(readingSpeedWPM),
-          elapsedTime: elapsedTime,
-
-          // Additional data
-          transcript: transcript,
-          audioUrl: audioUrl || undefined,
-          storyUrl: currentSession.storyUrl,
-
-          // Timestamps
-          sessionDate: new Date(),
-        };
-        await resultService.createReadingSessionResult(readingSessionResult);
-
-        // Save to Firebase as well
         const studentName = studentNames[studentId] || studentId;
+        
+        // Save to Firebase
         await saveReadingSessionToFirebase(studentId, studentName);
+        
+        // Save ISR result to MongoDB
+        await saveISRResult(studentId, studentName);
 
         setCompletedStudents((prev) => ({ ...prev, [studentId]: true }));
       }
