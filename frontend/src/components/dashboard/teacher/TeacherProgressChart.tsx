@@ -21,7 +21,6 @@ import { type Student } from '../../../services/studentService';
 import { type ClassGrade } from '../../../services/gradeService';
 import PillSelect, { type PillOption } from '../../ui/PillSelect';
 import { useAuth } from '../../../contexts/AuthContext';
-import { resultService } from '../../../services/resultsService';
 
 interface TeacherProgressChartProps {
   data: {
@@ -206,12 +205,9 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
     }
 
     try {
-      const [readingResults, testResults] = await Promise.all([
-        resultService.getReadingResults(studentId),
-        resultService.getTestResults(studentId)
-      ]);
-
-      const data = { readingResults, testResults };
+      // Results fetching removed - MongoDB results service no longer available
+      // Return empty arrays
+      const data = { readingResults: [], testResults: [] };
       dataCache.current.set(cacheKey, { data, timestamp: Date.now() });
       return data;
     } catch (error) {
