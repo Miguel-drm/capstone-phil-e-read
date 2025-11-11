@@ -188,6 +188,11 @@ const ReadingSessionPage: React.FC = () => {
     const normExpected = normalize(expectedWord);
     if (!normSpoken || !normExpected) return false;
 
+    // DEBUG: Log all comparisons for "shining" vs "shiny"
+    if ((normSpoken === 'shining' && normExpected === 'shiny') || (normSpoken === 'shiny' && normExpected === 'shining')) {
+      console.log(`🔍 DEBUG isWordMatch: "${spokenWord}" vs "${expectedWord}" (normalized: "${normSpoken}" vs "${normExpected}")`);
+    }
+
     // Exact match
     if (normSpoken === normExpected) return true;
 
@@ -210,6 +215,18 @@ const ReadingSessionPage: React.FC = () => {
       }
     }
 
+    // UNIVERSAL PATTERN 2B: Added -ing endings (reverse)
+    // "shiny" accepts "shining", "walk" accepts "walking"
+    if (normSpoken.endsWith('ing')) {
+      const spokenRoot = normSpoken.slice(0, -3);
+      // Check if spoken root matches expected word
+      // Also handle y→i transformation: "shiny" → "shining" (shin + ing)
+      if (spokenRoot === normExpected || spokenRoot + 'y' === normExpected || spokenRoot + 'e' === normExpected) {
+        console.log(`✓ -ing variation match: "${spokenWord}" (root: "${spokenRoot}") matches "${expectedWord}"`);
+        return true;
+      }
+    }
+
     // UNIVERSAL PATTERN 3: Dropped -s/-es endings (plurals/verbs)
     // "looks" accepts "look", "takes" accepts "take"
     if (normExpected.endsWith('s') && normExpected.length > 2) {
@@ -222,6 +239,9 @@ const ReadingSessionPage: React.FC = () => {
 
     // Filipino accent variations and children's speech patterns
     const accentMap: { [key: string]: string[] } = {
+      // Common word form variations (WORKAROUND: specific -ing variations)
+      'shiny': ['shining', 'shin'],
+
       // Filipino accent variations
       'the': ['da', 'de', 'duh', 'di'],
       'this': ['dis', 'dees'],
@@ -1496,11 +1516,22 @@ const ReadingSessionPage: React.FC = () => {
         const allTranscriptWords = transcript.split(/\s+/).filter(Boolean);
         const currentWordInTranscript = allTranscriptWords.some(w => isWordMatch(w, expectedWord));
 
+        // ADDITIONAL CHECK: Check if any RECENT word matches current expected word
+        // This prevents false omissions when child says similar word (e.g., "shining" for "shiny")
+        const recentWordMatchesCurrent = wordsToCheck.some(w => {
+          const matches = isWordMatch(w, expectedWord);
+          if (matches) {
+            console.log(`   ✓ Recent word "${w}" matches expected "${expectedWord}"`);
+          }
+          return matches;
+        });
+
         // Only check for omissions if:
         // 1. Current word is NOT in the transcript at all
-        // 2. We have 2+ new words (not just one mispronunciation)
-        // 3. Last word is 4+ characters and not a number
-        if (!currentWordInTranscript && wordsToCheck.length >= 2) {
+        // 2. No recent word matches the current expected word
+        // 3. We have 2+ new words (not just one mispronunciation)
+        // 4. Last word is 4+ characters and not a number
+        if (!currentWordInTranscript && !recentWordMatchesCurrent && wordsToCheck.length >= 2) {
           const lastSpokenWord = wordsToCheck[wordsToCheck.length - 1];
 
           // Filter out short words and numbers
@@ -1544,22 +1575,41 @@ const ReadingSessionPage: React.FC = () => {
           }
         }
 
-        // 2-7. Other miscue types - analyze the NEW spoken words only
-        if (!foundFutureWord && newWords.length > 0) {
+        // 2-7. Other miscue types - analyze RECENT words (not just new ones)
+        // CRITICAL FIX: Use wordsToCheck instead of newWords to catch all miscues
+        // This ensures we detect miscues even if the word was already in the transcript
+        if (!foundFutureWord && wordsToCheck.length > 0) {
 
-          // 4. INSERTION - Child added extra words (more than 2 words at once)
-          if (newWords.length > 2) {
-            const extraWords = newWords.length - 1;
-            console.log(`⚠️ INSERTION! Child added ${extraWords} extra word(s): [${newWords.join(', ')}]`);
-            setMiscues(prev => prev + extraWords);
-            setMiscueTypes(prev => ({ ...prev, insertion: prev.insertion + extraWords }));
+          // 4. INSERTION - Child added extra words that DON'T match ANY story word
+          // OPTIMIZED: Only count words that are truly extra (not in the story at all)
+          if (newWords.length > 0) {
+            let insertionCount = 0;
+            for (const word of newWords) {
+              // Check if this word matches ANY word in the story
+              const matchesAnyStoryWord = realWords.some(storyWord => isWordMatch(word, storyWord));
+
+              // Only count as insertion if:
+              // 1. Word doesn't match any story word
+              // 2. Word is substantial (3+ chars)
+              // 3. Word is not a number or punctuation
+              if (!matchesAnyStoryWord && word.length >= 3 && /[a-z]/i.test(word)) {
+                insertionCount++;
+                console.log(`⚠️ INSERTION! Child added extra word: "${word}" (not in story)`);
+              }
+            }
+
+            if (insertionCount > 0) {
+              setMiscues(prev => prev + insertionCount);
+              setMiscueTypes(prev => ({ ...prev, insertion: prev.insertion + insertionCount }));
+            }
           }
 
-          // 5. REPETITION - Check if last 2 NEW words are identical
-          if (newWords.length >= 2) {
-            const lastTwo = newWords.slice(-2);
+          // 5. REPETITION - Check if last 2 words in wordsToCheck are identical
+          if (wordsToCheck.length >= 2) {
+            const lastTwo = wordsToCheck.slice(-2);
             if (normalize(lastTwo[0]) === normalize(lastTwo[1])) {
-              console.log(`⚠️ REPETITION! Child repeated "${lastTwo[0]}"`);
+              console.log(`⚠️ REPETITION! Child repeated "${lastTwo[0]}" at word index ${currentWordIndex}`);
+              console.log(`   Marking word #${currentWordIndex} ("${realWords[currentWordIndex]}") as repetition`);
               setMiscues(prev => prev + 1);
               setMiscueTypes(prev => ({ ...prev, repetition: prev.repetition + 1 }));
               setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'repetition'));
@@ -1567,8 +1617,10 @@ const ReadingSessionPage: React.FC = () => {
             }
           }
 
-          const lastWord = newWords[newWords.length - 1];
-          const isActualWord = lastWord.length >= 2; // Filter out noise
+          // OPTIMIZED: Only analyze the LAST word for substitution/mispronunciation
+          // This prevents counting the same word multiple times
+          const lastWord = wordsToCheck[wordsToCheck.length - 1];
+          const isActualWord = lastWord.length >= 3; // Raised from 2 to 3 to filter noise
           const miscueKey = `${currentWordIndex}-${lastWord}`; // Unique key for this miscue
 
           // Only count if it's a new miscue (not already counted)
@@ -1593,9 +1645,26 @@ const ReadingSessionPage: React.FC = () => {
             }
 
             // 6. TRANSPOSITION - Word order changed (said previous word)
-            if (currentWordIndex > 0) {
+            // CRITICAL FIX: Only check for transposition if this is a NEW word
+            // Don't mark as transposition if the word was already in the transcript
+            // (it means they're reading correctly, just the system hasn't advanced yet)
+            const isNewWord = newWords.includes(lastWord);
+
+            if (currentWordIndex > 0 && isNewWord) {
               const prevExpectedWord = realWords[currentWordIndex - 1];
               if (isWordMatch(lastWord, prevExpectedWord)) {
+                // Additional check: Make sure they didn't just read this word correctly
+                // Check if the previous word in transcript matches the previous expected word
+                if (wordsToCheck.length >= 2) {
+                  const secondLastWord = wordsToCheck[wordsToCheck.length - 2];
+                  // If the word before this one matches the previous expected word,
+                  // then this is NOT a transposition - they're reading in order
+                  if (isWordMatch(secondLastWord, prevExpectedWord)) {
+                    console.log(`✓ Not transposition: "${lastWord}" follows "${secondLastWord}" correctly`);
+                    return; // Don't count as transposition
+                  }
+                }
+
                 console.log(`⚠️ TRANSPOSITION! Child said "${lastWord}" out of order`);
                 setMiscues(prev => prev + 1);
                 setMiscueTypes(prev => ({ ...prev, transposition: prev.transposition + 1 }));
@@ -1608,18 +1677,49 @@ const ReadingSessionPage: React.FC = () => {
             // 2. MISPRONUNCIATION vs 3. SUBSTITUTION - Based on cached similarity
             const similarity = getCachedSimilarity(lastWord, expectedWord);
 
-            if (similarity >= 0.6) {
-              // Very similar - MISPRONUNCIATION
+            // CRITICAL FIX: If isWordMatch considers it correct (accent/pronunciation variation),
+            // do NOT mark as mispronunciation or substitution at all!
+            // This prevents false substitutions from accent differences.
+            if (isWordMatch(lastWord, expectedWord)) {
+              console.log(`✓ Accent variation accepted: "${lastWord}" for "${expectedWord}"`);
+              // Don't count as miscue - it's an acceptable pronunciation
+              return;
+            }
+
+            // OPTIMIZED: Check if the spoken word matches ANY nearby story word
+            // This prevents false substitutions from speech recognition timing issues
+            const nearbyRange = 3; // Check 3 words before and after
+            const startIdx = Math.max(0, currentWordIndex - nearbyRange);
+            const endIdx = Math.min(realWords.length, currentWordIndex + nearbyRange + 1);
+            const nearbyWords = realWords.slice(startIdx, endIdx);
+
+            const matchesNearbyWord = nearbyWords.some(nearbyWord => isWordMatch(lastWord, nearbyWord));
+
+            if (matchesNearbyWord) {
+              console.log(`✓ Word "${lastWord}" matches a nearby story word, not counting as substitution`);
+              // This is likely a transposition or the child reading ahead/behind
+              return;
+            }
+
+            // Now check similarity for actual miscues
+            // Raised threshold from 0.6 to 0.7 to be more tolerant of accents
+            if (similarity >= 0.7) {
+              // Very similar - MISPRONUNCIATION (close but not quite right)
               console.log(`⚠️ MISPRONUNCIATION! Child said "${lastWord}" instead of "${expectedWord}" (${(similarity * 100).toFixed(0)}% similar)`);
               setMiscues(prev => prev + 1);
               setMiscueTypes(prev => ({ ...prev, mispronunciation: prev.mispronunciation + 1 }));
               setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'mispronunciation'));
-            } else {
-              // Different word - SUBSTITUTION
+            } else if (similarity < 0.4) {
+              // OPTIMIZED: Only count as substitution if similarity is VERY low (<40%)
+              // This prevents counting speech recognition errors as substitutions
               console.log(`⚠️ SUBSTITUTION! Child said "${lastWord}" instead of "${expectedWord}" (${(similarity * 100).toFixed(0)}% similar)`);
               setMiscues(prev => prev + 1);
               setMiscueTypes(prev => ({ ...prev, substitution: prev.substitution + 1 }));
               setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'substitution'));
+            } else {
+              // 40-70% similarity - ambiguous, likely speech recognition error or accent
+              // Don't count as miscue to avoid false positives
+              console.log(`⚠️ Ambiguous word "${lastWord}" vs "${expectedWord}" (${(similarity * 100).toFixed(0)}% similar) - not counting as miscue`);
             }
 
             lastMiscueWordRef.current = miscueKey;
@@ -2064,19 +2164,34 @@ const ReadingSessionPage: React.FC = () => {
                             const isRead = !isSpecialChar && isWordRead(realWordIndex);
                             const miscueType = !isSpecialChar ? wordMiscues.get(realWordIndex) : undefined;
 
+                            // Only show miscue colors AFTER session is completed
+                            const showMiscueColors = isCompleted || !isRecording;
+
                             // Color mapping for miscue types
                             const getMiscueColor = (type: MiscueType | undefined) => {
-                              if (!type) return null;
+                              if (!type || !showMiscueColors) return null; // Hide during recording
                               const colors = {
                                 mispronunciation: 'bg-red-100 text-red-800 border-2 border-red-400',
                                 omission: 'bg-orange-100 text-orange-800 border-2 border-orange-400',
                                 substitution: 'bg-yellow-100 text-yellow-800 border-2 border-yellow-400',
                                 insertion: 'bg-green-100 text-green-800 border-2 border-green-400',
-                                repetition: 'bg-blue-100 text-blue-800 border-2 border-blue-400',
+                                repetition: 'bg-blue-100 text-blue-800 border-2 border-blue-400 underline decoration-4 decoration-blue-600',
                                 transposition: 'bg-purple-100 text-purple-800 border-2 border-purple-400',
                                 reversal: 'bg-pink-100 text-pink-800 border-2 border-pink-400'
                               };
                               return colors[type];
+                            };
+
+                            // Add extra visual indicator for repetition
+                            const getRepetitionStyle = (type: MiscueType | undefined) => {
+                              if (type === 'repetition' && showMiscueColors) {
+                                return {
+                                  textDecoration: 'underline wavy',
+                                  textDecorationColor: '#2563eb',
+                                  textDecorationThickness: '3px'
+                                };
+                              }
+                              return {};
                             };
 
                             return (
@@ -2102,13 +2217,18 @@ const ReadingSessionPage: React.FC = () => {
                                       transform: "scale(1.1)",
                                       transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)"
                                     }
-                                    : isRead
+                                    : miscueType
                                       ? {
+                                        ...getRepetitionStyle(miscueType),
                                         transition: "all 0.2s ease-in-out"
                                       }
-                                      : {
-                                        transition: "all 0.2s ease-in-out"
-                                      }
+                                      : isRead
+                                        ? {
+                                          transition: "all 0.2s ease-in-out"
+                                        }
+                                        : {
+                                          transition: "all 0.2s ease-in-out"
+                                        }
                                 }
                               >
                                 {word}
@@ -2241,130 +2361,132 @@ const ReadingSessionPage: React.FC = () => {
         </div>
       </section>
 
-      {/* Detailed Miscue Types Observation Panel */}
-      <section className="w-full px-4 sm:px-8 pb-4">
-        <div className="bg-gradient-to-br from-red-50 to-orange-50 rounded-2xl lg:rounded-3xl border-2 border-red-200 p-4 sm:p-6 lg:p-8">
-          <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-red-800 mb-4 flex items-center gap-2">
-            <span className="text-2xl">🔍</span>
-            Miscue Types Detection (Phil-IRI)
-          </h3>
+      {/* Detailed Miscue Types Observation Panel - Only show after recording stops */}
+      {(!isRecording || isCompleted) && (
+        <section className="w-full px-4 sm:px-8 pb-4">
+          <div className="bg-gradient-to-br from-red-50 to-orange-50 rounded-2xl lg:rounded-3xl border-2 border-red-200 p-4 sm:p-6 lg:p-8">
+            <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-red-800 mb-4 flex items-center gap-2">
+              <span className="text-2xl">🔍</span>
+              Miscue Types Detection (Phil-IRI) - Results
+            </h3>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-            {/* 1. Mispronunciation */}
-            <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.mispronunciation > 0 ? 'bg-red-100 border-red-400 shadow-lg' : 'bg-white border-gray-200'}`}>
-              <div className="flex items-start justify-between mb-2">
-                <div>
-                  <h4 className="font-bold text-red-900 text-sm">1. Mispronunciation</h4>
-                  <p className="text-xs text-red-700 italic">Maling Bigkas</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+              {/* 1. Mispronunciation */}
+              <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.mispronunciation > 0 ? 'bg-red-100 border-red-400 shadow-lg' : 'bg-white border-gray-200'}`}>
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <h4 className="font-bold text-red-900 text-sm">1. Mispronunciation</h4>
+                    <p className="text-xs text-red-700 italic">Maling Bigkas</p>
+                  </div>
+                  <span className={`text-2xl font-extrabold ${miscueTypes.mispronunciation > 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                    {miscueTypes.mispronunciation}
+                  </span>
                 </div>
-                <span className={`text-2xl font-extrabold ${miscueTypes.mispronunciation > 0 ? 'text-red-600' : 'text-gray-400'}`}>
-                  {miscueTypes.mispronunciation}
-                </span>
+                <p className="text-xs text-gray-700 mb-1">Wrong pronunciation (60%+ similar)</p>
+                <p className="text-xs text-gray-600 italic">Example: "beautifull" → "beautiful"</p>
               </div>
-              <p className="text-xs text-gray-700 mb-1">Wrong pronunciation (60%+ similar)</p>
-              <p className="text-xs text-gray-600 italic">Example: "beautifull" → "beautiful"</p>
+
+              {/* 2. Omission */}
+              <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.omission > 0 ? 'bg-orange-100 border-orange-400 shadow-lg' : 'bg-white border-gray-200'}`}>
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <h4 className="font-bold text-orange-900 text-sm">2. Omission</h4>
+                    <p className="text-xs text-orange-700 italic">Pagkakaltas</p>
+                  </div>
+                  <span className={`text-2xl font-extrabold ${miscueTypes.omission > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
+                    {miscueTypes.omission}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-700 mb-1">Skipped word(s)</p>
+                <p className="text-xs text-gray-600 italic">Example: Skip "shiny", say "on"</p>
+              </div>
+
+              {/* 3. Substitution */}
+              <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.substitution > 0 ? 'bg-yellow-100 border-yellow-400 shadow-lg' : 'bg-white border-gray-200'}`}>
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <h4 className="font-bold text-yellow-900 text-sm">3. Substitution</h4>
+                    <p className="text-xs text-yellow-700 italic">Pagpapalit</p>
+                  </div>
+                  <span className={`text-2xl font-extrabold ${miscueTypes.substitution > 0 ? 'text-yellow-600' : 'text-gray-400'}`}>
+                    {miscueTypes.substitution}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-700 mb-1">Different word (&lt;60% similar)</p>
+                <p className="text-xs text-gray-600 italic">Example: "house" → "home"</p>
+              </div>
+
+              {/* 4. Insertion */}
+              <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.insertion > 0 ? 'bg-green-100 border-green-400 shadow-lg' : 'bg-white border-gray-200'}`}>
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <h4 className="font-bold text-green-900 text-sm">4. Insertion</h4>
+                    <p className="text-xs text-green-700 italic">Pagsisisingit</p>
+                  </div>
+                  <span className={`text-2xl font-extrabold ${miscueTypes.insertion > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                    {miscueTypes.insertion}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-700 mb-1">Added extra word(s)</p>
+                <p className="text-xs text-gray-600 italic">Example: "the big red ball" → "the ball"</p>
+              </div>
+
+              {/* 5. Repetition */}
+              <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.repetition > 0 ? 'bg-blue-100 border-blue-400 shadow-lg' : 'bg-white border-gray-200'}`}>
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <h4 className="font-bold text-blue-900 text-sm">5. Repetition</h4>
+                    <p className="text-xs text-blue-700 italic">Pag-uulit</p>
+                  </div>
+                  <span className={`text-2xl font-extrabold ${miscueTypes.repetition > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                    {miscueTypes.repetition}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-700 mb-1">Repeated same word</p>
+                <p className="text-xs text-gray-600 italic">Example: "the the" or "and and"</p>
+              </div>
+
+              {/* 6. Transposition */}
+              <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.transposition > 0 ? 'bg-purple-100 border-purple-400 shadow-lg' : 'bg-white border-gray-200'}`}>
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <h4 className="font-bold text-purple-900 text-sm">6. Transposition</h4>
+                    <p className="text-xs text-purple-700 italic">Pagpapalit ng Lugar</p>
+                  </div>
+                  <span className={`text-2xl font-extrabold ${miscueTypes.transposition > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                    {miscueTypes.transposition}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-700 mb-1">Word order changed</p>
+                <p className="text-xs text-gray-600 italic">Example: "red big" → "big red"</p>
+              </div>
+
+              {/* 7. Reversal */}
+              <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.reversal > 0 ? 'bg-pink-100 border-pink-400 shadow-lg' : 'bg-white border-gray-200'}`}>
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <h4 className="font-bold text-pink-900 text-sm">7. Reversal</h4>
+                    <p className="text-xs text-pink-700 italic">Paglilipat</p>
+                  </div>
+                  <span className={`text-2xl font-extrabold ${miscueTypes.reversal > 0 ? 'text-pink-600' : 'text-gray-400'}`}>
+                    {miscueTypes.reversal}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-700 mb-1">Reversed letters/words</p>
+                <p className="text-xs text-gray-600 italic">Example: "saw" → "was", "on" → "no"</p>
+              </div>
             </div>
 
-            {/* 2. Omission */}
-            <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.omission > 0 ? 'bg-orange-100 border-orange-400 shadow-lg' : 'bg-white border-gray-200'}`}>
-              <div className="flex items-start justify-between mb-2">
-                <div>
-                  <h4 className="font-bold text-orange-900 text-sm">2. Omission</h4>
-                  <p className="text-xs text-orange-700 italic">Pagkakaltas</p>
-                </div>
-                <span className={`text-2xl font-extrabold ${miscueTypes.omission > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
-                  {miscueTypes.omission}
-                </span>
-              </div>
-              <p className="text-xs text-gray-700 mb-1">Skipped word(s)</p>
-              <p className="text-xs text-gray-600 italic">Example: Skip "shiny", say "on"</p>
-            </div>
-
-            {/* 3. Substitution */}
-            <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.substitution > 0 ? 'bg-yellow-100 border-yellow-400 shadow-lg' : 'bg-white border-gray-200'}`}>
-              <div className="flex items-start justify-between mb-2">
-                <div>
-                  <h4 className="font-bold text-yellow-900 text-sm">3. Substitution</h4>
-                  <p className="text-xs text-yellow-700 italic">Pagpapalit</p>
-                </div>
-                <span className={`text-2xl font-extrabold ${miscueTypes.substitution > 0 ? 'text-yellow-600' : 'text-gray-400'}`}>
-                  {miscueTypes.substitution}
-                </span>
-              </div>
-              <p className="text-xs text-gray-700 mb-1">Different word (&lt;60% similar)</p>
-              <p className="text-xs text-gray-600 italic">Example: "house" → "home"</p>
-            </div>
-
-            {/* 4. Insertion */}
-            <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.insertion > 0 ? 'bg-green-100 border-green-400 shadow-lg' : 'bg-white border-gray-200'}`}>
-              <div className="flex items-start justify-between mb-2">
-                <div>
-                  <h4 className="font-bold text-green-900 text-sm">4. Insertion</h4>
-                  <p className="text-xs text-green-700 italic">Pagsisisingit</p>
-                </div>
-                <span className={`text-2xl font-extrabold ${miscueTypes.insertion > 0 ? 'text-green-600' : 'text-gray-400'}`}>
-                  {miscueTypes.insertion}
-                </span>
-              </div>
-              <p className="text-xs text-gray-700 mb-1">Added extra word(s)</p>
-              <p className="text-xs text-gray-600 italic">Example: "the big red ball" → "the ball"</p>
-            </div>
-
-            {/* 5. Repetition */}
-            <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.repetition > 0 ? 'bg-blue-100 border-blue-400 shadow-lg' : 'bg-white border-gray-200'}`}>
-              <div className="flex items-start justify-between mb-2">
-                <div>
-                  <h4 className="font-bold text-blue-900 text-sm">5. Repetition</h4>
-                  <p className="text-xs text-blue-700 italic">Pag-uulit</p>
-                </div>
-                <span className={`text-2xl font-extrabold ${miscueTypes.repetition > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
-                  {miscueTypes.repetition}
-                </span>
-              </div>
-              <p className="text-xs text-gray-700 mb-1">Repeated same word</p>
-              <p className="text-xs text-gray-600 italic">Example: "the the" or "and and"</p>
-            </div>
-
-            {/* 6. Transposition */}
-            <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.transposition > 0 ? 'bg-purple-100 border-purple-400 shadow-lg' : 'bg-white border-gray-200'}`}>
-              <div className="flex items-start justify-between mb-2">
-                <div>
-                  <h4 className="font-bold text-purple-900 text-sm">6. Transposition</h4>
-                  <p className="text-xs text-purple-700 italic">Pagpapalit ng Lugar</p>
-                </div>
-                <span className={`text-2xl font-extrabold ${miscueTypes.transposition > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
-                  {miscueTypes.transposition}
-                </span>
-              </div>
-              <p className="text-xs text-gray-700 mb-1">Word order changed</p>
-              <p className="text-xs text-gray-600 italic">Example: "red big" → "big red"</p>
-            </div>
-
-            {/* 7. Reversal */}
-            <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.reversal > 0 ? 'bg-pink-100 border-pink-400 shadow-lg' : 'bg-white border-gray-200'}`}>
-              <div className="flex items-start justify-between mb-2">
-                <div>
-                  <h4 className="font-bold text-pink-900 text-sm">7. Reversal</h4>
-                  <p className="text-xs text-pink-700 italic">Paglilipat</p>
-                </div>
-                <span className={`text-2xl font-extrabold ${miscueTypes.reversal > 0 ? 'text-pink-600' : 'text-gray-400'}`}>
-                  {miscueTypes.reversal}
-                </span>
-              </div>
-              <p className="text-xs text-gray-700 mb-1">Reversed letters/words</p>
-              <p className="text-xs text-gray-600 italic">Example: "saw" → "was", "on" → "no"</p>
+            {/* Summary */}
+            <div className="mt-4 p-3 bg-white/70 rounded-lg border border-red-200">
+              <p className="text-xs text-gray-700">
+                <span className="font-semibold">💡 Review:</span> These results show all miscues detected during the reading session.
+                Use this information to identify patterns and plan targeted interventions.
+              </p>
             </div>
           </div>
-
-          {/* Summary */}
-          <div className="mt-4 p-3 bg-white/70 rounded-lg border border-red-200">
-            <p className="text-xs text-gray-700">
-              <span className="font-semibold">💡 Observation Tip:</span> Watch the cards light up in real-time as miscues are detected.
-              Active cards (with colored backgrounds) show which error types the student is making.
-            </p>
-          </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* Session Controls */}
       {!isCompleted && (
