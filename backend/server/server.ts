@@ -13,6 +13,7 @@ import teacherRoutes from './routes/teacherRoutes.js';
 import parentRoutes from './routes/parentRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import { resultService } from './services/resultService.js';
+import { isrResultService } from './services/isrResultService.js';
 import type { Readable } from 'stream';
 import { adminDb, firestoreAdmin } from './config/firebaseAdmin.js';
 // Removed Node Vosk integration; using external Python Vosk WS instead
@@ -84,11 +85,6 @@ app.get('/api/test', (req, res) => {
     // Initialize GridFS
     await initGridFSBucket();
     console.log('GridFS initialized');
-
-    // Start the server only after successful database connection
-    const server = app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-    });
 
     // Handle database disconnection
     db.on('disconnected', () => {
@@ -500,151 +496,6 @@ app.get('/api/test', (req, res) => {
       }
     });
 
-    // --- Results API ---
-    app.post('/api/results', (async (req: Request, res: Response) => {
-      try {
-        // Log incoming data for debugging
-        console.log('📝 POST /api/results - Received data:', {
-          body: req.body,
-          hasTeacherId: !!req.body.teacherId,
-          hasType: !!req.body.type,
-          type: req.body.type
-        });
-
-        // Validate required fields
-        if (!req.body.teacherId) {
-          res.status(400).json({ 
-            error: 'Missing required field: teacherId',
-            receivedData: Object.keys(req.body)
-          });
-          return;
-        }
-
-        if (!req.body.type) {
-          res.status(400).json({ 
-            error: 'Missing required field: type',
-            receivedData: Object.keys(req.body)
-          });
-          return;
-        }
-
-        if (!['reading-session', 'test'].includes(req.body.type)) {
-          res.status(400).json({ 
-            error: 'Invalid type. Must be "reading-session" or "test"',
-            receivedType: req.body.type
-          });
-          return;
-        }
-
-        // Save to MongoDB
-        const result = await resultService.createResult(req.body);
-        console.log('✅ Result saved to MongoDB:', result._id);
-
-        // Also save to Firebase Firestore
-        if (adminDb && firestoreAdmin) {
-          try {
-            const firebaseResultData: any = {
-              // Common fields
-              teacherId: req.body.teacherId,
-              type: req.body.type,
-              createdAt: firestoreAdmin.firestore.FieldValue.serverTimestamp(),
-              updatedAt: firestoreAdmin.firestore.FieldValue.serverTimestamp(),
-              
-              // Reading session fields
-              ...(req.body.type === 'reading-session' && {
-                sessionId: req.body.sessionId,
-                sessionTitle: req.body.sessionTitle,
-                book: req.body.book,
-                gradeId: req.body.gradeId,
-                studentId: req.body.studentId,
-                students: req.body.students,
-                wordsRead: req.body.wordsRead,
-                totalWords: req.body.totalWords,
-                miscues: req.body.miscues,
-                oralReadingScore: req.body.oralReadingScore,
-                readingSpeed: req.body.readingSpeed,
-                elapsedTime: req.body.elapsedTime,
-                transcript: req.body.transcript,
-                audioUrl: req.body.audioUrl,
-                storyUrl: req.body.storyUrl,
-                sessionDate: req.body.sessionDate ? firestoreAdmin.firestore.Timestamp.fromDate(new Date(req.body.sessionDate)) : null,
-              }),
-              
-              // Test result fields
-              ...(req.body.type === 'test' && {
-                testId: req.body.testId,
-                testName: req.body.testName,
-                testCategory: req.body.testCategory,
-                studentId: req.body.studentId,
-                studentName: req.body.studentName,
-                totalQuestions: req.body.totalQuestions,
-                correctAnswers: req.body.correctAnswers,
-                score: req.body.score,
-                comprehension: req.body.comprehension,
-                answers: req.body.answers || [],
-                testDate: req.body.testDate ? firestoreAdmin.firestore.Timestamp.fromDate(new Date(req.body.testDate)) : null,
-              }),
-            };
-
-            // Remove undefined/null fields
-            Object.keys(firebaseResultData).forEach(key => {
-              if (firebaseResultData[key] === undefined || firebaseResultData[key] === null) {
-                delete firebaseResultData[key];
-              }
-            });
-
-            const firebaseDocRef = await adminDb.collection('results').add(firebaseResultData);
-            console.log('✅ Result saved to Firebase:', firebaseDocRef.id);
-          } catch (firebaseError) {
-            console.error('⚠️  Error saving to Firebase (MongoDB save succeeded):', firebaseError);
-            // Don't fail the request if Firebase save fails - MongoDB save already succeeded
-          }
-        } else {
-          console.warn('⚠️  Firebase Admin not initialized - skipping Firebase save');
-        }
-
-        res.status(201).json(result);
-        return;
-      } catch (error) {
-        console.error('❌ Error saving result:', error);
-        
-        // Provide more specific error messages
-        if (error instanceof Error) {
-          // Check for validation errors
-          if (error.name === 'ValidationError') {
-            res.status(400).json({ 
-              error: 'Validation error',
-              details: error.message,
-              validationErrors: (error as any).errors
-            });
-            return;
-          }
-          
-          // Check for duplicate key errors
-          if ((error as any).code === 11000) {
-            res.status(400).json({ 
-              error: 'Duplicate entry',
-              details: error.message
-            });
-            return;
-          }
-
-          res.status(500).json({ 
-            error: 'Failed to save result',
-            details: error.message,
-            errorName: error.name
-          });
-          return;
-        }
-
-        res.status(500).json({ 
-          error: 'Failed to save result',
-          details: 'Unknown error occurred'
-        });
-        return;
-      }
-    }) as express.RequestHandler);
-
     app.get('/api/results/teacher/:teacherId', async (req: Request, res: Response) => {
       try {
         const results = await resultService.getResultsByTeacher(req.params.teacherId);
@@ -695,6 +546,172 @@ app.get('/api/test', (req, res) => {
       }
     });
 
+    // --- ISR Results API ---
+    // Test endpoint to verify routing
+    app.get('/api/isr-results/test', (req: Request, res: Response) => {
+      res.json({ message: 'ISR Results API is working!', timestamp: new Date().toISOString() });
+    });
+
+    app.post('/api/isr-results', async (req: Request, res: Response) => {
+      try {
+        console.log('📝 POST /api/isr-results - Received data:', {
+          body: req.body,
+          hasStudentId: !!req.body.studentId,
+          hasTeacherId: !!req.body.teacherId,
+          hasPartA: !!req.body.partA,
+          hasPartB: !!req.body.partB,
+        });
+
+        // Validate required fields
+        if (!req.body.studentId) {
+          res.status(400).json({ 
+            error: 'Missing required field: studentId',
+            receivedData: Object.keys(req.body)
+          });
+          return;
+        }
+
+        if (!req.body.teacherId) {
+          res.status(400).json({ 
+            error: 'Missing required field: teacherId',
+            receivedData: Object.keys(req.body)
+          });
+          return;
+        }
+
+        if (!req.body.partA) {
+          res.status(400).json({ 
+            error: 'Missing required field: partA',
+            receivedData: Object.keys(req.body)
+          });
+          return;
+        }
+
+        if (!req.body.partB) {
+          res.status(400).json({ 
+            error: 'Missing required field: partB',
+            receivedData: Object.keys(req.body)
+          });
+          return;
+        }
+
+        // Save to MongoDB
+        const result = await isrResultService.createISRResult(req.body);
+        console.log('✅ ISR Result saved to MongoDB:', result._id);
+
+        res.status(201).json(result);
+        return;
+      } catch (error) {
+        console.error('❌ Error saving ISR result:', error);
+        
+        if (error instanceof Error) {
+          // Check for validation errors
+          if (error.name === 'ValidationError') {
+            res.status(400).json({ 
+              error: 'Validation error',
+              details: error.message,
+              validationErrors: (error as any).errors
+            });
+            return;
+          }
+          
+          // Check for duplicate key errors
+          if ((error as any).code === 11000) {
+            res.status(400).json({ 
+              error: 'Duplicate entry',
+              details: error.message
+            });
+            return;
+          }
+
+          res.status(500).json({ 
+            error: 'Failed to save ISR result',
+            details: error.message,
+            errorName: error.name
+          });
+          return;
+        }
+
+        res.status(500).json({ 
+          error: 'Failed to save ISR result',
+          details: 'Unknown error occurred'
+        });
+        return;
+      }
+    });
+
+    app.get('/api/isr-results/student/:studentId', async (req: Request, res: Response) => {
+      try {
+        const results = await isrResultService.getISRResultsByStudent(req.params.studentId);
+        res.json(results);
+      } catch (error) {
+        console.error('Error fetching ISR results by student:', error);
+        res.status(500).json({ error: 'Failed to fetch ISR results' });
+      }
+    });
+
+    app.get('/api/isr-results/teacher/:teacherId', async (req: Request, res: Response) => {
+      try {
+        const results = await isrResultService.getISRResultsByTeacher(req.params.teacherId);
+        res.json(results);
+      } catch (error) {
+        console.error('Error fetching ISR results by teacher:', error);
+        res.status(500).json({ error: 'Failed to fetch ISR results' });
+      }
+    });
+
+    app.get('/api/isr-results/:id', async (req: Request, res: Response) => {
+      try {
+        const result = await isrResultService.getISRResultById(req.params.id);
+        if (!result) {
+          res.status(404).json({ error: 'ISR result not found' });
+          return;
+        }
+        res.json(result);
+      } catch (error) {
+        console.error('Error fetching ISR result by ID:', error);
+        res.status(500).json({ error: 'Failed to fetch ISR result' });
+      }
+    });
+
+    app.put('/api/isr-results/:id', async (req: Request, res: Response) => {
+      try {
+        const result = await isrResultService.updateISRResult(req.params.id, req.body);
+        if (!result) {
+          res.status(404).json({ error: 'ISR result not found' });
+          return;
+        }
+        res.json(result);
+      } catch (error) {
+        console.error('Error updating ISR result:', error);
+        
+        if (error instanceof Error && error.name === 'ValidationError') {
+          res.status(400).json({ 
+            error: 'Validation error',
+            details: error.message,
+            validationErrors: (error as any).errors
+          });
+          return;
+        }
+
+        res.status(500).json({ error: 'Failed to update ISR result' });
+      }
+    });
+
+    app.delete('/api/isr-results/:id', async (req: Request, res: Response) => {
+      try {
+        const deleted = await isrResultService.deleteISRResult(req.params.id);
+        if (!deleted) {
+          res.status(404).json({ error: 'ISR result not found' });
+          return;
+        }
+        res.json({ message: 'ISR result deleted successfully' });
+      } catch (error) {
+        console.error('Error deleting ISR result:', error);
+        res.status(500).json({ error: 'Failed to delete ISR result' });
+      }
+    });
+
     app.use('/api/teachers', teacherRoutes);
     app.use('/api/parents', parentRoutes);
     
@@ -702,6 +719,12 @@ app.get('/api/test', (req, res) => {
     app.use('/api/admin', adminRoutes);
 
     // Removed OpenAI Whisper transcription route; using external Python Vosk WS instead
+
+    // Start the server only after all routes are registered
+    const server = app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+      console.log(`ISR Results API available at: http://localhost:${PORT}/api/isr-results`);
+    });
 
   } catch (error) {
     console.error('Failed to connect to MongoDB or initialize GridFS:', error);
