@@ -36,19 +36,19 @@ const MyChildrenPage: React.FC = () => {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-3">Quick Links</h3>
           <div className="flex flex-col gap-3 text-sm">
-            <button 
+            <button
               onClick={() => navigate('/parent/reading-practice')}
               className="text-left text-blue-700 hover:text-blue-800 hover:bg-blue-50 p-2 rounded-lg transition-all duration-200 font-medium"
             >
               Start Practice
             </button>
-            <button 
+            <button
               onClick={() => navigate('/parent/progress')}
               className="text-left text-blue-700 hover:text-blue-800 hover:bg-blue-50 p-2 rounded-lg transition-all duration-200 font-medium"
             >
               View Progress
             </button>
-            <button 
+            <button
               onClick={() => navigate('/parent/reports')}
               className="text-left text-blue-700 hover:text-blue-800 hover:bg-blue-50 p-2 rounded-lg transition-all duration-200 font-medium"
             >
