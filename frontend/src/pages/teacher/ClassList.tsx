@@ -640,7 +640,7 @@ const ClassList: React.FC = () => {
   const generatePhilIRIForm = useCallback(async (student: Student): Promise<{ formData: any; hasISRData: boolean }> => {
     // Fetch ISR results for this student
     let latestISRResult: ISRResult | null = null;
-    
+
     try {
       if (student.id) {
         const isrResults = await isrResultService.getISRResultsByStudent(student.id);
@@ -1065,19 +1065,47 @@ const ClassList: React.FC = () => {
     if (!currentUser?.uid) return;
     try {
       console.log('🔍 Loading classes for teacher:', currentUser.uid);
+
+      // Get teacher's grade level from profile
+      let teacherGradeLevel: string | null = null;
+      try {
+        const profile = await getUserProfile();
+        teacherGradeLevel = profile?.gradeLevel?.toString() || null;
+        console.log('👨‍🏫 Teacher grade level:', teacherGradeLevel);
+      } catch (error) {
+        console.warn('Could not fetch teacher profile:', error);
+      }
+
       const gradesData = await gradeService.getGradesByTeacherAll(currentUser.uid); // include active and archived
       console.log('📚 Loaded classes:', gradesData.length);
-      console.log('Classes details:', gradesData.map(g => ({ 
-        id: g.id, 
-        name: g.name, 
+      console.log('Classes details:', gradesData.map(g => ({
+        id: g.id,
+        name: g.name,
         teacherId: g.teacherId,
-        matchesCurrentTeacher: g.teacherId === currentUser.uid 
+        matchesCurrentTeacher: g.teacherId === currentUser.uid
       })));
-      
-      // ADDITIONAL FILTER: Ensure only classes for this teacher are shown
-      const filteredGrades = gradesData.filter(g => g.teacherId === currentUser.uid);
+
+      // FILTER 1: Ensure only classes for this teacher
+      let filteredGrades = gradesData.filter(g => g.teacherId === currentUser.uid);
+
+      // FILTER 2: Filter by teacher's grade level
+      if (teacherGradeLevel) {
+        const gradeNumber = teacherGradeLevel.toString().replace(/[^0-9]/g, '');
+        console.log('🎯 Filtering classes for Grade', gradeNumber);
+
+        filteredGrades = filteredGrades.filter(g => {
+          // Extract grade number from class name (e.g., "Grade 4 - Narra" -> "4")
+          const classGradeMatch = g.name.match(/Grade\s*(\d+)/i) || g.name.match(/^(\d+)/);
+          const classGradeNumber = classGradeMatch ? classGradeMatch[1] : null;
+
+          const matches = classGradeNumber === gradeNumber;
+          console.log(`  Class "${g.name}" (Grade ${classGradeNumber}) ${matches ? '✓' : '✗'} matches teacher grade ${gradeNumber}`);
+          return matches;
+        });
+      }
+
       console.log('✅ Filtered classes:', filteredGrades.length);
-      
+
       // Continue with filtered grades
       console.log('Grades loaded successfully:', filteredGrades);
       // Get all students for the teacher
@@ -2189,29 +2217,29 @@ const ClassList: React.FC = () => {
                                   onClick={() => handleGenerateForm(student)}
                                   disabled={loadingStudentId === student.id || loadingISRStatus}
                                   className={`font-semibold px-2 py-1 rounded text-xs transition-colors flex items-center gap-1 ${loadingStudentId === student.id || loadingISRStatus
-                                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                      : student.id && studentsWithCompletedSessions.has(student.id)
+                                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                    : student.id && studentsWithCompletedSessions.has(student.id)
                                       ? 'bg-green-100 hover:bg-green-200 text-green-700'
                                       : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
                                     }`}
                                   title={loadingISRStatus
                                     ? 'Checking for completed sessions...'
                                     : student.id && studentsWithCompletedSessions.has(student.id)
-                                    ? `View Phil-IRI Form 3A for ${student.name} (has completed session data)`
-                                    : `Generate Phil-IRI Form 3A for ${student.name} (no completed sessions yet)`
+                                      ? `View Phil-IRI Form 3A for ${student.name} (has completed session data)`
+                                      : `Generate Phil-IRI Form 3A for ${student.name} (no completed sessions yet)`
                                   }
                                 >
-                                {loadingStudentId === student.id ? (
-                                  <>
-                                    <div className="w-3 h-3 border-2 border-gray-300 border-t-green-600 rounded-full animate-spin"></div>
-                                    Loading...
-                                  </>
-                                ) : (
-                                  <>
-                                    <i className="fas fa-file-alt"></i>
-                                    Form 3A
-                                  </>
-                                )}
+                                  {loadingStudentId === student.id ? (
+                                    <>
+                                      <div className="w-3 h-3 border-2 border-gray-300 border-t-green-600 rounded-full animate-spin"></div>
+                                      Loading...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <i className="fas fa-file-alt"></i>
+                                      Form 3A
+                                    </>
+                                  )}
                                 </button>
                               </div>
                             </td>
@@ -2748,8 +2776,8 @@ const ClassList: React.FC = () => {
                   onClick={handlePrintForm}
                   disabled={!formData}
                   className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${!formData
-                      ? 'bg-gray-400 text-white cursor-not-allowed'
-                      : 'bg-green-600 text-white hover:bg-green-700'
+                    ? 'bg-gray-400 text-white cursor-not-allowed'
+                    : 'bg-green-600 text-white hover:bg-green-700'
                     }`}
                 >
                   <i className="fas fa-print"></i>
