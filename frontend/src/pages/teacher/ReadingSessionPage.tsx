@@ -445,6 +445,7 @@ const ReadingSessionPage: React.FC = () => {
     setCurrentWordIndex(0);
 
     // --- MediaRecorder ---
+    // Note: MediaRecorder failure is non-blocking - speech recognition will still work
     if (navigator.mediaDevices && window.MediaRecorder) {
       navigator.mediaDevices
         .getUserMedia({ audio: true })
@@ -462,9 +463,10 @@ const ReadingSessionPage: React.FC = () => {
           };
           mediaRecorder.start();
         })
-        .catch(() => {
-          alert("Microphone access denied or not available.");
-          setIsRecording(false);
+        .catch((error) => {
+          // MediaRecorder failed, but don't block speech recognition
+          console.warn("MediaRecorder failed (audio recording disabled):", error);
+          // Don't set isRecording(false) - allow speech recognition to proceed
         });
     } else {
       console.warn("MediaRecorder not supported in this browser. Speech recognition will still work.");
@@ -479,9 +481,19 @@ const ReadingSessionPage: React.FC = () => {
         const wsUrl =
           (import.meta as any)?.env?.VITE_VOSK_WS_URL || "ws://localhost:2700";
         const startVosk = async () => {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            audio: { channelCount: 1, sampleRate: 48000 },
-          });
+          let stream: MediaStream;
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              audio: { channelCount: 1, sampleRate: 48000 },
+            });
+          } catch (error) {
+            // Vosk getUserMedia failed, fallback to Web Speech
+            console.warn("Vosk getUserMedia failed, falling back to Web Speech:", error);
+            cleanupVosk();
+            setVoskStatus("disconnected");
+            startWebSpeech();
+            return;
+          }
           const ctx = new (window.AudioContext ||
             (window as any).webkitAudioContext)({ sampleRate: 48000 });
           audioContextRef.current = ctx;
