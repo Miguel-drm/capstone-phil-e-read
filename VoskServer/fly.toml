@@ -1,0 +1,37 @@
+# Fly.io configuration for VoskServer
+# Fly.io free tier includes 3GB RAM - perfect for your 775MB model!
+
+app = "vosk-server"
+primary_region = "iad"  # Change to your preferred region (iad, ord, dfw, etc.)
+
+[build]
+
+[env]
+  VOSK_MODEL_PATH = "./model"
+  HUGGINGFACE_MODEL_REPO = "Migueldrm/vosk-model-tl-ph-generic-0.6"
+
+[http_service]
+  internal_port = 2700
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "10s"
+    timeout = "2s"
+    grace_period = "5s"
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 2700
+
+  [[services.ports]]
+    port = 2700
+    handlers = ["tls", "http"]
+
+[compute]
+  memory_mb = 1024  # 1GB RAM - sufficient for your model
+  cpu_kind = "shared"
+  cpus = 1
+
