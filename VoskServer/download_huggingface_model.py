@@ -52,11 +52,11 @@ def download_model():
         
         # Download from Hugging Face
         # snapshot_download downloads all files from the repo
+        # Note: resume_download and local_dir_use_symlinks are deprecated
+        # Downloads automatically resume and don't use symlinks anymore
         downloaded_path = snapshot_download(
             repo_id=MODEL_REPO,
-            local_dir=MODEL_DIR,
-            local_dir_use_symlinks=False,  # Use actual files, not symlinks
-            resume_download=True  # Resume if interrupted
+            local_dir=MODEL_DIR
         )
         
         print(f"✓ Model downloaded successfully to {MODEL_DIR}")

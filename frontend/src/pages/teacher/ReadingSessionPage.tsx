@@ -478,8 +478,11 @@ const ReadingSessionPage: React.FC = () => {
     const useVosk = storyLanguage === "tagalog";
     if (useVosk) {
       try {
+        // Railway WebSocket URL: wss://philiready-websocket-production.up.railway.app
+        // Can be overridden with VITE_VOSK_WS_URL environment variable
         const wsUrl =
-          (import.meta as any)?.env?.VITE_VOSK_WS_URL || "ws://localhost:2700";
+          (import.meta as any)?.env?.VITE_VOSK_WS_URL || 
+          "wss://philiready-websocket-production.up.railway.app";
         const startVosk = async () => {
           let stream: MediaStream;
           try {
