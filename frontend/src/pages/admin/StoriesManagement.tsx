@@ -300,20 +300,31 @@ export default function StoriesManagement() {
         confirmButtonText: 'Delete'
       });
       if (!result.isConfirmed) return;
+      
       await deleteDoc(doc(db, 'tests', testId));
-      // Refresh mapping after deletion
+      
+      console.log('Quiz deleted, refreshing test mapping...');
+      
+      // Refresh mapping after deletion - create a new object to ensure React detects the change
       const mapping: Record<string, { id: string; testName: string; questionsCount: number }[]> = {};
       if (Array.isArray(stories)) {
         for (const s of stories) {
           if (!s._id) continue;
           const q = query(collection(db, 'tests'), where('storyId', '==', String(s._id)));
           const snap = await getDocs(q);
-          mapping[String(s._id)] = snap.docs.map(d => ({ id: d.id, testName: String((d.data() as any).testName || 'Untitled Test'), questionsCount: Array.isArray((d.data() as any).questions) ? (d.data() as any).questions.length : 0 }));
+          const testsList = snap.docs.map(d => ({ id: d.id, testName: String((d.data() as any).testName || 'Untitled Test'), questionsCount: Array.isArray((d.data() as any).questions) ? (d.data() as any).questions.length : 0 }));
+          mapping[String(s._id)] = testsList;
+          console.log(`Story ${s._id}: ${testsList.length} tests found`);
         }
       }
+      
+      console.log('Updated mapping:', mapping);
+      // Force state update with a completely new object
       setStoryIdToTests(mapping);
-      Swal.fire('Deleted', 'Test has been deleted.', 'success');
+      
+      await Swal.fire('Deleted', 'Test has been deleted.', 'success');
     } catch (e) {
+      console.error('Error deleting test:', e);
       Swal.fire('Error', 'Failed to delete test', 'error');
     }
   };
@@ -482,8 +493,8 @@ export default function StoriesManagement() {
                                   {getDisplayLanguage(setStory.language)}
                                 </p>
                               </div>
-                              {/* Hide delete button when editing */}
-                              {editingTitleId !== setStory._id && (
+                              {/* Only show delete button when editing is not active AND no quiz exists */}
+                              {editingTitleId !== setStory._id && !hasTest && (
                                 <button
                                   onClick={() => setStory._id && handleDeleteStory(setStory._id)}
                                   className="flex-shrink-0 p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
