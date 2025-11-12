@@ -34,8 +34,8 @@ async def recognize(websocket, path, model):
 
 async def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", required=True, help="Path to Vosk model directory (root folder)")
-    parser.add_argument("--port", type=int, default=2700)
+    parser.add_argument("--model", default=os.getenv("VOSK_MODEL_PATH", "./model"), help="Path to Vosk model directory (root folder)")
+    parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "2700")))
     args = parser.parse_args()
 
     if not os.path.isdir(args.model):
