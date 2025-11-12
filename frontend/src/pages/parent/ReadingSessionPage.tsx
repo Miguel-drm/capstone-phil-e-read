@@ -361,7 +361,11 @@ const ReadingSessionPage: React.FC = () => {
     const useVosk = storyLanguage === 'tagalog';
     if (useVosk) {
       try {
-        const wsUrl = (import.meta as any)?.env?.VITE_VOSK_WS_URL || 'ws://localhost:2700';
+        // Railway WebSocket URL: wss://philiready-websocket-production.up.railway.app
+        // Can be overridden with VITE_VOSK_WS_URL environment variable
+        const wsUrl = 
+          (import.meta as any)?.env?.VITE_VOSK_WS_URL || 
+          'wss://philiready-websocket-production.up.railway.app';
         const startVosk = async () => {
           const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 48000 } });
           const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
@@ -914,26 +918,46 @@ const ReadingSessionPage: React.FC = () => {
 
   const [studentNames, setStudentNames] = useState<{ [id: string]: string }>({});
 
-  // Fetch student names when currentSession changes
+  // Extract student names from currentSession (students now contains both id and name)
   useEffect(() => {
-    const fetchNames = async () => {
-      if (!currentSession?.students) return;
-      const names: { [id: string]: string } = {};
-      await Promise.all(
-        currentSession.students.map(async (id) => {
+    if (!currentSession?.students) return;
+
+    // If students is an array of objects with id and name, use them directly
+    const names: { [id: string]: string } = {};
+    currentSession.students.forEach((student) => {
+      // Handle both old format (string[]) and new format ({id, name}[])
+      if (typeof student === 'string') {
+        // Old format: just ID, fetch name
+        names[student] = student; // Temporary, will be fetched below
+      } else if (student && typeof student === 'object' && 'id' in student && 'name' in student) {
+        // New format: object with id and name
+        names[student.id] = student.name;
+      }
+    });
+
+    // For old format strings, try to fetch names (backward compatibility)
+    const idsToFetch = currentSession.students
+      .filter(s => typeof s === 'string')
+      .map(s => s as string);
+
+    if (idsToFetch.length > 0) {
+      Promise.all(
+        idsToFetch.map(async (id) => {
           try {
             const student = await studentService.getStudent(id);
             if (student && student.name) {
               names[id] = student.name;
+            } else {
+              names[id] = id; // Fallback to ID if name not found
             }
           } catch (e) {
-            // ignore error, fallback to ID
+            names[id] = id; // Fallback to ID on error
           }
         })
-      );
+      ).then(() => setStudentNames(names));
+    } else {
       setStudentNames(names);
-    };
-    fetchNames();
+    }
   }, [currentSession]);
 
   if (isLoading) {
@@ -1149,11 +1173,18 @@ const ReadingSessionPage: React.FC = () => {
               <div className="rounded-xl bg-blue-100 shadow p-4 flex flex-col items-center">
                 <span className="text-blue-700 font-bold text-lg mb-1 flex items-center gap-2"><UserGroupIcon className="h-5 w-5 text-blue-500" />Students</span>
                 <div className="flex flex-wrap gap-1 justify-center">
-                  {currentSession?.students.map((student: string, idx: number) => (
-                    <span key={idx} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-200 text-blue-800 shadow-sm">
-                      {studentNames[student] || student}
-                    </span>
-                  ))}
+                  {currentSession?.students.map((student, idx: number) => {
+                    // Handle both old format (string) and new format ({id, name})
+                    const studentName = typeof student === 'string'
+                      ? (studentNames[student] || student)
+                      : student.name;
+
+                    return (
+                      <span key={idx} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-200 text-blue-800 shadow-sm">
+                        {studentName}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             )}
