@@ -120,7 +120,7 @@ const ReadingPractice: React.FC = () => {
         </div>
 
         {/* Stories Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 md:gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
           {storiesLoading ? (
             <Loader label="Loading stories..." />
           ) : storiesError ? (
@@ -136,9 +136,11 @@ const ReadingPractice: React.FC = () => {
                   </div>
                 </div>
                 <div className="p-4 flex-grow flex flex-col">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-lg font-semibold text-blue-900 line-clamp-1">{story.title}</h3>
-                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                  <div className="flex items-start gap-2 mb-2">
+                    <h3 className="text-base md:text-lg font-semibold text-blue-900 break-words leading-snug flex-1 min-w-0">
+                      {story.title}
+                    </h3>
+                    <span className={`px-2 py-1 text-xs font-semibold rounded-full flex-shrink-0 ${
                       story.language === 'tagalog' 
                         ? 'bg-green-100 text-green-800' 
                         : 'bg-blue-100 text-blue-800'
@@ -146,13 +148,13 @@ const ReadingPractice: React.FC = () => {
                       {story.language || 'English'}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-500 mb-4 line-clamp-2 flex-grow">
+                  <p className="text-sm text-gray-500 mb-4 break-words flex-grow">
                     {story.description || 'No description available'}
                   </p>
-                  <div className="flex items-center justify-between mt-auto gap-2">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between mt-auto gap-2">
                     <button
                       onClick={() => handleViewStoryDetails(story)}
-                      className="inline-flex items-center text-blue-600 hover:text-white hover:bg-blue-500 px-3 py-1.5 rounded-md text-sm font-medium transition-colors"
+                      className="inline-flex items-center justify-center text-blue-600 hover:text-white hover:bg-blue-500 px-3 py-2 rounded-md text-sm font-medium transition-colors"
                     >
                       <span>Details</span>
                       <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -161,7 +163,7 @@ const ReadingPractice: React.FC = () => {
                     </button>
                     <button
                       onClick={() => handleStartPractice(story)}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white rounded-md text-sm font-medium transition-all duration-200 shadow-sm hover:shadow-md"
+                      className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white rounded-md text-sm font-medium transition-all duration-200 shadow-sm hover:shadow-md"
                     >
                       <PlayIcon className="h-4 w-4" />
                       Practice
