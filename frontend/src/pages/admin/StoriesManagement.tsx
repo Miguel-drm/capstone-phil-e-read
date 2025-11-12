@@ -18,10 +18,10 @@ export default function StoriesManagement() {
   const [stories, setStories] = useState<Story[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [targetGradeSet, setTargetGradeSet] = useState<{grade: '3' | '4' | '5' | '6', set: 'A' | 'B' | 'C' | 'D'} | null>(null);
+  const [targetGradeSet, setTargetGradeSet] = useState<{ grade: '3' | '4' | '5' | '6', set: 'A' | 'B' | 'C' | 'D' } | null>(null);
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>('');
-  const [viewMode, setViewMode] = useState<'list' | 'sets'>('sets');
+  const viewMode = 'sets'; // Fixed to sets view only
   const [filters, setFilters] = useState<StoryFilters>({
     language: '',
     set: ''
@@ -69,7 +69,7 @@ export default function StoriesManagement() {
       const filterParams: any = {};
       if (filters.language) filterParams.language = filters.language;
       if (filters.set) filterParams.set = filters.set;
-      
+
       const storiesData = await UnifiedStoryService.getInstance().getStories(filterParams);
       console.log('API /api/stories response:', storiesData);
       if (!Array.isArray(storiesData)) {
@@ -83,7 +83,7 @@ export default function StoriesManagement() {
           storySet: s.storySet,
           id: s._id
         })));
-        
+
         // Client-side filtering for set if backend doesn't support it yet
         let filteredStories = storiesData;
         if (filters.set) {
@@ -113,10 +113,10 @@ export default function StoriesManagement() {
         Swal.fire('Error', 'Please upload a valid PDF file', 'error');
         return;
       }
-      
+
       // If we have a target grade-set, assign the story directly to it
       let finalStoryData = { ...storyData };
-      
+
       if (targetGradeSet) {
         const key = `${targetGradeSet.grade}-${targetGradeSet.set}`;
         // Check if target grade-set already has a story
@@ -131,22 +131,22 @@ export default function StoriesManagement() {
             confirmButtonText: 'Replace',
             cancelButtonText: 'Cancel'
           });
-          
+
           if (!result.isConfirmed) {
             return;
           }
-          
+
           // Delete the existing story in this grade-set
           await UnifiedStoryService.getInstance().deleteStory(groupedStories[key]._id!);
         }
-        
+
         // Assign to the target grade-set
         finalStoryData = {
           ...storyData,
           grade: targetGradeSet.grade,
           storySet: targetGradeSet.set
         };
-        
+
         console.log('🔍 Frontend sending to backend:', {
           targetGradeSet: targetGradeSet,
           finalStoryData: finalStoryData,
@@ -154,12 +154,12 @@ export default function StoriesManagement() {
           expectedSet: targetGradeSet.set
         });
       }
-      
+
       await UnifiedStoryService.getInstance().createStory(finalStoryData, file);
       setShowAddModal(false);
       setTargetGradeSet(null);
       await loadStories();
-      
+
       if (targetGradeSet) {
         Swal.fire('Success', `Story added to Grade ${targetGradeSet.grade} Set ${targetGradeSet.set}!`, 'success');
       } else {
@@ -288,14 +288,14 @@ export default function StoriesManagement() {
     const grade = story.grade || '3';
     const set = story.storySet || 'A';
     const key = `${grade}-${set}`;
-    
+
     console.log('🔍 Grouping story:', {
       title: story.title,
       grade: story.grade,
       storySet: story.storySet,
       computedKey: key
     });
-    
+
     // If there's already a story in this slot, this one becomes unassigned
     if (acc[key]) {
       console.log(`⚠️ Conflict: ${key} already has "${acc[key].title}", "${story.title}" will be unassigned`);
@@ -312,7 +312,7 @@ export default function StoriesManagement() {
     if (!story.storySet || !story.grade) {
       return true;
     }
-    
+
     // Check if this story's grade-set combination is already taken by another story
     const storiesInSameGradeSet = stories.filter(s => s.grade === story.grade && s.storySet === story.storySet);
     if (storiesInSameGradeSet.length > 1) {
@@ -339,7 +339,7 @@ export default function StoriesManagement() {
           confirmButtonText: 'Replace',
           cancelButtonText: 'Cancel'
         });
-        
+
         if (!result.isConfirmed) return;
       }
 
@@ -366,53 +366,36 @@ export default function StoriesManagement() {
             </p>
           )}
         </div>
-        <div className="flex gap-3">
-          <div className="flex bg-gray-100 rounded-lg p-1">
-            <button
-              onClick={() => setViewMode('sets')}
-              className={`px-3 py-1 rounded text-sm ${
-                viewMode === 'sets' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              Sets View
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`px-3 py-1 rounded text-sm ${
-                viewMode === 'list' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              List View
-            </button>
-          </div>
-{/* Add New Story button removed */}
-        </div>
-      </div>
 
-      <div className="mb-6 flex gap-4">
-        <select
-          value={filters.language}
-          onChange={(e) => setFilters({ ...filters, language: e.target.value })}
-          className="border rounded-lg px-4 py-2"
-        >
-          <option value="">All Languages</option>
-          <option value="english">English</option>
-          <option value="tagalog">Tagalog</option>
-        </select>
-        
-        {viewMode === 'list' && (
-          <select
-            value={filters.set}
-            onChange={(e) => setFilters({ ...filters, set: e.target.value })}
-            className="border rounded-lg px-4 py-2"
+        <div className="inline-flex rounded-full bg-gray-100 p-1">
+          <button
+            onClick={() => setFilters({ ...filters, language: '' })}
+            className={`px-6 py-2 rounded-full text-sm font-medium transition-all ${filters.language === ''
+              ? 'bg-blue-500 text-white shadow-md'
+              : 'text-gray-600 hover:text-gray-800'
+              }`}
           >
-            <option value="">All Sets</option>
-            <option value="A">Set A</option>
-            <option value="B">Set B</option>
-            <option value="C">Set C</option>
-            <option value="D">Set D</option>
-          </select>
-        )}
+            All Languages
+          </button>
+          <button
+            onClick={() => setFilters({ ...filters, language: 'english' })}
+            className={`px-6 py-2 rounded-full text-sm font-medium transition-all ${filters.language === 'english'
+              ? 'bg-blue-500 text-white shadow-md'
+              : 'text-gray-600 hover:text-gray-800'
+              }`}
+          >
+            English
+          </button>
+          <button
+            onClick={() => setFilters({ ...filters, language: 'tagalog' })}
+            className={`px-6 py-2 rounded-full text-sm font-medium transition-all ${filters.language === 'tagalog'
+              ? 'bg-blue-500 text-white shadow-md'
+              : 'text-gray-600 hover:text-gray-800'
+              }`}
+          >
+            Tagalog
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -428,7 +411,7 @@ export default function StoriesManagement() {
                   Grade {grade}
                 </h2>
               </div>
-              
+
               {/* Sets A B C D in horizontal row */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 {['A', 'B', 'C', 'D'].map(setLetter => {
@@ -438,32 +421,28 @@ export default function StoriesManagement() {
                   const tests = setStory ? (storyIdToTests[String(setStory._id)] || []) : [];
                   const hasTest = tests.length > 0;
                   const isComplete = hasStory && hasTest;
-                  
+
                   return (
-                    <div key={setLetter} className={`bg-white rounded-xl border-2 p-6 transition-all hover:shadow-lg ${
-                      isComplete ? 'border-green-200 hover:border-green-300' : 
-                      hasStory ? 'border-yellow-200 hover:border-yellow-300' : 
-                      'border-gray-200 hover:border-gray-300'
-                    }`}>
+                    <div key={setLetter} className={`bg-white rounded-xl border-2 p-6 transition-all hover:shadow-lg ${isComplete ? 'border-green-200 hover:border-green-300' :
+                      hasStory ? 'border-yellow-200 hover:border-yellow-300' :
+                        'border-gray-200 hover:border-gray-300'
+                      }`}>
                       {/* Set Header */}
                       <div className="text-center mb-4">
-                        <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center text-2xl font-bold mb-3 ${
-                          isComplete ? 'bg-green-100 text-green-700' :
+                        <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center text-2xl font-bold mb-3 ${isComplete ? 'bg-green-100 text-green-700' :
                           hasStory ? 'bg-yellow-100 text-yellow-700' :
-                          'bg-gray-100 text-gray-500'
-                        }`}>
+                            'bg-gray-100 text-gray-500'
+                          }`}>
                           {setLetter}
                         </div>
                         <h3 className="text-xl font-bold text-gray-800">Set {setLetter}</h3>
                         <div className="flex justify-center gap-2 mt-2">
-                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                            hasStory ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'
-                          }`}>
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${hasStory ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'
+                            }`}>
                             {hasStory ? '✓' : '○'} Story
                           </span>
-                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                            hasTest ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'
-                          }`}>
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${hasTest ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'
+                            }`}>
                             {hasTest ? '✓' : '○'} Quiz
                           </span>
                         </div>
@@ -669,7 +648,7 @@ export default function StoriesManagement() {
                         )}
                       </div>
                     </div>
-                    
+
                     {/* Grade-Set Assignment Grid */}
                     <div className="space-y-2 mt-3">
                       {['3', '4', '5', '6'].map(gradeLevel => (
@@ -683,11 +662,10 @@ export default function StoriesManagement() {
                                 <button
                                   key={setLetter}
                                   onClick={() => assignStoryToGradeSet(story, gradeLevel as '3' | '4' | '5' | '6', setLetter as 'A' | 'B' | 'C' | 'D')}
-                                  className={`flex-1 py-1 px-2 rounded text-xs font-medium transition-colors ${
-                                    isOccupied
-                                      ? 'bg-gray-100 text-gray-500 hover:bg-gray-200' 
-                                      : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                                  }`}
+                                  className={`flex-1 py-1 px-2 rounded text-xs font-medium transition-colors ${isOccupied
+                                    ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                    : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                    }`}
                                   title={isOccupied ? `Grade ${gradeLevel} Set ${setLetter} occupied` : `Assign to Grade ${gradeLevel} Set ${setLetter}`}
                                 >
                                   {setLetter}
@@ -697,7 +675,7 @@ export default function StoriesManagement() {
                           </div>
                         </div>
                       ))}
-                      
+
                       {/* Story Actions */}
                       <div className="flex gap-1 pt-2 border-t border-gray-200">
                         <button
@@ -801,28 +779,29 @@ export default function StoriesManagement() {
                         const testsForStory = storyIdToTests[String(story._id)] || [];
                         const canDelete = testsForStory.length > 1;
                         return testsForStory.map(t => (
-                        <div key={t.id} className="w-full h-24 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors px-5 py-4 flex items-center justify-between">
-                          <div className="min-w-0 pr-4">
-                            <div className="flex items-center gap-3">
-                              <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-700 text-sm font-bold">T</span>
-                              <div className="min-w-0">
-                                <div className="text-sm font-semibold text-gray-900 truncate" title={t.testName}>{t.testName}</div>
-                                <div className="mt-1">
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-                                    {t.questionsCount} question{t.questionsCount === 1 ? '' : 's'}
-                                  </span>
+                          <div key={t.id} className="w-full h-24 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors px-5 py-4 flex items-center justify-between">
+                            <div className="min-w-0 pr-4">
+                              <div className="flex items-center gap-3">
+                                <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-700 text-sm font-bold">T</span>
+                                <div className="min-w-0">
+                                  <div className="text-sm font-semibold text-gray-900 truncate" title={t.testName}>{t.testName}</div>
+                                  <div className="mt-1">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                                      {t.questionsCount} question{t.questionsCount === 1 ? '' : 's'}
+                                    </span>
+                                  </div>
                                 </div>
                               </div>
                             </div>
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => handleOpenViewTest(t.id)} className="px-3 py-1.5 rounded-md border border-blue-200 text-blue-700 text-xs font-medium hover:bg-blue-50">View</button>
+                              {canDelete && (
+                                <button onClick={() => handleDeleteTest(t.id)} className="px-3 py-1.5 rounded-md border border-red-200 text-red-600 text-xs font-medium hover:bg-red-50">Delete</button>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <button onClick={() => handleOpenViewTest(t.id)} className="px-3 py-1.5 rounded-md border border-blue-200 text-blue-700 text-xs font-medium hover:bg-blue-50">View</button>
-                            {canDelete && (
-                              <button onClick={() => handleDeleteTest(t.id)} className="px-3 py-1.5 rounded-md border border-red-200 text-red-600 text-xs font-medium hover:bg-red-50">Delete</button>
-                            )}
-                          </div>
-                        </div>
-                      )); })()}
+                        ));
+                      })()}
                     </div>
                   ) : (
                     <p className="text-sm text-gray-400">No tests yet.</p>
