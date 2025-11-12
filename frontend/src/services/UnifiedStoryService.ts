@@ -152,11 +152,35 @@ export class UnifiedStoryService {
       };
 
       const response = await axios.get(this.STORIES_URL, { params: normalizedFilters });
-      console.log('Stories fetched successfully, count:', response.data.length);
-      return response.data;
+      
+      // Handle different response formats from backend
+      let stories: Story[] = [];
+      if (Array.isArray(response.data)) {
+        stories = response.data;
+      } else if (response.data && Array.isArray(response.data.data)) {
+        // Backend wrapped in { data: [...] }
+        stories = response.data.data;
+      } else if (response.data && Array.isArray(response.data.stories)) {
+        // Backend wrapped in { stories: [...] }
+        stories = response.data.stories;
+      } else if (response.data && typeof response.data === 'object') {
+        // Single object or unexpected format, log and return empty array
+        console.warn('Unexpected response format from stories API:', response.data);
+        stories = [];
+      } else {
+        stories = [];
+      }
+      
+      console.log('Stories fetched successfully, count:', stories.length);
+      return stories;
     } catch (error) {
       console.error('Error fetching stories:', error);
-      throw error;
+      if (axios.isAxiosError(error)) {
+        console.error('Response status:', error.response?.status);
+        console.error('Response data:', error.response?.data);
+      }
+      // Return empty array instead of throwing to prevent UI crashes
+      return [];
     }
   }
 
@@ -186,11 +210,25 @@ export class UnifiedStoryService {
       const response = await axios.get(`${this.STORIES_URL}/search`, {
         params: { searchTerm }
       });
-      console.log('Stories found:', response.data.length);
-      return response.data;
+      
+      // Handle different response formats from backend
+      let stories: Story[] = [];
+      if (Array.isArray(response.data)) {
+        stories = response.data;
+      } else if (response.data && Array.isArray(response.data.data)) {
+        stories = response.data.data;
+      } else if (response.data && Array.isArray(response.data.stories)) {
+        stories = response.data.stories;
+      } else {
+        stories = [];
+      }
+      
+      console.log('Stories found:', stories.length);
+      return stories;
     } catch (error) {
       console.error('Error searching stories:', error);
-      throw error;
+      // Return empty array instead of throwing to prevent UI crashes
+      return [];
     }
   }
 
