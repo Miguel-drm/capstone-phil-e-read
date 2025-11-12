@@ -16,6 +16,8 @@ import { resultService } from './services/resultService.js';
 import { isrResultService } from './services/isrResultService.js';
 import type { Readable } from 'stream';
 import { adminDb, firestoreAdmin } from './config/firebaseAdmin.js';
+import { db as firestore } from './config/firebase.js';
+import { collection, query, where, getDocs, deleteDoc, doc } from 'firebase/firestore';
 // Removed Node Vosk integration; using external Python Vosk WS instead
 
 dotenv.config();
@@ -453,7 +455,39 @@ app.get('/api/test', (req, res) => {
 
     app.delete('/api/stories/:id', async (req: Request, res: Response) => {
       try {
-        await mongoStoryService.deleteStory(req.params.id);
+        const storyId = req.params.id;
+        console.log(`🗑️ DELETE /api/stories/${storyId} - Starting deletion process`);
+        
+        // Delete associated tests/quizzes from Firebase
+        try {
+          console.log(`🔍 Searching for tests with storyId: ${storyId}`);
+          const testsQuery = query(collection(firestore, 'tests'), where('storyId', '==', storyId));
+          const testsSnapshot = await getDocs(testsQuery);
+          
+          console.log(`📊 Found ${testsSnapshot.size} test(s) associated with story ${storyId}`);
+          
+          if (testsSnapshot.size > 0) {
+            // Log the test details for debugging
+            testsSnapshot.docs.forEach(testDoc => {
+              const testData = testDoc.data();
+              console.log(`  - Test ID: ${testDoc.id}, Test Name: ${testData.testName}, Story ID: ${testData.storyId}`);
+            });
+          }
+          
+          // Delete each test
+          for (const testDoc of testsSnapshot.docs) {
+            await deleteDoc(doc(firestore, 'tests', testDoc.id));
+            console.log(`✅ Deleted test ${testDoc.id} for story ${storyId}`);
+          }
+        } catch (firebaseError) {
+          console.error('❌ Error deleting associated tests from Firebase:', firebaseError);
+          // Continue with story deletion even if Firebase deletion fails
+        }
+        
+        // Delete the story from MongoDB
+        console.log(`🗄️ Deleting story from MongoDB: ${storyId}`);
+        await mongoStoryService.deleteStory(storyId);
+        console.log(`✅ Story ${storyId} deleted successfully`);
         res.status(204).send(); // No Content
         return;
       } catch (error) {
