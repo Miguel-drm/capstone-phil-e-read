@@ -44,7 +44,6 @@ export default function StoriesManagement() {
 
   // Helper function to convert stored language codes to display names
   const getDisplayLanguage = (language: string | undefined): string => {
-    console.log('getDisplayLanguage called with:', language, 'type:', typeof language);
     if (!language) return '';
     switch (language) {
       case 'en':
@@ -70,19 +69,13 @@ export default function StoriesManagement() {
       if (filters.language) filterParams.language = filters.language;
       if (filters.set) filterParams.set = filters.set;
 
+      console.log('🔍 Loading stories with filter params:', filterParams);
       const storiesData = await UnifiedStoryService.getInstance().getStories(filterParams);
-      console.log('API /api/stories response:', storiesData);
+      console.log('📚 Received stories:', storiesData.length, storiesData.map(s => ({ title: s.title, language: s.language })));
       if (!Array.isArray(storiesData)) {
         console.error('API did not return an array:', storiesData);
         setStories([]);
       } else {
-        // Debug: Log what we received from the API
-        console.log('🔍 Stories from database:', storiesData.map(s => ({
-          title: s.title,
-          grade: s.grade,
-          storySet: s.storySet,
-          id: s._id
-        })));
 
         // Client-side filtering for language and set
         let filteredStories = storiesData;
@@ -202,14 +195,39 @@ export default function StoriesManagement() {
         return;
       }
 
-      await UnifiedStoryService.getInstance().updateStory(storyId, { title: editingTitle.trim() });
+      // Fetch the story fresh from the backend to get all current values
+      const allStories = await UnifiedStoryService.getInstance().getStories({});
+      const freshStory = allStories.find(s => s._id === storyId);
+      
+      if (!freshStory) {
+        Swal.fire('Error', 'Story not found', 'error');
+        return;
+      }
+
+      // Build update object with only defined values
+      const updatePayload: any = {
+        title: editingTitle.trim(),
+        description: freshStory.description || 'A story for reading assessment.',
+        isActive: freshStory.isActive !== undefined ? freshStory.isActive : true
+      };
+      
+      // Only include fields that have values
+      if (freshStory.language) updatePayload.language = freshStory.language;
+      if (freshStory.grade) updatePayload.grade = freshStory.grade;
+      if (freshStory.storySet) updatePayload.storySet = freshStory.storySet;
+      if (freshStory.readingLevel) updatePayload.readingLevel = freshStory.readingLevel;
+      if (freshStory.categories && freshStory.categories.length > 0) updatePayload.categories = freshStory.categories;
+
+      await UnifiedStoryService.getInstance().updateStory(storyId, updatePayload);
+      
       await loadStories();
       setEditingTitleId(null);
       setEditingTitle('');
       Swal.fire('Success', 'Story title updated successfully', 'success');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating story title:', error);
-      Swal.fire('Error', 'Failed to update story title', 'error');
+      const errorMessage = error?.response?.data?.error || error?.response?.data?.details || error?.message || 'Failed to update story title';
+      Swal.fire('Error', errorMessage, 'error');
     }
   };
 
@@ -306,19 +324,11 @@ export default function StoriesManagement() {
     const set = story.storySet || 'A';
     const key = `${grade}-${set}`;
 
-    console.log('🔍 Grouping story:', {
-      title: story.title,
-      grade: story.grade,
-      storySet: story.storySet,
-      computedKey: key
-    });
-
     // If there's already a story in this slot, this one becomes unassigned
     if (acc[key]) {
-      console.log(`⚠️ Conflict: ${key} already has "${acc[key].title}", "${story.title}" will be unassigned`);
+      // Conflict: multiple stories in same grade-set
     } else {
       acc[key] = story; // Only one story per grade-set combination
-      console.log(`✅ Assigned "${story.title}" to ${key}`);
     }
     return acc;
   }, {} as Record<string, Story>) : {};
@@ -409,11 +419,11 @@ export default function StoriesManagement() {
                         <div className="space-y-3">
                           {/* Story Info */}
                           <div className="bg-gray-50 rounded-lg p-3 group">
-                            <div className="flex items-start justify-between">
+                            <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0 flex-1">
                                 {editingTitleId === setStory._id ? (
-                                  <div className="flex items-center gap-2">
-                                    <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <div className="flex items-center gap-1">
+                                    <svg className="w-4 h-4 text-gray-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                                     </svg>
                                     <input
@@ -427,22 +437,26 @@ export default function StoriesManagement() {
                                           handleCancelEditTitle();
                                         }
                                       }}
-                                      className="flex-1 text-sm font-medium border border-blue-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                      className="flex-1 min-w-0 text-sm font-medium border-2 border-blue-400 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                       autoFocus
                                     />
                                     <button
                                       onClick={() => setStory._id && handleSaveTitle(setStory._id)}
-                                      className="text-green-600 hover:text-green-800 text-xs px-1"
+                                      className="flex-shrink-0 p-1 text-green-600 hover:bg-green-50 rounded transition-colors"
                                       title="Save"
                                     >
-                                      ✓
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                      </svg>
                                     </button>
                                     <button
                                       onClick={handleCancelEditTitle}
-                                      className="text-gray-600 hover:text-gray-800 text-xs px-1"
+                                      className="flex-shrink-0 p-1 text-gray-600 hover:bg-gray-100 rounded transition-colors"
                                       title="Cancel"
                                     >
-                                      ✕
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                      </svg>
                                     </button>
                                   </div>
                                 ) : (
@@ -450,15 +464,17 @@ export default function StoriesManagement() {
                                     <svg className="w-4 h-4 text-gray-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                                     </svg>
-                                    <h4 className="font-medium text-gray-900 text-sm truncate" title={setStory.title}>
+                                    <h4 className="font-medium text-gray-900 text-sm truncate flex-1 min-w-0" title={setStory.title}>
                                       {setStory.title}
                                     </h4>
                                     <button
                                       onClick={() => handleStartEditTitle(setStory)}
-                                      className="text-blue-600 hover:text-blue-800 text-xs px-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                                      className="flex-shrink-0 p-1 text-blue-600 hover:bg-blue-50 rounded opacity-0 group-hover:opacity-100 transition-all"
                                       title="Edit title"
                                     >
-                                      ✏️
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                      </svg>
                                     </button>
                                   </div>
                                 )}
@@ -466,15 +482,18 @@ export default function StoriesManagement() {
                                   {getDisplayLanguage(setStory.language)}
                                 </p>
                               </div>
-                              <div className="flex gap-1 ml-2">
+                              {/* Hide delete button when editing */}
+                              {editingTitleId !== setStory._id && (
                                 <button
                                   onClick={() => setStory._id && handleDeleteStory(setStory._id)}
-                                  className="text-red-600 hover:text-red-800 text-xs px-1"
+                                  className="flex-shrink-0 p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
                                   title="Delete story"
                                 >
-                                  🗑️
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
                                 </button>
-                              </div>
+                              )}
                             </div>
                           </div>
 
