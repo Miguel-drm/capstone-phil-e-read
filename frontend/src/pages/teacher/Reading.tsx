@@ -55,6 +55,14 @@ const Reading: React.FC = () => {
       setStoriesError(null);
       const fetchedStories = await UnifiedStoryService.getInstance().getStories({}); // Fetch all stories initially
       
+      // Ensure fetchedStories is an array (safety check)
+      if (!Array.isArray(fetchedStories)) {
+        console.error('Expected array but got:', typeof fetchedStories, fetchedStories);
+        setStories([]);
+        setStoriesError('Invalid response format from server');
+        return;
+      }
+      
       // Filter stories based on teacher's grade level
       let filteredStories = fetchedStories;
       if (teacherGradeLevel) {
