@@ -44,12 +44,19 @@ const audioUpload = multer({ storage: multer.memoryStorage() });
 
 // Middleware - CORS configuration
 // Allow localhost:3000 for local development and production URLs
-const allowedOrigins = [
+const defaultAllowedOrigins = [
   'http://localhost:3000',  // Main frontend port
-  'https://phil-e-read-1.onrender.com',
-  'https://phil-e-read-7p2c.onrender.com',
-  'https://phileread-api.onrender.com'
+  // 'https://phil-e-read-1.onrender.com',
+  // 'https://phil-e-read-7p2c.onrender.com',
+  'https://phileread-api.onrender.com',
+  'https://phileread-frontend.onrender.com'
 ];
+
+const envAllowedOrigins = process.env.CORS_ALLOWED_ORIGINS
+  ? process.env.CORS_ALLOWED_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean)
+  : [];
+
+const allowedOrigins = Array.from(new Set([...defaultAllowedOrigins, ...envAllowedOrigins]));
 
 app.use(cors({
   origin: (origin, callback) => {
