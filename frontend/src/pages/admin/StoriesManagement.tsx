@@ -23,7 +23,7 @@ export default function StoriesManagement() {
   const [editingTitle, setEditingTitle] = useState<string>('');
   const viewMode = 'sets'; // Fixed to sets view only
   const [filters, setFilters] = useState<StoryFilters>({
-    language: '',
+    language: 'english', // Default to English filter
     set: ''
   });
   const { currentUser } = useAuth();
@@ -84,11 +84,26 @@ export default function StoriesManagement() {
           id: s._id
         })));
 
-        // Client-side filtering for set if backend doesn't support it yet
+        // Client-side filtering for language and set
         let filteredStories = storiesData;
-        if (filters.set) {
-          filteredStories = storiesData.filter(story => story.storySet === filters.set);
+        
+        // Filter by language
+        if (filters.language && filters.language !== '') {
+          filteredStories = filteredStories.filter(story => {
+            const storyLang = String(story.language || '').toLowerCase();
+            const filterLang = (filters.language || '').toLowerCase();
+            // Match exact language or legacy values (en -> english, none -> tagalog)
+            return storyLang === filterLang || 
+                   (filterLang === 'english' && storyLang === 'en') ||
+                   (filterLang === 'tagalog' && storyLang === 'none');
+          });
         }
+        
+        // Filter by set
+        if (filters.set) {
+          filteredStories = filteredStories.filter(story => story.storySet === filters.set);
+        }
+        
         setStories(filteredStories);
       }
     } catch (error) {
@@ -144,14 +159,16 @@ export default function StoriesManagement() {
         finalStoryData = {
           ...storyData,
           grade: targetGradeSet.grade,
-          storySet: targetGradeSet.set
+          storySet: targetGradeSet.set,
+          language: storyData.language // Explicitly preserve language
         };
 
         console.log('🔍 Frontend sending to backend:', {
           targetGradeSet: targetGradeSet,
           finalStoryData: finalStoryData,
           expectedGrade: targetGradeSet.grade,
-          expectedSet: targetGradeSet.set
+          expectedSet: targetGradeSet.set,
+          language: finalStoryData.language
         });
       }
 
@@ -313,17 +330,12 @@ export default function StoriesManagement() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Stories Management</h1>
-          {viewMode === 'sets' && (
-            <p className="text-sm text-gray-600 mt-1">
-              Stories organized by grade levels (3, 4, 5, 6) with sets A, B, C, D for each grade
-            </p>
-          )}
         </div>
 
         <div className="inline-flex rounded-full bg-gray-100 p-1">
           <button
             onClick={() => setFilters({ ...filters, language: 'english' })}
-            className={`px-6 py-2 rounded-full text-sm font-medium transition-all ${filters.language === 'english' || filters.language === ''
+            className={`px-6 py-2 rounded-full text-sm font-medium transition-all ${filters.language === 'english'
               ? 'bg-blue-500 text-white shadow-md'
               : 'text-gray-600 hover:text-gray-800'
               }`}
@@ -712,6 +724,7 @@ export default function StoriesManagement() {
         }}
         onSave={handleAddStory}
         targetGradeSet={targetGradeSet}
+        defaultLanguage={filters.language === 'tagalog' ? 'tagalog' : 'english'}
       />
 
 

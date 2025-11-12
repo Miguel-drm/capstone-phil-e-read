@@ -98,9 +98,10 @@ const StorySchema: Schema = new Schema({
 });
 
 // Add text index for search functionality
-StorySchema.index({ title: 'text', description: 'text', textContent: 'text' }, {
-  language_override: 'language',
-  default_language: 'en'
-});
+// Note: Not using language_override to allow custom language values (tagalog, english)
+// Commenting out automatic index creation - we'll create it manually via script
+// StorySchema.index({ title: 'text', description: 'text', textContent: 'text' }, {
+//   default_language: 'none'
+// });
 
 export default mongoose.model<IStory>('Story', StorySchema);
