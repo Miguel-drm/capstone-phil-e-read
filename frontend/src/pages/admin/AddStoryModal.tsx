@@ -7,6 +7,7 @@ interface AddStoryModalProps {
   onClose: () => void;
   onSave: (storyData: Pick<Story, 'title' | 'description' | 'language'>, file: File) => Promise<void>;
   targetGradeSet?: { grade: '3' | '4' | '5' | '6', set: 'A' | 'B' | 'C' | 'D' } | null;
+  defaultLanguage?: 'english' | 'tagalog';
 }
 
 const AddStoryModal: React.FC<AddStoryModalProps> = ({
@@ -14,11 +15,12 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
   onClose,
   onSave,
   targetGradeSet,
+  defaultLanguage = 'english',
 }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [language, setLanguage] = useState<'english' | 'tagalog'>('english');
+  const [language, setLanguage] = useState<'english' | 'tagalog'>(defaultLanguage);
   const [isSaving, setIsSaving] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -28,11 +30,14 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
       setTitle('');
       setDescription('');
       setSelectedFile(null);
-      setLanguage('english');
+      setLanguage(defaultLanguage);
       setIsSaving(false);
       setIsDragOver(false);
+    } else {
+      // Set language when modal opens
+      setLanguage(defaultLanguage);
     }
-  }, [isOpen]);
+  }, [isOpen, defaultLanguage]);
 
   // Drag and drop handlers
   const handleDragOver = (e: React.DragEvent) => {
@@ -111,16 +116,21 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
       style={{ backgroundColor: 'rgba(0,0,0,0.4)' }} // Directly set background color with rgba
     >
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
-        <h2 className="text-xl font-semibold text-gray-800 mb-6 text-center">
+        <h2 className="text-xl font-semibold text-gray-800 mb-4 text-center">
           {targetGradeSet ? `Add Story to Grade ${targetGradeSet.grade} Set ${targetGradeSet.set}` : 'Add New Story'}
         </h2>
         <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
           <p className="text-sm text-blue-800">
-            <strong>Note:</strong> {targetGradeSet
-              ? `Story will be added directly to Grade ${targetGradeSet.grade} Set ${targetGradeSet.set}.`
-              : 'Story will be added to the available stories pool. You can assign it to a set later from the main view.'
+            <strong>Adding to:</strong> {targetGradeSet
+              ? `Grade ${targetGradeSet.grade}, Set ${targetGradeSet.set}, ${language === 'english' ? 'English' : 'Tagalog'} language`
+              : 'Available stories pool'
             }
           </p>
+          {targetGradeSet && (
+            <p className="text-xs text-blue-600 mt-1">
+              The story will be automatically assigned to this specific set and language.
+            </p>
+          )}
         </div>
         <div className="space-y-4">
           <div>
@@ -205,12 +215,15 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
 
 
           <div>
-            <label htmlFor="language" className="block text-sm font-medium text-gray-700 mb-1">Language</label>
+            <label htmlFor="language" className="block text-sm font-medium text-gray-700 mb-1">
+              Language {targetGradeSet && <span className="text-xs text-gray-500">(auto-selected based on current filter)</span>}
+            </label>
             <select
               id="language"
               value={language}
               onChange={(e) => setLanguage(e.target.value as 'english' | 'tagalog')}
-              className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm"
+              disabled={!!targetGradeSet}
+              className={`w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm ${targetGradeSet ? 'bg-gray-100 cursor-not-allowed' : ''}`}
             >
               <option value="english">English</option>
               <option value="tagalog">Tagalog</option>

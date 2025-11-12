@@ -68,11 +68,20 @@ const Reading: React.FC = () => {
       setStoriesError(null);
       const fetchedStories = await UnifiedStoryService.getInstance().getStories({}); // Fetch all stories initially
       
+      console.log('📚 All fetched stories:', fetchedStories.map(s => ({ title: s.title, grade: s.grade, set: s.storySet, language: s.language })));
+      console.log('👨‍🏫 Teacher grade level:', teacherGradeLevel);
+      
       // Filter stories based on teacher's grade level
       let filteredStories = fetchedStories;
       if (teacherGradeLevel) {
-        filteredStories = fetchedStories.filter(story => story.grade === teacherGradeLevel);
-        console.log(`Filtered stories for Grade ${teacherGradeLevel}:`, filteredStories.length, 'out of', fetchedStories.length);
+        // Normalize both values for comparison (remove spaces, convert to string, compare numbers)
+        filteredStories = fetchedStories.filter(story => {
+          const storyGrade = String(story.grade || '').replace(/[^0-9]/g, '').trim();
+          const teacherGrade = String(teacherGradeLevel).replace(/[^0-9]/g, '').trim();
+          return storyGrade === teacherGrade;
+        });
+        console.log(`✅ Filtered stories for Grade ${teacherGradeLevel}:`, filteredStories.length, 'out of', fetchedStories.length);
+        console.log('📖 Filtered stories details:', filteredStories.map(s => ({ title: s.title, grade: s.grade, set: s.storySet, language: s.language })));
       }
       
       // Map IStory[] to Story[] to ensure type compatibility and add pdfUrl
@@ -548,13 +557,13 @@ const Reading: React.FC = () => {
         )}
 
         {activeTab === 'stories' && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 md:gap-6">
+          <div>
             {storiesLoading ? (
               <Loader label="Loading stories..." />
             ) : storiesError ? (
-              <div className="col-span-full text-center py-10 text-red-500">{storiesError}</div>
+              <div className="text-center py-10 text-red-500">{storiesError}</div>
             ) : stories.length === 0 ? (
-              <div className="col-span-full text-center py-10">
+              <div className="text-center py-10">
                 <div className="text-gray-500 mb-2">
                   {teacherGradeLevel 
                     ? `No Grade ${teacherGradeLevel} stories available.`
@@ -568,35 +577,117 @@ const Reading: React.FC = () => {
                 )}
               </div>
             ) : (
-              stories.map((story) => (
-                <div key={story._id} className="bg-white rounded-xl shadow-md border border-blue-50 overflow-hidden flex flex-col h-full">
-                  <div className="relative pb-[56.25%] bg-blue-100 flex items-center justify-center">
-                    {/* You might want to add a placeholder or actual cover image logic here if stories have one */}
-                    <div className="absolute inset-0 flex items-center justify-center text-blue-300 text-lg">
-                      No Image
-                    </div>
-                  </div>
-                  <div className="p-4 flex-grow flex flex-col">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-lg font-semibold text-blue-900 line-clamp-1">{story.title}</h3>
-                    </div>
-                    <p className="text-sm text-gray-500 mb-4 line-clamp-2">
-                      {story.description || 'No description available'}
-                    </p>
-                    <div className="flex items-center justify-between mt-auto">
-                      <button
-                        onClick={() => handleViewStoryDetails(story)}
-                        className="inline-flex items-center text-blue-600 hover:text-white hover:bg-blue-500 px-3 py-1.5 rounded-md text-sm font-medium transition-colors"
-                      >
-                        <span>View Details</span>
-                        <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </button>
-                    </div>
+              <div className="space-y-8">
+                {/* English Stories Row */}
+                <div>
+                  <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                    <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                    </svg>
+                    English
+                  </h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {['A', 'B', 'C', 'D'].map((set) => {
+                      const story = stories.find(s => {
+                        const lang = String(s.language || '').toLowerCase();
+                        // Check for english and legacy value (en)
+                        const isEnglish = lang === 'english' || lang === 'en';
+                        const matchesSet = s.storySet === set;
+                        return isEnglish && matchesSet;
+                      });
+                      return (
+                        <div key={`english-${set}`} className="bg-white rounded-xl shadow-md border border-blue-100 overflow-hidden">
+                          <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-4 text-center">
+                            <div className="w-16 h-16 mx-auto bg-white/20 rounded-full flex items-center justify-center mb-2">
+                              <span className="text-3xl font-bold text-white">{set}</span>
+                            </div>
+                            <h3 className="text-white font-semibold text-lg">Set {set}</h3>
+                          </div>
+                          {story ? (
+                            <div className="p-4">
+                              <div className="flex items-center gap-2 mb-2">
+                                <svg className="w-4 h-4 text-gray-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                                </svg>
+                                <h4 className="font-semibold text-gray-900 text-sm line-clamp-2">{story.title}</h4>
+                              </div>
+                              <p className="text-xs text-gray-500 mb-3 line-clamp-2">{story.description || 'No description'}</p>
+                              <button
+                                onClick={() => handleViewStoryDetails(story)}
+                                className="w-full bg-blue-50 hover:bg-blue-100 text-blue-700 py-2 px-3 rounded-lg text-sm font-medium transition-colors"
+                              >
+                                View Details
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="p-4 text-center">
+                              <svg className="w-12 h-12 mx-auto mb-2 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                              </svg>
+                              <p className="text-gray-400 text-sm">No story assigned</p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-              ))
+
+                {/* Filipino/Tagalog Stories Row */}
+                <div>
+                  <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                    <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                    </svg>
+                    Filipino
+                  </h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {['A', 'B', 'C', 'D'].map((set) => {
+                      const story = stories.find(s => {
+                        const lang = String(s.language || '').toLowerCase();
+                        // Check for tagalog and legacy values (none, tl, filipino, fil)
+                        const isTagalog = lang === 'tagalog' || lang === 'none' || lang === 'tl' || lang === 'filipino' || lang === 'fil';
+                        const matchesSet = s.storySet === set;
+                        return isTagalog && matchesSet;
+                      });
+                      return (
+                        <div key={`tagalog-${set}`} className="bg-white rounded-xl shadow-md border border-green-100 overflow-hidden">
+                          <div className="bg-gradient-to-br from-green-500 to-green-600 p-4 text-center">
+                            <div className="w-16 h-16 mx-auto bg-white/20 rounded-full flex items-center justify-center mb-2">
+                              <span className="text-3xl font-bold text-white">{set}</span>
+                            </div>
+                            <h3 className="text-white font-semibold text-lg">Set {set}</h3>
+                          </div>
+                          {story ? (
+                            <div className="p-4">
+                              <div className="flex items-center gap-2 mb-2">
+                                <svg className="w-4 h-4 text-gray-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                                </svg>
+                                <h4 className="font-semibold text-gray-900 text-sm line-clamp-2">{story.title}</h4>
+                              </div>
+                              <p className="text-xs text-gray-500 mb-3 line-clamp-2">{story.description || 'No description'}</p>
+                              <button
+                                onClick={() => handleViewStoryDetails(story)}
+                                className="w-full bg-green-50 hover:bg-green-100 text-green-700 py-2 px-3 rounded-lg text-sm font-medium transition-colors"
+                              >
+                                View Details
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="p-4 text-center">
+                              <svg className="w-12 h-12 mx-auto mb-2 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                              </svg>
+                              <p className="text-gray-400 text-sm">No story assigned</p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         )}

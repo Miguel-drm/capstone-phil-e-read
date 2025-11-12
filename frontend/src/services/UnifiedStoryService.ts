@@ -38,14 +38,15 @@ export class UnifiedStoryService {
     
     const normalizedLanguage = language.toLowerCase();
     
-    // Handle both form values and database values
+    // Store language values as-is (english/tagalog)
     if (['english', 'tagalog'].includes(normalizedLanguage)) {
-      // Convert form values to MongoDB-supported language codes
-      // Use 'none' for Tagalog to disable language-specific processing in MongoDB text index
-      return normalizedLanguage === 'tagalog' ? 'none' : 'en';
-    } else if (['en', 'none'].includes(normalizedLanguage)) {
-      // Already in database format, return as-is
       return normalizedLanguage;
+    } else if (['en'].includes(normalizedLanguage)) {
+      // Convert legacy 'en' to 'english'
+      return 'english';
+    } else if (['none'].includes(normalizedLanguage)) {
+      // Convert legacy 'none' to 'tagalog'
+      return 'tagalog';
     } else {
       throw new Error('Language must be either "english" or "tagalog"');
     }
