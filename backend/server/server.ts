@@ -408,7 +408,15 @@ app.get('/api/test', (req, res) => {
       try {
         const { id } = req.params;
         const { title, description, language, readingLevel, categories, isActive } = req.body;
-        const updatedStoryData: Partial<IStory> = { title, description, language, readingLevel, categories, isActive };
+        
+        // Only include fields that have actual values (not undefined)
+        const updatedStoryData: Partial<IStory> = {};
+        if (title !== undefined) updatedStoryData.title = title;
+        if (description !== undefined) updatedStoryData.description = description;
+        if (language !== undefined) updatedStoryData.language = language;
+        if (readingLevel !== undefined) updatedStoryData.readingLevel = readingLevel;
+        if (categories !== undefined) updatedStoryData.categories = categories;
+        if (isActive !== undefined) updatedStoryData.isActive = isActive === 'true' || isActive === true;
         
         if (req.file) {
           updatedStoryData.pdfData = req.file.buffer;
