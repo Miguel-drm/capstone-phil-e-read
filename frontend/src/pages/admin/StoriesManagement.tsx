@@ -306,53 +306,6 @@ export default function StoriesManagement() {
     return acc;
   }, {} as Record<string, Story>) : {};
 
-  // Get unassigned stories (stories without a set or grade, or stories that conflict)
-  const unassignedStories = Array.isArray(stories) ? stories.filter(story => {
-    // Stories without storySet or grade are unassigned
-    if (!story.storySet || !story.grade) {
-      return true;
-    }
-
-    // Check if this story's grade-set combination is already taken by another story
-    const storiesInSameGradeSet = stories.filter(s => s.grade === story.grade && s.storySet === story.storySet);
-    if (storiesInSameGradeSet.length > 1) {
-      // If multiple stories in same grade-set, only keep the first one assigned, others are unassigned
-      const isFirst = storiesInSameGradeSet[0]._id === story._id;
-      return !isFirst;
-    }
-    return false;
-  }) : [];
-
-  // Function to assign story to grade-set combination
-  const assignStoryToGradeSet = async (story: Story, targetGrade: '3' | '4' | '5' | '6', targetSet: 'A' | 'B' | 'C' | 'D') => {
-    try {
-      const key = `${targetGrade}-${targetSet}`;
-      // Check if target grade-set already has a story
-      if (groupedStories[key]) {
-        const result = await Swal.fire({
-          title: `Grade ${targetGrade} Set ${targetSet} already has a story`,
-          text: `Replace "${groupedStories[key].title}" with "${story.title}"?`,
-          icon: 'warning',
-          showCancelButton: true,
-          confirmButtonColor: '#d33',
-          cancelButtonColor: '#3085d6',
-          confirmButtonText: 'Replace',
-          cancelButtonText: 'Cancel'
-        });
-
-        if (!result.isConfirmed) return;
-      }
-
-      // Update the story's grade and set
-      await UnifiedStoryService.getInstance().updateStory(story._id!, { ...story, grade: targetGrade, storySet: targetSet });
-      await loadStories();
-      Swal.fire('Success', `Story assigned to Grade ${targetGrade} Set ${targetSet}`, 'success');
-    } catch (error) {
-      console.error('Error assigning story to grade-set:', error);
-      Swal.fire('Error', 'Failed to assign story to grade-set', 'error');
-    }
-  };
-
 
 
   return (
@@ -369,17 +322,8 @@ export default function StoriesManagement() {
 
         <div className="inline-flex rounded-full bg-gray-100 p-1">
           <button
-            onClick={() => setFilters({ ...filters, language: '' })}
-            className={`px-6 py-2 rounded-full text-sm font-medium transition-all ${filters.language === ''
-              ? 'bg-blue-500 text-white shadow-md'
-              : 'text-gray-600 hover:text-gray-800'
-              }`}
-          >
-            All Languages
-          </button>
-          <button
             onClick={() => setFilters({ ...filters, language: 'english' })}
-            className={`px-6 py-2 rounded-full text-sm font-medium transition-all ${filters.language === 'english'
+            className={`px-6 py-2 rounded-full text-sm font-medium transition-all ${filters.language === 'english' || filters.language === ''
               ? 'bg-blue-500 text-white shadow-md'
               : 'text-gray-600 hover:text-gray-800'
               }`}
@@ -457,7 +401,9 @@ export default function StoriesManagement() {
                               <div className="min-w-0 flex-1">
                                 {editingTitleId === setStory._id ? (
                                   <div className="flex items-center gap-2">
-                                    <span className="text-sm">📖</span>
+                                    <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                                    </svg>
                                     <input
                                       type="text"
                                       value={editingTitle}
@@ -489,8 +435,11 @@ export default function StoriesManagement() {
                                   </div>
                                 ) : (
                                   <div className="flex items-center gap-2">
+                                    <svg className="w-4 h-4 text-gray-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                                    </svg>
                                     <h4 className="font-medium text-gray-900 text-sm truncate" title={setStory.title}>
-                                      📖 {setStory.title}
+                                      {setStory.title}
                                     </h4>
                                     <button
                                       onClick={() => handleStartEditTitle(setStory)}
@@ -522,9 +471,14 @@ export default function StoriesManagement() {
                             <div className="bg-green-50 rounded-lg p-3">
                               <div className="flex items-center justify-between">
                                 <div className="min-w-0 flex-1">
-                                  <h4 className="font-medium text-green-900 text-sm">
-                                    🧩 {tests[0].testName}
-                                  </h4>
+                                  <div className="flex items-center gap-2">
+                                    <svg className="w-4 h-4 text-green-700 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                                    </svg>
+                                    <h4 className="font-medium text-green-900 text-sm">
+                                      {tests[0].testName}
+                                    </h4>
+                                  </div>
                                   <p className="text-xs text-green-700 mt-1">
                                     {tests[0].questionsCount} questions
                                   </p>
@@ -532,10 +486,22 @@ export default function StoriesManagement() {
                                 <div className="flex gap-1 ml-2">
                                   <button
                                     onClick={() => handleOpenViewTest(tests[0].id)}
-                                    className="text-green-600 hover:text-green-800 text-xs px-1"
+                                    className="text-green-600 hover:text-green-800 p-1"
                                     title="View quiz"
                                   >
-                                    👁️
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                    </svg>
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteTest(tests[0].id)}
+                                    className="text-red-600 hover:text-red-800 p-1"
+                                    title="Delete quiz"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
                                   </button>
                                 </div>
                               </div>
@@ -554,7 +520,9 @@ export default function StoriesManagement() {
                         </div>
                       ) : (
                         <div className="text-center py-6">
-                          <div className="text-4xl mb-3">📚</div>
+                          <svg className="w-12 h-12 mx-auto mb-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                          </svg>
                           <p className="text-gray-500 text-sm mb-4">Empty set</p>
                           <button
                             onClick={() => {
@@ -580,117 +548,7 @@ export default function StoriesManagement() {
             </div>
           ))}
 
-          {/* Unassigned Stories Section */}
-          {unassignedStories.length > 0 && (
-            <div className="bg-blue-50 rounded-xl border-2 border-blue-200 p-6 mt-8">
-              <h3 className="text-lg font-bold text-blue-800 mb-4 flex items-center">
-                📚 Available Stories ({unassignedStories.length})
-                <span className="ml-2 text-sm font-normal text-blue-600">Click grade-set buttons to assign</span>
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {unassignedStories.map(story => (
-                  <div key={story._id} className="bg-white rounded-lg border p-4 hover:shadow-md transition-shadow group">
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="min-w-0 flex-1">
-                        {editingTitleId === story._id ? (
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm">📖</span>
-                            <input
-                              type="text"
-                              value={editingTitle}
-                              onChange={(e) => setEditingTitle(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  story._id && handleSaveTitle(story._id);
-                                } else if (e.key === 'Escape') {
-                                  handleCancelEditTitle();
-                                }
-                              }}
-                              className="flex-1 text-sm font-medium border border-blue-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              autoFocus
-                            />
-                            <button
-                              onClick={() => story._id && handleSaveTitle(story._id)}
-                              className="text-green-600 hover:text-green-800 text-xs px-1"
-                              title="Save"
-                            >
-                              ✓
-                            </button>
-                            <button
-                              onClick={handleCancelEditTitle}
-                              className="text-gray-600 hover:text-gray-800 text-xs px-1"
-                              title="Cancel"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-medium text-gray-900 text-sm truncate" title={story.title}>
-                              📖 {story.title}
-                            </h4>
-                            <button
-                              onClick={() => handleStartEditTitle(story)}
-                              className="text-blue-600 hover:text-blue-800 text-xs px-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                              title="Edit title"
-                            >
-                              ✏️
-                            </button>
-                          </div>
-                        )}
-                        <p className="text-xs text-gray-600 mt-1">
-                          {getDisplayLanguage(story.language)}
-                        </p>
-                        {story.description && (
-                          <p className="text-xs text-gray-500 mt-1 line-clamp-2" title={story.description}>
-                            {story.description}
-                          </p>
-                        )}
-                      </div>
-                    </div>
 
-                    {/* Grade-Set Assignment Grid */}
-                    <div className="space-y-2 mt-3">
-                      {['3', '4', '5', '6'].map(gradeLevel => (
-                        <div key={gradeLevel} className="space-y-1">
-                          <p className="text-xs font-medium text-gray-600">Grade {gradeLevel}:</p>
-                          <div className="flex gap-1">
-                            {['A', 'B', 'C', 'D'].map(setLetter => {
-                              const key = `${gradeLevel}-${setLetter}`;
-                              const isOccupied = !!groupedStories[key];
-                              return (
-                                <button
-                                  key={setLetter}
-                                  onClick={() => assignStoryToGradeSet(story, gradeLevel as '3' | '4' | '5' | '6', setLetter as 'A' | 'B' | 'C' | 'D')}
-                                  className={`flex-1 py-1 px-2 rounded text-xs font-medium transition-colors ${isOccupied
-                                    ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                                    : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                                    }`}
-                                  title={isOccupied ? `Grade ${gradeLevel} Set ${setLetter} occupied` : `Assign to Grade ${gradeLevel} Set ${setLetter}`}
-                                >
-                                  {setLetter}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
-
-                      {/* Story Actions */}
-                      <div className="flex gap-1 pt-2 border-t border-gray-200">
-                        <button
-                          onClick={() => story._id && handleDeleteStory(story._id)}
-                          className="w-full py-1.5 px-2 rounded text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
-                        >
-                          🗑️ Delete
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       ) : (
         // List View - Original detailed view
