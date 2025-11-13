@@ -859,7 +859,7 @@ const UserRoleBreakdownChart: React.FC<{ roleCounts: { teachers: number; parents
 
 // School Overview Widget
 const SchoolOverviewWidget: React.FC<{ stats: any; onRefresh?: () => void; isLoading: boolean }> = ({ stats, onRefresh, isLoading }) => (
-  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 w-full">
     <div className="flex items-center justify-between mb-6">
       <h3 className="text-lg font-semibold text-gray-900">School Overview</h3>
       <div className="flex items-center gap-3">
@@ -1119,33 +1119,33 @@ const QuickActionsWidget: React.FC = () => {
   ];
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
-      {/* Compact Header */}
-      <div className="flex items-center justify-between mb-4">
+    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 h-full w-full flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold text-gray-900">Quick Actions</h3>
         <div className="text-sm text-gray-500">{actions.length} actions</div>
       </div>
 
-      {/* Compact Action Grid - responsive layout */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
+      {/* Action Grid - 2 rows layout, flex-1 to fill remaining space */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 flex-1 content-start">
         {actions.map((action) => (
           <button
             key={action.id}
             onClick={action.onClick}
-            className={`group p-3 ${action.bgColor} ${action.hoverColor} rounded-lg transition-all duration-200 text-center transform hover:scale-105`}
+            className={`group p-4 ${action.bgColor} ${action.hoverColor} rounded-xl transition-all duration-200 text-center transform hover:scale-105 hover:shadow-md flex flex-col items-center justify-start min-h-[140px] h-[140px]`}
           >
-            {/* Compact Icon */}
-            <div className="text-xl mb-2 transition-transform duration-200">
+            {/* Icon */}
+            <div className="text-3xl mb-3 transition-transform duration-200 group-hover:scale-110">
               {action.icon}
             </div>
             
-            {/* Compact Content */}
-            <div className="text-xs font-medium text-gray-900 mb-1">
+            {/* Title */}
+            <div className="text-sm font-semibold text-gray-900 mb-2 leading-tight">
               {action.title}
             </div>
             
-            {/* Compact Description */}
-            <div className="text-xs text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+            {/* Description - always visible, fixed height */}
+            <div className="text-xs text-gray-600 leading-tight line-clamp-2">
               {action.description}
             </div>
           </button>
@@ -2141,11 +2141,11 @@ const AdminDashboard: React.FC = () => {
         {/* Main Content Sections */}
         <div className="flex flex-col gap-3 mt-2">
           {/* School Overview and Quick Actions - top row */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-            <div className="lg:col-span-2">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-stretch">
+            <div className="lg:col-span-2 flex">
               <SchoolOverviewWidget stats={schoolOverview} onRefresh={fetchSchoolOverviewData} isLoading={isLoadingSchoolOverview} />
             </div>
-            <div className="lg:col-span-1">
+            <div className="lg:col-span-1 flex">
               <QuickActionsWidget />
             </div>
           </div>
