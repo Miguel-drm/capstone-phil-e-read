@@ -7,7 +7,7 @@ import { collection, addDoc, Timestamp, getDocs, deleteDoc, doc, query, where } 
 import { db } from '../../config/firebase';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Swal from 'sweetalert2';
-import Loader from '../../components/Loader';
+import AdminLoader from '../../components/admin/AdminLoader';
 import StoriesManagement from './StoriesManagement';
 import { UnifiedStoryService } from '../../services/UnifiedStoryService';
 import type { Story } from '../../types/Story';
@@ -509,7 +509,7 @@ const Resources: React.FC = () => {
               </div>
             )}
             {templatesLoading ? (
-              <Loader label="Loading templates..." />
+              <AdminLoader label="Loading test templates..." />
             ) : allTests.length === 0 ? (
               <div>No test templates found.</div>
             ) : (

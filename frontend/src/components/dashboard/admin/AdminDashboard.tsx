@@ -11,6 +11,7 @@ import PillSelect from '../../ui/PillSelect';
 import { formatDateHuman } from '@/utils/date';
 // Removed System-Wide Reading Progress widget
 import AdminSchoolProgressChart from './AdminSchoolProgressChart';
+import AdminLoader from '../../../components/admin/AdminLoader';
 
 // Removed Learning Analytics API constants
 
@@ -1227,8 +1228,8 @@ const RecentRegistrationsWidget: React.FC = () => {
       <div className="bg-white rounded-2xl border border-gray-100 p-6">
         <div className="flex items-center justify-between mb-8">
           <h3 className="text-lg font-medium text-gray-900">Recent Registrations</h3>
-          <div className="text-sm text-gray-500">Loading...</div>
         </div>
+        <AdminLoader label="Loading registrations..." />
         <div className="space-y-3">
           {[...Array(5)].map((_, index) => (
             <div key={index} className="flex items-center gap-3 py-3 px-2">
@@ -2130,10 +2131,7 @@ const AdminDashboard: React.FC = () => {
       )}
       
       {loading ? (
-        <div className="text-gray-500 text-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-          Loading dashboard data...
-        </div>
+        <AdminLoader label="Loading dashboard data..." fullScreen size="lg" />
       ) : error ? (
         <div className="text-red-500 text-center py-8">{error}</div>
       ) : (

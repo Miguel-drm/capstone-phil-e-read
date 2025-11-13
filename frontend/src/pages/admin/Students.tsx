@@ -4,7 +4,7 @@ import { gradeService, type ClassGrade } from '../../services/gradeService';
 import { FunnelIcon, MagnifyingGlassIcon, EllipsisVerticalIcon } from '@heroicons/react/24/solid';
 import type { Student } from '../../services/studentService';
 import ReactDOM from 'react-dom';
-import Loader from '../../components/Loader';
+import AdminLoader from '../../components/admin/AdminLoader';
 import Swal from 'sweetalert2';
 import { useAuth } from '../../contexts/AuthContext';
 import { Menu } from '@headlessui/react';
@@ -249,7 +249,7 @@ const Students: React.FC = () => {
           </div>
         </div>
       ) : loading ? (
-        <Loader label="Loading students..." />
+        <AdminLoader label="Loading students..." fullScreen />
       ) : error ? (
         <div className="text-red-500">{error}</div>
       ) : students.length === 0 ? (

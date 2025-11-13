@@ -38,7 +38,7 @@ import { getUserProfile } from "@/services/authService";
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 const ReadingSessionPage: React.FC = () => {
-  const { currentUser } = useAuth();
+  useAuth();
   const [storyText, setStoryText] = useState<string>("");
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
@@ -512,7 +512,7 @@ const ReadingSessionPage: React.FC = () => {
         // Railway WebSocket URL: wss://philiready-websocket-production.up.railway.app
         // Can be overridden with VITE_VOSK_WS_URL environment variable
         const wsUrl =
-          (import.meta as any)?.env?.VITE_VOSK_WS_URL || 
+          (import.meta as any)?.env?.VITE_VOSK_WS_URL ||
           "wss://philiready-websocket-production.up.railway.app";
         const startVosk = async () => {
           let stream: MediaStream;
