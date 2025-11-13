@@ -14,6 +14,7 @@ import parentRoutes from './routes/parentRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import { resultService } from './services/resultService.js';
 import { isrResultService } from './services/isrResultService.js';
+import { isrReviewRecordService } from './services/isrReviewRecordService.js';
 import type { Readable } from 'stream';
 import { adminDb, firestoreAdmin } from './config/firebaseAdmin.js';
 import { db as firestore } from './config/firebase.js';
@@ -46,12 +47,19 @@ const audioUpload = multer({ storage: multer.memoryStorage() });
 
 // Middleware - CORS configuration
 // Allow localhost:3000 for local development and production URLs
-const allowedOrigins = [
+const defaultAllowedOrigins = [
   'http://localhost:3000',  // Main frontend port
-  'https://phil-e-read-1.onrender.com',
-  'https://phil-e-read-7p2c.onrender.com',
-  'https://phileread-api.onrender.com'
+  // 'https://phil-e-read-1.onrender.com',
+  // 'https://phil-e-read-7p2c.onrender.com',
+  'https://phileread-api.onrender.com',
+  'https://phileread-frontend.onrender.com'
 ];
+
+const envAllowedOrigins = process.env.CORS_ALLOWED_ORIGINS
+  ? process.env.CORS_ALLOWED_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean)
+  : [];
+
+const allowedOrigins = Array.from(new Set([...defaultAllowedOrigins, ...envAllowedOrigins]));
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -663,6 +671,13 @@ app.get('/api/test', (req, res) => {
         const result = await isrResultService.createISRResult(req.body);
         console.log('✅ ISR Result saved to MongoDB:', result._id);
 
+        try {
+          await isrReviewRecordService.upsertFromISRResult(result);
+          console.log('📘 ISR review record updated for student:', result.studentId);
+        } catch (reviewError) {
+          console.error('❌ Failed to update ISR review record:', reviewError);
+        }
+
         res.status(201).json(result);
         return;
       } catch (error) {
@@ -745,6 +760,13 @@ app.get('/api/test', (req, res) => {
           res.status(404).json({ error: 'ISR result not found' });
           return;
         }
+
+        try {
+          await isrReviewRecordService.upsertFromISRResult(result);
+        } catch (reviewError) {
+          console.error('❌ Failed to update ISR review record on update:', reviewError);
+        }
+
         res.json(result);
       } catch (error) {
         console.error('Error updating ISR result:', error);
@@ -773,6 +795,17 @@ app.get('/api/test', (req, res) => {
       } catch (error) {
         console.error('Error deleting ISR result:', error);
         res.status(500).json({ error: 'Failed to delete ISR result' });
+      }
+    });
+
+    app.get('/api/isr-review-records/student/:studentId', async (req: Request, res: Response) => {
+      try {
+        const { studentId } = req.params;
+        const record = await isrReviewRecordService.getOrCreateResponse(studentId);
+        res.json(record);
+      } catch (error) {
+        console.error('Error fetching ISR review record:', error);
+        res.status(500).json({ error: 'Failed to fetch ISR review record' });
       }
     });
 
