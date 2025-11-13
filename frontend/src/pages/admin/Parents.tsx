@@ -3,7 +3,7 @@ import { getAllParents, deleteParent } from '../../services/authService';
 import { Menu } from '@headlessui/react';
 import { EllipsisVerticalIcon, FunnelIcon, MagnifyingGlassIcon } from '@heroicons/react/24/solid';
 import ConfirmDeleteModal from '../../components/admin/ConfirmDeleteModal';
-import Loader from '../../components/Loader';
+import AdminLoader from '../../components/admin/AdminLoader';
 import { profileImageService } from '../../services/profileImageService';
 
 interface Parent {
@@ -107,7 +107,7 @@ const Parents: React.FC = () => {
   return (
     <div className="p-8">
       {loading ? (
-        <Loader label="Loading parents..." />
+        <AdminLoader label="Loading parents..." fullScreen />
       ) : error ? (
         <div className="text-red-500">{error}</div>
       ) : parents.length === 0 ? (
