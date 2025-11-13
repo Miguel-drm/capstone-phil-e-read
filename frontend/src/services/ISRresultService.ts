@@ -92,6 +92,81 @@ export type ISRResult = {
   assessmentDate?: Date;
 };
 
+export type ISRReviewRow = {
+  level: string;
+  set?: string;
+  levelStarted?: boolean;
+  wordReading: {
+    ind: boolean;
+    ins: boolean;
+    frus: boolean;
+  };
+  comprehension: {
+    ind: boolean;
+    ins: boolean;
+    frus: boolean;
+  };
+  dateTaken?: string;
+};
+
+export type ISRReviewRecord = {
+  studentId: string;
+  studentName?: string;
+  teacherId?: string;
+  teacherName?: string;
+  gradeSection?: string;
+  school?: string;
+  languages: {
+    english: boolean;
+    filipino: boolean;
+  };
+  levelStarted?: string;
+  entries: ISRReviewRow[];
+  updatedAt?: string;
+};
+
+const REVIEW_LEVELS = ['K', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
+
+const createEmptyReviewRows = (): ISRReviewRow[] =>
+  REVIEW_LEVELS.map(level => ({
+    level,
+    set: '',
+    levelStarted: false,
+    wordReading: { ind: false, ins: false, frus: false },
+    comprehension: { ind: false, ins: false, frus: false },
+  }));
+
+const normalizeReviewRecord = (payload: any): ISRReviewRecord => {
+  const entries: ISRReviewRow[] = Array.isArray(payload?.entries) ? payload.entries : [];
+  const mergedEntries = createEmptyReviewRows().map((defaultRow) => {
+    const existing = entries.find((row) => row.level === defaultRow.level);
+    if (!existing) return defaultRow;
+    return {
+      ...defaultRow,
+      ...existing,
+      wordReading: { ...defaultRow.wordReading, ...existing.wordReading },
+      comprehension: { ...defaultRow.comprehension, ...existing.comprehension },
+      dateTaken: existing.dateTaken ? String(existing.dateTaken) : defaultRow.dateTaken,
+    };
+  });
+
+  return {
+    studentId: payload?.studentId || '',
+    studentName: payload?.studentName || '',
+    teacherId: payload?.teacherId || '',
+    teacherName: payload?.teacherName || '',
+    gradeSection: payload?.gradeSection || '',
+    school: payload?.school || '',
+    languages: {
+      english: !!payload?.languages?.english,
+      filipino: !!payload?.languages?.filipino,
+    },
+    levelStarted: payload?.levelStarted || '',
+    entries: mergedEntries,
+    updatedAt: payload?.updatedAt ? String(payload.updatedAt) : undefined,
+  };
+};
+
 export const isrResultService = {
   /**
    * Save ISR result to MongoDB
@@ -227,6 +302,32 @@ export const isrResultService = {
     } catch (error) {
       console.error('Error deleting ISR result:', error);
       throw error;
+    }
+  },
+
+  async getISRReviewRecord(studentId: string): Promise<ISRReviewRecord> {
+    if (!studentId) {
+      return normalizeReviewRecord({
+        studentId: '',
+        entries: createEmptyReviewRows(),
+        languages: { english: false, filipino: false },
+      });
+    }
+
+    try {
+      const response = await fetch(`${API_BASE}/api/isr-review-records/student/${studentId}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch ISR review record');
+      }
+      const data = await response.json();
+      return normalizeReviewRecord(data);
+    } catch (error) {
+      console.error('Error fetching ISR review record:', error);
+      return normalizeReviewRecord({
+        studentId,
+        entries: createEmptyReviewRows(),
+        languages: { english: false, filipino: false },
+      });
     }
   },
 };
