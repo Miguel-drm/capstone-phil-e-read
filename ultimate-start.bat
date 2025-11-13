@@ -20,7 +20,7 @@ npm --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo ❌ npm not found! Please install npm first.
     pause
-    exit /b 1
+    exit /b 1   
 )
 
 echo ✅ Node.js and npm are available

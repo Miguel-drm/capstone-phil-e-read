@@ -104,6 +104,9 @@ const ReadingSessionPage: React.FC = () => {
   type MiscueType = 'mispronunciation' | 'omission' | 'substitution' | 'insertion' | 'repetition' | 'transposition' | 'reversal';
   const [wordMiscues, setWordMiscues] = useState<Map<number, MiscueType>>(new Map());
 
+  // Track inserted words (extra words child said) with their position
+  const [insertedWords, setInsertedWords] = useState<Map<number, string[]>>(new Map());
+
   // Real-time Oral Reading Score (Accuracy) using useMemo
   const oralReadingScore = useMemo(() => {
     if (words.length === 0) return "0.0";
@@ -192,8 +195,8 @@ const ReadingSessionPage: React.FC = () => {
     const normExpected = normalize(expectedWord);
     if (!normSpoken || !normExpected) return false;
 
-    // DEBUG: Log all comparisons for "shining" vs "shiny"
-    if ((normSpoken === 'shining' && normExpected === 'shiny') || (normSpoken === 'shiny' && normExpected === 'shining')) {
+    // DEBUG: Log problematic comparisons
+    if ((normSpoken === 'in' && normExpected === 'when') || (normSpoken === 'when' && normExpected === 'in')) {
       console.log(`🔍 DEBUG isWordMatch: "${spokenWord}" vs "${expectedWord}" (normalized: "${normSpoken}" vs "${normExpected}")`);
     }
 
@@ -377,44 +380,72 @@ const ReadingSessionPage: React.FC = () => {
     // For very short words (3 chars or less), be strict
     if (normExpected.length <= 3) {
       // Allow only 85%+ similarity (e.g., "the" vs "tea" = 66%, won't match)
-      return similarity >= 0.85;
+      const matches = similarity >= 0.85;
+      if ((normSpoken === 'in' && normExpected === 'when') || (normSpoken === 'when' && normExpected === 'in')) {
+        console.log(`   Checking short word (<=3): similarity=${(similarity * 100).toFixed(0)}%, threshold=85%, matches=${matches}`);
+      }
+      return matches;
     }
 
     // For short words (4 chars), allow small variations
     if (normExpected.length === 4) {
       // Allow 75%+ similarity (e.g., "lost" vs "loss" = 75%, will match)
-      if (similarity >= 0.75) return true;
+      if (similarity >= 0.75) {
+        if ((normSpoken === 'in' && normExpected === 'when') || (normSpoken === 'when' && normExpected === 'in')) {
+          console.log(`   ✓ Matched via: 4-char word with similarity=${(similarity * 100).toFixed(0)}% >= 75%`);
+        }
+        return true;
+      }
     }
 
     // For medium words (5-7 chars), be more lenient
     if (normExpected.length >= 5 && normExpected.length <= 7) {
       // Allow 70%+ similarity for common reading words
-      if (similarity >= 0.70) return true;
+      if (similarity >= 0.70) {
+        if ((normSpoken === 'in' && normExpected === 'when') || (normSpoken === 'when' && normExpected === 'in')) {
+          console.log(`   ✓ Matched via: medium word (5-7 chars) with similarity=${(similarity * 100).toFixed(0)}% >= 70%`);
+        }
+        return true;
+      }
     }
 
     // Double Metaphone phonetic match for longer words
-    const [primary1, secondary1] = doubleMetaphone(normSpoken);
-    const [primary2, secondary2] = doubleMetaphone(normExpected);
+    // BUT: Require minimum word length to avoid false positives with short words
+    // "in" should NOT match "when" even if phonetically similar
+    if (normSpoken.length >= 4 && normExpected.length >= 4) {
+      const [primary1, secondary1] = doubleMetaphone(normSpoken);
+      const [primary2, secondary2] = doubleMetaphone(normExpected);
 
-    // Check if any phonetic codes match
-    if (primary1 === primary2 ||
-      (secondary1 && secondary1 === secondary2) ||
-      (secondary1 && secondary1 === primary2) ||
-      (primary1 === secondary2)) {
-      // Additional validation: words should be similar length
-      if (Math.abs(normSpoken.length - normExpected.length) <= 2) {
-        return true;
+      // Check if any phonetic codes match
+      if (primary1 === primary2 ||
+        (secondary1 && secondary1 === secondary2) ||
+        (secondary1 && secondary1 === primary2) ||
+        (primary1 === secondary2)) {
+        // Additional validation: words should be similar length
+        if (Math.abs(normSpoken.length - normExpected.length) <= 2) {
+          return true;
+        }
       }
     }
 
     // For longer words (8+ chars), allow up to 2 character difference
     if (maxLength >= 8 && distance <= 2) {
+      if ((normSpoken === 'in' && normExpected === 'when') || (normSpoken === 'when' && normExpected === 'in')) {
+        console.log(`   ✓ Matched via: longer words (8+ chars) with distance <= 2`);
+      }
       return true;
     }
 
     // For medium words (5-7 chars), allow 1 character difference
     if (maxLength >= 5 && maxLength < 8 && distance === 1) {
+      if ((normSpoken === 'in' && normExpected === 'when') || (normSpoken === 'when' && normExpected === 'in')) {
+        console.log(`   ✓ Matched via: medium words (5-7 chars) with distance = 1`);
+      }
       return true;
+    }
+
+    if ((normSpoken === 'in' && normExpected === 'when') || (normSpoken === 'when' && normExpected === 'in')) {
+      console.log(`   ✗ No match found - returning false`);
     }
 
     return false;
@@ -627,12 +658,26 @@ const ReadingSessionPage: React.FC = () => {
 
             // Handle different error types
             if (e.error === 'network') {
-              console.warn("Network error - speech recognition will auto-retry when connection is restored");
-              // Will auto-restart via onend handler
+              console.warn("⚠️ Network error - speech recognition will auto-retry in 2 seconds...");
+              // Add delay before auto-restart to avoid rapid retry loops
+              setTimeout(() => {
+                if (isRecording && !isPaused && recognitionRef.current) {
+                  try {
+                    console.log("🔄 Retrying speech recognition after network error...");
+                    recognition.start();
+                  } catch (err) {
+                    console.warn("Failed to restart after network error:", err);
+                  }
+                }
+              }, 2000);
             } else if (e.error === 'no-speech' || e.error === 'audio-capture') {
-              // These are recoverable, recognition will auto-restart
+              // These are recoverable, recognition will auto-restart via onend
             } else if (e.error === 'not-allowed') {
-              console.error("Microphone permission denied. Please allow microphone access.");
+              console.error("❌ Microphone permission denied. Please allow microphone access.");
+              setIsRecording(false);
+            } else if (e.error === 'aborted') {
+              // User stopped recording, don't restart
+              console.log("Speech recognition aborted by user");
             }
           };
           recognition.onend = () => {
@@ -679,14 +724,27 @@ const ReadingSessionPage: React.FC = () => {
           recognition.onerror = (e: any) => {
             console.warn("Speech recognition error:", e.error);
 
-            // Don't stop on recoverable errors
-            if (e.error === 'no-speech' || e.error === 'audio-capture' || e.error === 'network') {
-              console.log("Recoverable error, will auto-restart");
-              // Will auto-restart via onend handler
+            // Handle network errors with retry delay
+            if (e.error === 'network') {
+              console.warn("⚠️ Network error - will auto-retry in 2 seconds...");
+              setTimeout(() => {
+                if (isRecording && !isPaused && recognitionRef.current) {
+                  try {
+                    console.log("🔄 Retrying after network error...");
+                    recognition.start();
+                  } catch (err) {
+                    console.warn("Retry failed:", err);
+                  }
+                }
+              }, 2000);
+            } else if (e.error === 'no-speech' || e.error === 'audio-capture') {
+              console.log("Recoverable error, will auto-restart via onend");
             } else if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-              console.error("Microphone permission denied");
+              console.error("❌ Microphone permission denied");
               alert("Microphone access is required for reading sessions. Please allow microphone access and try again.");
               setIsRecording(false);
+            } else if (e.error === 'aborted') {
+              console.log("Speech recognition aborted by user");
             } else {
               console.log("Unknown error, will attempt to restart");
             }
@@ -764,13 +822,27 @@ const ReadingSessionPage: React.FC = () => {
         recognition.onerror = (e: any) => {
           console.warn("Speech recognition error:", e.error);
 
-          // Don't stop on recoverable errors
-          if (e.error === 'no-speech' || e.error === 'audio-capture' || e.error === 'network') {
-            console.log("Recoverable error, will auto-restart");
+          // Handle network errors with retry delay
+          if (e.error === 'network') {
+            console.warn("⚠️ Network error - will auto-retry in 2 seconds...");
+            setTimeout(() => {
+              if (isRecording && !isPaused && recognitionRef.current) {
+                try {
+                  console.log("🔄 Retrying after network error...");
+                  recognition.start();
+                } catch (err) {
+                  console.warn("Retry failed:", err);
+                }
+              }
+            }, 2000);
+          } else if (e.error === 'no-speech' || e.error === 'audio-capture') {
+            console.log("Recoverable error, will auto-restart via onend");
           } else if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-            console.error("Microphone permission denied");
+            console.error("❌ Microphone permission denied");
             alert("Microphone access is required. Please allow microphone access and try again.");
             setIsRecording(false);
+          } else if (e.error === 'aborted') {
+            console.log("Speech recognition aborted by user");
           }
         };
         recognition.onend = () => {
@@ -1264,6 +1336,7 @@ const ReadingSessionPage: React.FC = () => {
   const matchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastMiscueWordRef = useRef<string>(""); // Track last miscue to avoid duplicates
   const processedTranscriptWordsRef = useRef<number>(0); // Track how many transcript words we've processed
+  const countedMiscuePositionsRef = useRef<Set<number>>(new Set()); // Track which word positions have been counted
 
   // Cache for similarity calculations to avoid redundant computations
   const similarityCache = useRef<Map<string, number>>(new Map());
@@ -1327,42 +1400,13 @@ const ReadingSessionPage: React.FC = () => {
       }
 
       // Set new stuck timer (10 seconds)
-      // Only trigger if there's been recent transcript activity
-      const currentTranscriptLength = transcript.trim().length;
-
+      // DISABLED: Stuck detection removed to prevent false auto-advances
+      // Teachers should use the "Skip Word" button if student is truly stuck
       stuckTimerRef.current = setTimeout(() => {
-        // Only auto-skip if transcript has changed (user is speaking)
-        const newTranscriptLength = transcript.trim().length;
-        const hasRecentActivity = newTranscriptLength > currentTranscriptLength;
-
-        if (isRecording && !isPaused && hasRecentActivity && transcript.trim().length > 0) {
-          console.warn(`⚠️ STUCK DETECTION: Been on word "${realWords[currentWordIndex]}" for 10+ seconds`);
-          console.warn(`   Transcript has content: "${transcript}"`);
-          console.warn(`   Attempting to find word in transcript and advance...`);
-
-          // Try to find and advance to any word in transcript
-          const transcriptWords = transcript.split(/\s+/).filter(Boolean);
-          let advanced = false;
-
-          // Check if any future word (within next 10) is in transcript
-          for (let i = currentWordIndex; i < Math.min(currentWordIndex + 10, realWords.length); i++) {
-            const futureWord = realWords[i];
-            if (transcriptWords.some(w => isWordMatch(w, futureWord))) {
-              console.log(`   ✅ Found "${futureWord}" at position ${i}, advancing...`);
-              setCurrentWordIndex(i + 1);
-              setWordsRead(i + 1);
-              advanced = true;
-              break;
-            }
-          }
-
-          if (!advanced) {
-            console.warn(`   ❌ Could not find any matching word, skipping current word`);
-            setCurrentWordIndex(prev => prev + 1);
-            setWordsRead(prev => prev + 1);
-          }
-        } else if (isRecording && !isPaused && !hasRecentActivity) {
-          console.log(`⏸️ No recent speech activity detected, not auto-skipping`);
+        // Just log that we're stuck, but don't auto-advance
+        if (isRecording && !isPaused) {
+          console.log(`ℹ️ Student has been on word "${realWords[currentWordIndex]}" for 10+ seconds`);
+          console.log(`   Use the "Skip Word" button if the student is stuck`);
         }
       }, 10000); // 10 second timeout
     }
@@ -1386,13 +1430,32 @@ const ReadingSessionPage: React.FC = () => {
       // This handles cases where speech recognition splits compound words
       // CRITICAL FIX: First check if current word is ANYWHERE in the full transcript
       // This prevents getting stuck when reading fast
+      // BUT: Use STRICT matching to avoid false positives (e.g., "in" matching "when")
       console.log(`🔎 Searching for "${expectedWord}" in full transcript: [${transcriptWords.join(', ')}]`);
       const currentWordInFullTranscript = transcriptWords.some(w => {
-        const matches = isWordMatch(w, expectedWord);
-        if (matches) {
-          console.log(`   ✓ Found match: "${w}" matches "${expectedWord}"`);
+        // Use strict matching: exact match or very close (85%+ similarity)
+        const normSpoken = normalize(w);
+        const normExpected = normalize(expectedWord);
+
+        // Exact match
+        if (normSpoken === normExpected) {
+          console.log(`   ✓ Found exact match: "${w}" matches "${expectedWord}"`);
+          return true;
         }
-        return matches;
+
+        // Allow common variations (dropped endings, etc.) but NOT phonetic matching
+        // This prevents "in" from matching "when" or "when" from matching "Then"
+        const distance = levenshtein(normSpoken, normExpected);
+        const maxLength = Math.max(normSpoken.length, normExpected.length);
+        const similarity = 1 - (distance / maxLength);
+
+        // Require 85%+ similarity for full transcript search (strict)
+        if (similarity >= 0.85) {
+          console.log(`   ✓ Found close match: "${w}" matches "${expectedWord}" (${Math.round(similarity * 100)}% similar)`);
+          return true;
+        }
+
+        return false;
       });
 
       if (currentWordInFullTranscript) {
@@ -1425,10 +1488,71 @@ const ReadingSessionPage: React.FC = () => {
       // If no recent words, don't process
       if (recentWords.length === 0) return;
 
+      // Use recentWords for matching (to catch fast readers)
+      // But use newWords for miscue detection (to avoid counting same word multiple times)
       const wordsToCheck = recentWords;
+      const wordsForMiscueDetection = newWords; // ONLY check NEW words, never fall back to recentWords
 
       let matched = false;
       let wordsAdvanced = 0;
+      let foundSkipAhead = false;
+
+      // PRIORITY CHECK: Look for skip-ahead (child skipped current word and is reading ahead)
+      // CRITICAL FIX: Only check NEW words for skip-ahead to avoid false positives
+      // If we check old words, "heard" from earlier will match "heard" later in the story
+      for (const spokenWord of newWords) {
+        if (spokenWord.length >= 4) { // Increased from 3 to 4 for more substantial words
+          // Look ahead up to 3 words (reduced from 5 to be more conservative)
+          for (let lookAhead = 1; lookAhead <= 3 && currentWordIndex + lookAhead < realWords.length; lookAhead++) {
+            const futureWord = realWords[currentWordIndex + lookAhead];
+
+            if (isWordMatch(spokenWord, futureWord)) {
+              const currentSimilarity = getCachedSimilarity(spokenWord, expectedWord);
+              const futureSimilarity = getCachedSimilarity(spokenWord, futureWord);
+
+              // EVEN STRICTER: Require 95%+ absolute match to prevent false skip-aheads
+              // "when" should NOT match "Then" (75% similar) and trigger a skip
+              // Only accept near-perfect matches to avoid false positives
+              if (futureSimilarity >= 0.95) {
+                console.log(`⏭️ SKIP-AHEAD DETECTED! Child skipped "${expectedWord}" and said "${spokenWord}" (matches word #${currentWordIndex + lookAhead}: "${futureWord}")`);
+                console.log(`   Similarities - Current: ${(currentSimilarity * 100).toFixed(0)}%, Future: ${(futureSimilarity * 100).toFixed(0)}%`);
+
+                // Only mark as omission if skipping 1-2 words (not 3+)
+                // Skipping 3+ words is likely a speech recognition error
+                if (lookAhead <= 2) {
+                  // Mark skipped words as omissions
+                  for (let i = 0; i < lookAhead; i++) {
+                    setMiscues(prev => prev + 1);
+                    setMiscueTypes(prev => ({ ...prev, omission: prev.omission + 1 }));
+                    setWordMiscues(prev => {
+                      const newMap = new Map(prev);
+                      newMap.set(currentWordIndex + i, 'omission');
+                      return newMap;
+                    });
+                  }
+
+                  // Jump to the word after what they said
+                  const newIndex = currentWordIndex + lookAhead + 1;
+                  setCurrentWordIndex(newIndex);
+                  setWordsRead(newIndex);
+
+                  foundSkipAhead = true;
+                  break;
+                } else {
+                  console.log(`   ⚠️ Skipped ${lookAhead} words - likely speech recognition error, not counting as omissions`);
+                  // Set foundSkipAhead to prevent further processing of this word
+                  foundSkipAhead = true;
+                  break;
+                }
+              }
+            }
+          }
+          if (foundSkipAhead) break;
+        }
+      }
+
+      // If we found a skip-ahead, don't process further
+      if (foundSkipAhead) return;
 
       for (const spokenWord of wordsToCheck) {
         const normalizedSpoken = normalize(spokenWord);
@@ -1526,73 +1650,8 @@ const ReadingSessionPage: React.FC = () => {
         // NO MATCH - Advanced miscue detection (7 types)
         console.log(`❌ No match found in recent words`);
 
-        // 1. OMISSION - Check if child skipped ahead (said a future word)
-        // ULTRA STRICT: Only count if we have VERY clear evidence of skipping
+        // Omission detection now handled by priority skip-ahead logic above
         let foundFutureWord = false;
-
-        // CRITICAL: Check if current word appears ANYWHERE in the full transcript
-        // This catches speech recognition corrections like "loski" → "lost key"
-        const allTranscriptWords = transcript.split(/\s+/).filter(Boolean);
-        const currentWordInTranscript = allTranscriptWords.some(w => isWordMatch(w, expectedWord));
-
-        // ADDITIONAL CHECK: Check if any RECENT word matches current expected word
-        // This prevents false omissions when child says similar word (e.g., "shining" for "shiny")
-        const recentWordMatchesCurrent = wordsToCheck.some(w => {
-          const matches = isWordMatch(w, expectedWord);
-          if (matches) {
-            console.log(`   ✓ Recent word "${w}" matches expected "${expectedWord}"`);
-          }
-          return matches;
-        });
-
-        // Only check for omissions if:
-        // 1. Current word is NOT in the transcript at all
-        // 2. No recent word matches the current expected word
-        // 3. We have 2+ new words (not just one mispronunciation)
-        // 4. Last word is 4+ characters and not a number
-        if (!currentWordInTranscript && !recentWordMatchesCurrent && wordsToCheck.length >= 2) {
-          const lastSpokenWord = wordsToCheck[wordsToCheck.length - 1];
-
-          // Filter out short words and numbers
-          if (lastSpokenWord.length >= 4 && !/^\d+$/.test(lastSpokenWord)) {
-            for (let i = 1; i <= 3 && currentWordIndex + i < realWords.length; i++) {
-              const futureWord = realWords[currentWordIndex + i];
-
-              if (isWordMatch(lastSpokenWord, futureWord)) {
-                // Additional validation: future word must be MUCH better match (using cached similarity)
-                const currentSimilarity = getCachedSimilarity(lastSpokenWord, expectedWord);
-                const futureSimilarity = getCachedSimilarity(lastSpokenWord, futureWord);
-
-                // Only count if future is 30%+ better match
-                if (futureSimilarity > currentSimilarity + 0.3) {
-                  console.log(`⚠️ OMISSION! Child skipped "${expectedWord}" and said "${lastSpokenWord}" (word #${currentWordIndex + i})`);
-                  console.log(`   Current similarity: ${(currentSimilarity * 100).toFixed(0)}%, Future similarity: ${(futureSimilarity * 100).toFixed(0)}%`);
-                  console.log(`📊 Counting ${i} omission(s)`);
-
-                  // Count skipped words as omissions
-                  setMiscues(prev => prev + i);
-                  setMiscueTypes(prev => ({ ...prev, omission: prev.omission + i }));
-                  // Mark skipped words
-                  setWordMiscues(prev => {
-                    const newMap = new Map(prev);
-                    for (let j = 0; j < i; j++) {
-                      newMap.set(currentWordIndex + j, 'omission');
-                    }
-                    return newMap;
-                  });
-
-                  // Advance to the word they actually said
-                  const newIndex = currentWordIndex + i + 1;
-                  setCurrentWordIndex(newIndex);
-                  setWordsRead(newIndex);
-
-                  foundFutureWord = true;
-                  break;
-                }
-              }
-            }
-          }
-        }
 
         // 2-7. Other miscue types - analyze RECENT words (not just new ones)
         // CRITICAL FIX: Use wordsToCheck instead of newWords to catch all miscues
@@ -1600,19 +1659,54 @@ const ReadingSessionPage: React.FC = () => {
         if (!foundFutureWord && wordsToCheck.length > 0) {
 
           // 4. INSERTION - Child added extra words that DON'T match ANY story word
-          // OPTIMIZED: Only count words that are truly extra (not in the story at all)
+          // STRICT: Only count words that are truly extra and not fragments of nearby words
           if (newWords.length > 0) {
             let insertionCount = 0;
+            const insertedWordsList: string[] = [];
+
             for (const word of newWords) {
+              const normalizedWord = normalize(word);
+
               // Check if this word matches ANY word in the story
               const matchesAnyStoryWord = realWords.some(storyWord => isWordMatch(word, storyWord));
 
+              // ADDITIONAL CHECK: Is this word a fragment/substring of nearby story words?
+              // Look at current word and next 5 words to see if this might be a mishearing or compound
+              let isLikelyFragment = false;
+              for (let i = 0; i <= 5 && currentWordIndex + i < realWords.length; i++) {
+                const nearbyWord = normalize(realWords[currentWordIndex + i]);
+                // If the "inserted" word is contained in a nearby story word, it's likely a fragment
+                if (nearbyWord.includes(normalizedWord) || normalizedWord.includes(nearbyWord)) {
+                  isLikelyFragment = true;
+                  console.log(`   ℹ️ "${word}" is likely a fragment of nearby word "${realWords[currentWordIndex + i]}" - not counting as insertion`);
+                  break;
+                }
+
+                // COMPOUND CHECK: Check if this "inserted" word is a compound of two nearby words
+                // Example: "rundown" = "run" + "down"
+                if (i + 1 < realWords.length) {
+                  const nextNearbyWord = normalize(realWords[currentWordIndex + i + 1]);
+                  const compound = nearbyWord + nextNearbyWord;
+                  if (normalizedWord === compound || compound.includes(normalizedWord) || normalizedWord.includes(compound)) {
+                    isLikelyFragment = true;
+                    console.log(`   ℹ️ "${word}" is likely a compound of "${realWords[currentWordIndex + i]}" + "${realWords[currentWordIndex + i + 1]}" - not counting as insertion`);
+                    break;
+                  }
+                }
+              }
+
               // Only count as insertion if:
               // 1. Word doesn't match any story word
-              // 2. Word is substantial (3+ chars)
-              // 3. Word is not a number or punctuation
-              if (!matchesAnyStoryWord && word.length >= 3 && /[a-z]/i.test(word)) {
+              // 2. Word is NOT a fragment of nearby words
+              // 3. Word is substantial (4+ chars to reduce false positives)
+              // 4. Word is not a number or punctuation
+              // 5. Word is not a common filler word
+              const fillerWords = ['um', 'uh', 'like', 'you', 'know', 'well', 'so', 'and', 'the', 'a'];
+              const isFillerWord = fillerWords.includes(normalizedWord);
+
+              if (!matchesAnyStoryWord && !isLikelyFragment && !isFillerWord && word.length >= 4 && /[a-z]/i.test(word)) {
                 insertionCount++;
+                insertedWordsList.push(word);
                 console.log(`⚠️ INSERTION! Child added extra word: "${word}" (not in story)`);
               }
             }
@@ -1620,12 +1714,32 @@ const ReadingSessionPage: React.FC = () => {
             if (insertionCount > 0) {
               setMiscues(prev => prev + insertionCount);
               setMiscueTypes(prev => ({ ...prev, insertion: prev.insertion + insertionCount }));
+
+              // Track inserted words at current position
+              setInsertedWords(prev => {
+                const newMap = new Map(prev);
+                const existing = newMap.get(currentWordIndex) || [];
+                newMap.set(currentWordIndex, [...existing, ...insertedWordsList]);
+                return newMap;
+              });
+
+              // CRITICAL: Check if the expected word is also in the recent words
+              // If yes, advance the indicator so it doesn't get stuck
+              const expectedWordFound = wordsToCheck.some(w => isWordMatch(w, expectedWord));
+              if (expectedWordFound) {
+                console.log(`✓ Expected word "${expectedWord}" found after insertion - advancing indicator`);
+                const newIndex = currentWordIndex + 1;
+                setCurrentWordIndex(newIndex);
+                setWordsRead(newIndex);
+                return; // Don't process further miscues for this word
+              }
             }
           }
 
-          // 5. REPETITION - Check if last 2 words in wordsToCheck are identical
-          if (wordsToCheck.length >= 2) {
-            const lastTwo = wordsToCheck.slice(-2);
+          // 5. REPETITION - Check if last 2 words in NEW words are identical
+          // Use wordsForMiscueDetection to avoid detecting old repetitions
+          if (wordsForMiscueDetection.length >= 2) {
+            const lastTwo = wordsForMiscueDetection.slice(-2);
             if (normalize(lastTwo[0]) === normalize(lastTwo[1])) {
               console.log(`⚠️ REPETITION! Child repeated "${lastTwo[0]}" at word index ${currentWordIndex}`);
               console.log(`   Marking word #${currentWordIndex} ("${realWords[currentWordIndex]}") as repetition`);
@@ -1636,14 +1750,23 @@ const ReadingSessionPage: React.FC = () => {
             }
           }
 
-          // OPTIMIZED: Only analyze the LAST word for substitution/mispronunciation
+          // OPTIMIZED: Only analyze the LAST NEW word for substitution/mispronunciation
           // This prevents counting the same word multiple times
-          const lastWord = wordsToCheck[wordsToCheck.length - 1];
+          // CRITICAL FIX: Use wordsForMiscueDetection instead of wordsToCheck
+          // This ensures we only check NEW words, not old words that were already processed
+          if (wordsForMiscueDetection.length === 0) return;
+
+          const lastWord = wordsForMiscueDetection[wordsForMiscueDetection.length - 1];
           const isActualWord = lastWord.length >= 3; // Raised from 2 to 3 to filter noise
           const miscueKey = `${currentWordIndex}-${lastWord}`; // Unique key for this miscue
 
+          // CRITICAL: Check if this word position already has been counted (using ref for immediate check)
+          const alreadyCounted = countedMiscuePositionsRef.current.has(currentWordIndex);
+
           // Only count if it's a new miscue (not already counted)
-          if (isActualWord && !isWordMatch(lastWord, expectedWord) && lastMiscueWordRef.current !== miscueKey) {
+          if (isActualWord && !isWordMatch(lastWord, expectedWord) && lastMiscueWordRef.current !== miscueKey && !alreadyCounted) {
+            // Mark this position as counted IMMEDIATELY to prevent duplicates
+            countedMiscuePositionsRef.current.add(currentWordIndex);
             const normSpoken = normalize(lastWord);
             const normExpected = normalize(expectedWord);
 
@@ -1663,34 +1786,28 @@ const ReadingSessionPage: React.FC = () => {
               return;
             }
 
-            // 6. TRANSPOSITION - Word order changed (said previous word)
-            // CRITICAL FIX: Only check for transposition if this is a NEW word
-            // Don't mark as transposition if the word was already in the transcript
-            // (it means they're reading correctly, just the system hasn't advanced yet)
+            // 6. TRANSPOSITION - Word order changed (said previous/next word out of order)
+            // STRICT: Only count if child clearly swapped adjacent words
             const isNewWord = newWords.includes(lastWord);
 
-            if (currentWordIndex > 0 && isNewWord) {
-              const prevExpectedWord = realWords[currentWordIndex - 1];
-              if (isWordMatch(lastWord, prevExpectedWord)) {
-                // Additional check: Make sure they didn't just read this word correctly
-                // Check if the previous word in transcript matches the previous expected word
-                if (wordsToCheck.length >= 2) {
-                  const secondLastWord = wordsToCheck[wordsToCheck.length - 2];
-                  // If the word before this one matches the previous expected word,
-                  // then this is NOT a transposition - they're reading in order
-                  if (isWordMatch(secondLastWord, prevExpectedWord)) {
-                    console.log(`✓ Not transposition: "${lastWord}" follows "${secondLastWord}" correctly`);
-                    return; // Don't count as transposition
-                  }
-                }
+            if (isNewWord && wordsForMiscueDetection.length >= 2) {
+              // Check if they said the NEXT word before the current word
+              if (currentWordIndex + 1 < realWords.length) {
+                const nextExpectedWord = realWords[currentWordIndex + 1];
+                const secondLastWord = wordsForMiscueDetection[wordsForMiscueDetection.length - 2];
 
-                console.log(`⚠️ TRANSPOSITION! Child said "${lastWord}" out of order`);
-                setMiscues(prev => prev + 1);
-                setMiscueTypes(prev => ({ ...prev, transposition: prev.transposition + 1 }));
-                setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'transposition'));
-                lastMiscueWordRef.current = miscueKey;
-                return;
+                // Pattern: They said word[i+1] then word[i] (swapped order)
+                if (isWordMatch(secondLastWord, nextExpectedWord) && isWordMatch(lastWord, expectedWord)) {
+                  console.log(`⚠️ TRANSPOSITION! Child swapped "${expectedWord}" and "${nextExpectedWord}"`);
+                  setMiscues(prev => prev + 1);
+                  setMiscueTypes(prev => ({ ...prev, transposition: prev.transposition + 1 }));
+                  setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'transposition'));
+                  lastMiscueWordRef.current = miscueKey;
+                  return;
+                }
               }
+
+              // Don't count saying a previous word as transposition - it's likely repetition or re-reading
             }
 
             // 2. MISPRONUNCIATION vs 3. SUBSTITUTION - Based on cached similarity
@@ -1721,22 +1838,40 @@ const ReadingSessionPage: React.FC = () => {
             }
 
             // Now check similarity for actual miscues
-            // Raised threshold from 0.6 to 0.7 to be more tolerant of accents
-            if (similarity >= 0.7) {
-              // Very similar - MISPRONUNCIATION (close but not quite right)
+            // OPTIMIZED thresholds to reduce false positives
+            if (similarity >= 0.75) {
+              // Very similar (75%+) - MISPRONUNCIATION (close but not quite right)
               console.log(`⚠️ MISPRONUNCIATION! Child said "${lastWord}" instead of "${expectedWord}" (${(similarity * 100).toFixed(0)}% similar)`);
               setMiscues(prev => prev + 1);
               setMiscueTypes(prev => ({ ...prev, mispronunciation: prev.mispronunciation + 1 }));
               setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'mispronunciation'));
-            } else if (similarity < 0.4) {
-              // OPTIMIZED: Only count as substitution if similarity is VERY low (<40%)
-              // This prevents counting speech recognition errors as substitutions
+
+              // CRITICAL: Advance word index after mispronunciation so reading doesn't get stuck
+              const newIndex = currentWordIndex + 1;
+              setCurrentWordIndex(newIndex);
+              setWordsRead(newIndex);
+              console.log(`📈 Advancing after mispronunciation from ${currentWordIndex} to ${newIndex}`);
+
+              // Mark this word as processed so it won't be reused for next expected word
+              processedTranscriptWordsRef.current = transcriptWords.length;
+            } else if (similarity < 0.35) {
+              // Very different (<35%) - SUBSTITUTION (completely different word)
+              // Lowered from 40% to 35% to be more strict
               console.log(`⚠️ SUBSTITUTION! Child said "${lastWord}" instead of "${expectedWord}" (${(similarity * 100).toFixed(0)}% similar)`);
               setMiscues(prev => prev + 1);
               setMiscueTypes(prev => ({ ...prev, substitution: prev.substitution + 1 }));
               setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'substitution'));
+
+              // CRITICAL: Advance word index after substitution so reading doesn't get stuck
+              const newIndex = currentWordIndex + 1;
+              setCurrentWordIndex(newIndex);
+              setWordsRead(newIndex);
+              console.log(`📈 Advancing after substitution from ${currentWordIndex} to ${newIndex}`);
+
+              // Mark this word as processed so it won't be reused for next expected word
+              processedTranscriptWordsRef.current = transcriptWords.length;
             } else {
-              // 40-70% similarity - ambiguous, likely speech recognition error or accent
+              // 35-75% similarity - ambiguous, likely speech recognition error or accent
               // Don't count as miscue to avoid false positives
               console.log(`⚠️ Ambiguous word "${lastWord}" vs "${expectedWord}" (${(similarity * 100).toFixed(0)}% similar) - not counting as miscue`);
             }
@@ -1778,6 +1913,7 @@ const ReadingSessionPage: React.FC = () => {
     setCurrentWordIndex(0);
     processedTranscriptWordsRef.current = 0;
     lastMiscueWordRef.current = "";
+    countedMiscuePositionsRef.current.clear(); // Reset counted positions
   }, [sessionId]);
 
   const [studentNames, setStudentNames] = useState<{ [id: string]: string }>(
@@ -1971,8 +2107,9 @@ const ReadingSessionPage: React.FC = () => {
 
   const isCompleted = (currentSession?.status as any) === "completed";
 
-  // Function to save ISR result to MongoDB
-  const saveISRResult = async (
+  // TEMPORARILY DISABLED: Function to save ISR result to MongoDB
+  // TODO: Fix API endpoint and data structure mismatch
+  /* const saveISRResult = async (
     studentId: string,
     studentName: string
   ) => {
@@ -2136,7 +2273,7 @@ const ReadingSessionPage: React.FC = () => {
       console.error("Error saving ISR result to MongoDB:", error);
       throw error; // Re-throw to show error to user
     }
-  };
+  }; */
 
   const handleCompleteSession = async () => {
     if (!sessionId || !currentSession) return;
@@ -2298,9 +2435,9 @@ const ReadingSessionPage: React.FC = () => {
                 <span className="hidden sm:inline">•</span>
                 <span>
                   {storyText
-                    ? storyText.split("\n\n").length
-                    : pdfContent.split("\n\n").length}{" "}
-                  paragraphs
+                    ? storyText.split("\n\n").filter(p => p.trim().length > 0).length
+                    : pdfContent.split("\n\n").filter(p => p.trim().length > 0).length}{" "}
+                  paragraph{(storyText ? storyText.split("\n\n").filter(p => p.trim().length > 0).length : pdfContent.split("\n\n").filter(p => p.trim().length > 0).length) !== 1 ? 's' : ''}
                 </span>
                 {isLoadingPdf && <span className="hidden sm:inline">•</span>}
                 {isLoadingPdf && <span>Loading PDF…</span>}
@@ -2362,7 +2499,7 @@ const ReadingSessionPage: React.FC = () => {
                                 mispronunciation: 'bg-red-100 text-red-800 border-2 border-red-400',
                                 omission: 'bg-orange-100 text-orange-800 border-2 border-orange-400',
                                 substitution: 'bg-yellow-100 text-yellow-800 border-2 border-yellow-400',
-                                insertion: 'bg-green-100 text-green-800 border-2 border-green-400',
+                                insertion: 'bg-cyan-100 text-cyan-800 border-2 border-cyan-400',
                                 repetition: 'bg-blue-100 text-blue-800 border-2 border-blue-400 underline decoration-4 decoration-blue-600',
                                 transposition: 'bg-purple-100 text-purple-800 border-2 border-purple-400',
                                 reversal: 'bg-pink-100 text-pink-800 border-2 border-pink-400'
@@ -2420,6 +2557,21 @@ const ReadingSessionPage: React.FC = () => {
                                 }
                               >
                                 {word}
+                                {/* Show inserted words as floating badges after this word */}
+                                {!isSpecialChar && insertedWords.has(realWordIndex) && (
+                                  <span className="relative">
+                                    {insertedWords.get(realWordIndex)!.map((insertedWord, idx) => (
+                                      <span
+                                        key={`insert-${realWordIndex}-${idx}`}
+                                        className="absolute left-0 top-[-24px] bg-cyan-500 text-white text-xs px-2 py-1 rounded-full shadow-lg whitespace-nowrap z-20 animate-bounce"
+                                        style={{ marginLeft: `${idx * 60}px` }}
+                                        title="Inserted word (not in story)"
+                                      >
+                                        +{insertedWord}
+                                      </span>
+                                    ))}
+                                  </span>
+                                )}
                               </span>
                             );
                           })}
@@ -2428,23 +2580,52 @@ const ReadingSessionPage: React.FC = () => {
                     );
                   })
               ) : (
-                <div className="text-center text-gray-400 py-12">
-                  No story content available
+                <div className="text-center py-16">
+                  <div className="bg-gray-100 rounded-full w-24 h-24 mx-auto mb-6 flex items-center justify-center">
+                    <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                    </svg>
+                  </div>
+                  <h3 className="text-xl font-semibold text-gray-700 mb-2">No Story Loaded</h3>
+                  <p className="text-gray-500 text-sm">Please select a story to begin the reading session</p>
                 </div>
               )}
             </div>
             {(pdfError || error) && !storyText && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/80 rounded-3xl shadow-xl z-10">
-                <XCircleIcon className="h-16 w-16 text-red-400 mb-4" />
-                <div className="text-lg text-red-600 mb-4">
-                  {pdfError || error}
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/95 rounded-3xl shadow-xl z-10 p-8">
+                <div className="bg-red-50 rounded-full p-6 mb-6">
+                  <XCircleIcon className="h-20 w-20 text-red-500" />
                 </div>
-                <button
-                  onClick={() => window.location.reload()}
-                  className="px-6 py-2 bg-blue-500 text-white rounded-lg shadow hover:bg-blue-600 transition"
-                >
-                  Retry
-                </button>
+                <h3 className="text-2xl font-bold text-gray-800 mb-3">Unable to Load Story</h3>
+                <p className="text-gray-600 text-center max-w-md mb-2">
+                  We couldn't load the story content for this reading session.
+                </p>
+                <p className="text-sm text-gray-500 text-center max-w-md mb-6">
+                  This might be a temporary connection issue. Please try refreshing the page.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="px-8 py-3 bg-blue-600 text-white rounded-xl shadow-lg hover:bg-blue-700 transition-all font-semibold flex items-center gap-2"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Refresh Page
+                  </button>
+                  <button
+                    onClick={() => navigate('/teacher/reading')}
+                    className="px-8 py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 transition-all font-semibold"
+                  >
+                    Go Back
+                  </button>
+                </div>
+                {(pdfError || error) && (
+                  <details className="mt-6 text-xs text-gray-400 cursor-pointer">
+                    <summary className="hover:text-gray-600">Technical details</summary>
+                    <p className="mt-2 font-mono bg-gray-100 p-2 rounded">{pdfError || error}</p>
+                  </details>
+                )}
               </div>
             )}
           </div>
@@ -2493,7 +2674,7 @@ const ReadingSessionPage: React.FC = () => {
                 Words Read
               </span>
               <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-blue-700 mt-1">
-                {wordsRead}
+                {Math.min(wordsRead, words.length)}
               </span>
             </div>
             {/* Miscues */}
@@ -2613,13 +2794,13 @@ const ReadingSessionPage: React.FC = () => {
               </div>
 
               {/* 4. Insertion */}
-              <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.insertion > 0 ? 'bg-green-100 border-green-400 shadow-lg' : 'bg-white border-gray-200'}`}>
+              <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.insertion > 0 ? 'bg-cyan-100 border-cyan-400 shadow-lg' : 'bg-white border-gray-200'}`}>
                 <div className="flex items-start justify-between mb-2">
                   <div>
-                    <h4 className="font-bold text-green-900 text-sm">4. Insertion</h4>
-                    <p className="text-xs text-green-700 italic">Pagsisisingit</p>
+                    <h4 className="font-bold text-cyan-900 text-sm">4. Insertion</h4>
+                    <p className="text-xs text-cyan-700 italic">Pagsisisingit</p>
                   </div>
-                  <span className={`text-2xl font-extrabold ${miscueTypes.insertion > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                  <span className={`text-2xl font-extrabold ${miscueTypes.insertion > 0 ? 'text-cyan-600' : 'text-gray-400'}`}>
                     {miscueTypes.insertion}
                   </span>
                 </div>
@@ -2772,15 +2953,18 @@ const ReadingSessionPage: React.FC = () => {
             </div>
             <div className="flex flex-row flex-wrap justify-center gap-3 sm:gap-4 lg:gap-6 w-full">
               {!isRecording ? (
-                <button
-                  onClick={handleStartRecording}
-                  className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 hover:from-blue-600 hover:to-purple-600 transition-all duration-200"
-                  title="Start Session"
-                >
-                  <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-                  <span className="hidden sm:inline">Start</span>
-                  <span className="sm:hidden">Start</span>
-                </button>
+                <div className="flex flex-col items-center gap-3 w-full">
+                  <button
+                    onClick={handleStartRecording}
+                    className="flex items-center justify-center gap-2 sm:gap-3 px-8 sm:px-12 lg:px-16 py-4 sm:py-5 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white text-lg sm:text-xl lg:text-2xl font-bold hover:scale-105 hover:from-blue-600 hover:to-purple-600 transition-all duration-200 shadow-lg"
+                  >
+                    <MicrophoneIcon className="h-7 w-7 sm:h-8 sm:w-8 lg:h-9 lg:w-9" />
+                    <span>Start Reading Session</span>
+                  </button>
+                  <p className="text-sm text-gray-500 text-center">
+                    Click to begin recording the student's reading
+                  </p>
+                </div>
               ) : (
                 <>
                   {isPaused ? (
@@ -2804,15 +2988,19 @@ const ReadingSessionPage: React.FC = () => {
                       <span className="sm:hidden">Pause</span>
                     </button>
                   )}
-                  <button
-                    onClick={handleStopRecording}
-                    className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-red-500 to-pink-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
-                    title="Stop Recording"
-                  >
-                    <StopIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-                    <span className="hidden sm:inline">Stop</span>
-                    <span className="sm:hidden">Stop</span>
-                  </button>
+                  <div className="flex flex-col items-center gap-2 w-full">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                      <span className="text-sm font-semibold text-red-600">Recording in Progress</span>
+                    </div>
+                    <button
+                      onClick={handleStopRecording}
+                      className="flex items-center gap-2 sm:gap-3 px-8 sm:px-12 py-4 sm:py-5 rounded-2xl bg-gradient-to-r from-red-500 to-pink-500 text-white text-lg sm:text-xl font-bold hover:scale-105 transition-all duration-200 shadow-lg"
+                    >
+                      <StopIcon className="h-6 w-6 sm:h-7 sm:w-7" />
+                      <span>Stop & Save Session</span>
+                    </button>
+                  </div>
                   {/* Skip Word Button - for when stuck */}
                   <button
                     onClick={() => {
