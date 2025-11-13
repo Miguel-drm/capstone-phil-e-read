@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import type { DropResult } from '@hello-pangea/dnd';
-import { collection, addDoc, Timestamp, getDocs, deleteDoc, doc, query, where, orderBy } from 'firebase/firestore';
+import { collection, addDoc, Timestamp, getDocs, deleteDoc, doc, query, where } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Swal from 'sweetalert2';
@@ -33,7 +33,7 @@ const ToggleSwitch: React.FC<ToggleSwitchProps> = ({ checked, onChange, label })
 );
 
 const Resources: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'stories' | 'create' | 'templates' | 'recent'>('stories');
+  const [activeTab, setActiveTab] = useState<'stories' | 'create' | 'templates'>('stories');
   const [testCategory, setTestCategory] = useState('pre');
   
   const [questions, setQuestions] = useState([
@@ -52,8 +52,6 @@ const Resources: React.FC = () => {
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
   
-  const [recentTests, setRecentTests] = useState<any[]>([]);
-  const [recentTestsLoading, setRecentTestsLoading] = useState(false);
   const [stories, setStories] = useState<Story[]>([]);
   const [selectedStoryId, setSelectedStoryId] = useState<string>('');
 
@@ -97,8 +95,8 @@ const Resources: React.FC = () => {
     const params = new URLSearchParams(location.search);
     const tabParam = params.get('tab');
     const storyParam = params.get('storyId');
-    if (tabParam === 'create' || tabParam === 'stories' || tabParam === 'templates' || tabParam === 'recent') {
-      setActiveTab(tabParam as 'stories' | 'create' | 'templates' | 'recent');
+    if (tabParam === 'create' || tabParam === 'stories' || tabParam === 'templates') {
+      setActiveTab(tabParam as 'stories' | 'create' | 'templates');
     }
     if (storyParam) {
       setSelectedStoryId(String(storyParam));
@@ -322,44 +320,7 @@ const Resources: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    const fetchRecentTests = async () => {
-      if (!currentUser?.uid) return;
-      setRecentTestsLoading(true);
-      try {
-        const q = query(
-          collection(db, 'results'),
-          where('teacherId', '==', currentUser.uid),
-          where('type', '==', 'test')
-        );
-        const querySnapshot = await getDocs(q);
-        type TestResult = { id: string; createdAt?: any; [key: string]: any };
-        const allTestResults: TestResult[] = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        const getDate = (val: any) =>
-          val && typeof val.toDate === 'function'
-            ? val.toDate()
-            : val
-              ? new Date(val)
-              : new Date(0);
-        const sorted = allTestResults
-          .sort((a, b) => {
-            const dateA = getDate(a.createdAt);
-            const dateB = getDate(b.createdAt);
-            return dateB - dateA;
-          })
-          .slice(0, 10);
-        setRecentTests(sorted);
-      } catch (error) {
-        console.error('Error fetching recent tests:', error);
-        setRecentTests([]);
-      } finally {
-        setRecentTestsLoading(false);
-      }
-    };
-    if (activeTab === 'recent') {
-      fetchRecentTests();
-    }
-  }, [activeTab, currentUser?.uid]);
+
 
   return (
     <>
@@ -375,7 +336,6 @@ const Resources: React.FC = () => {
             <button onClick={() => setActiveTab('stories')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'stories' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}>Stories</button>
             <button onClick={() => setActiveTab('create')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'create' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}>Create Test</button>
             <button onClick={() => setActiveTab('templates')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'templates' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}>Test Templates</button>
-            <button onClick={() => setActiveTab('recent')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'recent' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}>Recent Tests</button>
           </nav>
         </div>
 
@@ -390,17 +350,8 @@ const Resources: React.FC = () => {
           <div className="space-y-6">
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Create New Assessment</h2>
-               <div className="grid grid-cols-1 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Test Category</label>
-                  <select value={testCategory} onChange={(e) => setTestCategory(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                    <option value="pre">Pre-Test</option>
-                    <option value="post">Post-Test</option>
-                  </select>
-                </div>
-              </div>
               
-              <div className="mt-6">
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Story</label>
                 <select value={selectedStoryId} onChange={(e) => setSelectedStoryId(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                   <option value="">Select a story...</option>
@@ -611,42 +562,6 @@ const Resources: React.FC = () => {
                 </button>
               </div>
             )}
-          </div>
-        )}
-
-        {activeTab === 'recent' && (
-          <div className="space-y-4">
-            <h2 className="text-lg font-semibold text-gray-900">Recent Tests</h2>
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-              {recentTestsLoading ? (
-                <Loader label="Loading recent tests..." />
-              ) : recentTests.length === 0 ? (
-                <div className="p-6 text-gray-500">No recent tests found.</div>
-              ) : (
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Test Name</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Score</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {recentTests.map((test, idx) => (
-                      <tr key={test.id || idx} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap"><div className="text-sm font-medium text-gray-900">{test.testName || 'Untitled Test'}</div></td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{test.studentName || '-'}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{test.createdAt?.toDate ? formatDateHuman(test.createdAt.toDate()) : '-'}</td>
-                        <td className="px-6 py-4 whitespace-nowrap"><span className={`px-2 py-1 text-xs font-medium rounded-full ${test.score !== undefined ? (test.score >= 80 ? 'bg-green-100 text-green-800' : test.score >= 50 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800') : 'bg-gray-100 text-gray-800'}`}>{test.score !== undefined ? (test.score >= 80 ? 'Completed' : test.score >= 50 ? 'Partial' : 'Needs Review') : 'N/A'}</span></td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{test.score !== undefined ? `${test.score}%` : '-'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
           </div>
         )}
       </div>
