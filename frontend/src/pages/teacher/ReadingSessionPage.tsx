@@ -509,8 +509,11 @@ const ReadingSessionPage: React.FC = () => {
     const useVosk = storyLanguage === "tagalog";
     if (useVosk) {
       try {
+        // Railway WebSocket URL: wss://philiready-websocket-production.up.railway.app
+        // Can be overridden with VITE_VOSK_WS_URL environment variable
         const wsUrl =
-          (import.meta as any)?.env?.VITE_VOSK_WS_URL || "ws://localhost:2700";
+          (import.meta as any)?.env?.VITE_VOSK_WS_URL || 
+          "wss://philiready-websocket-production.up.railway.app";
         const startVosk = async () => {
           let stream: MediaStream;
           try {
@@ -2307,12 +2310,12 @@ const ReadingSessionPage: React.FC = () => {
           continue;
         }
 
-        // TEMPORARILY DISABLED: Save ISR result to MongoDB
-        // TODO: Fix API endpoint and data structure mismatch
-        // await saveISRResult(studentId, studentName);
-
-        // For now, just save to Firebase (existing working code below)
-        console.log(`Session completed for student: ${studentName} (${studentId})`);
+        try {
+          await saveISRResult(studentId, studentName);
+          console.log(`Session completed for student: ${studentName} (${studentId})`);
+        } catch (error) {
+          console.error(`Failed to save ISR result for ${studentName}:`, error);
+        }
 
         setCompletedStudents((prev) => ({ ...prev, [studentId]: true }));
       }

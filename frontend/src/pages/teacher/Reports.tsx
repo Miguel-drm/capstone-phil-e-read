@@ -2,10 +2,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { studentService, type Student } from '../../services/studentService';
 import { getUserProfile } from '../../services/authService';
-import { UnifiedStoryService } from '../../services/UnifiedStoryService';
 import { notificationService } from '../../services/notificationService';
 import DepEdISRViewer from '../../components/admin/DepEdISRViewer';
 // import { gradeService } from '../../services/gradeService';
+import { isrResultService } from '../../services/ISRresultService';
 
 
 
@@ -130,74 +130,6 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     }
   };
 
-  // Generate reading data structure for ISR from student results
-  const generateReadingDataFromResults = async (studentId: string, studentLevel: string, storySet: string) => {
-    const readingResults = studentReadingResults[studentId] || [];
-    const testResults = studentTestResults[studentId] || [];
-
-    // Get all available reading levels (K, I, II, III, IV, V, VI, VII)
-    const allLevels = ['K', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
-    
-    // Initialize reading data array for DepEdISRViewer format
-    const readingDataArray: any[] = [];
-    
-    // Process each level
-    for (const level of allLevels) {
-      // Find reading and test results for this level
-      let readingResult = null;
-      let testResult = null;
-      
-      // For now, we'll match results to the student's current level
-      // In a more sophisticated system, you'd match based on the actual level of the story/test
-      if (level === studentLevel) {
-        readingResult = readingResults.length > 0 
-          ? [...readingResults].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
-          : null;
-        testResult = testResults.length > 0
-          ? [...testResults].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
-          : null;
-      }
-
-      // Only add entries that have actual data
-      if (readingResult || testResult) {
-        const readingLevel = readingResult ? determineReadingLevel(readingResult.oralReadingScore) : null;
-        const comprehensionLevel = testResult ? determineReadingLevel(testResult.comprehension) : null;
-        
-        // Determine the set (A, B, C, D) - use storySet or default to A
-        let setLetter = 'A';
-        if (storySet) {
-          // Extract set letter from storySet string
-          const setMatch = storySet.match(/set\s*([ABCD])/i);
-          if (setMatch) {
-            setLetter = setMatch[1].toUpperCase();
-          }
-        }
-
-        // Format date
-        const dateTaken = readingResult?.createdAt || testResult?.createdAt;
-        const formattedDate = dateTaken ? new Date(dateTaken).toLocaleDateString() : '';
-
-        readingDataArray.push({
-          level,
-          set: setLetter,
-          wordReading: {
-            ind: readingLevel === 'Ind',
-            ins: readingLevel === 'Ins', 
-            frus: readingLevel === 'Frus'
-          },
-          comprehension: {
-            ind: comprehensionLevel === 'Ind',
-            ins: comprehensionLevel === 'Ins',
-            frus: comprehensionLevel === 'Frus'
-          },
-          dateTaken: formattedDate
-        });
-      }
-    }
-
-    return readingDataArray;
-  };
-
 
 
   // Helper function to get class submission status
@@ -260,42 +192,26 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     const readingScore = latestReading?.oralReadingScore || 0;
     const comprehensionScore = latestTest?.comprehension || 0;
 
-    // Get story set and language information from the book/story used in the reading session
-    let storySet = '';
+    // Fetch aggregated ISR review record from backend
+    const reviewRecord = await isrResultService.getISRReviewRecord(student.id || '');
+
+    // Determine language flags but default to English
     let storyLanguage: 'English' | 'Filipino' = 'English';
-    if (latestReading?.book) {
-      try {
-        // Fetch story details to get the set and language information
-        const stories = await UnifiedStoryService.getInstance().getStories({});
-        const story = stories.find((s: any) => s.title === latestReading.book);
-        if (story) {
-          if (story.storySet) {
-            storySet = story.storySet;
-            console.log('Found story set:', storySet, 'for story:', story.title);
-          }
-          // Map story language to ISR language format
-          if (story.language === 'none' || story.language === 'tagalog') {
-            storyLanguage = 'Filipino';
-          } else {
-            storyLanguage = 'English';
-          }
-          console.log('Story language:', story.language, '-> ISR language:', storyLanguage);
-        } else {
-          console.log('Story not found for:', latestReading.book);
-        }
-      } catch (error) {
-        console.error('Error fetching story information:', error);
-      }
+    if (reviewRecord.languages?.filipino && !reviewRecord.languages?.english) {
+      storyLanguage = 'Filipino';
+    } else if (reviewRecord.languages?.filipino && reviewRecord.languages?.english) {
+      // If both languages are true, prefer latest reading language if available
+      storyLanguage = latestReading?.language === 'Filipino' ? 'Filipino' : 'English';
     }
 
     // Get teacher profile information
-    let teacherName = 'Current Teacher';
-    let schoolName = 'Phil I-Ready School';
+    let teacherName = reviewRecord.teacherName || 'Current Teacher';
+    let schoolName = reviewRecord.school || 'Phil I-Ready School';
 
     try {
       const profile = await getUserProfile();
-      teacherName = profile?.displayName || profile?.email || 'Current Teacher';
-      schoolName = profile?.school || 'Phil I-Ready School';
+      teacherName = reviewRecord.teacherName || profile?.displayName || profile?.email || 'Current Teacher';
+      schoolName = reviewRecord.school || profile?.school || 'Phil I-Ready School';
     } catch (error) {
       console.log('Could not fetch teacher profile:', error);
     }
@@ -328,6 +244,15 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     };
     
     const studentLevel = convertGradeToRomanLevel(student.grade);
+    const levelStartedFromRecord = reviewRecord.levelStarted || studentLevel;
+
+    const readingDataFromRecord = reviewRecord.entries.map((entry) => ({
+      level: entry.level,
+      set: entry.set || '',
+      wordReading: entry.wordReading,
+      comprehension: entry.comprehension,
+      dateTaken: entry.dateTaken ? new Date(entry.dateTaken).toLocaleDateString() : '',
+    }));
     
     // Debug: Log the final ISR data
     console.log('Final ISR data:', {
@@ -344,8 +269,8 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
       school: schoolName,
       teacher: teacherName,
       language: storyLanguage,
-      levelStarted: studentLevel, // Mark the level where student started
-      readingData: await generateReadingDataFromResults(student.id || '', studentLevel, storySet),
+      levelStarted: levelStartedFromRecord, // Mark the level where student started
+      readingData: readingDataFromRecord,
       observations: {
         // Base observations on actual reading session data
         wordByWord: (latestReading?.readingSpeed || 0) < 80, // Slow reading speed suggests word-by-word reading

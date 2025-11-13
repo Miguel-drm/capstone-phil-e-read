@@ -68,9 +68,6 @@ const Reading: React.FC = () => {
       setStoriesError(null);
       const fetchedStories = await UnifiedStoryService.getInstance().getStories({}); // Fetch all stories initially
       
-      console.log('📚 All fetched stories:', fetchedStories.map(s => ({ title: s.title, grade: s.grade, set: s.storySet, language: s.language })));
-      console.log('👨‍🏫 Teacher grade level:', teacherGradeLevel);
-      
       // Filter stories based on teacher's grade level
       let filteredStories = fetchedStories;
       if (teacherGradeLevel) {
