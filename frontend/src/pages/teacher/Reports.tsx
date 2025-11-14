@@ -4,6 +4,7 @@ import { studentService, type Student } from '../../services/studentService';
 import { getUserProfile } from '../../services/authService';
 import { notificationService } from '../../services/notificationService';
 import DepEdISRViewer from '../../components/admin/DepEdISRViewer';
+import TeacherLoader from '../../components/teacher/TeacherLoader';
 // import { gradeService } from '../../services/gradeService';
 import { isrResultService } from '../../services/ISRresultService';
 
@@ -1114,10 +1115,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                 onClose={handleCloseISRModal}
               />
             ) : (
-              <div className="p-8 text-center">
-                <i className="fas fa-spinner fa-spin text-2xl text-gray-400 mb-4"></i>
-                <p className="text-gray-600">Loading ISR data...</p>
-              </div>
+              <TeacherLoader label="Loading ISR data..." />
             )}
 
             {/* Modal Footer */}
