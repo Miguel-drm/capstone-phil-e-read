@@ -38,7 +38,7 @@ import { getUserProfile } from "@/services/authService";
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 const ReadingSessionPage: React.FC = () => {
-  useAuth();
+  const { currentUser } = useAuth();
   const [storyText, setStoryText] = useState<string>("");
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
@@ -88,21 +88,30 @@ const ReadingSessionPage: React.FC = () => {
 
   // Debug state removed
 
-  // Detailed miscue tracking (Phil-IRI format)
+  // Detailed miscue tracking (Phil-IRI format) - Following DepEd Table 4 Rules
   const [miscues, setMiscues] = useState(0); // Total miscues
   const [miscueTypes, setMiscueTypes] = useState({
-    mispronunciation: 0,  // Maling Bigkas - wrong pronunciation
-    omission: 0,          // Pagkakaltas - skipped word
-    substitution: 0,      // Pagpapalit - replaced word
-    insertion: 0,         // Pagsisisingit - added word
-    repetition: 0,        // Pag-uulit - repeated word
-    transposition: 0,     // Pagpapalit ng Lugar - word order changed
-    reversal: 0           // Paglilipat - reversed letters/words
+    mispronunciation: 0,  // Maling Bigkas - Count as 1 error every mispronunciation (dialectal variations not counted)
+    omission: 0,          // Pagkakaltas - Count as one error a word or phrase omitted
+    substitution: 0,      // Pagpapalit - Count as one error every substitution
+    insertion: 0,         // Pagsisisingit - Count a word or phrase inserted as one error
+    repetition: 0,        // Pag-uulit - Count as one error every word or phrase repeated
+    transposition: 0,     // Pagpapalit ng Lugar - Count as one error every transposition made
+    reversal: 0,          // Paglilipat - Count as one error every reversal made
+    selfCorrection: 0     // Self-Correction - Don't count as error (marked with 'S')
   });
 
-  // Track miscues per word for visual highlighting
-  type MiscueType = 'mispronunciation' | 'omission' | 'substitution' | 'insertion' | 'repetition' | 'transposition' | 'reversal';
+  // Track miscues per word for visual highlighting - Following DepEd Phil-IRI marking system
+  type MiscueType = 'mispronunciation' | 'omission' | 'substitution' | 'insertion' | 'repetition' | 'transposition' | 'reversal' | 'selfCorrection';
   const [wordMiscues, setWordMiscues] = useState<Map<number, MiscueType>>(new Map());
+
+  // Track marking annotations for each word (following DepEd Table 4)
+  const [wordMarkings, setWordMarkings] = useState<Map<number, {
+    type: MiscueType;
+    marking: string; // The actual marking (underline, circle, caret, etc.)
+    spokenWord?: string; // What the child actually said
+    correctWord: string; // What should have been said
+  }>>(new Map());
 
   // Track inserted words (extra words child said) with their position
   const [insertedWords, setInsertedWords] = useState<Map<number, string[]>>(new Map());
@@ -167,6 +176,63 @@ const ReadingSessionPage: React.FC = () => {
     return text.match(/\b\w+\b/g) || [];
   }
 
+  // Helper: Detect if a word is likely English (for language validation)
+  function isLikelyEnglishWord(word: string): boolean {
+    const normalized = normalize(word);
+    
+    // Common English-only patterns
+    const englishPatterns = [
+      /^(th|wh|sh|ch|ph)/i,  // English consonant clusters at start
+      /ing$/i,                // -ing ending (rare in Tagalog)
+      /tion$/i,               // -tion ending (English)
+      /ness$/i,               // -ness ending (English)
+      /ful$/i,                // -ful ending (English)
+      /less$/i,               // -less ending (English)
+      /ment$/i,               // -ment ending (English)
+    ];
+    
+    // Check if word matches English patterns
+    const hasEnglishPattern = englishPatterns.some(pattern => pattern.test(normalized));
+    
+    // Common English function words
+    const englishFunctionWords = [
+      'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+      'of', 'with', 'by', 'from', 'up', 'about', 'into', 'through', 'during',
+      'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
+      'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might',
+      'can', 'must', 'shall', 'this', 'that', 'these', 'those'
+    ];
+    
+    return hasEnglishPattern || englishFunctionWords.includes(normalized);
+  }
+
+  // Helper: Detect if a word is likely Tagalog (for language validation)
+  function isLikelyTagalogWord(word: string): boolean {
+    const normalized = normalize(word);
+    
+    // Common Tagalog patterns
+    const tagalogPatterns = [
+      /^(ng|mga|ka|pa|na|ba|po)/i,  // Tagalog particles/prefixes
+      /ng$/i,                         // -ng ending (very common in Tagalog)
+      /an$/i,                         // -an ending (common in Tagalog)
+      /in$/i,                         // -in ending (Tagalog verb form)
+      /ay$/i,                         // -ay ending (Tagalog)
+    ];
+    
+    // Check if word matches Tagalog patterns
+    const hasTagalogPattern = tagalogPatterns.some(pattern => pattern.test(normalized));
+    
+    // Common Tagalog function words
+    const tagalogFunctionWords = [
+      'ang', 'ng', 'sa', 'mga', 'ay', 'na', 'pa', 'ba', 'po', 'opo',
+      'ako', 'ikaw', 'siya', 'kami', 'tayo', 'kayo', 'sila',
+      'ko', 'mo', 'niya', 'namin', 'natin', 'ninyo', 'nila',
+      'ito', 'iyan', 'iyon', 'dito', 'diyan', 'doon'
+    ];
+    
+    return hasTagalogPattern || tagalogFunctionWords.includes(normalized);
+  }
+
   // Levenshtein distance implementation
   function levenshtein(a: string, b: string): number {
     if (a === b) return 0;
@@ -189,11 +255,37 @@ const ReadingSessionPage: React.FC = () => {
   /**
    * Universal pronunciation matching for children's reading.
    * Handles common patterns globally without hardcoding specific words.
+   * LANGUAGE-AWARE: Prevents cross-language false matches (e.g., English words in Tagalog stories)
    */
   function isWordMatch(spokenWord: string, expectedWord: string): boolean {
     const normSpoken = normalize(spokenWord);
     const normExpected = normalize(expectedWord);
     if (!normSpoken || !normExpected) return false;
+
+    // LANGUAGE VALIDATION: Prevent cross-language false matches
+    // If reading Tagalog story, reject English words that don't match Tagalog expected words
+    if (storyLanguage === 'tagalog') {
+      const spokenIsEnglish = isLikelyEnglishWord(normSpoken);
+      const expectedIsTagalog = isLikelyTagalogWord(normExpected);
+      
+      // If child said an English word but expected word is clearly Tagalog, reject
+      if (spokenIsEnglish && expectedIsTagalog && normSpoken !== normExpected) {
+        console.log(`⚠️ Language mismatch: Child said English word "${spokenWord}" in Tagalog story (expected Tagalog: "${expectedWord}")`);
+        return false;
+      }
+    }
+    
+    // REVERSE: If reading English story, reject Tagalog words that don't match English expected words
+    if (storyLanguage === 'english') {
+      const spokenIsTagalog = isLikelyTagalogWord(normSpoken);
+      const expectedIsEnglish = isLikelyEnglishWord(normExpected);
+      
+      // If child said a Tagalog word but expected word is clearly English, reject
+      if (spokenIsTagalog && expectedIsEnglish && normSpoken !== normExpected) {
+        console.log(`⚠️ Language mismatch: Child said Tagalog word "${spokenWord}" in English story (expected English: "${expectedWord}")`);
+        return false;
+      }
+    }
 
     // DEBUG: Log problematic comparisons
     if ((normSpoken === 'in' && normExpected === 'when') || (normSpoken === 'when' && normExpected === 'in')) {
@@ -1523,15 +1615,26 @@ const ReadingSessionPage: React.FC = () => {
                 // Only mark as omission if skipping 1-2 words (not 3+)
                 // Skipping 3+ words is likely a speech recognition error
                 if (lookAhead <= 2) {
-                  // Mark skipped words as omissions
+                  // Mark skipped words as omissions following DepEd Rule: Count as one error a word or phrase omitted
                   for (let i = 0; i < lookAhead; i++) {
+                    const omittedWordIndex = currentWordIndex + i;
+                    const omittedWord = realWords[omittedWordIndex];
+
                     setMiscues(prev => prev + 1);
                     setMiscueTypes(prev => ({ ...prev, omission: prev.omission + 1 }));
                     setWordMiscues(prev => {
                       const newMap = new Map(prev);
-                      newMap.set(currentWordIndex + i, 'omission');
+                      newMap.set(omittedWordIndex, 'omission');
                       return newMap;
                     });
+
+                    // Add DepEd marking for omission: Circle the omitted unit of language
+                    setWordMarkings(prev => new Map(prev).set(omittedWordIndex, {
+                      type: 'omission',
+                      marking: `Circle the omitted word: "${omittedWord}"`,
+                      spokenWord: '(omitted)',
+                      correctWord: omittedWord
+                    }));
                   }
 
                   // Jump to the word after what they said
@@ -1718,13 +1821,21 @@ const ReadingSessionPage: React.FC = () => {
               setMiscues(prev => prev + insertionCount);
               setMiscueTypes(prev => ({ ...prev, insertion: prev.insertion + insertionCount }));
 
-              // Track inserted words at current position
+              // Track inserted words at current position with DepEd marking
               setInsertedWords(prev => {
                 const newMap = new Map(prev);
                 const existing = newMap.get(currentWordIndex) || [];
                 newMap.set(currentWordIndex, [...existing, ...insertedWordsList]);
                 return newMap;
               });
+
+              // Add DepEd marking for insertion
+              setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
+                type: 'insertion',
+                marking: `Use caret (^) to show where word was inserted and write above: "${insertedWordsList.join(', ')}"`,
+                spokenWord: insertedWordsList.join(' '),
+                correctWord: realWords[currentWordIndex] || ''
+              }));
 
               // CRITICAL: Check if the expected word is also in the recent words
               // If yes, advance the indicator so it doesn't get stuck
@@ -1740,15 +1851,21 @@ const ReadingSessionPage: React.FC = () => {
           }
 
           // 5. REPETITION - Check if last 2 words in NEW words are identical
-          // Use wordsForMiscueDetection to avoid detecting old repetitions
+          // DepEd Rule: Count as one error every word or phrase repeated. Underline the portion repeated.
           if (wordsForMiscueDetection.length >= 2) {
             const lastTwo = wordsForMiscueDetection.slice(-2);
             if (normalize(lastTwo[0]) === normalize(lastTwo[1])) {
-              console.log(`⚠️ REPETITION! Child repeated "${lastTwo[0]}" at word index ${currentWordIndex}`);
+              console.log(`⚠️ REPETITION! Child repeated "${lastTwo[0]}" at word index ${currentWordIndex} - DepEd Rule: Underline repeated portion`);
               console.log(`   Marking word #${currentWordIndex} ("${realWords[currentWordIndex]}") as repetition`);
               setMiscues(prev => prev + 1);
               setMiscueTypes(prev => ({ ...prev, repetition: prev.repetition + 1 }));
               setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'repetition'));
+              setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
+                type: 'repetition',
+                marking: `Underline repeated portion: "${lastTwo[0]}"`,
+                spokenWord: `${lastTwo[0]} ${lastTwo[1]}`,
+                correctWord: lastTwo[0]
+              }));
               return; // Don't count as other miscue types
             }
           }
@@ -1773,24 +1890,32 @@ const ReadingSessionPage: React.FC = () => {
             const normSpoken = normalize(lastWord);
             const normExpected = normalize(expectedWord);
 
-            // 7. REVERSAL - Letters/words reversed
+            // 7. REVERSAL - Letters/words reversed (DepEd Rule: Count as one error every reversal made)
             const isReversal = normSpoken === normExpected.split('').reverse().join('') ||
               (normSpoken === 'saw' && normExpected === 'was') ||
               (normSpoken === 'was' && normExpected === 'saw') ||
               (normSpoken === 'on' && normExpected === 'no') ||
-              (normSpoken === 'no' && normExpected === 'on');
+              (normSpoken === 'no' && normExpected === 'on') ||
+              (normSpoken === 'bad' && normExpected === 'dab') ||
+              (normSpoken === 'dab' && normExpected === 'bad');
 
             if (isReversal) {
-              console.log(`⚠️ REVERSAL! Child said "${lastWord}" (reversed "${expectedWord}")`);
+              console.log(`⚠️ REVERSAL! Child said "${lastWord}" (reversed "${expectedWord}") - DepEd Rule: Write correct word above`);
               setMiscues(prev => prev + 1);
               setMiscueTypes(prev => ({ ...prev, reversal: prev.reversal + 1 }));
               setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'reversal'));
+              setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
+                type: 'reversal',
+                marking: `Write "${expectedWord}" above "${lastWord}"`,
+                spokenWord: lastWord,
+                correctWord: expectedWord
+              }));
               lastMiscueWordRef.current = miscueKey;
               return;
             }
 
-            // 6. TRANSPOSITION - Word order changed (said previous/next word out of order)
-            // STRICT: Only count if child clearly swapped adjacent words
+            // 6. TRANSPOSITION - Word order changed (DepEd Rule: Count as one error every transposition made)
+            // Use transpositional symbol over and under the letters or words transposed
             const isNewWord = newWords.includes(lastWord);
 
             if (isNewWord && wordsForMiscueDetection.length >= 2) {
@@ -1801,10 +1926,16 @@ const ReadingSessionPage: React.FC = () => {
 
                 // Pattern: They said word[i+1] then word[i] (swapped order)
                 if (isWordMatch(secondLastWord, nextExpectedWord) && isWordMatch(lastWord, expectedWord)) {
-                  console.log(`⚠️ TRANSPOSITION! Child swapped "${expectedWord}" and "${nextExpectedWord}"`);
+                  console.log(`⚠️ TRANSPOSITION! Child swapped "${expectedWord}" and "${nextExpectedWord}" - DepEd Rule: Use transpositional symbol`);
                   setMiscues(prev => prev + 1);
                   setMiscueTypes(prev => ({ ...prev, transposition: prev.transposition + 1 }));
                   setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'transposition'));
+                  setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
+                    type: 'transposition',
+                    marking: `Transpositional symbol over "${expectedWord}" and "${nextExpectedWord}"`,
+                    spokenWord: `${secondLastWord} ${lastWord}`,
+                    correctWord: `${expectedWord} ${nextExpectedWord}`
+                  }));
                   lastMiscueWordRef.current = miscueKey;
                   return;
                 }
@@ -1813,14 +1944,38 @@ const ReadingSessionPage: React.FC = () => {
               // Don't count saying a previous word as transposition - it's likely repetition or re-reading
             }
 
-            // 2. MISPRONUNCIATION vs 3. SUBSTITUTION - Based on cached similarity
+            // 2. MISPRONUNCIATION vs 3. SUBSTITUTION - Following DepEd Phil-IRI rules
             const similarity = getCachedSimilarity(lastWord, expectedWord);
+
+            // Check for self-correction first (DepEd Rule: Don't count self-correction as error)
+            // Pattern: child says wrong word then corrects themselves
+            if (wordsForMiscueDetection.length >= 2) {
+              const previousWord = wordsForMiscueDetection[wordsForMiscueDetection.length - 2];
+              if (isWordMatch(lastWord, expectedWord) && !isWordMatch(previousWord, expectedWord)) {
+                console.log(`✓ SELF-CORRECTION! Child corrected "${previousWord}" to "${lastWord}" - DepEd Rule: Mark with 'S', don't count as error`);
+                setMiscueTypes(prev => ({ ...prev, selfCorrection: prev.selfCorrection + 1 }));
+                setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'selfCorrection'));
+                setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
+                  type: 'selfCorrection',
+                  marking: `Write 'S' above self-corrected word`,
+                  spokenWord: `${previousWord} → ${lastWord}`,
+                  correctWord: expectedWord
+                }));
+
+                // Advance since they got it right after correction
+                const newIndex = currentWordIndex + 1;
+                setCurrentWordIndex(newIndex);
+                setWordsRead(newIndex);
+                processedTranscriptWordsRef.current = transcriptWords.length;
+                return;
+              }
+            }
 
             // CRITICAL FIX: If isWordMatch considers it correct (accent/pronunciation variation),
             // do NOT mark as mispronunciation or substitution at all!
-            // This prevents false substitutions from accent differences.
+            // DepEd Rule: Dialectal variations should not be counted as errors
             if (isWordMatch(lastWord, expectedWord)) {
-              console.log(`✓ Accent variation accepted: "${lastWord}" for "${expectedWord}"`);
+              console.log(`✓ Dialectal variation accepted: "${lastWord}" for "${expectedWord}" - DepEd Rule: Don't count dialectal variations`);
               // Don't count as miscue - it's an acceptable pronunciation
               return;
             }
@@ -1840,14 +1995,20 @@ const ReadingSessionPage: React.FC = () => {
               return;
             }
 
-            // Now check similarity for actual miscues
-            // OPTIMIZED thresholds to reduce false positives
+            // Now check similarity for actual miscues following DepEd rules
             if (similarity >= 0.75) {
-              // Very similar (75%+) - MISPRONUNCIATION (close but not quite right)
-              console.log(`⚠️ MISPRONUNCIATION! Child said "${lastWord}" instead of "${expectedWord}" (${(similarity * 100).toFixed(0)}% similar)`);
+              // Very similar (75%+) - MISPRONUNCIATION (DepEd Rule: Count as 1 error every mispronunciation)
+              // Underline the text and write phonetic spelling above it
+              console.log(`⚠️ MISPRONUNCIATION! Child said "${lastWord}" instead of "${expectedWord}" (${(similarity * 100).toFixed(0)}% similar) - DepEd Rule: Underline and write phonetic spelling above`);
               setMiscues(prev => prev + 1);
               setMiscueTypes(prev => ({ ...prev, mispronunciation: prev.mispronunciation + 1 }));
               setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'mispronunciation'));
+              setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
+                type: 'mispronunciation',
+                marking: `Underline "${expectedWord}" and write phonetic spelling "${lastWord}" above`,
+                spokenWord: lastWord,
+                correctWord: expectedWord
+              }));
 
               // CRITICAL: Advance word index after mispronunciation so reading doesn't get stuck
               const newIndex = currentWordIndex + 1;
@@ -1858,12 +2019,18 @@ const ReadingSessionPage: React.FC = () => {
               // Mark this word as processed so it won't be reused for next expected word
               processedTranscriptWordsRef.current = transcriptWords.length;
             } else if (similarity < 0.35) {
-              // Very different (<35%) - SUBSTITUTION (completely different word)
-              // Lowered from 40% to 35% to be more strict
-              console.log(`⚠️ SUBSTITUTION! Child said "${lastWord}" instead of "${expectedWord}" (${(similarity * 100).toFixed(0)}% similar)`);
+              // Very different (<35%) - SUBSTITUTION (DepEd Rule: Count as one error every substitution)
+              // Underline the text and write the substituted word above it
+              console.log(`⚠️ SUBSTITUTION! Child said "${lastWord}" instead of "${expectedWord}" (${(similarity * 100).toFixed(0)}% similar) - DepEd Rule: Underline and write substituted word above`);
               setMiscues(prev => prev + 1);
               setMiscueTypes(prev => ({ ...prev, substitution: prev.substitution + 1 }));
               setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'substitution'));
+              setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
+                type: 'substitution',
+                marking: `Underline "${expectedWord}" and write substituted word "${lastWord}" above`,
+                spokenWord: lastWord,
+                correctWord: expectedWord
+              }));
 
               // CRITICAL: Advance word index after substitution so reading doesn't get stuck
               const newIndex = currentWordIndex + 1;
@@ -1910,10 +2077,14 @@ const ReadingSessionPage: React.FC = () => {
       insertion: 0,
       repetition: 0,
       transposition: 0,
-      reversal: 0
+      reversal: 0,
+      selfCorrection: 0
     });
     setWordsRead(0);
     setCurrentWordIndex(0);
+    setWordMiscues(new Map());
+    setWordMarkings(new Map());
+    setInsertedWords(new Map());
     processedTranscriptWordsRef.current = 0;
     lastMiscueWordRef.current = "";
     countedMiscuePositionsRef.current.clear(); // Reset counted positions
@@ -2494,31 +2665,61 @@ const ReadingSessionPage: React.FC = () => {
                             // Only show miscue colors AFTER session is completed
                             const showMiscueColors = isCompleted || !isRecording;
 
-                            // Color mapping for miscue types
+                            // Color mapping for miscue types following DepEd Phil-IRI visual system
                             const getMiscueColor = (type: MiscueType | undefined) => {
                               if (!type || !showMiscueColors) return null; // Hide during recording
                               const colors = {
-                                mispronunciation: 'bg-red-100 text-red-800 border-2 border-red-400',
-                                omission: 'bg-orange-100 text-orange-800 border-2 border-orange-400',
-                                substitution: 'bg-yellow-100 text-yellow-800 border-2 border-yellow-400',
-                                insertion: 'bg-cyan-100 text-cyan-800 border-2 border-cyan-400',
-                                repetition: 'bg-blue-100 text-blue-800 border-2 border-blue-400 underline decoration-4 decoration-blue-600',
-                                transposition: 'bg-purple-100 text-purple-800 border-2 border-purple-400',
-                                reversal: 'bg-pink-100 text-pink-800 border-2 border-pink-400'
+                                mispronunciation: 'bg-red-100 text-red-800 border-2 border-red-400 underline decoration-2 decoration-red-600', // Underlined
+                                omission: 'bg-orange-100 text-orange-800 border-2 border-orange-400 rounded-full', // Circled
+                                substitution: 'bg-yellow-100 text-yellow-800 border-2 border-yellow-400 underline decoration-2 decoration-yellow-600', // Underlined
+                                insertion: 'bg-cyan-100 text-cyan-800 border-2 border-cyan-400', // Caret shown separately
+                                repetition: 'bg-blue-100 text-blue-800 border-2 border-blue-400 underline decoration-4 decoration-blue-600', // Underlined portion
+                                transposition: 'bg-purple-100 text-purple-800 border-2 border-purple-400', // Transpositional symbol
+                                reversal: 'bg-pink-100 text-pink-800 border-2 border-pink-400', // Correct word above
+                                selfCorrection: 'bg-green-100 text-green-800 border-2 border-green-400' // 'S' marking
                               };
                               return colors[type];
                             };
 
-                            // Add extra visual indicator for repetition
-                            const getRepetitionStyle = (type: MiscueType | undefined) => {
-                              if (type === 'repetition' && showMiscueColors) {
-                                return {
+                            // Add DepEd marking indicators
+                            const getMiscueMarkingStyle = (type: MiscueType | undefined) => {
+                              if (!type || !showMiscueColors) return {};
+
+                              const styles: { [key in MiscueType]: React.CSSProperties } = {
+                                mispronunciation: {
+                                  textDecoration: 'underline',
+                                  textDecorationColor: '#dc2626',
+                                  textDecorationThickness: '2px'
+                                },
+                                omission: {
+                                  border: '2px solid #ea580c',
+                                  borderRadius: '50%',
+                                  padding: '2px 4px'
+                                },
+                                substitution: {
+                                  textDecoration: 'underline',
+                                  textDecorationColor: '#ca8a04',
+                                  textDecorationThickness: '2px'
+                                },
+                                insertion: {
+                                  position: 'relative'
+                                },
+                                repetition: {
                                   textDecoration: 'underline wavy',
                                   textDecorationColor: '#2563eb',
                                   textDecorationThickness: '3px'
-                                };
-                              }
-                              return {};
+                                },
+                                transposition: {
+                                  position: 'relative'
+                                },
+                                reversal: {
+                                  position: 'relative'
+                                },
+                                selfCorrection: {
+                                  position: 'relative'
+                                }
+                              };
+                              return styles[type] || {};
                             };
 
                             return (
@@ -2530,7 +2731,7 @@ const ReadingSessionPage: React.FC = () => {
                                     ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"
                                     : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl transition-all duration-300 ease-in-out ` +
                                     (isCurrent
-                                      ? "bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 text-white font-bold z-10 relative animate-[word-highlight_0.5s_ease-out]"
+                                      ? "bg-blue-500 text-white font-bold shadow-lg z-10 relative"
                                       : miscueType
                                         ? `${getMiscueColor(miscueType)} font-semibold`
                                         : isRead
@@ -2540,13 +2741,13 @@ const ReadingSessionPage: React.FC = () => {
                                 style={
                                   isCurrent
                                     ? {
-                                      boxShadow: "0 0 12px 4px rgba(139, 92, 246, 0.5)",
-                                      transform: "scale(1.1)",
-                                      transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)"
+                                      boxShadow: "0 2px 8px rgba(59, 130, 246, 0.5)",
+                                      transform: "scale(1.05)",
+                                      transition: "all 0.2s ease-in-out"
                                     }
                                     : miscueType
                                       ? {
-                                        ...getRepetitionStyle(miscueType),
+                                        ...getMiscueMarkingStyle(miscueType),
                                         transition: "all 0.2s ease-in-out"
                                       }
                                       : isRead
@@ -2559,6 +2760,66 @@ const ReadingSessionPage: React.FC = () => {
                                 }
                               >
                                 {word}
+
+                                {/* DepEd Phil-IRI Marking Annotations */}
+                                {!isSpecialChar && miscueType && showMiscueColors && wordMarkings.has(realWordIndex) && (
+                                  <span className="relative">
+                                    {(() => {
+                                      const marking = wordMarkings.get(realWordIndex)!;
+                                      switch (marking.type) {
+                                        case 'mispronunciation':
+                                        case 'substitution':
+                                          return (
+                                            <span
+                                              className="absolute left-0 top-[-20px] bg-red-600 text-white text-xs px-1 py-0.5 rounded shadow-lg whitespace-nowrap z-20"
+                                              title={marking.marking}
+                                            >
+                                              {marking.spokenWord}
+                                            </span>
+                                          );
+                                        case 'reversal':
+                                          return (
+                                            <span
+                                              className="absolute left-0 top-[-20px] bg-pink-600 text-white text-xs px-1 py-0.5 rounded shadow-lg whitespace-nowrap z-20"
+                                              title={marking.marking}
+                                            >
+                                              {marking.correctWord}
+                                            </span>
+                                          );
+                                        case 'selfCorrection':
+                                          return (
+                                            <span
+                                              className="absolute left-0 top-[-20px] bg-green-600 text-white text-xs px-1 py-0.5 rounded-full shadow-lg z-20 font-bold"
+                                              title={marking.marking}
+                                            >
+                                              S
+                                            </span>
+                                          );
+                                        case 'insertion':
+                                          return (
+                                            <span
+                                              className="absolute left-[-8px] top-[50%] text-cyan-600 text-lg font-bold z-20"
+                                              title={marking.marking}
+                                            >
+                                              ^
+                                            </span>
+                                          );
+                                        case 'transposition':
+                                          return (
+                                            <span
+                                              className="absolute left-0 top-[-25px] text-purple-600 text-lg font-bold z-20"
+                                              title={marking.marking}
+                                            >
+                                              ⤴⤵
+                                            </span>
+                                          );
+                                        default:
+                                          return null;
+                                      }
+                                    })()}
+                                  </span>
+                                )}
+
                                 {/* Show inserted words as floating badges after this word */}
                                 {!isSpecialChar && insertedWords.has(realWordIndex) && (
                                   <span className="relative">
@@ -2688,7 +2949,7 @@ const ReadingSessionPage: React.FC = () => {
                 {miscues}
               </span>
               {/* Miscue Types Breakdown */}
-              {miscues > 0 && (
+              {(miscues > 0 || miscueTypes.selfCorrection > 0) && (
                 <div className="mt-2 text-xs text-red-600 space-y-0.5 w-full">
                   {miscueTypes.mispronunciation > 0 && <div>Mispronunciation: {miscueTypes.mispronunciation}</div>}
                   {miscueTypes.omission > 0 && <div>Omission: {miscueTypes.omission}</div>}
@@ -2697,6 +2958,7 @@ const ReadingSessionPage: React.FC = () => {
                   {miscueTypes.repetition > 0 && <div>Repetition: {miscueTypes.repetition}</div>}
                   {miscueTypes.transposition > 0 && <div>Transposition: {miscueTypes.transposition}</div>}
                   {miscueTypes.reversal > 0 && <div>Reversal: {miscueTypes.reversal}</div>}
+                  {miscueTypes.selfCorrection > 0 && <div className="text-green-600">Self-Correction: {miscueTypes.selfCorrection}</div>}
                 </div>
               )}
             </div>
@@ -2749,7 +3011,7 @@ const ReadingSessionPage: React.FC = () => {
               Miscue Types Detection (Phil-IRI) - Results
             </h3>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               {/* 1. Mispronunciation */}
               <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.mispronunciation > 0 ? 'bg-red-100 border-red-400 shadow-lg' : 'bg-white border-gray-200'}`}>
                 <div className="flex items-start justify-between mb-2">
@@ -2761,8 +3023,9 @@ const ReadingSessionPage: React.FC = () => {
                     {miscueTypes.mispronunciation}
                   </span>
                 </div>
-                <p className="text-xs text-gray-700 mb-1">Wrong pronunciation (60%+ similar)</p>
-                <p className="text-xs text-gray-600 italic">Example: "beautifull" → "beautiful"</p>
+                <p className="text-xs text-gray-700 mb-1"><strong>Marking:</strong> Underline text, write phonetic spelling above</p>
+                <p className="text-xs text-gray-600 italic"><strong>Example:</strong> "sleed" above underlined "slide"</p>
+                <p className="text-xs text-blue-600 mt-1"><strong>Scoring:</strong> Count as 1 error every mispronunciation (dialectal variations not counted)</p>
               </div>
 
               {/* 2. Omission */}
@@ -2776,8 +3039,9 @@ const ReadingSessionPage: React.FC = () => {
                     {miscueTypes.omission}
                   </span>
                 </div>
-                <p className="text-xs text-gray-700 mb-1">Skipped word(s)</p>
-                <p className="text-xs text-gray-600 italic">Example: Skip "shiny", say "on"</p>
+                <p className="text-xs text-gray-700 mb-1"><strong>Marking:</strong> Circle the omitted unit of language</p>
+                <p className="text-xs text-gray-600 italic"><strong>Example:</strong> Circle "huge" in "The (huge) elephant"</p>
+                <p className="text-xs text-blue-600 mt-1"><strong>Scoring:</strong> Count as one error a word or phrase omitted</p>
               </div>
 
               {/* 3. Substitution */}
@@ -2791,8 +3055,9 @@ const ReadingSessionPage: React.FC = () => {
                     {miscueTypes.substitution}
                   </span>
                 </div>
-                <p className="text-xs text-gray-700 mb-1">Different word (&lt;60% similar)</p>
-                <p className="text-xs text-gray-600 italic">Example: "house" → "home"</p>
+                <p className="text-xs text-gray-700 mb-1"><strong>Marking:</strong> Underline text, write substituted word above</p>
+                <p className="text-xs text-gray-600 italic"><strong>Example:</strong> "money" above underlined "monkey"</p>
+                <p className="text-xs text-blue-600 mt-1"><strong>Scoring:</strong> Count as one error every substitution</p>
               </div>
 
               {/* 4. Insertion */}
@@ -2806,8 +3071,9 @@ const ReadingSessionPage: React.FC = () => {
                     {miscueTypes.insertion}
                   </span>
                 </div>
-                <p className="text-xs text-gray-700 mb-1">Added extra word(s)</p>
-                <p className="text-xs text-gray-600 italic">Example: "the big red ball" → "the ball"</p>
+                <p className="text-xs text-gray-700 mb-1"><strong>Marking:</strong> Use caret (^) to show where word was inserted, write above</p>
+                <p className="text-xs text-gray-600 italic"><strong>Example:</strong> "lovely" above caret in "the^ flowers in the vase"</p>
+                <p className="text-xs text-blue-600 mt-1"><strong>Scoring:</strong> Count a word or phrase inserted as one error</p>
               </div>
 
               {/* 5. Repetition */}
@@ -2821,8 +3087,9 @@ const ReadingSessionPage: React.FC = () => {
                     {miscueTypes.repetition}
                   </span>
                 </div>
-                <p className="text-xs text-gray-700 mb-1">Repeated same word</p>
-                <p className="text-xs text-gray-600 italic">Example: "the the" or "and and"</p>
+                <p className="text-xs text-gray-700 mb-1"><strong>Marking:</strong> Underline the portion of text that was repeated</p>
+                <p className="text-xs text-gray-600 italic"><strong>Example:</strong> Underline "in the" in "They found it in the in the"</p>
+                <p className="text-xs text-blue-600 mt-1"><strong>Scoring:</strong> Count as one error every word or phrase repeated</p>
               </div>
 
               {/* 6. Transposition */}
@@ -2836,8 +3103,9 @@ const ReadingSessionPage: React.FC = () => {
                     {miscueTypes.transposition}
                   </span>
                 </div>
-                <p className="text-xs text-gray-700 mb-1">Word order changed</p>
-                <p className="text-xs text-gray-600 italic">Example: "red big" → "big red"</p>
+                <p className="text-xs text-gray-700 mb-1"><strong>Marking:</strong> Use transpositional symbol over and under letters/words</p>
+                <p className="text-xs text-gray-600 italic"><strong>Example:</strong> Curved line connecting "girl" and "is" in "The girl is pretty"</p>
+                <p className="text-xs text-blue-600 mt-1"><strong>Scoring:</strong> Count as one error every transposition made</p>
               </div>
 
               {/* 7. Reversal */}
@@ -2851,16 +3119,36 @@ const ReadingSessionPage: React.FC = () => {
                     {miscueTypes.reversal}
                   </span>
                 </div>
-                <p className="text-xs text-gray-700 mb-1">Reversed letters/words</p>
-                <p className="text-xs text-gray-600 italic">Example: "saw" → "was", "on" → "no"</p>
+                <p className="text-xs text-gray-700 mb-1"><strong>Marking:</strong> Write correct word/nonword above the reversed word</p>
+                <p className="text-xs text-gray-600 italic"><strong>Example:</strong> "bad" above "dab"</p>
+                <p className="text-xs text-blue-600 mt-1"><strong>Scoring:</strong> Count as one error every reversal made</p>
+              </div>
+
+              {/* 8. Self-Correction */}
+              <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.selfCorrection > 0 ? 'bg-green-100 border-green-400 shadow-lg' : 'bg-white border-gray-200'}`}>
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <h4 className="font-bold text-green-900 text-sm">8. Self-Correction</h4>
+                    <p className="text-xs text-green-700 italic">Pagwawasto</p>
+                  </div>
+                  <span className={`text-2xl font-extrabold ${miscueTypes.selfCorrection > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                    {miscueTypes.selfCorrection}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-700 mb-1"><strong>Marking:</strong> Write 'S' above the self-corrected word</p>
+                <p className="text-xs text-gray-600 italic"><strong>Example:</strong> "S" above "hasn't"</p>
+                <p className="text-xs text-blue-600 mt-1"><strong>Scoring:</strong> Don't count self-correction as an error</p>
               </div>
             </div>
 
             {/* Summary */}
             <div className="mt-4 p-3 bg-white/70 rounded-lg border border-red-200">
               <p className="text-xs text-gray-700">
-                <span className="font-semibold">💡 Review:</span> These results show all miscues detected during the reading session.
-                Use this information to identify patterns and plan targeted interventions.
+                <span className="font-semibold">� DepEed Phil-IRI Summary:</span> These results follow the official DepEd Table 4 marking and scoring guidelines.
+                Each miscue type has specific marking conventions and scoring rules as defined in the Philippine Informal Reading Inventory.
+              </p>
+              <p className="text-xs text-gray-600 mt-1">
+                <span className="font-semibold">Note:</span> Self-corrections are marked but not counted as errors. Dialectal variations are not counted as mispronunciations.
               </p>
             </div>
           </div>
@@ -3003,15 +3291,26 @@ const ReadingSessionPage: React.FC = () => {
                       <span>Stop & Save Session</span>
                     </button>
                   </div>
-                  {/* Skip Word Button - for when stuck */}
+                  {/* Skip Word Button - for when stuck (DepEd Rule: Manual omission) */}
                   <button
                     onClick={() => {
-                      console.log(`⏭️ Manual skip: Advancing from word ${currentWordIndex} ("${realWords[currentWordIndex]}")`);
-                      setCurrentWordIndex(prev => prev + 1);
-                      setWordsRead(prev => prev + 1);
+                      const skippedWord = realWords[currentWordIndex];
+                      console.log(`⏭️ Manual skip: Advancing from word ${currentWordIndex} ("${skippedWord}") - DepEd Rule: Circle omitted word`);
+
+                      // Mark as omission following DepEd rules
                       setMiscues(prev => prev + 1);
                       setMiscueTypes(prev => ({ ...prev, omission: prev.omission + 1 }));
                       setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'omission'));
+                      setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
+                        type: 'omission',
+                        marking: `Circle the omitted word: "${skippedWord}"`,
+                        spokenWord: '(manually skipped)',
+                        correctWord: skippedWord
+                      }));
+
+                      // Advance to next word
+                      setCurrentWordIndex(prev => prev + 1);
+                      setWordsRead(prev => prev + 1);
                     }}
                     className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 lg:px-6 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-gray-500 to-gray-600 text-white text-sm sm:text-base lg:text-lg font-bold hover:scale-105 transition-all duration-200"
                     title="Skip current word (counts as omission)"
