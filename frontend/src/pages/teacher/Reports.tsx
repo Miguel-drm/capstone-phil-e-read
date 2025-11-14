@@ -27,6 +27,11 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
   // selectedClass reset no longer needed
   const [studentReadingResults, setStudentReadingResults] = useState<Record<string, any[]>>({});
   const [studentTestResults, setStudentTestResults] = useState<Record<string, any[]>>({});
+  // Track which students have ISR results from MongoDB
+  const [studentsWithISRResults, setStudentsWithISRResults] = useState<Set<string>>(new Set());
+  const [loadingISRStatus, setLoadingISRStatus] = useState(false);
+  // Store reading levels for each student
+  const [studentReadingLevels, setStudentReadingLevels] = useState<Record<string, 'Ind' | 'Ins' | 'Frus'>>({});
 
 
 
@@ -68,6 +73,120 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     }
     setStudentReadingResults(reading);
     setStudentTestResults(test);
+  }, [students]);
+
+  // Fetch ISR Review Records from MongoDB for all students to determine their ISR status
+  useEffect(() => {
+    const fetchISRStatus = async () => {
+      if (students.length === 0) {
+        setStudentsWithISRResults(new Set());
+        return;
+      }
+
+      setLoadingISRStatus(true);
+      try {
+        const studentIds = students
+          .map(s => s.id)
+          .filter((id): id is string => Boolean(id));
+
+        // Fetch ISR Review Records for all students in parallel
+        const reviewRecordPromises = studentIds.map(async (studentId) => {
+          try {
+            const reviewRecord = await isrResultService.getISRReviewRecord(studentId, false);
+            return { studentId, reviewRecord };
+          } catch (error) {
+            console.error(`Error fetching ISR review record for student ${studentId}:`, error);
+            return { studentId, reviewRecord: null };
+          }
+        });
+
+        const results = await Promise.all(reviewRecordPromises);
+        const completedSet = new Set<string>();
+        const statusMap = new Map<string, { hasPartA: boolean; hasPartB: boolean }>();
+        const reviewRecords: Record<string, any> = {};
+        const readingLevels: Record<string, 'Ind' | 'Ins' | 'Frus'> = {};
+        
+        results.forEach(({ studentId, reviewRecord }) => {
+          if (reviewRecord && reviewRecord.entries) {
+            // Check if entries have valid data (at least one entry with dateTaken or valid flags)
+            const validEntries = reviewRecord.entries.filter((entry: any) => {
+              // Entry is valid if it has dateTaken OR at least one flag is true
+              const hasDate = entry.dateTaken;
+              const hasWordReading = entry.wordReading && (
+                entry.wordReading.ind || entry.wordReading.ins || entry.wordReading.frus
+              );
+              const hasComprehension = entry.comprehension && (
+                entry.comprehension.ind || entry.comprehension.ins || entry.comprehension.frus
+              );
+              return hasDate || hasWordReading || hasComprehension;
+            });
+
+            if (validEntries.length > 0) {
+              completedSet.add(studentId);
+              reviewRecords[studentId] = reviewRecord;
+
+              // Determine if student has Part A (comprehension) and Part B (word reading) data
+              const hasPartA = validEntries.some((entry: any) => 
+                entry.comprehension && (entry.comprehension.ind || entry.comprehension.ins || entry.comprehension.frus)
+              );
+              const hasPartB = validEntries.some((entry: any) => 
+                entry.wordReading && (entry.wordReading.ind || entry.wordReading.ins || entry.wordReading.frus)
+              );
+              
+              statusMap.set(studentId, { hasPartA, hasPartB });
+
+              // Get reading level from the most recent entry with word reading data
+              const entriesWithWordReading = validEntries
+                .filter((entry: any) => entry.wordReading && (entry.wordReading.ind || entry.wordReading.ins || entry.wordReading.frus))
+                .sort((a: any, b: any) => {
+                  const dateA = a.dateTaken ? new Date(a.dateTaken).getTime() : 0;
+                  const dateB = b.dateTaken ? new Date(b.dateTaken).getTime() : 0;
+                  return dateB - dateA;
+                });
+
+              if (entriesWithWordReading.length > 0) {
+                const latestEntry = entriesWithWordReading[0];
+                if (latestEntry.wordReading.ind) {
+                  readingLevels[studentId] = 'Ind';
+                } else if (latestEntry.wordReading.ins) {
+                  readingLevels[studentId] = 'Ins';
+                } else if (latestEntry.wordReading.frus) {
+                  readingLevels[studentId] = 'Frus';
+                } else {
+                  readingLevels[studentId] = 'Frus';
+                }
+              } else {
+                readingLevels[studentId] = 'Frus';
+              }
+            }
+          }
+        });
+
+        setStudentsWithISRResults(completedSet);
+        setStudentReadingLevels(readingLevels);
+        // Store status details for getISRStatus to use
+        (window as any).__isrStatusMap = statusMap;
+        
+        // Log review records for debugging
+        if (process.env.NODE_ENV === 'development') {
+          console.log('📊 ISR Review Records fetched:', {
+            totalStudents: studentIds.length,
+            studentsWithRecords: completedSet.size,
+            reviewRecordsCount: Object.keys(reviewRecords).length
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching ISR status:', error);
+      } finally {
+        setLoadingISRStatus(false);
+      }
+    };
+
+    if (students.length > 0) {
+      fetchISRStatus();
+    } else {
+      setStudentsWithISRResults(new Set());
+    }
   }, [students]);
 
   // Group students by class
@@ -116,8 +235,26 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
 
   // Helper function to determine ISR status
   const getISRStatus = (student: Student) => {
+    // First check if student has ISR results in MongoDB
+    const hasISRResults = studentsWithISRResults.has(student.id || '');
+    const statusMap = (window as any).__isrStatusMap as Map<string, { hasPartA: boolean; hasPartB: boolean }> | undefined;
+    
+    if (hasISRResults && statusMap) {
+      const status = statusMap.get(student.id || '');
+      if (status) {
+        const hasPartA = status.hasPartA; // Comprehension data (quiz)
+        const hasPartB = status.hasPartB; // Reading data (reading session)
+        
+        if (hasPartA && hasPartB) {
+          return { status: 'Ready to Submit', color: 'text-green-600 bg-green-50', icon: 'fas fa-check-circle' };
+        } else if (hasPartA || hasPartB) {
+          return { status: 'Incomplete Data', color: 'text-yellow-600 bg-yellow-50', icon: 'fas fa-exclamation-triangle' };
+        }
+      }
+    }
+    
+    // Fallback to old method for backward compatibility
     const { latestReading, latestTest } = getLatestResults(student.id || '');
-
     const hasReadingData = latestReading && latestReading.oralReadingScore !== undefined;
     const hasComprehensionData = latestTest && latestTest.comprehension !== undefined;
 
@@ -161,9 +298,36 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     setIsrModalOpen(true);
     setIsHeaderDarkened?.(true);
 
-    // Prepare ISR data with teacher profile
-    const data = await getISRDataAsync(student);
-    setIsrData(data);
+    // Show loading state
+    setIsrData(null);
+
+    // Prepare ISR data with teacher profile (fresh fetch from backend)
+    try {
+      const data = await getISRDataAsync(student);
+      setIsrData(data);
+    } catch (error) {
+      console.error('Error loading ISR data:', error);
+      // Set empty data to show error state
+      setIsrData({
+        studentName: student.name?.replace(/\|/g, ' ') || '',
+        age: student.age?.toString() || '',
+        gradeSection: student.grade || '',
+        school: 'Error loading data',
+        teacher: 'Error loading data',
+        language: 'English',
+        levelStarted: '',
+        readingData: [],
+        observations: {
+          wordByWord: false,
+          lacksExpression: false,
+          hardlyAudible: false,
+          disregardsPunctuation: false,
+          pointsToWords: false,
+          littleAnalysis: false,
+          otherObservations: 'Error loading ISR data. Please try again.'
+        }
+      });
+    }
   };
 
   const handleCloseISRModal = () => {
@@ -180,20 +344,43 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     const { latestReading, latestTest } = getLatestResults(student.id || '');
 
     // Debug: Log student data to check age
-    console.log('Student data for ISR (async):', {
+    console.log('📊 Fetching ISR data for student:', {
       name: student.name,
       age: student.age,
       grade: student.grade,
       readingLevel: student.readingLevel,
-      latestReadingBook: latestReading?.book
+      latestReadingBook: latestReading?.book,
+      studentId: student.id
     });
 
     // Determine reading level based on scores
     const readingScore = latestReading?.oralReadingScore || 0;
     const comprehensionScore = latestTest?.comprehension || 0;
 
-    // Fetch aggregated ISR review record from backend
-    const reviewRecord = await isrResultService.getISRReviewRecord(student.id || '');
+    // Fetch aggregated ISR review record from backend (fresh fetch with auto-sync)
+    console.log('🔄 Fetching ISR review record from backend...');
+    // Try to fetch with sync=true to ensure all ISR results are processed
+    let reviewRecord: any;
+    try {
+      // First try with sync to rebuild from all ISR results
+      reviewRecord = await isrResultService.getISRReviewRecord(student.id || '', true);
+      console.log('✅ ISR review record fetched (synced):', {
+        hasEntries: reviewRecord.entries?.length > 0,
+        entryCount: reviewRecord.entries?.length || 0,
+        entriesWithData: reviewRecord.entries?.filter((e: any) => e.dateTaken).length || 0,
+        levelStarted: reviewRecord.levelStarted,
+        languages: reviewRecord.languages
+      });
+    } catch (syncError) {
+      console.warn('⚠️ Sync fetch failed, trying regular fetch:', syncError);
+      // Fallback to regular fetch if sync fails
+      reviewRecord = await isrResultService.getISRReviewRecord(student.id || '', false);
+      console.log('✅ ISR review record fetched (regular):', {
+        hasEntries: reviewRecord.entries?.length > 0,
+        entryCount: reviewRecord.entries?.length || 0,
+        levelStarted: reviewRecord.levelStarted
+      });
+    }
 
     // Determine language flags but default to English
     let storyLanguage: 'English' | 'Filipino' = 'English';
@@ -246,20 +433,41 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     const studentLevel = convertGradeToRomanLevel(student.grade);
     const levelStartedFromRecord = reviewRecord.levelStarted || studentLevel;
 
-    const readingDataFromRecord = reviewRecord.entries.map((entry) => ({
-      level: entry.level,
-      set: entry.set || '',
-      wordReading: entry.wordReading,
-      comprehension: entry.comprehension,
-      dateTaken: entry.dateTaken ? new Date(entry.dateTaken).toLocaleDateString() : '',
-    }));
+    // Map entries and mark levelStarted appropriately
+    const readingDataFromRecord = (reviewRecord.entries || [])
+      .filter((entry: any) => entry.level && entry.dateTaken) // Only include entries with data
+      .map((entry: any) => ({
+        level: entry.level,
+        set: entry.set || '',
+        levelStarted: entry.levelStarted || false, // Include levelStarted flag
+        wordReading: {
+          ind: entry.wordReading?.ind || false,
+          ins: entry.wordReading?.ins || false,
+          frus: entry.wordReading?.frus || false
+        },
+        comprehension: {
+          ind: entry.comprehension?.ind || false,
+          ins: entry.comprehension?.ins || false,
+          frus: entry.comprehension?.frus || false
+        },
+        dateTaken: entry.dateTaken ? new Date(entry.dateTaken).toLocaleDateString() : '',
+      }))
+      .sort((a: any, b: any) => {
+        // Sort by level order: K, I, II, III, IV, V, VI, VII
+        const levelOrder = ['K', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
+        const aIndex = levelOrder.indexOf(a.level);
+        const bIndex = levelOrder.indexOf(b.level);
+        return aIndex - bIndex;
+      });
     
     // Debug: Log the final ISR data
-    console.log('Final ISR data:', {
+    console.log('📋 Final ISR data prepared:', {
       studentName: student.name,
       age: student.age,
       readingLevel: student.readingLevel,
-      finalAge: student.age?.toString() || ''
+      finalAge: student.age?.toString() || '',
+      readingDataCount: readingDataFromRecord.length,
+      readingData: readingDataFromRecord
     });
 
     return {
@@ -1013,8 +1221,16 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                             <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap w-28">
                               <div className="flex flex-col items-start">
                                 {(() => {
-                                  const { latestReading } = getLatestResults(student.id);
-                                  const readingLevel = determineReadingLevel(latestReading?.oralReadingScore);
+                                  // Get reading level from stored state or calculate from old data
+                                  let readingLevel: 'Ind' | 'Ins' | 'Frus' = 'Frus';
+                                  
+                                  if (student.id && studentReadingLevels[student.id]) {
+                                    readingLevel = studentReadingLevels[student.id];
+                                  } else {
+                                    // Fallback to old method
+                                    const { latestReading } = getLatestResults(student.id || '');
+                                    readingLevel = determineReadingLevel(latestReading?.oralReadingScore);
+                                  }
 
                                   return (
                                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${readingLevel === 'Ind' ? 'bg-green-100 text-green-800' :
@@ -1041,6 +1257,14 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                             </td>
                             <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap w-32">
                               {(() => {
+                                if (loadingISRStatus) {
+                                  return (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium text-gray-600 bg-gray-50">
+                                      <i className="fas fa-spinner fa-spin mr-1"></i>
+                                      Loading...
+                                    </span>
+                                  );
+                                }
                                 const isrStatus = getISRStatus(student);
                                 return (
                                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${isrStatus.color}`}>

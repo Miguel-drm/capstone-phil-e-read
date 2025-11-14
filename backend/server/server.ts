@@ -801,11 +801,70 @@ app.get('/api/test', (req, res) => {
     app.get('/api/isr-review-records/student/:studentId', async (req: Request, res: Response) => {
       try {
         const { studentId } = req.params;
+        const { sync } = req.query; // Optional: ?sync=true to rebuild from all ISR results
+        
+        // If sync is requested, rebuild from all ISR results
+        if (sync === 'true') {
+          console.log(`🔄 Syncing review record for student ${studentId} from all ISR results...`);
+          const allResults = await isrResultService.getISRResultsByStudent(studentId);
+          
+          if (allResults.length > 0) {
+            const record = await isrReviewRecordService.rebuildFromAllISRResults(studentId, allResults);
+            res.json(record);
+            return;
+          } else {
+            console.log(`⚠️ No ISR results found for student ${studentId}, returning empty record`);
+          }
+        }
+        
+        // Otherwise, get or create the review record
         const record = await isrReviewRecordService.getOrCreateResponse(studentId);
+        
+        // Auto-sync if record exists but has no entries (might be stale)
+        if (record.entries && record.entries.length > 0 && !record.entries.some(e => e.dateTaken)) {
+          console.log(`🔄 Auto-syncing review record for student ${studentId} (no entries with data)`);
+          const allResults = await isrResultService.getISRResultsByStudent(studentId);
+          if (allResults.length > 0) {
+            const syncedRecord = await isrReviewRecordService.rebuildFromAllISRResults(studentId, allResults);
+            res.json(syncedRecord);
+            return;
+          }
+        }
+        
         res.json(record);
       } catch (error) {
         console.error('Error fetching ISR review record:', error);
         res.status(500).json({ error: 'Failed to fetch ISR review record' });
+      }
+    });
+
+    // Endpoint to manually sync/rebuild review record from all ISR results
+    app.post('/api/isr-review-records/student/:studentId/sync', async (req: Request, res: Response) => {
+      try {
+        const { studentId } = req.params;
+        console.log(`🔄 Manual sync requested for student ${studentId}`);
+        
+        const allResults = await isrResultService.getISRResultsByStudent(studentId);
+        
+        if (allResults.length === 0) {
+          res.status(404).json({ 
+            error: 'No ISR results found for this student',
+            studentId 
+          });
+          return;
+        }
+        
+        const record = await isrReviewRecordService.rebuildFromAllISRResults(studentId, allResults);
+        
+        res.json({
+          success: true,
+          message: `Review record synced from ${allResults.length} ISR results`,
+          record,
+          processedResults: allResults.length
+        });
+      } catch (error) {
+        console.error('Error syncing ISR review record:', error);
+        res.status(500).json({ error: 'Failed to sync ISR review record' });
       }
     });
 

@@ -305,7 +305,7 @@ export const isrResultService = {
     }
   },
 
-  async getISRReviewRecord(studentId: string): Promise<ISRReviewRecord> {
+  async getISRReviewRecord(studentId: string, sync: boolean = false): Promise<ISRReviewRecord> {
     if (!studentId) {
       return normalizeReviewRecord({
         studentId: '',
@@ -315,11 +315,26 @@ export const isrResultService = {
     }
 
     try {
-      const response = await fetch(`${API_BASE}/api/isr-review-records/student/${studentId}`);
+      // If sync is requested, add ?sync=true to rebuild from all ISR results
+      const url = sync 
+        ? `${API_BASE}/api/isr-review-records/student/${studentId}?sync=true`
+        : `${API_BASE}/api/isr-review-records/student/${studentId}`;
+      
+      const response = await fetch(url);
       if (!response.ok) {
         throw new Error('Failed to fetch ISR review record');
       }
       const data = await response.json();
+      
+      if ((import.meta as any)?.env?.MODE === 'development') {
+        console.log('📊 ISR Review Record fetched:', {
+          studentId,
+          hasEntries: data.entries?.length > 0,
+          entriesWithData: data.entries?.filter((e: any) => e.dateTaken).length || 0,
+          levelStarted: data.levelStarted
+        });
+      }
+      
       return normalizeReviewRecord(data);
     } catch (error) {
       console.error('Error fetching ISR review record:', error);
@@ -328,6 +343,40 @@ export const isrResultService = {
         entries: createEmptyReviewRows(),
         languages: { english: false, filipino: false },
       });
+    }
+  },
+
+  /**
+   * Sync/rebuild ISR review record from all ISR results for a student
+   * This ensures the review record has all calculated data from existing ISR results
+   */
+  async syncISRReviewRecord(studentId: string): Promise<ISRReviewRecord> {
+    if (!studentId) {
+      throw new Error('Student ID is required for sync');
+    }
+
+    try {
+      const response = await fetch(`${API_BASE}/api/isr-review-records/student/${studentId}/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to sync ISR review record');
+      }
+      
+      const data = await response.json();
+      console.log('✅ ISR Review Record synced:', {
+        studentId,
+        processedResults: data.processedResults,
+        entriesCount: data.record?.entries?.length || 0
+      });
+      
+      return normalizeReviewRecord(data.record || data);
+    } catch (error) {
+      console.error('Error syncing ISR review record:', error);
+      throw error;
     }
   },
 };

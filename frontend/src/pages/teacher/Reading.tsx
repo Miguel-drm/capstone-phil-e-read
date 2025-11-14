@@ -23,6 +23,7 @@ const Reading: React.FC = () => {
   const [storiesError, setStoriesError] = useState<string | null>(null);
   const [teacherGradeLevel, setTeacherGradeLevel] = useState<string | null>(null);
   const [sessionResults, setSessionResults] = useState<Map<string, any[]>>(new Map());
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const loadSessions = useCallback(async () => {
     if (!currentUser?.uid) return;
@@ -428,6 +429,30 @@ const Reading: React.FC = () => {
     navigate(`/teacher/reading-session/${sessionId}`);
   };
 
+  const handleRefresh = async () => {
+    if (!currentUser?.uid || isRefreshing) return;
+    
+    setIsRefreshing(true);
+    try {
+      // Refresh all data in parallel
+      await Promise.all([
+        loadGrades(),
+        loadStudents(),
+        loadSessions(),
+        loadTeacherProfile()
+      ]);
+      
+      // Load stories after teacher grade level is available
+      if (teacherGradeLevel !== null) {
+        await loadStories();
+      }
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex flex-col items-center py-2 sm:py-6">
@@ -450,13 +475,24 @@ const Reading: React.FC = () => {
               }
             </p>
           </div>
-          <button
-            onClick={handleScheduleSession}
-            className="w-full sm:w-auto bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white font-semibold py-2 px-6 rounded-lg shadow transition-all duration-200 flex items-center justify-center text-base gap-2"
-          >
-            <i className="fas fa-plus"></i>
-            Start New Session
-          </button>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="w-full sm:w-auto bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg shadow transition-all duration-200 flex items-center justify-center text-base gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Refresh data"
+            >
+              <i className={`fas fa-sync-alt ${isRefreshing ? 'animate-spin' : ''}`}></i>
+              <span className="hidden sm:inline">{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+            </button>
+            <button
+              onClick={handleScheduleSession}
+              className="w-full sm:w-auto bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white font-semibold py-2 px-6 rounded-lg shadow transition-all duration-200 flex items-center justify-center text-base gap-2"
+            >
+              <i className="fas fa-plus"></i>
+              Start New Session
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}
