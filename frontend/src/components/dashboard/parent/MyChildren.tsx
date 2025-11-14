@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { BookOpenIcon, ChartBarIcon, MagnifyingGlassIcon, UserGroupIcon, EnvelopeIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import { db } from '../../../config/firebase';
 import { addDoc, collection, doc as fsDoc, getDoc, serverTimestamp, onSnapshot, query, where } from 'firebase/firestore';
+import ParentLoader from '../../parent/ParentLoader';
 
 // Local types to avoid any mock/service fallbacks
 type GradeSection = { id: string; sectionName?: string; name?: string; gradeLevel?: string };
@@ -323,18 +324,7 @@ const MyChildren: React.FC = () => {
         </div>
       </div>
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="rounded-2xl border border-gray-100 p-5 bg-white">
-              <div className="animate-pulse space-y-3">
-                <div className="h-6 w-1/3 bg-gray-200 rounded" />
-                <div className="h-4 w-1/2 bg-gray-200 rounded" />
-                <div className="h-4 w-2/3 bg-gray-200 rounded" />
-                <div className="h-8 w-full bg-gray-100 rounded" />
-              </div>
-            </div>
-          ))}
-        </div>
+        <ParentLoader label="Loading your children..." />
       ) : children.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12">
           <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center mb-4">

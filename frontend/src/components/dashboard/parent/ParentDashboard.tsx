@@ -14,6 +14,7 @@ import {
 import { formatDateHuman } from '@/utils/date';
 import { db } from '../../../config/firebase';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import ParentLoader from '../../parent/ParentLoader';
 
 // Children Overview Widget
 const ChildrenOverviewWidget: React.FC<{
@@ -466,29 +467,7 @@ const ParentDashboard: React.FC = () => {
 
       {/* Loading State */}
       {loading && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white rounded-lg border p-6">
-            <div className="animate-pulse">
-              <div className="h-6 bg-gray-200 rounded mb-4"></div>
-              <div className="space-y-3">
-                <div className="h-16 bg-gray-200 rounded"></div>
-                <div className="h-16 bg-gray-200 rounded"></div>
-                <div className="h-16 bg-gray-200 rounded"></div>
-              </div>
-            </div>
-          </div>
-          <div className="bg-white rounded-lg border p-6">
-            <div className="animate-pulse">
-              <div className="h-6 bg-gray-200 rounded mb-4"></div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="h-20 bg-gray-200 rounded"></div>
-                <div className="h-20 bg-gray-200 rounded"></div>
-                <div className="h-20 bg-gray-200 rounded"></div>
-                <div className="h-20 bg-gray-200 rounded"></div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <ParentLoader label="Loading dashboard..." fullScreen />
       )}
 
       {/* Main Content */}
