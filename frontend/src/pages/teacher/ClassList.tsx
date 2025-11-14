@@ -52,6 +52,7 @@ const ClassList: React.FC = () => {
   // Track which students have completed reading sessions (have ISR results)
   const [studentsWithCompletedSessions, setStudentsWithCompletedSessions] = useState<Set<string>>(new Set());
   const [loadingISRStatus, setLoadingISRStatus] = useState<boolean>(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Extract section name from a grade name like "Grade 4 - Narra" => "Narra"
   const getSectionName = (name: string) => {
@@ -1451,6 +1452,25 @@ const ClassList: React.FC = () => {
     await loadGrades();
   };
 
+  const handleRefresh = async () => {
+    if (!currentUser?.uid || isRefreshing) return;
+
+    setIsRefreshing(true);
+    try {
+      // Refresh all data in parallel
+      await Promise.all([
+        loadStudents(),
+        loadGrades(),
+        loadClassStatistics()
+      ]);
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+      showError('Refresh Failed', 'An error occurred while refreshing data. Please try again.');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   const handleLinkParent = async (studentId: string) => {
     // Fetch real parents from Firebase
     const parents: { id: string; name: string; email: string }[] = (await getAllParents()).map((p: any) => ({
@@ -1770,6 +1790,8 @@ const ClassList: React.FC = () => {
 
       {/* Main Content */}
       <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Refresh Button - Top Right */}
+
         <div className="grid grid-cols-12 gap-6">
           {/* Class Grades Section */}
           <div className="col-span-12 lg:col-span-3">
@@ -1905,31 +1927,31 @@ const ClassList: React.FC = () => {
                                       showCloseButton: true,
                                       html: `
                                       <div class="text-left p-4 bg-white rounded-b-xl -mt-4">
-                                        <div class="mb-6">
-                                          <label class="block text-sm font-medium text-gray-700 mb-2">Grade Level</label>
-                                          <input class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm bg-gray-100 text-gray-600" value="${grade.name.split(' - ')[0] || 'Grade 4'}" readonly />
-                                        </div>
-                                        <div class="mb-6">
-                                          <label class="block text-sm font-medium text-gray-700 mb-2">Section Name</label>
-                                          <input id="edit-grade-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" value="${grade.name.split(' - ')[1] || ''}" placeholder="e.g., Mango" />
-                                        </div>
-                                        <div class="mb-6">
+                                      <div class="mb-6">
+                                      <label class="block text-sm font-medium text-gray-700 mb-2">Grade Level</label>
+                                      <input class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm bg-gray-100 text-gray-600" value="${grade.name.split(' - ')[0] || 'Grade 4'}" readonly />
+                                      </div>
+                                      <div class="mb-6">
+                                      <label class="block text-sm font-medium text-gray-700 mb-2">Section Name</label>
+                                      <input id="edit-grade-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" value="${grade.name.split(' - ')[1] || ''}" placeholder="e.g., Mango" />
+                                      </div>
+                                      <div class="mb-6">
                                           <label class="block text-sm font-medium text-gray-700 mb-2">Description</label>
                                           <textarea id="edit-grade-description" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" rows="2">${grade.description || ''}</textarea>
-                                        </div>
-                                        <div class="mb-6">
+                                          </div>
+                                          <div class="mb-6">
                                           <label class="block text-sm font-medium text-gray-700 mb-2">Color</label>
                                           <select id="edit-grade-color" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                                            <option value="blue" ${grade.color === 'blue' ? 'selected' : ''}>Blue</option>
-                                            <option value="green" ${grade.color === 'green' ? 'selected' : ''}>Green</option>
+                                          <option value="blue" ${grade.color === 'blue' ? 'selected' : ''}>Blue</option>
+                                          <option value="green" ${grade.color === 'green' ? 'selected' : ''}>Green</option>
                                             <option value="yellow" ${grade.color === 'yellow' ? 'selected' : ''}>Yellow</option>
                                             <option value="purple" ${grade.color === 'purple' ? 'selected' : ''}>Purple</option>
                                             <option value="red" ${grade.color === 'red' ? 'selected' : ''}>Red</option>
                                             <option value="gray" ${grade.color === 'gray' ? 'selected' : ''}>Gray</option>
                                           </select>
-                                        </div>
+                                          </div>
                                       </div>
-                                    `,
+                                      `,
                                       showCancelButton: true,
                                       confirmButtonText: 'Save',
                                       cancelButtonText: 'Cancel',
@@ -1995,6 +2017,17 @@ const ClassList: React.FC = () => {
 
                   {/* Right side - Sort Selector */}
                   <div className="flex items-center space-x-4">
+                    <div className="mb-4 flex justify-end">
+                      <button
+                        onClick={handleRefresh}
+                        disabled={isRefreshing}
+                        className="inline-flex items-center gap-2  text-blue-700 font-medium rounded-lg shadow-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Refresh all data"
+                      >
+                        <i className={`fas fa-sync-alt ${isRefreshing ? 'animate-spin' : ''}`}></i>
+                        <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+                      </button>
+                    </div>
                     <PillSelect
                       value={sortBy}
                       onChange={setSortBy}
