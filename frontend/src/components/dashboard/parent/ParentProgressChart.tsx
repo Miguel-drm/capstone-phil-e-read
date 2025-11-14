@@ -35,24 +35,24 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
     comprehensionScores: number[];
     readingLevels: number[];
   }>({
-    assessmentPeriods: ['Previous', 'Current', 'Progress', 'Recent', 'Latest', 'Now'],
-    oralReadingScores: [0, 0, 0, 0, 0, 0],
-    comprehensionScores: [0, 0, 0, 0, 0, 0],
-    readingLevels: [0, 0, 0, 0, 0, 0]
+    assessmentPeriods: ['Latest Session'],
+    oralReadingScores: [],
+    comprehensionScores: [],
+    readingLevels: []
   });
 
   // Use computed data for parents, fallback to passed data
   const safeData = {
-    assessmentPeriods: computedData.assessmentPeriods.length ? computedData.assessmentPeriods : (data.assessmentPeriods || ['Previous', 'Current', 'Progress', 'Recent', 'Latest', 'Now']),
-    oralReadingScores: computedData.oralReadingScores.length ? computedData.oralReadingScores : (data.oralReadingScores || [0, 0, 0, 0, 0, 0]),
-    comprehensionScores: computedData.comprehensionScores.length ? computedData.comprehensionScores : (data.comprehensionScores || [0, 0, 0, 0, 0, 0]),
+    assessmentPeriods: computedData.assessmentPeriods.length ? computedData.assessmentPeriods : (data.assessmentPeriods || ['Latest Session']),
+    oralReadingScores: computedData.oralReadingScores.length ? computedData.oralReadingScores : (data.oralReadingScores || []),
+    comprehensionScores: computedData.comprehensionScores.length ? computedData.comprehensionScores : (data.comprehensionScores || []),
     readingLevels: computedData.readingLevels.length ? computedData.readingLevels : (data.readingLevels?.map(level => {
       const lower = level.toLowerCase();
       if (lower.includes('independent')) return 2;
       if (lower.includes('instructional')) return 1;
       if (lower.includes('frustration')) return 0;
       return 0;
-    }) || [0, 0, 0, 0, 0, 0])
+    }) || [])
   };
 
   // Get current metric data for chart rendering (same as TeacherProgressChart)
@@ -127,88 +127,54 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
         const selectedChild = students[0];
         console.log('ParentProgressChart: Fetching data for child:', selectedChild.name);
 
-        // Results fetching removed - MongoDB results service no longer available
-        // Return empty arrays
-        const results: any[] = [];
-        const testResults: any[] = [];
-        console.log('ParentProgressChart: Results service removed, using empty data');
+        // RESTORED: Fetch ISR results from MongoDB
+        const { isrResultService } = await import('../../../services/ISRresultService');
+        const isrResults = await isrResultService.getISRResultsByStudent(selectedChild.id!);
+        
+        console.log(`📊 Fetched ${isrResults.length} ISR results for child ${selectedChild.name}`);
 
-        // Process results chronologically
-        const processedResults = [...results, ...testResults].sort((a, b) => {
-          const dateA = new Date(a.createdAt || a.sessionDate || a.testDate || 0);
-          const dateB = new Date(b.createdAt || b.sessionDate || b.testDate || 0);
-          return dateA.getTime() - dateB.getTime();
-        });
+        // Get only the LATEST (most recent) session
+        const sortedResults = isrResults.sort((a, b) =>
+          new Date(b.createdAt || b.assessmentDate || 0).getTime() - new Date(a.createdAt || a.assessmentDate || 0).getTime()
+        );
 
-        // Create time-based periods (last 6 months)
-        const periods: string[] = [];
-        const oralScores: number[] = [];
-        const compScores: number[] = [];
-        const readingLevels: number[] = [];
+        const latestResult = sortedResults[0];
 
-        const now = new Date();
-        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        // Extract data from latest result
+        let oralScore = 0;
+        let compScore = 0;
+        let levelScore = 0;
 
-        for (let i = 5; i >= 0; i--) {
-          const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-          const periodName = `${monthNames[date.getMonth()]} ${date.getFullYear()}`;
-          periods.push(periodName);
+        if (latestResult) {
+          // Oral reading score from Part B
+          if (latestResult.partB?.wordReadingScore) {
+            oralScore = Math.max(0, Math.min(100, latestResult.partB.wordReadingScore));
+          }
 
-          // Find results for this period
-          const periodResults = processedResults.filter(result => {
-            const resultDate = new Date(result.createdAt || result.sessionDate || result.testDate || 0);
-            return resultDate.getMonth() === date.getMonth() && resultDate.getFullYear() === date.getFullYear();
-          });
+          // Comprehension score from Part A
+          if (latestResult.partA?.percentage) {
+            compScore = Math.max(0, Math.min(100, latestResult.partA.percentage));
+          }
 
-          // Calculate averages for this period
-          let oralSum = 0, oralCount = 0;
-          let compSum = 0, compCount = 0;
-          let levelSum = 0, levelCount = 0;
-
-          periodResults.forEach(result => {
-            // Process oral reading scores
-            if (typeof result.oralReadingScore === 'number') {
-              oralSum += Math.max(0, Math.min(100, result.oralReadingScore));
-              oralCount += 1;
-            }
-
-            // Process comprehension scores
-            if (typeof result.comprehension === 'number') {
-              compSum += Math.max(0, Math.min(100, result.comprehension));
-              compCount += 1;
-            } else if (typeof (result as any).score === 'number') {
-              compSum += Math.max(0, Math.min(100, (result as any).score));
-              compCount += 1;
-            }
-
-            // Process reading levels
-            const resultAny = result as any;
-            const readingLevelField = resultAny.readingLevel || resultAny.reading_level || resultAny.level || selectedChild.readingLevel;
-            if (readingLevelField) {
-              let levelValue = 1;
-              const level = String(readingLevelField).toLowerCase().trim();
-              if (level.includes('independent') || level === '2' || level === 'ind') {
-                levelValue = 2;
-              } else if (level.includes('instructional') || level === '1' || level === 'ins') {
-                levelValue = 1;
-              } else if (level.includes('frustration') || level === '0' || level === 'frus') {
-                levelValue = 0;
-              }
-              levelSum += levelValue;
-              levelCount += 1;
-            }
-          });
-
-          oralScores.push(oralCount > 0 ? Math.round(oralSum / oralCount) : 0);
-          compScores.push(compCount > 0 ? Math.round(compSum / compCount) : 0);
-          readingLevels.push(levelCount > 0 ? Math.round(levelSum / levelCount) : 0);
+          // Reading level from Part B
+          if (latestResult.partB?.wordReadingLevel) {
+            const level = String(latestResult.partB.wordReadingLevel).toLowerCase().trim();
+            if (level.includes('independent')) levelScore = 2;
+            else if (level.includes('instructional')) levelScore = 1;
+            else if (level.includes('frustration')) levelScore = 0;
+          } else {
+            // Derive from oral reading score
+            if (oralScore >= 95) levelScore = 2;
+            else if (oralScore >= 85) levelScore = 1;
+            else if (oralScore > 0) levelScore = 0;
+          }
         }
 
         setComputedData({
-          assessmentPeriods: periods,
-          oralReadingScores: oralScores,
-          comprehensionScores: compScores,
-          readingLevels: readingLevels
+          assessmentPeriods: ['Latest Session'],
+          oralReadingScores: [oralScore],
+          comprehensionScores: [compScore],
+          readingLevels: [levelScore]
         });
 
         setLastUpdated(new Date());
@@ -336,9 +302,10 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
             },
             xAxis: {
               type: 'category',
-              boundaryGap: true,
+              boundaryGap: false,
               data: safeData.assessmentPeriods,
               axisLabel: {
+                show: false, // Hide session labels
                 fontSize: 11,
                 color: '#6b7280',
                 rotate: 0
@@ -390,13 +357,94 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
             series: [
               {
                 name: currentMetric.name,
-                type: 'bar',
-                data: currentMetric.data,
-                itemStyle: {
-                  color: currentMetric.color,
-                  borderRadius: [4, 4, 0, 0]
+                type: 'custom',
+                renderItem: (params: any, api: any) => {
+                  const value = api.value(0);
+                  
+                  // Calculate right triangle dimensions with better proportions
+                  const chartHeight = params.coordSys.height;
+                  const chartWidth = params.coordSys.width;
+                  
+                  // Use more of the chart width for better visibility
+                  const leftX = params.coordSys.x + chartWidth * 0.05; // Start at 5%
+                  const rightX = params.coordSys.x + chartWidth * 0.95; // End at 95%
+                  const baseY = params.coordSys.y + chartHeight; // Bottom (y=0)
+                  
+                  // Left corner height based on data value (use full height range)
+                  const leftHeight = (value / currentMetric.yAxisMax) * chartHeight * 0.95;
+                  const leftY = baseY - leftHeight;
+                  
+                  return {
+                    type: 'group',
+                    children: [
+                      // Right triangle fill with gradient
+                      {
+                        type: 'polygon',
+                        shape: {
+                          points: [
+                            [leftX, leftY],      // Top left (data value height)
+                            [leftX, baseY],      // Bottom left (y=0)
+                            [rightX, baseY],     // Bottom right (y=0) - always at zero
+                          ]
+                        },
+                        style: {
+                          fill: {
+                            type: 'linear',
+                            x: 0,
+                            y: 0,
+                            x2: 1,
+                            y2: 0,
+                            colorStops: [
+                              { offset: 0, color: `${currentMetric.color}90` }, // 56% opacity at left
+                              { offset: 0.5, color: `${currentMetric.color}50` }, // 31% opacity at middle
+                              { offset: 1, color: `${currentMetric.color}15` }  // 8% opacity at right
+                            ]
+                          },
+                          shadowBlur: 15,
+                          shadowColor: `${currentMetric.color}40`,
+                          shadowOffsetY: 5
+                        }
+                      },
+                      // Triangle outline with thicker lines
+                      {
+                        type: 'polygon',
+                        shape: {
+                          points: [
+                            [leftX, leftY],      // Top left
+                            [leftX, baseY],      // Bottom left
+                            [rightX, baseY],     // Bottom right
+                          ]
+                        },
+                        style: {
+                          fill: 'transparent',
+                          stroke: currentMetric.color,
+                          lineWidth: 4,
+                          shadowBlur: 8,
+                          shadowColor: currentMetric.color,
+                          shadowOffsetY: 2
+                        }
+                      },
+                      // Add a highlight on the diagonal line
+                      {
+                        type: 'line',
+                        shape: {
+                          x1: leftX,
+                          y1: leftY,
+                          x2: rightX,
+                          y2: baseY
+                        },
+                        style: {
+                          stroke: currentMetric.color,
+                          lineWidth: 5,
+                          shadowBlur: 10,
+                          shadowColor: '#fff',
+                          shadowOffsetY: 0
+                        }
+                      }
+                    ]
+                  };
                 },
-                barWidth: '60%'
+                data: currentMetric.data
               }
             ]
           };

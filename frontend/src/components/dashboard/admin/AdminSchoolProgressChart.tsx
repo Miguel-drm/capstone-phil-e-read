@@ -689,9 +689,10 @@ const AdminSchoolProgressChart: React.FC<AdminSchoolProgressChartProps> = ({
             },
             xAxis: {
               type: 'category',
-              boundaryGap: true,
+              boundaryGap: false,
               data: safeData.assessmentPeriods,
               axisLabel: {
+                show: false, // Hide session labels
                 fontSize: 11,
                 color: '#6b7280',
                 rotate: 0
@@ -744,13 +745,94 @@ const AdminSchoolProgressChart: React.FC<AdminSchoolProgressChartProps> = ({
             series: [
               {
                 name: currentMetric.name,
-                type: 'bar',
-                data: currentMetric.data,
-                itemStyle: {
-                  color: currentMetric.color,
-                  borderRadius: [4, 4, 0, 0]
+                type: 'custom',
+                renderItem: (params: any, api: any) => {
+                  const value = api.value(0);
+                  
+                  // Calculate right triangle dimensions with better proportions
+                  const chartHeight = params.coordSys.height;
+                  const chartWidth = params.coordSys.width;
+                  
+                  // Use more of the chart width for better visibility
+                  const leftX = params.coordSys.x + chartWidth * 0.05; // Start at 5%
+                  const rightX = params.coordSys.x + chartWidth * 0.95; // End at 95%
+                  const baseY = params.coordSys.y + chartHeight; // Bottom (y=0)
+                  
+                  // Left corner height based on data value (use full height range)
+                  const leftHeight = (value / currentMetric.yAxisMax) * chartHeight * 0.95;
+                  const leftY = baseY - leftHeight;
+                  
+                  return {
+                    type: 'group',
+                    children: [
+                      // Right triangle fill with gradient
+                      {
+                        type: 'polygon',
+                        shape: {
+                          points: [
+                            [leftX, leftY],      // Top left (data value height)
+                            [leftX, baseY],      // Bottom left (y=0)
+                            [rightX, baseY],     // Bottom right (y=0) - always at zero
+                          ]
+                        },
+                        style: {
+                          fill: {
+                            type: 'linear',
+                            x: 0,
+                            y: 0,
+                            x2: 1,
+                            y2: 0,
+                            colorStops: [
+                              { offset: 0, color: `${currentMetric.color}90` }, // 56% opacity at left
+                              { offset: 0.5, color: `${currentMetric.color}50` }, // 31% opacity at middle
+                              { offset: 1, color: `${currentMetric.color}15` }  // 8% opacity at right
+                            ]
+                          },
+                          shadowBlur: 15,
+                          shadowColor: `${currentMetric.color}40`,
+                          shadowOffsetY: 5
+                        }
+                      },
+                      // Triangle outline with thicker lines
+                      {
+                        type: 'polygon',
+                        shape: {
+                          points: [
+                            [leftX, leftY],      // Top left
+                            [leftX, baseY],      // Bottom left
+                            [rightX, baseY],     // Bottom right
+                          ]
+                        },
+                        style: {
+                          fill: 'transparent',
+                          stroke: currentMetric.color,
+                          lineWidth: 4,
+                          shadowBlur: 8,
+                          shadowColor: currentMetric.color,
+                          shadowOffsetY: 2
+                        }
+                      },
+                      // Add a highlight on the diagonal line
+                      {
+                        type: 'line',
+                        shape: {
+                          x1: leftX,
+                          y1: leftY,
+                          x2: rightX,
+                          y2: baseY
+                        },
+                        style: {
+                          stroke: currentMetric.color,
+                          lineWidth: 5,
+                          shadowBlur: 10,
+                          shadowColor: '#fff',
+                          shadowOffsetY: 0
+                        }
+                      }
+                    ]
+                  };
                 },
-                barWidth: '60%',
+                data: currentMetric.data,
                 markLine: targetLine ? {
                   data: [{ yAxis: targetLine, name: 'Target' }],
                   lineStyle: { color: '#f59e0b', type: 'dashed', width: 2 },
