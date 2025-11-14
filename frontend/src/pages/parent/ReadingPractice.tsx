@@ -7,7 +7,7 @@ import {
   BookOpenIcon,
   PlayIcon,
 } from '@heroicons/react/24/outline';
-import Loader from '../../components/Loader';
+import ParentLoader from '../../components/parent/ParentLoader';
 import { formatDateHuman } from '@/utils/date';
 
 const ReadingPractice: React.FC = () => {
@@ -122,7 +122,7 @@ const ReadingPractice: React.FC = () => {
         {/* Stories Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
           {storiesLoading ? (
-            <Loader label="Loading stories..." />
+            <ParentLoader label="Loading stories..." />
           ) : storiesError ? (
             <div className="col-span-full text-center py-10 text-red-500">{storiesError}</div>
           ) : stories.length === 0 ? (
