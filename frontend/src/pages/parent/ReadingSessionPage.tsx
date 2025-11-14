@@ -16,6 +16,7 @@ import { studentService } from '@/services/studentService';
 import { formatDateHuman } from '@/utils/date';
 import Swal from 'sweetalert2';
 import { doubleMetaphone } from 'double-metaphone';
+import ParentLoader from '../../components/parent/ParentLoader';
 
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -961,14 +962,7 @@ const ReadingSessionPage: React.FC = () => {
   }, [currentSession]);
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">{isPracticeMode ? 'Loading story…' : 'Loading session…'}</p>
-        </div>
-      </div>
-    );
+    return <ParentLoader label={isPracticeMode ? 'Loading story…' : 'Loading session…'} fullScreen size="lg" />;
   }
 
   if (!currentSession && !isPracticeMode) {

@@ -1,6 +1,6 @@
 import React from 'react';
 import ProfileOverviewParent from './ProfileOverviewParent';
-import Loader from '../../components/Loader';
+import ParentLoader from '../../components/parent/ParentLoader';
 
 const ParentProfile: React.FC = () => {
   return <ProfileOverviewParent />;

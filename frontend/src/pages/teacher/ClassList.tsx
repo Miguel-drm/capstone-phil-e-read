@@ -9,7 +9,7 @@ import { onSnapshot, collection, query as fsQuery, where as fsWhere, addDoc, ser
 import { getAllParents, getUserProfile } from '../../services/authService';
 import { notificationService } from '../../services/notificationService';
 import { db } from '../../config/firebase';
-import Loader from '../../components/Loader';
+import TeacherLoader from '../../components/teacher/TeacherLoader';
 import { isrResultService, type ISRResult } from '../../services/ISRresultService';
 
 import PillSelect from '../../components/ui/PillSelect';
@@ -2155,7 +2155,7 @@ const ClassList: React.FC = () => {
               <div className="flex-1 overflow-auto">
                 {isFilteringStudents || isLoading ? (
                   <div className="flex flex-col items-center justify-center h-full bg-white/50">
-                    <Loader label="Fetching students..." />
+                    <TeacherLoader label="Fetching students..." />
                   </div>
                 ) : filteredStudents.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full bg-gray-50">

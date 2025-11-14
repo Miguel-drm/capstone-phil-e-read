@@ -10,6 +10,7 @@ import { studentService, type Student } from '../../services/studentService';
 import * as pdfjsLib from 'pdfjs-dist';
 import type { TextItem } from 'pdfjs-dist/types/src/display/api';
 import 'pdfjs-dist/build/pdf.worker.entry';
+import ParentLoader from '../../components/parent/ParentLoader';
 
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -425,14 +426,7 @@ const ParentReadingSessionPage: React.FC = () => {
   };
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading session...</p>
-        </div>
-      </div>
-    );
+    return <ParentLoader label="Loading session..." fullScreen size="lg" />;
   }
 
   if (!currentSession) {

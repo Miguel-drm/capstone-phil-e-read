@@ -15,6 +15,7 @@ import AutomatedWorkflowManager from '../../components/admin/AutomatedWorkflowMa
 import ReportAnalytics from '../../components/admin/ReportAnalytics';
 import { reportProcessingService } from '../../services/reportProcessingService';
 import { isrService } from '../../services/isrService';
+import AdminLoader from '../../components/admin/AdminLoader';
 
 interface ReportManagementHubProps {
   adminId: string;
@@ -137,14 +138,7 @@ const ReportManagementHub: React.FC<ReportManagementHubProps> = ({
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-4 border-slate-200 border-t-indigo-600 mx-auto"></div>
-          <p className="mt-4 text-slate-600 font-medium">Loading Report Management Hub...</p>
-        </div>
-      </div>
-    );
+    return <AdminLoader label="Loading Report Management Hub..." fullScreen size="lg" />;
   }
 
   // Render specific views
