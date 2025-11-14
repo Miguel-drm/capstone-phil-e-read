@@ -172,8 +172,9 @@ const ReadingSessionPage: React.FC = () => {
 
   // Helper: Extract all readable words (alphanumeric only) from text, skipping punctuation/symbols
   function extractWordsFromText(text: string): string[] {
-    // This regex matches words with at least one alphanumeric character
-    return text.match(/\b\w+\b/g) || [];
+    // This regex matches words including contractions (e.g., "It's", "don't", "I'll")
+    // \b\w+(?:'\w+)?\b matches: word boundary + word chars + optional apostrophe + more word chars
+    return text.match(/\b\w+(?:'\w+)?\b/g) || [];
   }
 
   // Helper: Detect if a word is likely English (for language validation)
@@ -257,33 +258,36 @@ const ReadingSessionPage: React.FC = () => {
    * Handles common patterns globally without hardcoding specific words.
    * LANGUAGE-AWARE: Prevents cross-language false matches (e.g., English words in Tagalog stories)
    */
-  function isWordMatch(spokenWord: string, expectedWord: string): boolean {
+  function isWordMatch(spokenWord: string, expectedWord: string, checkLanguage: boolean = false): boolean {
     const normSpoken = normalize(spokenWord);
     const normExpected = normalize(expectedWord);
     if (!normSpoken || !normExpected) return false;
 
-    // LANGUAGE VALIDATION: Prevent cross-language false matches
-    // If reading Tagalog story, reject English words that don't match Tagalog expected words
-    if (storyLanguage === 'tagalog') {
-      const spokenIsEnglish = isLikelyEnglishWord(normSpoken);
-      const expectedIsTagalog = isLikelyTagalogWord(normExpected);
-      
-      // If child said an English word but expected word is clearly Tagalog, reject
-      if (spokenIsEnglish && expectedIsTagalog && normSpoken !== normExpected) {
-        console.log(`⚠️ Language mismatch: Child said English word "${spokenWord}" in Tagalog story (expected Tagalog: "${expectedWord}")`);
-        return false;
+    // LANGUAGE VALIDATION: Only check when explicitly requested (for current expected word)
+    // This prevents excessive warnings when checking against all story words
+    if (checkLanguage) {
+      // If reading Tagalog story, reject English words that don't match Tagalog expected words
+      if (storyLanguage === 'tagalog') {
+        const spokenIsEnglish = isLikelyEnglishWord(normSpoken);
+        const expectedIsTagalog = isLikelyTagalogWord(normExpected);
+        
+        // If child said an English word but expected word is clearly Tagalog, reject
+        if (spokenIsEnglish && expectedIsTagalog && normSpoken !== normExpected) {
+          console.log(`⚠️ Language mismatch: Child said English word "${spokenWord}" in Tagalog story (expected Tagalog: "${expectedWord}")`);
+          return false;
+        }
       }
-    }
-    
-    // REVERSE: If reading English story, reject Tagalog words that don't match English expected words
-    if (storyLanguage === 'english') {
-      const spokenIsTagalog = isLikelyTagalogWord(normSpoken);
-      const expectedIsEnglish = isLikelyEnglishWord(normExpected);
       
-      // If child said a Tagalog word but expected word is clearly English, reject
-      if (spokenIsTagalog && expectedIsEnglish && normSpoken !== normExpected) {
-        console.log(`⚠️ Language mismatch: Child said Tagalog word "${spokenWord}" in English story (expected English: "${expectedWord}")`);
-        return false;
+      // REVERSE: If reading English story, reject Tagalog words that don't match English expected words
+      if (storyLanguage === 'english') {
+        const spokenIsTagalog = isLikelyTagalogWord(normSpoken);
+        const expectedIsEnglish = isLikelyEnglishWord(normExpected);
+        
+        // If child said a Tagalog word but expected word is clearly English, reject
+        if (spokenIsTagalog && expectedIsEnglish && normSpoken !== normExpected) {
+          console.log(`⚠️ Language mismatch: Child said Tagalog word "${spokenWord}" in English story (expected English: "${expectedWord}")`);
+          return false;
+        }
       }
     }
 
@@ -341,7 +345,7 @@ const ReadingSessionPage: React.FC = () => {
       // Common word form variations (WORKAROUND: specific -ing variations)
       'shiny': ['shining', 'shin'],
 
-      // Filipino accent variations
+      // Filipino accent variations - TH sounds
       'the': ['da', 'de', 'duh', 'di'],
       'this': ['dis', 'dees'],
       'that': ['dat', 'det'],
@@ -368,6 +372,72 @@ const ReadingSessionPage: React.FC = () => {
       'weather': ['weder', 'wedder'],
       'whether': ['weder', 'wedder'],
       'together': ['togeder', 'togedder'],
+      'nothing': ['noting', 'nutting'],
+      'something': ['someting', 'sumting'],
+      'anything': ['anyting', 'eniting'],
+      'everything': ['everyting', 'evriting'],
+      'birthday': ['birtday', 'burtday'],
+      'bathroom': ['batroom', 'batrum'],
+      'math': ['mat', 'mats'],
+      'path': ['pat', 'pats'],
+      'both': ['bot', 'bots'],
+      'mouth': ['mout', 'mowt'],
+      'south': ['sout', 'sowt'],
+      'north': ['nort', 'norts'],
+      
+      // Common sight words and function words
+      'about': ['abowt', 'bout'],
+      'after': ['after', 'apter'],
+      'again': ['agen', 'agin'],
+      'always': ['allways', 'alwys'],
+      'around': ['aroun', 'round'],
+      'because': ['becuz', 'cuz', 'coz'],
+      'before': ['befor', 'bfor'],
+      'between': ['betwee', 'btween'],
+      'could': ['cud', 'kud'],
+      'should': ['shud', 'shoud'],
+      'would': ['wud', 'wood'],
+      'does': ['dus', 'duz'],
+      'done': ['dun', 'don'],
+      'every': ['evry', 'everi'],
+      'first': ['furst', 'firs'],
+      'friend': ['frend', 'fren'],
+      'from': ['frum', 'form'],
+      'have': ['hav', 'hab'],
+      'here': ['hir', 'hear'],
+      'into': ['intu', 'ento'],
+      'just': ['jus', 'jast'],
+      'know': ['no', 'now'],
+      'like': ['lik', 'lyke'],
+      'little': ['litle', 'litl'],
+      'long': ['lang', 'lon'],
+      'many': ['meny', 'mani'],
+      'more': ['mor', 'moar'],
+      'most': ['mos', 'moast'],
+      'much': ['mach', 'mutch'],
+      'never': ['neber', 'nevr'],
+      'only': ['onli', 'ownly'],
+      'over': ['ober', 'ovr'],
+      'people': ['pipol', 'peepol', 'peeple'],
+      'please': ['pls', 'pleas', 'plz'],
+      'pretty': ['prety', 'pritty'],
+      'really': ['realy', 'relly', 'rily'],
+      'right': ['rite', 'ryt'],
+      'some': ['sum', 'som'],
+      'time': ['tym', 'tyme'],
+      'today': ['tuday', 'todey'],
+      'very': ['bery', 'veri'],
+      'want': ['wanna', 'wan'],
+      'water': ['wader', 'watur'],
+      'were': ['wer', 'where'],
+      'what': ['wat', 'wut'],
+      'when': ['wen', 'win'],
+      'where': ['wer', 'were'],
+      'which': ['wich', 'witch'],
+      'who': ['hoo', 'hu'],
+      'why': ['y', 'wi'],
+      'will': ['wil', 'wel'],
+      'your': ['yur', 'yor', 'ur'],
 
       // Children's speech: past tense -ed endings (often dropped or mispronounced)
       'looked': ['look', 'looke', 'lookt'],
@@ -402,13 +472,47 @@ const ReadingSessionPage: React.FC = () => {
       'appeared': ['appear', 'appeare', 'appeard'],
       'believed': ['believe', 'believ', 'believd'],
       'received': ['receive', 'receiv', 'receivd'],
+      'watched': ['watch', 'watche', 'watcht'],
+      'listened': ['listen', 'listene', 'listend'],
+      'laughed': ['laugh', 'laughe', 'laught'],
+      'smiled': ['smile', 'smil', 'smild'],
+      'cried': ['cry', 'crie', 'cryd'],
+      'stopped': ['stop', 'stoppe', 'stopt'],
+      'dropped': ['drop', 'droppe', 'dropt'],
+      'hopped': ['hop', 'hoppe', 'hopt'],
+      'skipped': ['skip', 'skippe', 'skipt'],
+      'clapped': ['clap', 'clappe', 'clapt'],
+      'grabbed': ['grab', 'grabbe', 'grabt'],
+      'hugged': ['hug', 'hugge', 'hugt'],
+      'kissed': ['kiss', 'kisse', 'kist'],
+      'missed': ['miss', 'misse', 'mist'],
+      'passed': ['pass', 'passe', 'past'],
+      'pushed': ['push', 'pushe', 'pusht'],
+      'pulled': ['pull', 'pulle', 'pulld'],
+      'reached': ['reach', 'reache', 'reacht'],
+      'touched': ['touch', 'touche', 'toucht'],
+      'washed': ['wash', 'washe', 'washt'],
+      'wished': ['wish', 'wishe', 'wisht'],
+      'yelled': ['yell', 'yelle', 'yelld'],
+      'answered': ['answer', 'answere', 'answerd'],
+      'climbed': ['climb', 'climbe', 'climbd'],
+      'cooked': ['cook', 'cooke', 'cookt'],
+      'danced': ['dance', 'danc', 'danst'],
+      'finished': ['finish', 'finishe', 'finisht'],
+      'painted': ['paint', 'painte', 'paintid'],
+      'planted': ['plant', 'plante', 'plantid'],
+      'pointed': ['point', 'pointe', 'pointid'],
+      'remembered': ['remember', 'remembere', 'rememberd'],
+      'visited': ['visit', 'visite', 'visitid'],
+      'waited': ['wait', 'waite', 'waitid'],
+      'wondered': ['wonder', 'wondere', 'wonderd'],
 
       // Common irregular verbs children struggle with
       'saw': ['see', 'sow', 'so'],
       'said': ['say', 'sed', 'sayed'],
       'went': ['go', 'goed', 'wented'],
       'came': ['come', 'comed', 'camed'],
-      'took': ['take', 'taked', 'taked'],
+      'took': ['take', 'taked', 'tooked'],
       'gave': ['give', 'gived', 'gaved'],
       'made': ['make', 'maked', 'maded'],
       'got': ['get', 'getted', 'goted'],
@@ -447,7 +551,87 @@ const ReadingSessionPage: React.FC = () => {
       'rode': ['ride', 'rided', 'roded'],
       'woke': ['wake', 'waked', 'woked'],
       'froze': ['freeze', 'freezed', 'frosed'],
-      'stole': ['steal', 'stealed', 'stoled']
+      'stole': ['steal', 'stealed', 'stoled'],
+      'built': ['build', 'builded', 'bilt'],
+      'bought': ['buy', 'buyed', 'boughted'],
+      'caught': ['catch', 'catched', 'caughted'],
+      'cut': ['cut', 'cutted', 'cuted'],
+      'did': ['do', 'doed', 'dided'],
+      'fell': ['fall', 'falled', 'felled'],
+      'fought': ['fight', 'fighted', 'foughted'],
+      'forgot': ['forget', 'forgeted', 'forgotted'],
+      'hid': ['hide', 'hided', 'hidded'],
+      'hit': ['hit', 'hitted', 'hited'],
+      'hurt': ['hurt', 'hurted', 'herted'],
+      'lay': ['lie', 'lied', 'layed'],
+      'led': ['lead', 'leaded', 'ledded'],
+      'lost': ['lose', 'losed', 'losted'],
+      'paid': ['pay', 'payed', 'paided'],
+      'rang': ['ring', 'ringed', 'rung'],
+      'rose': ['rise', 'rised', 'rosed'],
+      'sent': ['send', 'sended', 'sented'],
+      'shook': ['shake', 'shaked', 'shooked'],
+      'shot': ['shoot', 'shooted', 'shoted'],
+      'shut': ['shut', 'shutted', 'shuted'],
+      'slept': ['sleep', 'sleeped', 'slepted'],
+      'spent': ['spend', 'spended', 'spented'],
+      'taught': ['teach', 'teached', 'taughted'],
+      'understood': ['understand', 'understanded', 'understooded'],
+      'won': ['win', 'winned', 'woned'],
+      
+      // Common nouns and story words
+      'animal': ['animel', 'anmal'],
+      'bedroom': ['bedrum', 'bed room'],
+      'breakfast': ['brekfast', 'brekfest'],
+      'children': ['chilren', 'childs'],
+      'chocolate': ['choklate', 'choclate', 'choco'],
+      'christmas': ['krismas', 'xmas'],
+      'different': ['diferent', 'diffrent'],
+      'finally': ['finaly', 'finely'],
+      'garden': ['gardin', 'garding'],
+      'happy': ['hapi', 'hapy'],
+      'important': ['importan', 'importent'],
+      'kitchen': ['kitchin', 'kichen'],
+      'library': ['libary', 'liberry'],
+      'morning': ['mornin', 'morming'],
+      'mountain': ['mountin', 'mowntain'],
+      'neighbor': ['nabor', 'naybor', 'neybor'],
+      'picture': ['pikture', 'pitcher', 'pictur'],
+      'probably': ['probly', 'prolly'],
+      'remember': ['rember', 'remembr'],
+      'restaurant': ['restarant', 'resturant'],
+      'school': ['skool', 'scool'],
+      'special': ['speshal', 'speshul'],
+      'surprise': ['suprise', 'surprize'],
+      'tomorrow': ['tomoro', 'tommorow', 'tomorow'],
+      'tonight': ['tonite', 'to night'],
+      'vegetable': ['vegtable', 'vegitable'],
+      'yesterday': ['yesturday', 'yesterdey'],
+      
+      // Adjectives and descriptive words
+      'angry': ['angri', 'angery'],
+      'busy': ['bisy', 'bizzy'],
+      'careful': ['carful', 'carefull'],
+      'comfortable': ['comftable', 'comfterble'],
+      'dangerous': ['dangeros', 'dangerus'],
+      'delicious': ['delishus', 'delisious'],
+      'difficult': ['dificult', 'difficalt'],
+      'excited': ['exited', 'exsited'],
+      'expensive': ['expensiv', 'exspensive'],
+      'famous': ['famos', 'famus'],
+      'frightened': ['fritened', 'frightend'],
+      'hungry': ['hongry', 'hungri'],
+      'interesting': ['intresting', 'intersting'],
+      'jealous': ['jelous', 'jealos'],
+      'lonely': ['lonley', 'loneli'],
+      'nervous': ['nervos', 'nervus'],
+      'perfect': ['perfec', 'perfict'],
+      'popular': ['populer', 'poplar'],
+      'quiet': ['quite', 'kwiet'],
+      'scared': ['skared', 'scaired'],
+      'terrible': ['terible', 'terrable'],
+      'tired': ['tyred', 'tierd'],
+      'wonderful': ['wonderfull', 'wunderful']
     };
 
     // Check if expected word has accent variations
@@ -1474,6 +1658,7 @@ const ReadingSessionPage: React.FC = () => {
   // Stuck detection: Track how long we've been on the same word
   const stuckTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastWordIndexRef = useRef<number>(-1);
+  const stuckStartTimeRef = useRef<number>(0);
 
   useEffect(() => {
     if (!transcript || !realWords.length || currentWordIndex >= realWords.length) return;
@@ -1490,20 +1675,42 @@ const ReadingSessionPage: React.FC = () => {
     // Reset stuck timer when word changes
     if (currentWordIndex !== lastWordIndexRef.current) {
       lastWordIndexRef.current = currentWordIndex;
+      stuckStartTimeRef.current = Date.now();
+      
       if (stuckTimerRef.current) {
         clearTimeout(stuckTimerRef.current);
       }
 
-      // Set new stuck timer (10 seconds)
-      // DISABLED: Stuck detection removed to prevent false auto-advances
-      // Teachers should use the "Skip Word" button if student is truly stuck
+      // Set new stuck timer (3 seconds for continuous reading)
+      // If child is reading continuously and hasn't said this word in 3 seconds, likely skipped it
       stuckTimerRef.current = setTimeout(() => {
-        // Just log that we're stuck, but don't auto-advance
-        if (isRecording && !isPaused) {
-          console.log(`ℹ️ Student has been on word "${realWords[currentWordIndex]}" for 10+ seconds`);
-          console.log(`   Use the "Skip Word" button if the student is stuck`);
+        if (isRecording && !isPaused && transcript.trim().length > 0) {
+          const currentTranscriptWords = transcript.split(/\s+/).filter(Boolean);
+          const timeStuck = Date.now() - stuckStartTimeRef.current;
+          console.log(`⏰ Auto-advance: Been on word "${realWords[currentWordIndex]}" for ${timeStuck}ms without match`);
+          
+          // Check if there are new words in transcript (child is still reading)
+          if (currentTranscriptWords.length > processedTranscriptWordsRef.current) {
+            console.log(`   Child is still reading (${currentTranscriptWords.length - processedTranscriptWordsRef.current} new words), marking as omission and advancing`);
+            
+            // Mark current word as omission
+            setMiscues(prev => prev + 1);
+            setMiscueTypes(prev => ({ ...prev, omission: prev.omission + 1 }));
+            setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'omission'));
+            setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
+              type: 'omission',
+              marking: `Circle the omitted word: "${realWords[currentWordIndex]}"`,
+              spokenWord: '(auto-detected omission)',
+              correctWord: realWords[currentWordIndex]
+            }));
+            
+            // Advance to next word
+            const newIndex = currentWordIndex + 1;
+            setCurrentWordIndex(newIndex);
+            setWordsRead(newIndex);
+          }
         }
-      }, 10000); // 10 second timeout
+      }, 3000); // 3 second timeout for continuous reading
     }
 
     // Clear any pending match check
@@ -1596,25 +1803,30 @@ const ReadingSessionPage: React.FC = () => {
       // CRITICAL FIX: Only check NEW words for skip-ahead to avoid false positives
       // If we check old words, "heard" from earlier will match "heard" later in the story
       for (const spokenWord of newWords) {
-        if (spokenWord.length >= 4) { // Increased from 3 to 4 for more substantial words
-          // Look ahead up to 3 words (reduced from 5 to be more conservative)
-          for (let lookAhead = 1; lookAhead <= 3 && currentWordIndex + lookAhead < realWords.length; lookAhead++) {
+        if (spokenWord.length >= 2) { // Allow short words (2+ chars) for Tagalog particles like "ng", "sa", "na"
+          // Look ahead up to 5 words to catch omissions
+          for (let lookAhead = 1; lookAhead <= 5 && currentWordIndex + lookAhead < realWords.length; lookAhead++) {
             const futureWord = realWords[currentWordIndex + lookAhead];
 
             if (isWordMatch(spokenWord, futureWord)) {
               const currentSimilarity = getCachedSimilarity(spokenWord, expectedWord);
               const futureSimilarity = getCachedSimilarity(spokenWord, futureWord);
 
-              // EVEN STRICTER: Require 95%+ absolute match to prevent false skip-aheads
-              // "when" should NOT match "Then" (75% similar) and trigger a skip
-              // Only accept near-perfect matches to avoid false positives
-              if (futureSimilarity >= 0.95) {
+              // For short words (2-3 chars), require exact match to avoid false positives
+              // For longer words (4+ chars), allow 85%+ similarity (more lenient for continuous reading)
+              const isShortWord = spokenWord.length <= 3;
+              const requiredSimilarity = isShortWord ? 1.0 : 0.85;
+              
+              // CRITICAL: Only treat as skip-ahead if current word similarity is LOW (<50%)
+              // If current word similarity is medium-high (50%+), it's likely a mispronunciation, not an omission
+              // Example: "hat" vs "Hot" = 75% similar → mispronunciation, not omission
+              if (futureSimilarity >= requiredSimilarity && currentSimilarity < 0.50) {
                 console.log(`⏭️ SKIP-AHEAD DETECTED! Child skipped "${expectedWord}" and said "${spokenWord}" (matches word #${currentWordIndex + lookAhead}: "${futureWord}")`);
                 console.log(`   Similarities - Current: ${(currentSimilarity * 100).toFixed(0)}%, Future: ${(futureSimilarity * 100).toFixed(0)}%`);
 
-                // Only mark as omission if skipping 1-2 words (not 3+)
-                // Skipping 3+ words is likely a speech recognition error
-                if (lookAhead <= 2) {
+                // Mark as omission if skipping 1-4 words
+                // Allow more flexibility for continuous reading
+                if (lookAhead <= 4) {
                   // Mark skipped words as omissions following DepEd Rule: Count as one error a word or phrase omitted
                   for (let i = 0; i < lookAhead; i++) {
                     const omittedWordIndex = currentWordIndex + i;
@@ -1645,11 +1857,16 @@ const ReadingSessionPage: React.FC = () => {
                   foundSkipAhead = true;
                   break;
                 } else {
-                  console.log(`   ⚠️ Skipped ${lookAhead} words - likely speech recognition error, not counting as omissions`);
-                  // Set foundSkipAhead to prevent further processing of this word
+                  console.log(`   ⚠️ Skipped ${lookAhead} words - too many, likely speech recognition error`);
+                  // Still advance to avoid getting stuck, but don't count all as omissions
+                  const newIndex = currentWordIndex + lookAhead + 1;
+                  setCurrentWordIndex(newIndex);
+                  setWordsRead(newIndex);
                   foundSkipAhead = true;
                   break;
                 }
+              } else if (currentSimilarity >= 0.50) {
+                console.log(`   ℹ️ Not treating as skip-ahead: "${spokenWord}" is ${(currentSimilarity * 100).toFixed(0)}% similar to current word "${expectedWord}" - likely mispronunciation`);
               }
             }
           }
@@ -1664,21 +1881,51 @@ const ReadingSessionPage: React.FC = () => {
         const normalizedSpoken = normalize(spokenWord);
         const normalizedExpected = normalize(expectedWord);
 
-        // First check: exact word match
-        if (isWordMatch(spokenWord, expectedWord)) {
+        // First check: exact word match (with language validation)
+        if (isWordMatch(spokenWord, expectedWord, true)) {
           console.log(`✅ MATCH! "${spokenWord}" = "${expectedWord}"`);
           wordsAdvanced = 1;
           matched = true;
           break;
         }
 
-        // Quick check: if expected word is contained in spoken word (for fast readers)
-        // Example: "loski" contains "lost"
-        if (normalizedSpoken.includes(normalizedExpected) && normalizedExpected.length >= 3) {
-          console.log(`✅ CONTAINS MATCH! "${spokenWord}" contains "${expectedWord}"`);
-          wordsAdvanced = 1;
-          matched = true;
-          break;
+        // REMOVED: "contains match" logic - too lenient and causes false positives
+        // Example: "buyer" contains "buy" but they're different words
+        // Compound word detection below handles legitimate cases
+
+        // NEW: Check if multiple spoken words combine to form the expected word
+        // Example: "panda sal" should match "pandesal" (mispronunciation)
+        if (wordsToCheck.length >= 2) {
+          const currentIdx = wordsToCheck.indexOf(spokenWord);
+          if (currentIdx >= 0 && currentIdx < wordsToCheck.length - 1) {
+            const nextSpokenWord = wordsToCheck[currentIdx + 1];
+            const combinedSpoken = normalize(spokenWord + nextSpokenWord);
+            const similarity = getCachedSimilarity(combinedSpoken, normalizedExpected);
+            
+            if (similarity >= 0.70) {
+              console.log(`✅ SPLIT-WORD MATCH! "${spokenWord} ${nextSpokenWord}" = "${expectedWord}" (${(similarity * 100).toFixed(0)}% similar)`);
+              console.log(`   This is a mispronunciation where child split the word into parts`);
+              
+              // Count as mispronunciation
+              if (!countedMiscuePositionsRef.current.has(currentWordIndex)) {
+                countedMiscuePositionsRef.current.add(currentWordIndex);
+                setMiscues(prev => prev + 1);
+                setMiscueTypes(prev => ({ ...prev, mispronunciation: prev.mispronunciation + 1 }));
+                setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'mispronunciation'));
+                setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
+                  type: 'mispronunciation',
+                  marking: `Underline "${expectedWord}" and write phonetic spelling "${spokenWord} ${nextSpokenWord}" above`,
+                  spokenWord: `${spokenWord} ${nextSpokenWord}`,
+                  correctWord: expectedWord
+                }));
+              }
+              
+              // Advance to next word
+              wordsAdvanced = 1;
+              matched = true;
+              break;
+            }
+          }
         }
 
         // Second check: compound word (child said multiple words together)
@@ -1766,7 +2013,10 @@ const ReadingSessionPage: React.FC = () => {
 
           // 4. INSERTION - Child added extra words that DON'T match ANY story word
           // STRICT: Only count words that are truly extra and not fragments of nearby words
-          if (newWords.length > 0) {
+          // CRITICAL: Skip insertion check if we already counted a miscue for this position
+          const alreadyCountedMiscue = countedMiscuePositionsRef.current.has(currentWordIndex);
+          
+          if (newWords.length > 0 && !alreadyCountedMiscue) {
             let insertionCount = 0;
             const insertedWordsList: string[] = [];
 
@@ -1818,6 +2068,9 @@ const ReadingSessionPage: React.FC = () => {
             }
 
             if (insertionCount > 0) {
+              // Mark this position as counted to prevent double-counting
+              countedMiscuePositionsRef.current.add(currentWordIndex);
+              
               setMiscues(prev => prev + insertionCount);
               setMiscueTypes(prev => ({ ...prev, insertion: prev.insertion + insertionCount }));
 
@@ -2662,8 +2915,8 @@ const ReadingSessionPage: React.FC = () => {
                             const isRead = !isSpecialChar && isWordRead(realWordIndex);
                             const miscueType = !isSpecialChar ? wordMiscues.get(realWordIndex) : undefined;
 
-                            // Only show miscue colors AFTER session is completed
-                            const showMiscueColors = isCompleted || !isRecording;
+                            // Only show miscue colors AFTER session is completed or stopped (not during active recording)
+                            const showMiscueColors = isCompleted || (!isRecording && wordsRead > 0);
 
                             // Color mapping for miscue types following DepEd Phil-IRI visual system
                             const getMiscueColor = (type: MiscueType | undefined) => {
@@ -2820,13 +3073,13 @@ const ReadingSessionPage: React.FC = () => {
                                   </span>
                                 )}
 
-                                {/* Show inserted words as floating badges after this word */}
-                                {!isSpecialChar && insertedWords.has(realWordIndex) && (
+                                {/* Show inserted words as floating badges after this word - ONLY after session completes */}
+                                {!isSpecialChar && insertedWords.has(realWordIndex) && showMiscueColors && (
                                   <span className="relative">
                                     {insertedWords.get(realWordIndex)!.map((insertedWord, idx) => (
                                       <span
                                         key={`insert-${realWordIndex}-${idx}`}
-                                        className="absolute left-0 top-[-24px] bg-cyan-500 text-white text-xs px-2 py-1 rounded-full shadow-lg whitespace-nowrap z-20 animate-bounce"
+                                        className="absolute left-0 top-[-20px] bg-cyan-600 text-white text-xs px-2 py-0.5 rounded shadow-lg whitespace-nowrap z-20"
                                         style={{ marginLeft: `${idx * 60}px` }}
                                         title="Inserted word (not in story)"
                                       >
