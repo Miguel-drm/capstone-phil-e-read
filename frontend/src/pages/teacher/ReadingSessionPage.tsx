@@ -1460,17 +1460,30 @@ const ReadingSessionPage: React.FC = () => {
               textContentPreview: fullStory.textContent?.substring(0, 100),
             });
 
-          // Set story language for speech recognition
+          // Set story language for speech recognition - automatically detect from story
           if (fullStory.language) {
-            // Convert MongoDB language codes back to our internal format
-            const internalLanguage =
-              fullStory.language === "none" ? "tagalog" : "english";
+            // Normalize language value (handle case variations)
+            const normalizedLang = String(fullStory.language).toLowerCase().trim();
+            
+            // Map story language to internal format
+            let internalLanguage: "english" | "tagalog" = "english"; // Default
+            
+            if (normalizedLang === "tagalog" || normalizedLang === "filipino" || normalizedLang === "none") {
+              internalLanguage = "tagalog";
+            } else if (normalizedLang === "english") {
+              internalLanguage = "english";
+            } else {
+              // Unknown language value, default to english
+              console.warn(`Unknown story language value: "${fullStory.language}", defaulting to English`);
+              internalLanguage = "english";
+            }
+            
             setStoryLanguage(internalLanguage);
             if ((import.meta as any)?.env?.MODE === "development")
               console.debug(
-                "Story language set to:",
+                "Story language automatically set to:",
                 internalLanguage,
-                "(from MongoDB code:",
+                "(from story language:",
                 fullStory.language,
                 ")"
               );
@@ -1478,7 +1491,7 @@ const ReadingSessionPage: React.FC = () => {
             // Default to English if no language is specified
             setStoryLanguage("english");
             if ((import.meta as any)?.env?.MODE === "development")
-              console.debug("No language specified, defaulting to English");
+              console.debug("No language specified in story, defaulting to English");
           }
 
           // Set text content first (this is what we want to display)
