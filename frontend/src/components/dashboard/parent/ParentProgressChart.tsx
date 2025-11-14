@@ -1,8 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import * as echarts from 'echarts';
 import { type Student } from '../../../services/studentService';
 import { useAuth } from '../../../contexts/AuthContext';
-import ParentLoader from '../../parent/ParentLoader';
 
 interface ParentProgressChartProps {
   data: {
@@ -25,7 +24,6 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
   const [selectedMetric, setSelectedMetric] = useState<'oral' | 'comprehension' | 'reading-level'>('oral');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
-  const [forceChartInit, setForceChartInit] = useState(0);
   const { currentUser, userRole } = useAuth();
 
   // Parent-specific computed data from real database
@@ -35,7 +33,7 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
     comprehensionScores: number[];
     readingLevels: number[];
   }>({
-    assessmentPeriods: ['Latest Session'],
+    assessmentPeriods: [],
     oralReadingScores: [],
     comprehensionScores: [],
     readingLevels: []
@@ -43,20 +41,20 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
 
   // Use computed data for parents, fallback to passed data
   const safeData = {
-    assessmentPeriods: computedData.assessmentPeriods.length ? computedData.assessmentPeriods : (data.assessmentPeriods || ['Latest Session']),
+    assessmentPeriods: computedData.assessmentPeriods.length ? computedData.assessmentPeriods : (data.assessmentPeriods || []),
     oralReadingScores: computedData.oralReadingScores.length ? computedData.oralReadingScores : (data.oralReadingScores || []),
     comprehensionScores: computedData.comprehensionScores.length ? computedData.comprehensionScores : (data.comprehensionScores || []),
     readingLevels: computedData.readingLevels.length ? computedData.readingLevels : (data.readingLevels?.map(level => {
       const lower = level.toLowerCase();
-      if (lower.includes('independent')) return 2;
-      if (lower.includes('instructional')) return 1;
-      if (lower.includes('frustration')) return 0;
+      if (lower.includes('independent')) return 3;
+      if (lower.includes('instructional')) return 2;
+      if (lower.includes('frustration')) return 1;
       return 0;
     }) || [])
   };
 
-  // Get current metric data for chart rendering (same as TeacherProgressChart)
-  const getCurrentData = () => {
+  // OLD CHART CODE - Not needed for card display
+  /* const getCurrentData = () => {
     switch (selectedMetric) {
       case 'oral':
         return {
@@ -81,13 +79,14 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
           data: safeData.readingLevels,
           name: 'Reading Level',
           color: '#f59e0b',
-          yAxisMax: 2,
+          yAxisMax: 3,
           yAxisMin: 0,
           formatter: (value: number) => {
             switch (value) {
-              case 2: return 'Independent';
-              case 1: return 'Instructional';
-              case 0: return 'Frustration';
+              case 3: return 'Independent';
+              case 2: return 'Instructional';
+              case 1: return 'Frustration';
+              case 0: return 'No Data';
               default: return 'No Data';
             }
           }
@@ -104,7 +103,7 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
     }
   };
 
-  const currentMetric = getCurrentData();
+  const currentMetric = getCurrentData(); */
 
   // REAL-TIME: Fetch parent's children reading results from database
   useEffect(() => {
@@ -133,48 +132,74 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
         
         console.log(`📊 Fetched ${isrResults.length} ISR results for child ${selectedChild.name}`);
 
-        // Get only the LATEST (most recent) session
+        // Get the last 10 sessions (or all if less than 10) to show progress over time
         const sortedResults = isrResults.sort((a, b) =>
-          new Date(b.createdAt || b.assessmentDate || 0).getTime() - new Date(a.createdAt || a.assessmentDate || 0).getTime()
+          new Date(a.createdAt || a.assessmentDate || 0).getTime() - new Date(b.createdAt || b.assessmentDate || 0).getTime()
         );
 
-        const latestResult = sortedResults[0];
+        // Take up to 10 most recent sessions
+        const recentResults = sortedResults.slice(-10);
+        
+        // Extract data from all sessions
+        const sessionLabels: string[] = [];
+        const oralScores: number[] = [];
+        const compScores: number[] = [];
+        const levelScores: number[] = [];
 
-        // Extract data from latest result
-        let oralScore = 0;
-        let compScore = 0;
-        let levelScore = 0;
-
-        if (latestResult) {
+        recentResults.forEach((result, index) => {
+          // Create session label
+          sessionLabels.push(`Session ${index + 1}`);
+          
           // Oral reading score from Part B
-          if (latestResult.partB?.wordReadingScore) {
-            oralScore = Math.max(0, Math.min(100, latestResult.partB.wordReadingScore));
+          let oralScore = 0;
+          if (result.partB?.wordReadingScore) {
+            oralScore = Math.max(0, Math.min(100, result.partB.wordReadingScore));
           }
+          oralScores.push(oralScore);
 
           // Comprehension score from Part A
-          if (latestResult.partA?.percentage) {
-            compScore = Math.max(0, Math.min(100, latestResult.partA.percentage));
+          let compScore = 0;
+          if (result.partA?.percentage) {
+            compScore = Math.max(0, Math.min(100, result.partA.percentage));
           }
+          compScores.push(compScore);
 
-          // Reading level from Part B
-          if (latestResult.partB?.wordReadingLevel) {
-            const level = String(latestResult.partB.wordReadingLevel).toLowerCase().trim();
-            if (level.includes('independent')) levelScore = 2;
-            else if (level.includes('instructional')) levelScore = 1;
-            else if (level.includes('frustration')) levelScore = 0;
+          // Reading level from Part B (use 0-3 scale)
+          let levelScore = 0;
+          if (result.partB?.wordReadingLevel) {
+            const level = String(result.partB.wordReadingLevel).toLowerCase().trim();
+            if (level.includes('independent')) levelScore = 3;
+            else if (level.includes('instructional')) levelScore = 2;
+            else if (level.includes('frustration')) levelScore = 1;
+            else levelScore = 2;
           } else {
             // Derive from oral reading score
-            if (oralScore >= 95) levelScore = 2;
-            else if (oralScore >= 85) levelScore = 1;
-            else if (oralScore > 0) levelScore = 0;
+            if (oralScore >= 95) levelScore = 3;
+            else if (oralScore >= 85) levelScore = 2;
+            else if (oralScore > 0) levelScore = 1;
+            else levelScore = 0;
           }
+          levelScores.push(levelScore);
+        });
+
+        // Add baseline at the END (right side)
+        if (recentResults.length > 0) {
+          sessionLabels.push('Baseline');
+          oralScores.push(0);
+          compScores.push(0);
+          levelScores.push(0);
         }
+        
+        console.log(`📊 ParentProgressChart: Processed ${recentResults.length} sessions`);
+        console.log(`   Oral scores: ${oralScores.join(', ')}`);
+        console.log(`   Comp scores: ${compScores.join(', ')}`);
+        console.log(`   Level scores: ${levelScores.join(', ')}`);
 
         setComputedData({
-          assessmentPeriods: ['Latest Session'],
-          oralReadingScores: [oralScore],
-          comprehensionScores: [compScore],
-          readingLevels: [levelScore]
+          assessmentPeriods: sessionLabels,
+          oralReadingScores: oralScores,
+          comprehensionScores: compScores,
+          readingLevels: levelScores
         });
 
         setLastUpdated(new Date());
@@ -195,7 +220,150 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
     };
   }, [currentUser?.uid, userRole, students]);
 
-  // Initialize and update chart (same structure as TeacherProgressChart)
+  // Initialize line chart
+  useEffect(() => {
+    if (!chartRef.current) return;
+
+    // Initialize chart
+    if (!chartInstance.current) {
+      chartInstance.current = echarts.init(chartRef.current);
+    }
+
+    // Get current metric data
+    let chartData: number[] = [];
+    let chartColor = '#3b82f6';
+    let chartName = 'Score';
+    let yMax = 100;
+    let formatter = (val: number) => `${val}%`;
+
+    if (selectedMetric === 'oral') {
+      chartData = safeData.oralReadingScores;
+      chartColor = '#3b82f6';
+      chartName = 'Oral Reading Fluency';
+      yMax = 100;
+      formatter = (val: number) => `${val}%`;
+    } else if (selectedMetric === 'comprehension') {
+      chartData = safeData.comprehensionScores;
+      chartColor = '#10b981';
+      chartName = 'Comprehension Score';
+      yMax = 100;
+      formatter = (val: number) => `${val}%`;
+    } else {
+      chartData = safeData.readingLevels;
+      chartColor = '#f59e0b';
+      chartName = 'Reading Level';
+      yMax = 3;
+      formatter = (val: number) => {
+        if (val === 3) return 'Independent';
+        if (val === 2) return 'Instructional';
+        if (val === 1) return 'Frustration';
+        return 'No Data';
+      };
+    }
+
+    const option = {
+      grid: {
+        left: '2%',
+        right: '2%',
+        bottom: '8%',
+        top: '3%',
+        containLabel: true
+      },
+      xAxis: {
+        type: 'category',
+        data: safeData.assessmentPeriods,
+        boundaryGap: false,
+        axisLabel: {
+          color: '#6b7280',
+          fontSize: 11
+        },
+        axisLine: {
+          lineStyle: { color: '#e5e7eb' }
+        }
+      },
+      yAxis: {
+        type: 'value',
+        max: yMax,
+        min: 0,
+        axisLabel: {
+          color: '#6b7280',
+          fontSize: 11,
+          formatter: (val: number) => {
+            if (selectedMetric === 'reading-level') {
+              if (val === 3) return 'Independent';
+              if (val === 2) return 'Instructional';
+              if (val === 1) return 'Frustration';
+              return ''; // Hide "No Data" label
+            }
+            return formatter(val);
+          }
+        },
+        splitLine: {
+          lineStyle: { color: '#f3f4f6' }
+        }
+      },
+      series: [{
+        name: chartName,
+        type: 'line',
+        data: chartData,
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 12,
+        lineStyle: {
+          width: 4,
+          color: chartColor
+        },
+        itemStyle: {
+          color: chartColor,
+          borderWidth: 2,
+          borderColor: '#fff'
+        },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: `${chartColor}40` },
+              { offset: 1, color: `${chartColor}10` }
+            ]
+          }
+        }
+      }],
+      tooltip: {
+        trigger: 'axis',
+        formatter: (params: any) => {
+          const value = params[0].value;
+          const displayValue = selectedMetric === 'reading-level' ? formatter(value) : `${value}%`;
+          return `${params[0].axisValue}<br/>${chartName}: <b>${displayValue}</b>`;
+        }
+      }
+    };
+
+    chartInstance.current.setOption(option);
+
+    // Handle resize
+    const handleResize = () => chartInstance.current?.resize();
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [safeData, selectedMetric]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (chartInstance.current) {
+        chartInstance.current.dispose();
+        chartInstance.current = null;
+      }
+    };
+  }, []);
+
+  /* OLD CHART CODE REMOVED
   useEffect(() => {
     if (chartRef.current) {
       try {
@@ -487,6 +655,7 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
       }
     }
   }, [safeData, selectedMetric, currentMetric, forceChartInit]);
+  */
 
   return (
     <div className="bg-white rounded-2xl p-3 transition-all duration-300 overflow-hidden flex flex-col h-full w-full">
@@ -602,9 +771,9 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
           </div>
         </div>
 
-        {/* Chart Container - Always Rendered */}
-        <div className="w-full flex-1 min-h-80 h-full relative">
-          <div ref={chartRef} className="w-full h-full" style={{ minHeight: '320px' }} />
+        {/* Line Chart Display - Maximized */}
+        <div className="w-full flex-1 h-full relative" style={{ minHeight: '400px' }}>
+          <div ref={chartRef} className="w-full h-full" style={{ minHeight: '400px' }} />
 
           {/* No Data Overlay */}
           {safeData.oralReadingScores.every(score => score === 0) &&
@@ -612,40 +781,19 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
             safeData.readingLevels.every(level => level === 0) && (
               <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-95">
                 <div className="text-center text-gray-500">
-                  <i className="fas fa-chart-bar text-4xl mb-4 text-gray-300"></i>
-                  <h3 className="text-lg font-medium mb-2">No Reading Data Available</h3>
-                  <p className="text-sm mb-4">Start by adding reading sessions and assessments to see progress data.</p>
+                  <i className="fas fa-book-reader text-4xl mb-4 text-gray-300"></i>
+                  <h3 className="text-lg font-medium mb-2">Your Child's Reading Journey Starts Here</h3>
+                  <p className="text-sm mb-4">Reading progress will appear here as your child completes activities with their teacher.</p>
                   <div className="text-xs text-gray-400">
-                    <p>• Reading levels will be tracked over time</p>
-                    <p>• Comprehension scores will show improvement</p>
-                    <p>• Progress updates automatically</p>
+                    <p>• Track reading skills as they grow</p>
+                    <p>• See comprehension improvements</p>
+                    <p>• Updates happen automatically</p>
                   </div>
                 </div>
               </div>
             )}
 
-          {/* Chart Loading/Retry Overlay */}
-          {!chartInstance.current &&
-            (safeData.oralReadingScores.some(score => score > 0) ||
-              safeData.comprehensionScores.some(score => score > 0) ||
-              safeData.readingLevels.some(level => level > 0)) && (
-              <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-90">
-                <div className="text-center text-gray-500">
-                  <ParentLoader label="Loading Chart..." size="sm" />
-                  <p className="text-sm mb-4">Preparing your child's progress data</p>
-                  <button
-                    onClick={() => {
-                      console.log('ParentProgressChart: Manual initialization triggered');
-                      setForceChartInit(prev => prev + 1);
-                    }}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                  >
-                    <i className="fas fa-sync-alt mr-2"></i>
-                    Retry Chart Loading
-                  </button>
-                </div>
-              </div>
-            )}
+
         </div>
       </div>
     </div>
