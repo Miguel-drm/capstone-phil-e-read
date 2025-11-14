@@ -14,19 +14,59 @@ const createEmptyEntries = (): IISRReviewEntry[] =>
     dateTaken: undefined
   }));
 
+// Convert numeric level to Roman numeral
+const convertLevelToRoman = (level: string): string => {
+  if (!level) return 'K';
+  
+  // If already a Roman numeral, return as is
+  const romanLevels = ['K', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
+  if (romanLevels.includes(level.toUpperCase())) {
+    return level.toUpperCase();
+  }
+  
+  // Try to parse as number and convert
+  const levelNum = parseInt(level);
+  if (!isNaN(levelNum)) {
+    const romanMap: Record<number, string> = {
+      0: 'K',
+      1: 'I',
+      2: 'II',
+      3: 'III',
+      4: 'IV',
+      5: 'V',
+      6: 'VI',
+      7: 'VII'
+    };
+    return romanMap[levelNum] || 'K';
+  }
+  
+  return 'K';
+};
+
 const buildEntryFromISRResult = (result: IISRResult): IISRReviewEntry => {
   // Use the calculator to properly compute word reading level from accuracy
   const calculated = calculateFromISRResult(result);
   
-  const level = calculated.level;
-  const set = calculated.set;
-  const dateTaken = calculated.dateTaken;
+  // Convert numeric level to Roman numeral (e.g., "4" -> "IV")
+  const numericLevel = calculated.level;
+  const level = convertLevelToRoman(numericLevel);
+  
+  // Get set from the story/wordReading.set (from partB.wordReading.set)
+  const set = result.partB?.wordReading?.set || calculated.set || 'A';
+  
+  // Get date from assessmentDate (when reading session was completed) or createdAt
+  const dateTaken = result.assessmentDate || result.createdAt || calculated.dateTaken;
 
   // Log the calculated flags for debugging
   console.log('📊 Building entry from ISR Result:', {
     studentId: result.studentId,
-    level,
+    studentName: result.studentName,
+    numericLevel,
+    romanLevel: level,
     set,
+    assessmentDate: result.assessmentDate,
+    createdAt: result.createdAt,
+    dateTaken,
     wordReadingFlags: calculated.wordReading,
     comprehensionFlags: calculated.comprehension,
     accuracy: calculated.accuracy,
@@ -34,21 +74,105 @@ const buildEntryFromISRResult = (result: IISRResult): IISRReviewEntry => {
     comprehensionLevel: calculated.classification.comprehensionLevel
   });
 
+  // Ensure wordReading flags are set correctly based on classification
+  // Use the calculated flags directly (they're already set correctly by the calculator)
+  // Then verify/override based on classification to ensure consistency
+  let wordReading = {
+    ind: calculated.wordReading.Ind || false,
+    ins: calculated.wordReading.Ins || false,
+    frus: calculated.wordReading.Frus || false
+  };
+  
+  // Double-check using classification to ensure flags are correct
+  const wordReadingLevel = calculated.classification?.wordReadingLevel;
+  if (wordReadingLevel) {
+    // Normalize the level string (trim, handle case)
+    const normalizedLevel = String(wordReadingLevel).trim();
+    const levelLower = normalizedLevel.toLowerCase();
+    
+    // Override flags based on classification to ensure only one is true
+    wordReading = {
+      ind: levelLower === 'independent',
+      ins: levelLower === 'instructional',
+      frus: levelLower === 'frustration'
+    };
+    
+    console.log('🔍 Setting wordReading flags from classification:', {
+      wordReadingLevel: normalizedLevel,
+      levelLower: levelLower,
+      flags: wordReading
+    });
+  } else {
+    console.warn('⚠️ No wordReadingLevel in classification, using calculated flags:', {
+      calculatedFlags: calculated.wordReading,
+      finalFlags: wordReading
+    });
+  }
+  
+  // Ensure at least one flag is set (fallback to Frustration if all false)
+  if (!wordReading.ind && !wordReading.ins && !wordReading.frus) {
+    console.error('❌ ERROR: All wordReading flags are false after processing!', {
+      calculatedFlags: calculated.wordReading,
+      classification: calculated.classification,
+      accuracy: calculated.accuracy
+    });
+    // Default to Frustration
+    wordReading = { ind: false, ins: false, frus: true };
+  }
+  
+  // Ensure comprehension flags are set correctly based on classification
+  // Use the calculated flags directly (they're already set correctly by the calculator)
+  // Then verify/override based on classification to ensure consistency
+  let comprehension = {
+    ind: calculated.comprehension.Ind || false,
+    ins: calculated.comprehension.Ins || false,
+    frus: calculated.comprehension.Frus || false
+  };
+  
+  // Double-check using classification to ensure flags are correct
+  const comprehensionLevel = calculated.classification?.comprehensionLevel;
+  if (comprehensionLevel) {
+    // Normalize the level string (trim, handle case)
+    const normalizedLevel = String(comprehensionLevel).trim();
+    const levelLower = normalizedLevel.toLowerCase();
+    
+    // Override flags based on classification to ensure only one is true
+    comprehension = {
+      ind: levelLower === 'independent',
+      ins: levelLower === 'instructional',
+      frus: levelLower === 'frustration'
+    };
+    
+    console.log('🔍 Setting comprehension flags from classification:', {
+      comprehensionLevel: normalizedLevel,
+      levelLower: levelLower,
+      flags: comprehension
+    });
+  } else {
+    console.warn('⚠️ No comprehensionLevel in classification, using calculated flags:', {
+      calculatedFlags: calculated.comprehension,
+      finalFlags: comprehension
+    });
+  }
+  
+  // Ensure at least one flag is set (fallback to Frustration if all false)
+  if (!comprehension.ind && !comprehension.ins && !comprehension.frus) {
+    console.error('❌ ERROR: All comprehension flags are false after processing!', {
+      calculatedFlags: calculated.comprehension,
+      classification: calculated.classification,
+      partAComprehensionLevel: result.partA?.comprehensionLevel
+    });
+    // Default to Frustration
+    comprehension = { ind: false, ins: false, frus: true };
+  }
+
   const entry: IISRReviewEntry = {
     level,
-    set: set || '',
+    set: set || 'A', // Ensure set is always provided
     levelStarted: false, // Will be set to true for the first entry
-    wordReading: {
-      ind: calculated.wordReading.Ind,
-      ins: calculated.wordReading.Ins,
-      frus: calculated.wordReading.Frus
-    },
-    comprehension: {
-      ind: calculated.comprehension.Ind,
-      ins: calculated.comprehension.Ins,
-      frus: calculated.comprehension.Frus
-    },
-    dateTaken
+    wordReading: wordReading,
+    comprehension: comprehension,
+    dateTaken: dateTaken ? new Date(dateTaken) : undefined
   };
 
   // Verify flags are set correctly
@@ -75,17 +199,25 @@ const mergeEntriesWithDefaults = (entries: IISRReviewEntry[]): IISRReviewEntry[]
   for (const defaultEntry of createEmptyEntries()) {
     const existing = entries.find(entry => entry.level === defaultEntry.level);
     if (existing) {
-      // Preserve existing flags - don't overwrite with defaults if existing has true values
+      // Preserve ALL existing data - don't overwrite with defaults
+      // This ensures calculated flags and dates are preserved
+      // CRITICAL: Use existing flags directly (they contain the calculated values)
       merged.push({
-        ...defaultEntry,
-        ...existing,
-        // Only merge flags if existing has at least one true value, otherwise keep existing
-        wordReading: (existing.wordReading.ind || existing.wordReading.ins || existing.wordReading.frus)
-          ? existing.wordReading
-          : { ...defaultEntry.wordReading, ...existing.wordReading },
-        comprehension: (existing.comprehension.ind || existing.comprehension.ins || existing.comprehension.frus)
-          ? existing.comprehension
-          : { ...defaultEntry.comprehension, ...existing.comprehension }
+        level: existing.level || defaultEntry.level,
+        set: existing.set || defaultEntry.set,
+        levelStarted: existing.levelStarted !== undefined ? existing.levelStarted : defaultEntry.levelStarted,
+        // CRITICAL: Always use existing flags (they contain the calculated values from buildEntryFromISRResult)
+        wordReading: {
+          ind: existing.wordReading?.ind ?? false,
+          ins: existing.wordReading?.ins ?? false,
+          frus: existing.wordReading?.frus ?? false
+        },
+        comprehension: {
+          ind: existing.comprehension?.ind ?? false,
+          ins: existing.comprehension?.ins ?? false,
+          frus: existing.comprehension?.frus ?? false
+        },
+        dateTaken: existing.dateTaken || defaultEntry.dateTaken
       });
     } else {
       merged.push(defaultEntry);
@@ -142,31 +274,66 @@ export const isrReviewRecordService = {
       record.languages.filipino = true;
     }
 
-    // Always process the entry if we have a valid level and either dateTaken or calculated flags
+    // Always process the entry if we have a valid level
     // The entry should have been calculated with flags, so we should always have valid data
     const hasValidLevel = entry.level && entry.level !== 'N/A';
     const hasCalculatedFlags = entry.wordReading.ind || entry.wordReading.ins || entry.wordReading.frus ||
                                entry.comprehension.ind || entry.comprehension.ins || entry.comprehension.frus;
     
-    if (hasValidLevel && (entry.dateTaken || hasCalculatedFlags)) {
+    // Log entry details before processing
+    console.log('🔍 Processing entry for review record:', {
+      level: entry.level,
+      set: entry.set,
+      dateTaken: entry.dateTaken,
+      wordReading: entry.wordReading,
+      comprehension: entry.comprehension,
+      hasValidLevel,
+      hasCalculatedFlags
+    });
+    
+    if (hasValidLevel) {
       const idx = record.entries.findIndex(e => e.level === entry.level);
       if (idx >= 0) {
-        // Update existing entry - ALWAYS use the calculated flags from the entry
+        // Update existing entry - ALWAYS use the calculated flags and data from the new entry
+        // This ensures the latest calculated values are saved
         record.entries[idx] = {
-          ...record.entries[idx],
           level: entry.level,
-          set: entry.set || record.entries[idx].set,
-          dateTaken: entry.dateTaken || record.entries[idx].dateTaken,
-          // Always use the calculated flags from the new entry
-          wordReading: entry.wordReading,
-          comprehension: entry.comprehension
+          set: entry.set || 'A', // Use new set from story, default to 'A' if empty
+          dateTaken: entry.dateTaken || record.entries[idx].dateTaken, // Use new date if available
+          levelStarted: record.entries[idx].levelStarted, // Preserve levelStarted flag
+          // CRITICAL: Always use the calculated flags from the new entry (these are based on actual calculations)
+          wordReading: {
+            ind: entry.wordReading.ind,
+            ins: entry.wordReading.ins,
+            frus: entry.wordReading.frus
+          },
+          comprehension: {
+            ind: entry.comprehension.ind,
+            ins: entry.comprehension.ins,
+            frus: entry.comprehension.frus
+          }
         };
+        
+        console.log('✅ Updated entry in review record:', {
+          level: entry.level,
+          set: entry.set,
+          dateTaken: entry.dateTaken,
+          wordReading: record.entries[idx].wordReading,
+          comprehension: record.entries[idx].comprehension
+        });
       } else {
         // Add new entry with calculated flags
         record.entries.push(entry);
+        console.log('✅ Added new entry to review record:', {
+          level: entry.level,
+          set: entry.set,
+          dateTaken: entry.dateTaken,
+          wordReading: entry.wordReading,
+          comprehension: entry.comprehension
+        });
       }
     } else {
-      console.warn('⚠️ Skipping entry with invalid data:', {
+      console.warn('⚠️ Skipping entry with invalid level:', {
         level: entry.level,
         hasDate: !!entry.dateTaken,
         hasCalculatedFlags,
@@ -194,9 +361,32 @@ export const isrReviewRecordService = {
       }
     }
 
+    // Merge with defaults to ensure all levels are present, but preserve calculated flags
     record.entries = mergeEntriesWithDefaults(record.entries);
+    
+    // Verify the entry was saved correctly after merge
+    const savedEntry = record.entries.find(e => e.level === entry.level);
+    if (savedEntry) {
+      console.log('✅ Verified saved entry after merge:', {
+        level: savedEntry.level,
+        set: savedEntry.set,
+        wordReading: savedEntry.wordReading,
+        comprehension: savedEntry.comprehension,
+        dateTaken: savedEntry.dateTaken
+      });
+    }
+    
     record.updatedAt = new Date();
     await record.save();
+    
+    // Log final state
+    console.log('💾 Review record saved:', {
+      studentId: record.studentId,
+      studentName: record.studentName,
+      entriesCount: record.entries.length,
+      entriesWithData: record.entries.filter(e => e.dateTaken || e.wordReading.ind || e.wordReading.ins || e.wordReading.frus).length
+    });
+    
     return record;
   },
 

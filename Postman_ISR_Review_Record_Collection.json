@@ -1,0 +1,142 @@
+{
+  "info": {
+    "name": "ISR Review Record API",
+    "description": "Postman collection for ISR Review Record endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Sync ISR Review Record",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:5000/api/isr-review-records/student/:studentId/sync",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "5000",
+          "path": ["api", "isr-review-records", "student", ":studentId", "sync"],
+          "variable": [
+            {
+              "key": "studentId",
+              "value": "YOUR_STUDENT_ID_HERE",
+              "description": "The student ID to sync the review record for"
+            }
+          ]
+        },
+        "description": "Sync/rebuild ISR review record from all ISR results for a student. This endpoint:\n- Fetches all ISR results for the student\n- Recalculates all entries using the ISR review calculator\n- Updates or creates the review record with the latest calculated data\n- Ensures all flags (wordReading and comprehension) are correctly set based on database data"
+      },
+      "response": [
+        {
+          "name": "Success Response",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:5000/api/isr-review-records/student/STUDENT_ID/sync",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5000",
+              "path": ["api", "isr-review-records", "student", "STUDENT_ID", "sync"]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"_id\": \"507f1f77bcf86cd799439011\",\n  \"studentId\": \"student123\",\n  \"studentName\": \"John Doe\",\n  \"teacherId\": \"teacher456\",\n  \"teacherName\": \"Ms. Jane Smith\",\n  \"gradeSection\": \"Grade 4 - Narra\",\n  \"school\": \"Sample Elementary School\",\n  \"languages\": {\n    \"english\": true,\n    \"filipino\": false\n  },\n  \"levelStarted\": \"IV\",\n  \"entries\": [\n    {\n      \"level\": \"K\",\n      \"set\": \"\",\n      \"levelStarted\": false,\n      \"wordReading\": {\n        \"ind\": false,\n        \"ins\": false,\n        \"frus\": false\n      },\n      \"comprehension\": {\n        \"ind\": false,\n        \"ins\": false,\n        \"frus\": false\n      },\n      \"dateTaken\": null\n    },\n    {\n      \"level\": \"IV\",\n      \"set\": \"A\",\n      \"levelStarted\": true,\n      \"wordReading\": {\n        \"ind\": true,\n        \"ins\": false,\n        \"frus\": false\n      },\n      \"comprehension\": {\n        \"ind\": true,\n        \"ins\": false,\n        \"frus\": false\n      },\n      \"dateTaken\": \"2024-01-15T00:00:00.000Z\"\n    }\n  ],\n  \"updatedAt\": \"2024-01-15T10:30:00.000Z\",\n  \"createdAt\": \"2024-01-15T10:30:00.000Z\",\n  \"processedResults\": 2\n}"
+        },
+        {
+          "name": "Error - No ISR Results",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:5000/api/isr-review-records/student/STUDENT_ID/sync",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5000",
+              "path": ["api", "isr-review-records", "student", "STUDENT_ID", "sync"]
+            }
+          },
+          "status": "Not Found",
+          "code": 404,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"error\": \"No ISR results found for this student\",\n  \"studentId\": \"student123\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Get ISR Review Record",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:5000/api/isr-review-records/student/:studentId?sync=true",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "5000",
+          "path": ["api", "isr-review-records", "student", ":studentId"],
+          "query": [
+            {
+              "key": "sync",
+              "value": "true",
+              "description": "Optional: Set to 'true' to rebuild from all ISR results before fetching",
+              "disabled": true
+            }
+          ],
+          "variable": [
+            {
+              "key": "studentId",
+              "value": "YOUR_STUDENT_ID_HERE",
+              "description": "The student ID to fetch the review record for"
+            }
+          ]
+        },
+        "description": "Get ISR review record for a student. Add ?sync=true query parameter to rebuild from all ISR results before fetching."
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000",
+      "type": "string"
+    },
+    {
+      "key": "studentId",
+      "value": "YOUR_STUDENT_ID_HERE",
+      "type": "string"
+    }
+  ]
+}
+
+

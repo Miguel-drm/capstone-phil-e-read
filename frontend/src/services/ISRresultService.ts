@@ -201,18 +201,32 @@ export const isrResultService = {
   /**
    * Get ISR results for a specific student
    * @param studentId - Student ID
+   * @param studentName - Optional student name for fallback search if ID doesn't match
    * @returns Array of ISR results
    */
-  async getISRResultsByStudent(studentId: string): Promise<ISRResult[]> {
+  async getISRResultsByStudent(studentId: string, studentName?: string): Promise<ISRResult[]> {
     try {
-      const response = await fetch(`${API_BASE}/api/isr-results/student/${studentId}`);
+      // Build URL with optional studentName query parameter
+      let url = `${API_BASE}/api/isr-results/student/${encodeURIComponent(studentId)}`;
+      if (studentName) {
+        url += `?studentName=${encodeURIComponent(studentName)}`;
+      }
+      
+      console.log(`🔍 Frontend: Fetching ISR results for studentId: "${studentId}"${studentName ? `, studentName: "${studentName}"` : ''}`);
+      
+      const response = await fetch(url);
       if (!response.ok) {
-        if (response.status === 404) return [];
+        if (response.status === 404) {
+          console.warn(`⚠️ Frontend: No ISR results found for studentId: "${studentId}"`);
+          return [];
+        }
         throw new Error('Failed to fetch ISR results');
       }
-      return await response.json();
+      const results = await response.json();
+      console.log(`✅ Frontend: Received ${results.length} ISR result(s) for studentId: "${studentId}"`);
+      return results;
     } catch (error) {
-      console.error('Error fetching ISR results:', error);
+      console.error('❌ Frontend: Error fetching ISR results:', error);
       throw error;
     }
   },
@@ -249,6 +263,51 @@ export const isrResultService = {
       return await response.json();
     } catch (error) {
       console.error('Error fetching ISR result:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Calculate ISR Review entry from ISR Result ID
+   * @param resultId - ISR result ID (ObjectId)
+   * @returns Object containing the ISR result and calculated entry
+   */
+  async calculateISRReviewEntry(resultId: string): Promise<{
+    isrResult: ISRResult;
+    calculatedEntry: {
+      levelStarted: string;
+      level: string;
+      set: 'A' | 'B' | 'C' | 'D';
+      wordReading: {
+        Ind: boolean;
+        Ins: boolean;
+        Frus: boolean;
+      };
+      comprehension: {
+        Ind: boolean;
+        Ins: boolean;
+        Frus: boolean;
+      };
+      accuracy: number;
+      classification: {
+        wordReadingLevel: 'Independent' | 'Instructional' | 'Frustration';
+        comprehensionLevel: 'Independent' | 'Instructional' | 'Frustration';
+      };
+      dateTaken: Date;
+      wpm?: number;
+    };
+  }> {
+    try {
+      const response = await fetch(`${API_BASE}/api/isr-results/${resultId}/calculate`);
+      if (response.status === 404) {
+        throw new Error('ISR result not found');
+      }
+      if (!response.ok) {
+        throw new Error('Failed to calculate ISR review entry');
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Error calculating ISR review entry:', error);
       throw error;
     }
   },

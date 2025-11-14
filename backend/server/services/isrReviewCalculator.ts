@@ -27,7 +27,7 @@ export interface ISRReviewCalculationResult {
   };
   comprehension: {
     Ind: boolean; // Independent
-    Ins: boolean; // Instructional
+    Ins: boolean; // Instructionalz
     Frus: boolean; // Frustration
   };
   accuracy: number; // Word reading accuracy percentage
@@ -208,10 +208,45 @@ export function calculateFromISRResult(isrResult: any): ISRReviewCalculationResu
   const wordReading = partB.wordReading || {};
   const miscues = partB.miscues || {};
   
-  // Extract data from ISR Result
+  // Extract data from ISR Result - USE DATABASE VALUES DIRECTLY
   const totalWords = partB.wordsInPassage || 0;
   const totalMiscues = miscues.totalMiscues || 0;
-  const comprehensionLevel = partA.comprehensionLevel || 'Frustration';
+  
+  // CRITICAL: Use database values directly if they exist, otherwise calculate
+  // Database has partA.comprehensionLevel - use it directly
+  let comprehensionLevel = partA.comprehensionLevel || 'Frustration';
+  if (typeof comprehensionLevel === 'string') {
+    comprehensionLevel = comprehensionLevel.trim();
+    // Normalize to proper case
+    if (comprehensionLevel.toLowerCase() === 'independent') {
+      comprehensionLevel = 'Independent';
+    } else if (comprehensionLevel.toLowerCase() === 'instructional') {
+      comprehensionLevel = 'Instructional';
+    } else {
+      comprehensionLevel = 'Frustration';
+    }
+  }
+  
+  // Database has partB.wordReadingLevel - use it if available, otherwise calculate from accuracy
+  let wordReadingLevel: 'Independent' | 'Instructional' | 'Frustration';
+  if (partB.wordReadingLevel) {
+    // Use database value directly
+    const dbLevel = String(partB.wordReadingLevel).trim();
+    if (dbLevel.toLowerCase() === 'independent') {
+      wordReadingLevel = 'Independent';
+    } else if (dbLevel.toLowerCase() === 'instructional') {
+      wordReadingLevel = 'Instructional';
+    } else {
+      wordReadingLevel = 'Frustration';
+    }
+    console.log('📊 Using database wordReadingLevel:', wordReadingLevel);
+  } else {
+    // Calculate from accuracy if database value not available
+    const accuracy = calculateWordReadingAccuracy(totalWords, totalMiscues);
+    wordReadingLevel = determineWordReadingLevel(accuracy);
+    console.log('🧮 Calculated wordReadingLevel from accuracy:', wordReadingLevel, 'accuracy:', accuracy);
+  }
+  
   // Get level from wordReading.level, or try to extract from gradeSection if available
   let level = wordReading.level || '';
   if (!level || level === 'N/A') {
@@ -231,42 +266,52 @@ export function calculateFromISRResult(isrResult: any): ISRReviewCalculationResu
   const dateTaken = isrResult.assessmentDate || isrResult.createdAt || new Date();
   const wpm = partA.readingRate || undefined;
   
-  const input: ISRReviewCalculationInput = {
+  // Convert levels to flags DIRECTLY from database values
+  const wordReadingFlags = wordReadingLevelToFlags(wordReadingLevel);
+  const comprehensionFlags = comprehensionLevelToFlags(comprehensionLevel as 'Independent' | 'Instructional' | 'Frustration');
+  
+  // Log database values being used
+  console.log('📊 Database values from ISR Result:', {
+    studentId: isrResult.studentId,
+    studentName: isrResult.studentName,
+    partAComprehensionLevel: partA.comprehensionLevel,
+    partBWordReadingLevel: partB.wordReadingLevel,
     totalWords,
     totalMiscues,
-    comprehensionLevel: comprehensionLevel as 'Independent' | 'Instructional' | 'Frustration',
-    level,
+    assessmentDate: isrResult.assessmentDate,
+    calculatedWordReadingLevel: wordReadingLevel,
+    calculatedComprehensionLevel: comprehensionLevel,
+    wordReadingFlags,
+    comprehensionFlags
+  });
+  
+  // Build result object with database-dependent values
+  const result: ISRReviewCalculationResult = {
+    levelStarted: level,
+    level: level,
     set: set as 'A' | 'B' | 'C' | 'D',
-    dateTaken,
-    wpm
+    accuracy: calculateWordReadingAccuracy(totalWords, totalMiscues),
+    wordReading: wordReadingFlags,
+    comprehension: comprehensionFlags,
+    classification: {
+      wordReadingLevel: wordReadingLevel,
+      comprehensionLevel: comprehensionLevel as 'Independent' | 'Instructional' | 'Frustration'
+    },
+    dateTaken: dateTaken instanceof Date ? dateTaken : new Date(dateTaken),
+    wpm: wpm
   };
   
-  // Log calculation inputs for debugging
-  if (process.env.NODE_ENV === 'development') {
-    console.log('🧮 Calculating ISR Review Entry:', {
-      totalWords,
-      totalMiscues,
-      comprehensionLevel,
-      level,
-      set,
-      wpm,
-      dateTaken: dateTaken instanceof Date ? dateTaken.toISOString() : dateTaken
-    });
-  }
-  
-  const result = calculateISRReviewEntry(input);
-  
-  // Log calculation results
-  if (process.env.NODE_ENV === 'development') {
-    console.log('✅ Calculated ISR Review Entry:', {
-      level: result.level,
-      accuracy: result.accuracy,
-      wordReadingLevel: result.classification.wordReadingLevel,
-      comprehensionLevel: result.classification.comprehensionLevel,
-      wordReadingFlags: result.wordReading,
-      comprehensionFlags: result.comprehension
-    });
-  }
+  // Log final result
+  console.log('✅ Final calculated ISR Review Entry (100% database-dependent):', {
+    level: result.level,
+    set: result.set,
+    accuracy: result.accuracy,
+    wordReadingLevel: result.classification.wordReadingLevel,
+    comprehensionLevel: result.classification.comprehensionLevel,
+    wordReadingFlags: result.wordReading,
+    comprehensionFlags: result.comprehension,
+    dateTaken: result.dateTaken
+  });
   
   return result;
 }

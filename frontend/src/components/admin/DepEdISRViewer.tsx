@@ -135,8 +135,24 @@ const DepEdISRViewer: React.FC<DepEdISRViewerProps> = ({
               </thead>
               <tbody>
                 {levels.map((level) => {
-                  const readingEntry = data.readingData.find(entry => entry.level === level);
+                  const readingEntry = data.readingData?.find(entry => entry.level === level);
                   const isStartedLevel = data.levelStarted === level;
+                  
+                  // Debug: Log entry data for this level
+                  if (readingEntry) {
+                    console.log(`🔍 Rendering level ${level}:`, {
+                      entry: readingEntry,
+                      wordReading: readingEntry.wordReading,
+                      comprehension: readingEntry.comprehension,
+                      wordReadingInd: readingEntry.wordReading?.ind,
+                      wordReadingIns: readingEntry.wordReading?.ins,
+                      wordReadingFrus: readingEntry.wordReading?.frus,
+                      comprehensionInd: readingEntry.comprehension?.ind,
+                      comprehensionIns: readingEntry.comprehension?.ins,
+                      comprehensionFrus: readingEntry.comprehension?.frus
+                    });
+                  }
+                  
                   return (
                     <tr key={level}>
                       <td className="border border-gray-800 p-2 text-center text-sm font-bold">
@@ -147,22 +163,22 @@ const DepEdISRViewer: React.FC<DepEdISRViewerProps> = ({
                         {readingEntry?.set || ''}
                       </td>
                       <td className="border border-gray-800 p-2 text-center">
-                        {readingEntry?.wordReading.ind ? '✓' : ''}
+                        {readingEntry?.wordReading?.ind ? '✓' : ''}
                       </td>
                       <td className="border border-gray-800 p-2 text-center">
-                        {readingEntry?.wordReading.ins ? '✓' : ''}
+                        {readingEntry?.wordReading?.ins ? '✓' : ''}
                       </td>
                       <td className="border border-gray-800 p-2 text-center">
-                        {readingEntry?.wordReading.frus ? '✓' : ''}
+                        {readingEntry?.wordReading?.frus ? '✓' : ''}
                       </td>
                       <td className="border border-gray-800 p-2 text-center">
-                        {readingEntry?.comprehension.ind ? '✓' : ''}
+                        {readingEntry?.comprehension?.ind ? '✓' : ''}
                       </td>
                       <td className="border border-gray-800 p-2 text-center">
-                        {readingEntry?.comprehension.ins ? '✓' : ''}
+                        {readingEntry?.comprehension?.ins ? '✓' : ''}
                       </td>
                       <td className="border border-gray-800 p-2 text-center">
-                        {readingEntry?.comprehension.frus ? '✓' : ''}
+                        {readingEntry?.comprehension?.frus ? '✓' : ''}
                       </td>
                       <td className="border border-gray-800 p-2 text-center text-xs">
                         {readingEntry?.dateTaken || ''}
