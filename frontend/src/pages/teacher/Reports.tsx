@@ -75,7 +75,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     setStudentTestResults(test);
   }, [students]);
 
-  // Fetch ISR Review Records from MongoDB for all students to determine their ISR status
+  // Fetch ISR Review Records and ISR Results from MongoDB for all students to determine their ISR status
   useEffect(() => {
     const fetchISRStatus = async () => {
       if (students.length === 0) {
@@ -89,28 +89,41 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
           .map(s => s.id)
           .filter((id): id is string => Boolean(id));
 
-        // Fetch ISR Review Records for all students in parallel
-        const reviewRecordPromises = studentIds.map(async (studentId) => {
+        // Fetch both ISR Review Records and ISR Results for all students in parallel
+        const statusPromises = studentIds.map(async (studentId) => {
           try {
+            // Fetch review record
             const reviewRecord = await isrResultService.getISRReviewRecord(studentId, false);
-            return { studentId, reviewRecord };
+            
+            // Also check for ISR results directly
+            let isrResults: any[] = [];
+            try {
+              isrResults = await isrResultService.getISRResultsByStudent(studentId);
           } catch (error) {
-            console.error(`Error fetching ISR review record for student ${studentId}:`, error);
-            return { studentId, reviewRecord: null };
+              console.warn(`Could not fetch ISR results for student ${studentId}:`, error);
+            }
+            
+            return { studentId, reviewRecord, isrResults };
+          } catch (error) {
+            console.error(`Error fetching ISR data for student ${studentId}:`, error);
+            return { studentId, reviewRecord: null, isrResults: [] };
           }
         });
 
-        const results = await Promise.all(reviewRecordPromises);
+        const results = await Promise.all(statusPromises);
         const completedSet = new Set<string>();
         const statusMap = new Map<string, { hasPartA: boolean; hasPartB: boolean }>();
         const reviewRecords: Record<string, any> = {};
         const readingLevels: Record<string, 'Ind' | 'Ins' | 'Frus'> = {};
         
-        results.forEach(({ studentId, reviewRecord }) => {
+        results.forEach(({ studentId, reviewRecord, isrResults }) => {
+          let hasValidData = false;
+          let hasPartA = false;
+          let hasPartB = false;
+
+          // Check review record entries
           if (reviewRecord && reviewRecord.entries) {
-            // Check if entries have valid data (at least one entry with dateTaken or valid flags)
             const validEntries = reviewRecord.entries.filter((entry: any) => {
-              // Entry is valid if it has dateTaken OR at least one flag is true
               const hasDate = entry.dateTaken;
               const hasWordReading = entry.wordReading && (
                 entry.wordReading.ind || entry.wordReading.ins || entry.wordReading.frus
@@ -122,18 +135,16 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
             });
 
             if (validEntries.length > 0) {
-              completedSet.add(studentId);
+              hasValidData = true;
               reviewRecords[studentId] = reviewRecord;
 
               // Determine if student has Part A (comprehension) and Part B (word reading) data
-              const hasPartA = validEntries.some((entry: any) => 
+              hasPartA = validEntries.some((entry: any) => 
                 entry.comprehension && (entry.comprehension.ind || entry.comprehension.ins || entry.comprehension.frus)
               );
-              const hasPartB = validEntries.some((entry: any) => 
+              hasPartB = validEntries.some((entry: any) => 
                 entry.wordReading && (entry.wordReading.ind || entry.wordReading.ins || entry.wordReading.frus)
               );
-              
-              statusMap.set(studentId, { hasPartA, hasPartB });
 
               // Get reading level from the most recent entry with word reading data
               const entriesWithWordReading = validEntries
@@ -155,6 +166,46 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                 } else {
                   readingLevels[studentId] = 'Frus';
                 }
+              }
+            }
+          }
+
+          // Also check ISR results directly if review record doesn't have data
+          if (!hasValidData && isrResults.length > 0) {
+            hasValidData = true;
+            
+            // Check if ISR results have Part A and Part B data
+            hasPartA = isrResults.some((result: any) => 
+              result.partA && result.partA.comprehensionLevel
+            );
+            hasPartB = isrResults.some((result: any) => 
+              result.partB && result.partB.miscues && result.partB.wordsInPassage
+            );
+          }
+
+          if (hasValidData) {
+            completedSet.add(studentId);
+            statusMap.set(studentId, { hasPartA, hasPartB });
+            
+            // If we don't have reading level from review record, try to get it from ISR results
+            if (!readingLevels[studentId] && isrResults.length > 0) {
+              // Use the most recent ISR result to determine reading level
+              const sortedResults = [...isrResults].sort((a: any, b: any) => {
+                const dateA = new Date(a.assessmentDate || a.createdAt || 0).getTime();
+                const dateB = new Date(b.assessmentDate || b.createdAt || 0).getTime();
+                return dateB - dateA;
+              });
+              
+              const latestResult = sortedResults[0];
+              if (latestResult.partB?.wordReadingLevel) {
+                const level = latestResult.partB.wordReadingLevel;
+                if (level === 'Independent') {
+                  readingLevels[studentId] = 'Ind';
+                } else if (level === 'Instructional') {
+                  readingLevels[studentId] = 'Ins';
+                } else {
+                  readingLevels[studentId] = 'Frus';
+                }
               } else {
                 readingLevels[studentId] = 'Frus';
               }
@@ -167,11 +218,11 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
         // Store status details for getISRStatus to use
         (window as any).__isrStatusMap = statusMap;
         
-        // Log review records for debugging
+        // Log status for debugging
         if (process.env.NODE_ENV === 'development') {
-          console.log('📊 ISR Review Records fetched:', {
+          console.log('📊 ISR Status fetched:', {
             totalStudents: studentIds.length,
-            studentsWithRecords: completedSet.size,
+            studentsWithData: completedSet.size,
             reviewRecordsCount: Object.keys(reviewRecords).length
           });
         }
@@ -302,8 +353,21 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     setIsrData(null);
 
     // Prepare ISR data with teacher profile (fresh fetch from backend)
+    // This will automatically calculate from ISR results if available
     try {
       const data = await getISRDataAsync(student);
+      
+      // Debug: Log the data being passed to the modal
+      console.log('🎯 ISR Data being passed to modal:', {
+        studentName: data.studentName,
+        levelStarted: data.levelStarted,
+        readingDataCount: data.readingData?.length || 0,
+        readingData: data.readingData,
+        firstEntry: data.readingData?.[0],
+        firstEntryWordReading: data.readingData?.[0]?.wordReading,
+        firstEntryComprehension: data.readingData?.[0]?.comprehension
+      });
+      
       setIsrData(data);
     } catch (error) {
       console.error('Error loading ISR data:', error);
@@ -330,6 +394,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     }
   };
 
+
   const handleCloseISRModal = () => {
     setIsrModalOpen(false);
     setSelectedStudent(null);
@@ -339,8 +404,10 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
 
 
 
-  // Async version to get teacher profile
+  // Async version to get teacher profile and ISR data
   const getISRDataAsync = async (student: Student) => {
+
+    // Original logic for fetching by student
     const { latestReading, latestTest } = getLatestResults(student.id || '');
 
     // Debug: Log student data to check age
@@ -357,19 +424,545 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     const readingScore = latestReading?.oralReadingScore || 0;
     const comprehensionScore = latestTest?.comprehension || 0;
 
-    // Fetch aggregated ISR review record from backend (fresh fetch with auto-sync)
+    // AUTOMATIC CALCULATION: First, try to fetch all ISR results and calculate them automatically
+    console.log('🔄 Automatically fetching and calculating ISR results...');
+    let allISRResults: any[] = [];
+    let calculatedEntries: any[] = [];
+    
+    try {
+      // CRITICAL: Fetch all ISR results for this student from database (100% database-dependent)
+      const studentId = student.id || '';
+      if (!studentId) {
+        console.error('❌ No student ID provided, cannot fetch ISR results');
+        throw new Error('Student ID is required');
+      }
+      
+      console.log('🔍 Fetching ISR results from database for student:', studentId);
+      allISRResults = await isrResultService.getISRResultsByStudent(studentId);
+      console.log(`📋 Found ${allISRResults.length} ISR result(s) for student ${studentId} (database-dependent)`);
+      
+      // Log first result to verify database structure
+      if (allISRResults.length > 0) {
+        const firstResult = allISRResults[0];
+        console.log('📊 First ISR result from database:', {
+          _id: (firstResult as any)._id || firstResult.id,
+          studentId: firstResult.studentId,
+          studentName: firstResult.studentName,
+          partAComprehensionLevel: firstResult.partA?.comprehensionLevel,
+          partBWordReadingLevel: firstResult.partB?.wordReadingLevel,
+          assessmentDate: firstResult.assessmentDate,
+          gradeSection: firstResult.gradeSection
+        });
+      }
+      
+      if (allISRResults.length > 0) {
+        // Calculate each ISR result DIRECTLY from database data (no API call needed)
+        // We already have the ISR result data, so we can calculate locally
+        calculatedEntries = allISRResults.map((isrResult) => {
+          try {
+            // Calculate directly from the ISR result data
+            // Import the calculation logic or call a local function
+            // For now, we'll calculate the flags directly from database values
+            
+            const partA = isrResult.partA || {};
+            const partB = isrResult.partB || {};
+            const wordReading = partB.wordReading || {};
+            const miscues = partB.miscues || {};
+            
+            // Get database values directly
+            const dbComprehensionLevel = partA.comprehensionLevel || 'Frustration';
+            const dbWordReadingLevel = partB.wordReadingLevel;
+            
+            // Calculate word reading level from database or accuracy
+            let calculatedWordReadingLevel: 'Independent' | 'Instructional' | 'Frustration';
+            if (dbWordReadingLevel) {
+              const levelLower = String(dbWordReadingLevel).trim().toLowerCase();
+              if (levelLower === 'independent') {
+                calculatedWordReadingLevel = 'Independent';
+              } else if (levelLower === 'instructional') {
+                calculatedWordReadingLevel = 'Instructional';
+              } else {
+                calculatedWordReadingLevel = 'Frustration';
+              }
+            } else {
+              // Calculate from accuracy
+              const totalWords = partB.wordsInPassage || 0;
+              const totalMiscues = miscues.totalMiscues || 0;
+              const accuracy = totalWords > 0 ? ((totalWords - totalMiscues) / totalWords) * 100 : 0;
+              if (accuracy >= 97) {
+                calculatedWordReadingLevel = 'Independent';
+              } else if (accuracy >= 90) {
+                calculatedWordReadingLevel = 'Instructional';
+              } else {
+                calculatedWordReadingLevel = 'Frustration';
+              }
+            }
+            
+            // Normalize comprehension level
+            let calculatedComprehensionLevel: 'Independent' | 'Instructional' | 'Frustration';
+            const compLevel = String(dbComprehensionLevel).trim().toLowerCase();
+            if (compLevel === 'independent') {
+              calculatedComprehensionLevel = 'Independent';
+            } else if (compLevel === 'instructional') {
+              calculatedComprehensionLevel = 'Instructional';
+            } else {
+              calculatedComprehensionLevel = 'Frustration';
+            }
+            
+            // Convert to flags
+            const wordReadingFlags = {
+              Ind: calculatedWordReadingLevel === 'Independent',
+              Ins: calculatedWordReadingLevel === 'Instructional',
+              Frus: calculatedWordReadingLevel === 'Frustration'
+            };
+            
+            const comprehensionFlags = {
+              Ind: calculatedComprehensionLevel === 'Independent',
+              Ins: calculatedComprehensionLevel === 'Instructional',
+              Frus: calculatedComprehensionLevel === 'Frustration'
+            };
+            
+            // Get level and set
+            let level = wordReading.level || '';
+            if (!level || level === 'N/A') {
+              if (isrResult.gradeSection) {
+                const gradeMatch = isrResult.gradeSection.match(/Grade\s*([IVX\d]+)/i);
+                if (gradeMatch) {
+                  level = gradeMatch[1];
+                }
+              }
+              if (!level || level === 'N/A') {
+                level = '4';
+              }
+            }
+            const set = wordReading.set || 'A';
+            const dateTaken = isrResult.assessmentDate || isrResult.createdAt || new Date();
+            
+            // Calculate accuracy
+            const totalWords = partB.wordsInPassage || 0;
+            const totalMiscues = miscues.totalMiscues || 0;
+            const accuracy = totalWords > 0 ? ((totalWords - totalMiscues) / totalWords) * 100 : 0;
+            
+            console.log('✅ Calculated directly from database:', {
+              studentName: isrResult.studentName,
+              dbWordReadingLevel: dbWordReadingLevel,
+              dbComprehensionLevel: dbComprehensionLevel,
+              calculatedWordReadingLevel: calculatedWordReadingLevel,
+              calculatedComprehensionLevel: calculatedComprehensionLevel,
+              wordReadingFlags: wordReadingFlags,
+              comprehensionFlags: comprehensionFlags,
+              level: level,
+              set: set,
+              dateTaken: dateTaken
+            });
+            
+            return {
+              isrResult: isrResult,
+              calculatedEntry: {
+                levelStarted: level,
+                level: level,
+                set: set as 'A' | 'B' | 'C' | 'D',
+                wordReading: wordReadingFlags,
+                comprehension: comprehensionFlags,
+                accuracy: accuracy,
+                classification: {
+                  wordReadingLevel: calculatedWordReadingLevel,
+                  comprehensionLevel: calculatedComprehensionLevel
+                },
+                dateTaken: dateTaken instanceof Date ? dateTaken : new Date(dateTaken),
+                wpm: partA.readingRate
+              }
+            };
+          } catch (error) {
+            console.error(`Error calculating ISR result directly:`, error, isrResult);
+            return null;
+          }
+        }).filter((result): result is NonNullable<typeof result> => result !== null);
+        
+        console.log(`✅ Calculated ${calculatedEntries.length} ISR review entries directly from database`);
+        
+        if (calculatedEntries.length > 0) {
+          // Build reading data from calculated entries
+          const convertLevelToRoman = (level: string): string => {
+            const levelMap: Record<string, string> = {
+              '0': 'K', 'K': 'K',
+              '1': 'I', 'I': 'I',
+              '2': 'II', 'II': 'II',
+              '3': 'III', 'III': 'III',
+              '4': 'IV', 'IV': 'IV',
+              '5': 'V', 'V': 'V',
+              '6': 'VI', 'VI': 'VI',
+              '7': 'VII', 'VII': 'VII'
+            };
+            return levelMap[level] || level;
+          };
+
+          // Sort by date taken (most recent first) and then by level
+          const sortedEntries = calculatedEntries.sort((a, b) => {
+            const dateA = new Date(a.calculatedEntry.dateTaken).getTime();
+            const dateB = new Date(b.calculatedEntry.dateTaken).getTime();
+            return dateB - dateA; // Most recent first
+          });
+
+          // Get the first ISR result for student info
+          const firstResult = sortedEntries[0].isrResult;
+          
+          // Get teacher profile information
+          let teacherName = firstResult.teacherName || 'Current Teacher';
+          let schoolName = firstResult.school || 'Phil I-Ready School';
+
+          try {
+            const profile = await getUserProfile();
+            teacherName = firstResult.teacherName || profile?.displayName || profile?.email || 'Current Teacher';
+            schoolName = firstResult.school || profile?.school || 'Phil I-Ready School';
+          } catch (error) {
+            console.log('Could not fetch teacher profile:', error);
+          }
+
+          // Get the first entry for observations and level started
+          const firstEntry = sortedEntries[0].calculatedEntry;
+          const firstISRResult = sortedEntries[0].isrResult;
+
+          // Get student's grade level in Roman numeral format
+          const convertGradeToRomanLevel = (grade: any): string => {
+            if (!grade) return 'K';
+            
+            // Extract the grade number from strings like "Grade 4", "Grade 4 - Narra", etc.
+            const gradeStr = grade.toString();
+            const gradeMatch = gradeStr.match(/(\d+)/); // Extract first number
+            
+            if (gradeMatch) {
+              const gradeNum = parseInt(gradeMatch[1]);
+              const romanMap: Record<number, string> = {
+                0: 'K',
+                1: 'I',
+                2: 'II', 
+                3: 'III',
+                4: 'IV',
+                5: 'V',
+                6: 'VI',
+                7: 'VII'
+              };
+              
+              return romanMap[gradeNum] || 'K';
+            }
+            
+            return 'K';
+          };
+
+          const studentGradeLevel = convertGradeToRomanLevel(firstISRResult.gradeSection || student.grade);
+
+          // Build reading data - ONLY for entries matching the student's grade level
+          const readingData = sortedEntries
+            .filter((result) => {
+              const entry = result.calculatedEntry;
+              const romanLevel = convertLevelToRoman(entry.level);
+              // Only include entries that match the student's grade level
+              return romanLevel === studentGradeLevel;
+            })
+            .map((result) => {
+              const entry = result.calculatedEntry;
+              const isrResult = result.isrResult;
+              const romanLevel = convertLevelToRoman(entry.level);
+              
+              // Debug: Log the entry to see what we're working with
+              console.log('🔍 Processing calculated entry:', {
+                level: entry.level,
+                romanLevel: romanLevel,
+                classification: entry.classification,
+                wordReadingLevel: entry.classification?.wordReadingLevel,
+                comprehensionLevel: entry.classification?.comprehensionLevel,
+                wordReading: entry.wordReading,
+                comprehension: entry.comprehension,
+                assessmentDate: isrResult.assessmentDate,
+                createdAt: isrResult.createdAt,
+                entryDateTaken: entry.dateTaken
+              });
+              
+              // CRITICAL: Set Word Reading checkboxes DIRECTLY from database values
+              // ALWAYS use database values first - they are the source of truth
+              let wordReading = {
+                ind: false,
+                ins: false,
+                frus: false
+              };
+              
+              // Step 1: Check database directly (isrResult.partB.wordReadingLevel)
+              const dbWordReadingLevel = isrResult.partB?.wordReadingLevel;
+              if (dbWordReadingLevel) {
+                const levelLower = String(dbWordReadingLevel).trim().toLowerCase();
+                wordReading.ind = levelLower === 'independent';
+                wordReading.ins = levelLower === 'instructional';
+                wordReading.frus = levelLower === 'frustration';
+                console.log('✅✅✅ Using DIRECT database wordReadingLevel:', dbWordReadingLevel, '→ flags:', wordReading);
+              } else {
+                // Step 2: Use classification from calculated entry (which should match database)
+                const wordReadingLevel = entry.classification?.wordReadingLevel;
+                if (wordReadingLevel) {
+                  const levelLower = String(wordReadingLevel).trim().toLowerCase();
+                  wordReading.ind = levelLower === 'independent';
+                  wordReading.ins = levelLower === 'instructional';
+                  wordReading.frus = levelLower === 'frustration';
+                  console.log('✅ Using classification wordReadingLevel:', wordReadingLevel, '→ flags:', wordReading);
+                } else {
+                  // Step 3: Use flags from calculated entry
+                  if (entry.wordReading) {
+                    wordReading.ind = Boolean(entry.wordReading.Ind) || Boolean(entry.wordReading.ind);
+                    wordReading.ins = Boolean(entry.wordReading.Ins) || Boolean(entry.wordReading.ins);
+                    wordReading.frus = Boolean(entry.wordReading.Frus) || Boolean(entry.wordReading.frus);
+                    console.log('✅ Using calculated flags for wordReading:', wordReading);
+                  }
+                  
+                  // Last resort: default to Frustration
+                  if (!wordReading.ind && !wordReading.ins && !wordReading.frus) {
+                    wordReading.frus = true;
+                    console.warn('⚠️ No wordReading level found, defaulting to Frustration');
+                  }
+                }
+              }
+              
+              // CRITICAL: Set Comprehension checkboxes DIRECTLY from database values
+              // ALWAYS use database values first - they are the source of truth
+              let comprehension = {
+                ind: false,
+                ins: false,
+                frus: false
+              };
+              
+              // Step 1: Check database directly (isrResult.partA.comprehensionLevel)
+              const dbComprehensionLevel = isrResult.partA?.comprehensionLevel;
+              if (dbComprehensionLevel) {
+                const levelLower = String(dbComprehensionLevel).trim().toLowerCase();
+                comprehension.ind = levelLower === 'independent';
+                comprehension.ins = levelLower === 'instructional';
+                comprehension.frus = levelLower === 'frustration';
+                console.log('✅✅✅ Using DIRECT database comprehensionLevel:', dbComprehensionLevel, '→ flags:', comprehension);
+              } else {
+                // Step 2: Use classification from calculated entry (which should match database)
+                const comprehensionLevel = entry.classification?.comprehensionLevel;
+                if (comprehensionLevel) {
+                  const levelLower = String(comprehensionLevel).trim().toLowerCase();
+                  comprehension.ind = levelLower === 'independent';
+                  comprehension.ins = levelLower === 'instructional';
+                  comprehension.frus = levelLower === 'frustration';
+                  console.log('✅ Using classification comprehensionLevel:', comprehensionLevel, '→ flags:', comprehension);
+                } else {
+                  // Step 3: Use flags from calculated entry
+                  if (entry.comprehension) {
+                    comprehension.ind = Boolean(entry.comprehension.Ind) || Boolean(entry.comprehension.ind);
+                    comprehension.ins = Boolean(entry.comprehension.Ins) || Boolean(entry.comprehension.ins);
+                    comprehension.frus = Boolean(entry.comprehension.Frus) || Boolean(entry.comprehension.frus);
+                    console.log('✅ Using calculated flags for comprehension:', comprehension);
+                  }
+                  
+                  // Last resort: default to Frustration
+                  if (!comprehension.ind && !comprehension.ins && !comprehension.frus) {
+                    comprehension.frus = true;
+                    console.warn('⚠️ No comprehension level found, defaulting to Frustration');
+                  }
+                }
+              }
+              
+              // CRITICAL: Get the date from the database - assessmentDate is the reading session completion date
+              // Priority: assessmentDate (from database) > createdAt > entry.dateTaken
+              let dateTaken = '';
+              if (isrResult.assessmentDate) {
+                try {
+                  const assessmentDate = new Date(isrResult.assessmentDate);
+                  if (!isNaN(assessmentDate.getTime())) {
+                    dateTaken = assessmentDate.toLocaleDateString('en-US', { 
+                      year: 'numeric', 
+                      month: '2-digit', 
+                      day: '2-digit' 
+                    });
+                    console.log('✅ Using assessmentDate from database:', isrResult.assessmentDate, '→', dateTaken);
+                  }
+                } catch (e) {
+                  console.warn('⚠️ Error parsing assessmentDate:', e);
+                }
+              }
+              
+              if (!dateTaken && isrResult.createdAt) {
+                try {
+                  const createdAt = new Date(isrResult.createdAt);
+                  if (!isNaN(createdAt.getTime())) {
+                    dateTaken = createdAt.toLocaleDateString('en-US', { 
+                      year: 'numeric', 
+                      month: '2-digit', 
+                      day: '2-digit' 
+                    });
+                    console.log('✅ Using createdAt as fallback:', isrResult.createdAt, '→', dateTaken);
+                  }
+                } catch (e) {
+                  console.warn('⚠️ Error parsing createdAt:', e);
+                }
+              }
+              
+              if (!dateTaken && entry.dateTaken) {
+                try {
+                  const entryDate = new Date(entry.dateTaken);
+                  if (!isNaN(entryDate.getTime())) {
+                    dateTaken = entryDate.toLocaleDateString('en-US', { 
+                      year: 'numeric', 
+                      month: '2-digit', 
+                      day: '2-digit' 
+                    });
+                    console.log('✅ Using entry.dateTaken as fallback:', entry.dateTaken, '→', dateTaken);
+                  }
+                } catch (e) {
+                  console.warn('⚠️ Error parsing entry.dateTaken:', e);
+                }
+              }
+              
+              if (!dateTaken) {
+                console.warn('⚠️ No valid date found for dateTaken');
+              }
+              
+              // FINAL VERIFICATION: Ensure flags match database values
+              // Double-check against database to prevent any errors
+              const finalDbWordLevel = isrResult.partB?.wordReadingLevel;
+              const finalDbCompLevel = isrResult.partA?.comprehensionLevel;
+              
+              if (finalDbWordLevel) {
+                const dbLevel = String(finalDbWordLevel).trim().toLowerCase();
+                const shouldBeInd = dbLevel === 'independent';
+                const shouldBeIns = dbLevel === 'instructional';
+                const shouldBeFrus = dbLevel === 'frustration';
+                
+                // Override if mismatch detected
+                if (wordReading.ind !== shouldBeInd || wordReading.ins !== shouldBeIns || wordReading.frus !== shouldBeFrus) {
+                  console.warn('⚠️ Flag mismatch detected for wordReading! Correcting...', {
+                    database: finalDbWordLevel,
+                    currentFlags: wordReading,
+                    shouldBe: { ind: shouldBeInd, ins: shouldBeIns, frus: shouldBeFrus }
+                  });
+                  wordReading = { ind: shouldBeInd, ins: shouldBeIns, frus: shouldBeFrus };
+                }
+              }
+              
+              if (finalDbCompLevel) {
+                const dbLevel = String(finalDbCompLevel).trim().toLowerCase();
+                const shouldBeInd = dbLevel === 'independent';
+                const shouldBeIns = dbLevel === 'instructional';
+                const shouldBeFrus = dbLevel === 'frustration';
+                
+                // Override if mismatch detected
+                if (comprehension.ind !== shouldBeInd || comprehension.ins !== shouldBeIns || comprehension.frus !== shouldBeFrus) {
+                  console.warn('⚠️ Flag mismatch detected for comprehension! Correcting...', {
+                    database: finalDbCompLevel,
+                    currentFlags: comprehension,
+                    shouldBe: { ind: shouldBeInd, ins: shouldBeIns, frus: shouldBeFrus }
+                  });
+                  comprehension = { ind: shouldBeInd, ins: shouldBeIns, frus: shouldBeFrus };
+                }
+              }
+              
+              // Debug: Log the final checkbox states and date
+              console.log('✅✅✅ FINAL VERIFIED checkbox states (100% database-dependent):', {
+                wordReading: wordReading,
+                comprehension: comprehension,
+                dateTaken: dateTaken,
+                databaseWordLevel: finalDbWordLevel,
+                databaseCompLevel: finalDbCompLevel,
+                classification: entry.classification
+              });
+              
+              return {
+                level: romanLevel,
+                set: entry.set || 'A', // Ensure set is always provided (A, B, C, or D)
+                wordReading: wordReading,
+                comprehension: comprehension,
+                dateTaken: dateTaken
+              };
+            });
+
+          // Determine language from results
+          const languages = new Set(sortedEntries.map(r => r.isrResult.language).filter(Boolean));
+          const storyLanguage: 'English' | 'Filipino' = languages.has('Filipino') && !languages.has('English') 
+            ? 'Filipino' 
+            : 'English';
+
+          // Set levelStarted to the student's grade level (where they should be assessed)
+          const levelStarted = studentGradeLevel;
+
+          // Get the entry for observations (use the first entry from filtered grade-level data)
+          const observationEntry = readingData.length > 0 
+            ? sortedEntries.find((result) => {
+                const entry = result.calculatedEntry;
+                const romanLevel = convertLevelToRoman(entry.level);
+                return romanLevel === studentGradeLevel;
+              })?.calculatedEntry || firstEntry
+            : firstEntry;
+
+          const finalData = {
+            studentName: firstISRResult.studentName?.replace(/\|/g, ' ') || student.name?.replace(/\|/g, ' ') || '',
+            age: student.age?.toString() || '',
+            gradeSection: firstISRResult.gradeSection || student.grade || '',
+            school: schoolName,
+            teacher: teacherName,
+            language: storyLanguage,
+            levelStarted: levelStarted, // Mark the student's grade level as started
+            readingData: readingData,
+            observations: {
+              wordByWord: false,
+              lacksExpression: observationEntry.classification.wordReadingLevel === 'Frustration',
+              hardlyAudible: false,
+              disregardsPunctuation: observationEntry.accuracy < 90,
+              pointsToWords: observationEntry.accuracy < 85,
+              littleAnalysis: observationEntry.classification.comprehensionLevel === 'Frustration',
+              otherObservations: `Word Reading Accuracy: ${observationEntry.accuracy.toFixed(2)}%. Word Reading Level: ${observationEntry.classification.wordReadingLevel}. Comprehension Level: ${observationEntry.classification.comprehensionLevel}. ${observationEntry.wpm ? `Reading Rate: ${observationEntry.wpm} WPM.` : ''} Grade Level: ${studentGradeLevel}.`
+            }
+          };
+          
+          // Debug: Log final data structure
+          console.log('✅ Final ISR data (automatic calculation):', {
+            readingDataCount: finalData.readingData.length,
+            readingData: finalData.readingData,
+            levelStarted: finalData.levelStarted,
+            firstEntry: finalData.readingData[0],
+            firstEntryWordReading: finalData.readingData[0]?.wordReading,
+            firstEntryComprehension: finalData.readingData[0]?.comprehension
+          });
+          
+          return finalData;
+        }
+      }
+    } catch (autoCalcError) {
+      console.warn('⚠️ Automatic calculation failed, falling back to review record:', autoCalcError);
+    }
+
+    // Fallback: Fetch aggregated ISR review record from backend (fresh fetch with auto-sync)
     console.log('🔄 Fetching ISR review record from backend...');
-    // Try to fetch with sync=true to ensure all ISR results are processed
+    // Always sync to ensure all ISR results are processed and calculated correctly
     let reviewRecord: any;
     try {
-      // First try with sync to rebuild from all ISR results
+      // First, try to sync/rebuild the review record from all ISR results
+      // This ensures all calculations are up-to-date
+      try {
+        await isrResultService.syncISRReviewRecord(student.id || '');
+        console.log('✅ ISR review record synced from all ISR results');
+      } catch (syncError) {
+        console.warn('⚠️ Manual sync failed, will use auto-sync on fetch:', syncError);
+      }
+      
+      // Fetch with sync=true to rebuild from all ISR results
       reviewRecord = await isrResultService.getISRReviewRecord(student.id || '', true);
       console.log('✅ ISR review record fetched (synced):', {
         hasEntries: reviewRecord.entries?.length > 0,
         entryCount: reviewRecord.entries?.length || 0,
-        entriesWithData: reviewRecord.entries?.filter((e: any) => e.dateTaken).length || 0,
+        entriesWithData: reviewRecord.entries?.filter((e: any) => 
+          e.dateTaken || (e.wordReading && (e.wordReading.ind || e.wordReading.ins || e.wordReading.frus)) ||
+          (e.comprehension && (e.comprehension.ind || e.comprehension.ins || e.comprehension.frus))
+        ).length || 0,
         levelStarted: reviewRecord.levelStarted,
-        languages: reviewRecord.languages
+        languages: reviewRecord.languages,
+        entries: reviewRecord.entries?.map((e: any) => ({
+          level: e.level,
+          set: e.set,
+          wordReading: e.wordReading,
+          comprehension: e.comprehension,
+          dateTaken: e.dateTaken
+        }))
       });
     } catch (syncError) {
       console.warn('⚠️ Sync fetch failed, trying regular fetch:', syncError);
@@ -431,34 +1024,80 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     };
     
     const studentLevel = convertGradeToRomanLevel(student.grade);
-    const levelStartedFromRecord = reviewRecord.levelStarted || studentLevel;
 
-    // Map entries and mark levelStarted appropriately
+    // Filter entries to ONLY include the student's grade level
+    // Map entries and ensure all fields are properly formatted
     const readingDataFromRecord = (reviewRecord.entries || [])
-      .filter((entry: any) => entry.level && entry.dateTaken) // Only include entries with data
-      .map((entry: any) => ({
+      .filter((entry: any) => {
+        // Only include entries that match the student's grade level
+        const entryLevel = entry.level || '';
+        return entryLevel === studentLevel && (entry.dateTaken || entry.wordReading || entry.comprehension);
+      })
+      .map((entry: any) => {
+        // CRITICAL: Use flags directly from review record (100% database-dependent)
+        // The review record is built from ISR results in MongoDB, so these values come from the database
+        let wordReading = {
+          ind: entry.wordReading?.ind === true,
+          ins: entry.wordReading?.ins === true,
+          frus: entry.wordReading?.frus === true
+        };
+        
+        // Ensure at least one flag is set (should always be true from database, but verify)
+        if (!wordReading.ind && !wordReading.ins && !wordReading.frus) {
+          console.warn('⚠️ Review record entry has no wordReading flags set:', entry);
+          wordReading.frus = true; // Default fallback
+        }
+        
+        let comprehension = {
+          ind: entry.comprehension?.ind === true,
+          ins: entry.comprehension?.ins === true,
+          frus: entry.comprehension?.frus === true
+        };
+        
+        // Ensure at least one flag is set (should always be true from database, but verify)
+        if (!comprehension.ind && !comprehension.ins && !comprehension.frus) {
+          console.warn('⚠️ Review record entry has no comprehension flags set:', entry);
+          comprehension.frus = true; // Default fallback
+        }
+        
+        // Debug: Log the entry being processed from review record
+        console.log('🔍 Processing review record entry (100% database-dependent):', {
         level: entry.level,
-        set: entry.set || '',
-        levelStarted: entry.levelStarted || false, // Include levelStarted flag
-        wordReading: {
-          ind: entry.wordReading?.ind || false,
-          ins: entry.wordReading?.ins || false,
-          frus: entry.wordReading?.frus || false
-        },
-        comprehension: {
-          ind: entry.comprehension?.ind || false,
-          ins: entry.comprehension?.ins || false,
-          frus: entry.comprehension?.frus || false
-        },
-        dateTaken: entry.dateTaken ? new Date(entry.dateTaken).toLocaleDateString() : '',
-      }))
+          set: entry.set,
+          wordReading: wordReading,
+          comprehension: comprehension,
+          dateTaken: entry.dateTaken,
+          sourceWordReading: entry.wordReading,
+          sourceComprehension: entry.comprehension
+        });
+        
+        return {
+          level: entry.level || '',
+          set: entry.set || 'A', // Ensure set is always provided (A, B, C, or D)
+          wordReading: wordReading,
+          comprehension: comprehension,
+          dateTaken: entry.dateTaken ? new Date(entry.dateTaken).toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: '2-digit', 
+            day: '2-digit' 
+          }) : '', // Date from review record entry (reading session completion date from database)
+        };
+      })
       .sort((a: any, b: any) => {
-        // Sort by level order: K, I, II, III, IV, V, VI, VII
+        // Sort by date if available, otherwise by level order
+        if (a.dateTaken && b.dateTaken) {
+          const dateA = new Date(a.dateTaken).getTime();
+          const dateB = new Date(b.dateTaken).getTime();
+          return dateB - dateA; // Most recent first
+        }
         const levelOrder = ['K', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
         const aIndex = levelOrder.indexOf(a.level);
         const bIndex = levelOrder.indexOf(b.level);
         return aIndex - bIndex;
       });
+    
+    // Set levelStarted to the student's grade level
+    const actualLevelStarted = studentLevel;
     
     // Debug: Log the final ISR data
     console.log('📋 Final ISR data prepared:', {
@@ -477,7 +1116,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
       school: schoolName,
       teacher: teacherName,
       language: storyLanguage,
-      levelStarted: levelStartedFromRecord, // Mark the level where student started
+      levelStarted: actualLevelStarted, // Mark the level where student started (oldest assessment)
       readingData: readingDataFromRecord,
       observations: {
         // Base observations on actual reading session data

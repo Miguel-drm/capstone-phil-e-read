@@ -15,6 +15,7 @@ import adminRoutes from './routes/adminRoutes.js';
 import { resultService } from './services/resultService.js';
 import { isrResultService } from './services/isrResultService.js';
 import { isrReviewRecordService } from './services/isrReviewRecordService.js';
+import { calculateFromISRResult } from './services/isrReviewCalculator.js';
 import type { Readable } from 'stream';
 import { adminDb, firestoreAdmin } from './config/firebaseAdmin.js';
 import { db as firestore } from './config/firebase.js';
@@ -721,11 +722,29 @@ app.get('/api/test', (req, res) => {
 
     app.get('/api/isr-results/student/:studentId', async (req: Request, res: Response) => {
       try {
-        const results = await isrResultService.getISRResultsByStudent(req.params.studentId);
+        const studentId = req.params.studentId;
+        const studentName = req.query.studentName as string | undefined; // Optional query parameter
+        
+        if (!studentId || studentId.trim() === '') {
+          console.warn('⚠️ Empty studentId provided to /api/isr-results/student/:studentId');
+          return res.status(400).json({ error: 'Student ID is required' });
+        }
+
+        console.log(`🔍 API: Fetching ISR results for student: ${studentId}${studentName ? ` (Name: ${studentName})` : ''}`);
+        const results = await isrResultService.getISRResultsByStudent(studentId, studentName);
+        
+        console.log(`✅ API: Returning ${results.length} ISR result(s) for student ${studentId}`);
         res.json(results);
       } catch (error) {
-        console.error('Error fetching ISR results by student:', error);
-        res.status(500).json({ error: 'Failed to fetch ISR results' });
+        console.error('❌ API Error fetching ISR results by student:', error);
+        if (error instanceof Error) {
+          res.status(500).json({ 
+            error: 'Failed to fetch ISR results',
+            details: error.message 
+          });
+        } else {
+          res.status(500).json({ error: 'Failed to fetch ISR results' });
+        }
       }
     });
 
@@ -750,6 +769,28 @@ app.get('/api/test', (req, res) => {
       } catch (error) {
         console.error('Error fetching ISR result by ID:', error);
         res.status(500).json({ error: 'Failed to fetch ISR result' });
+      }
+    });
+
+    // Calculate ISR Review entry from ISR Result ID
+    app.get('/api/isr-results/:id/calculate', async (req: Request, res: Response) => {
+      try {
+        const result = await isrResultService.getISRResultById(req.params.id);
+        if (!result) {
+          res.status(404).json({ error: 'ISR result not found' });
+          return;
+        }
+        
+        // Use the calculator to compute the ISR review entry
+        const calculated = calculateFromISRResult(result);
+        
+        res.json({
+          isrResult: result,
+          calculatedEntry: calculated
+        });
+      } catch (error) {
+        console.error('Error calculating ISR review entry:', error);
+        res.status(500).json({ error: 'Failed to calculate ISR review entry' });
       }
     });
 
