@@ -2023,12 +2023,43 @@ const ReadingSessionPage: React.FC = () => {
             for (const word of newWords) {
               const normalizedWord = normalize(word);
 
+              // CRITICAL FIX: Check if this word belongs to a FUTURE position in the story
+              // Example: "aman" at "hot" should match "a man" later in "heard a man yell"
+              let belongsToFuturePosition = false;
+              
+              // Check if word matches a future word (look ahead up to 20 words)
+              for (let lookAhead = 1; lookAhead <= 20 && currentWordIndex + lookAhead < realWords.length; lookAhead++) {
+                const futureWord = realWords[currentWordIndex + lookAhead];
+                if (isWordMatch(word, futureWord)) {
+                  belongsToFuturePosition = true;
+                  console.log(`   ℹ️ "${word}" matches future word "${futureWord}" at position ${currentWordIndex + lookAhead} - not counting as insertion`);
+                  break;
+                }
+                
+                // Also check if word is a compound of future consecutive words
+                if (lookAhead < 20 && currentWordIndex + lookAhead + 1 < realWords.length) {
+                  const futureWord2 = realWords[currentWordIndex + lookAhead + 1];
+                  const futureCompound = normalize(futureWord) + normalize(futureWord2);
+                  if (normalizedWord === futureCompound) {
+                    belongsToFuturePosition = true;
+                    console.log(`   ℹ️ "${word}" is a compound of future words "${futureWord}" + "${futureWord2}" at positions ${currentWordIndex + lookAhead}-${currentWordIndex + lookAhead + 1} - not counting as insertion`);
+                    break;
+                  }
+                }
+              }
+              
+              if (belongsToFuturePosition) {
+                continue; // Skip this word - it belongs to a future position
+              }
+
               // Check if this word matches ANY word in the story
               const matchesAnyStoryWord = realWords.some(storyWord => isWordMatch(word, storyWord));
 
-              // ADDITIONAL CHECK: Is this word a fragment/substring of nearby story words?
-              // Look at current word and next 5 words to see if this might be a mishearing or compound
+              // ENHANCED CHECK: Is this word a fragment/compound of ANY story words?
+              // Check both nearby words AND all story words for compounds
               let isLikelyFragment = false;
+              
+              // First check: nearby words (current position ± 5 words)
               for (let i = 0; i <= 5 && currentWordIndex + i < realWords.length; i++) {
                 const nearbyWord = normalize(realWords[currentWordIndex + i]);
                 // If the "inserted" word is contained in a nearby story word, it's likely a fragment
@@ -2039,7 +2070,6 @@ const ReadingSessionPage: React.FC = () => {
                 }
 
                 // COMPOUND CHECK: Check if this "inserted" word is a compound of two nearby words
-                // Example: "rundown" = "run" + "down"
                 if (i + 1 < realWords.length) {
                   const nextNearbyWord = normalize(realWords[currentWordIndex + i + 1]);
                   const compound = nearbyWord + nextNearbyWord;
@@ -2048,6 +2078,50 @@ const ReadingSessionPage: React.FC = () => {
                     console.log(`   ℹ️ "${word}" is likely a compound of "${realWords[currentWordIndex + i]}" + "${realWords[currentWordIndex + i + 1]}" - not counting as insertion`);
                     break;
                   }
+                }
+              }
+              
+              // Second check: ALL story words for compound matches (e.g., "aman" = "a" + "man")
+              // This catches cases where speech recognition joins words that appear anywhere in the story
+              if (!isLikelyFragment) {
+                for (let i = 0; i < realWords.length - 1; i++) {
+                  const word1 = normalize(realWords[i]);
+                  const word2 = normalize(realWords[i + 1]);
+                  const compound = word1 + word2;
+                  
+                  // Check if the "inserted" word is a compound of ANY two consecutive story words
+                  if (normalizedWord === compound) {
+                    isLikelyFragment = true;
+                    console.log(`   ℹ️ "${word}" is a compound of story words "${realWords[i]}" + "${realWords[i + 1]}" (positions ${i} and ${i + 1}) - not counting as insertion`);
+                    break;
+                  }
+                  
+                  // Also check high similarity (90%+) for speech recognition errors
+                  const similarity = getCachedSimilarity(normalizedWord, compound);
+                  if (similarity >= 0.90) {
+                    isLikelyFragment = true;
+                    console.log(`   ℹ️ "${word}" is ${(similarity * 100).toFixed(0)}% similar to compound "${realWords[i]} ${realWords[i + 1]}" - not counting as insertion`);
+                    break;
+                  }
+                }
+              }
+              
+              // Third check: Check if word is a compound of ANY two story words (not necessarily consecutive)
+              // This catches "aman" from "a" (position 8) + "man" (position 15)
+              if (!isLikelyFragment && normalizedWord.length >= 4) {
+                for (let i = 0; i < realWords.length; i++) {
+                  for (let j = i + 1; j < Math.min(i + 10, realWords.length); j++) {
+                    const word1 = normalize(realWords[i]);
+                    const word2 = normalize(realWords[j]);
+                    const compound = word1 + word2;
+                    
+                    if (normalizedWord === compound) {
+                      isLikelyFragment = true;
+                      console.log(`   ℹ️ "${word}" is a compound of non-consecutive story words "${realWords[i]}" (pos ${i}) + "${realWords[j]}" (pos ${j}) - not counting as insertion`);
+                      break;
+                    }
+                  }
+                  if (isLikelyFragment) break;
                 }
               }
 
@@ -2103,23 +2177,134 @@ const ReadingSessionPage: React.FC = () => {
             }
           }
 
-          // 5. REPETITION - Check if last 2 words in NEW words are identical
+          // 5. REPETITION - Detect when child repeats words or phrases
           // DepEd Rule: Count as one error every word or phrase repeated. Underline the portion repeated.
-          if (wordsForMiscueDetection.length >= 2) {
-            const lastTwo = wordsForMiscueDetection.slice(-2);
-            if (normalize(lastTwo[0]) === normalize(lastTwo[1])) {
-              console.log(`⚠️ REPETITION! Child repeated "${lastTwo[0]}" at word index ${currentWordIndex} - DepEd Rule: Underline repeated portion`);
-              console.log(`   Marking word #${currentWordIndex} ("${realWords[currentWordIndex]}") as repetition`);
-              setMiscues(prev => prev + 1);
-              setMiscueTypes(prev => ({ ...prev, repetition: prev.repetition + 1 }));
-              setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'repetition'));
-              setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
-                type: 'repetition',
-                marking: `Underline repeated portion: "${lastTwo[0]}"`,
-                spokenWord: `${lastTwo[0]} ${lastTwo[1]}`,
-                correctWord: lastTwo[0]
-              }));
-              return; // Don't count as other miscue types
+          // CRITICAL FIX: Use recentWords instead of wordsForMiscueDetection to catch repetitions
+          // wordsForMiscueDetection only contains NEW words, so it misses when someone repeats a word they just said
+          
+          if (recentWords.length >= 2) {
+            // Method 1: Check if last 2 consecutive words are identical (e.g., "the the", "wanted wanted")
+            const lastTwo = recentWords.slice(-2);
+            const normalizedLast1 = normalize(lastTwo[0]);
+            const normalizedLast2 = normalize(lastTwo[1]);
+            
+            if (normalizedLast1 === normalizedLast2 && normalizedLast1.length > 0) {
+              // CRITICAL FIX: Find which story word was repeated and mark THAT position
+              // Don't mark currentWordIndex - mark the word that was actually repeated!
+              
+              // Find which story word matches the repeated word
+              let repeatedWordIndex = -1;
+              for (let i = Math.max(0, currentWordIndex - 3); i <= currentWordIndex && i < realWords.length; i++) {
+                if (isWordMatch(lastTwo[0], realWords[i])) {
+                  repeatedWordIndex = i;
+                  break;
+                }
+              }
+              
+              // If we found the repeated word in the story, mark it
+              if (repeatedWordIndex >= 0) {
+                const alreadyCountedRepetition = wordMiscues.get(repeatedWordIndex) === 'repetition';
+                
+                if (!alreadyCountedRepetition) {
+                  console.log(`⚠️ REPETITION! Child repeated "${lastTwo[0]}" (story word #${repeatedWordIndex}: "${realWords[repeatedWordIndex]}") - DepEd Rule: Underline repeated portion`);
+                  setMiscues(prev => prev + 1);
+                  setMiscueTypes(prev => ({ ...prev, repetition: prev.repetition + 1 }));
+                  setWordMiscues(prev => new Map(prev).set(repeatedWordIndex, 'repetition'));
+                  setWordMarkings(prev => new Map(prev).set(repeatedWordIndex, {
+                    type: 'repetition',
+                    marking: `Underline repeated portion: "${lastTwo[0]}"`,
+                    spokenWord: `${lastTwo[0]} ${lastTwo[1]}`,
+                    correctWord: realWords[repeatedWordIndex]
+                  }));
+                  
+                  // Mark this transcript position as processed to avoid double-counting
+                  processedTranscriptWordsRef.current = transcriptWords.length;
+                  return; // Don't count as other miscue types
+                }
+              }
+            }
+
+            // Method 2: Check if child is re-reading a word they already read
+            // Example: Child reads "wanted", then says "wanted" again (and again)
+            if (recentWords.length >= 3) {
+              const lastWord = recentWords[recentWords.length - 1];
+              const normalizedLast = normalize(lastWord);
+              
+              // Count how many times this word appears in recent words
+              const occurrences = recentWords.filter(w => normalize(w) === normalizedLast).length;
+              
+              // If word appears 2+ times in recent words, it's a repetition
+              if (occurrences >= 2 && normalizedLast.length > 0) {
+                // CRITICAL FIX: Find which story word was repeated and mark THAT position
+                let repeatedWordIndex = -1;
+                for (let i = Math.max(0, currentWordIndex - 3); i <= currentWordIndex && i < realWords.length; i++) {
+                  if (isWordMatch(lastWord, realWords[i])) {
+                    repeatedWordIndex = i;
+                    break;
+                  }
+                }
+                
+                if (repeatedWordIndex >= 0) {
+                  const alreadyCountedRepetition = wordMiscues.get(repeatedWordIndex) === 'repetition';
+                  
+                  if (!alreadyCountedRepetition) {
+                    console.log(`⚠️ REPETITION! Child said "${lastWord}" ${occurrences} times (story word #${repeatedWordIndex}: "${realWords[repeatedWordIndex]}") - DepEd Rule: Underline repeated portion`);
+                    setMiscues(prev => prev + 1);
+                    setMiscueTypes(prev => ({ ...prev, repetition: prev.repetition + 1 }));
+                    setWordMiscues(prev => new Map(prev).set(repeatedWordIndex, 'repetition'));
+                    setWordMarkings(prev => new Map(prev).set(repeatedWordIndex, {
+                      type: 'repetition',
+                      marking: `Underline repeated word: "${lastWord}" (said ${occurrences} times)`,
+                      spokenWord: lastWord,
+                      correctWord: realWords[repeatedWordIndex]
+                    }));
+                    
+                    // Mark this transcript position as processed
+                    processedTranscriptWordsRef.current = transcriptWords.length;
+                    return;
+                  }
+                }
+              }
+            }
+
+            // Method 3: Check for phrase repetition (2-3 words repeated)
+            // Example: "in the" repeated as "in the in the"
+            if (recentWords.length >= 4) {
+              const lastFour = recentWords.slice(-4);
+              const firstPair = normalize(lastFour[0]) + ' ' + normalize(lastFour[1]);
+              const secondPair = normalize(lastFour[2]) + ' ' + normalize(lastFour[3]);
+              
+              if (firstPair === secondPair && firstPair.length > 0) {
+                // CRITICAL FIX: Find which story word position the phrase starts at
+                let repeatedPhraseIndex = -1;
+                for (let i = Math.max(0, currentWordIndex - 3); i <= currentWordIndex && i < realWords.length - 1; i++) {
+                  if (isWordMatch(lastFour[0], realWords[i]) && isWordMatch(lastFour[1], realWords[i + 1])) {
+                    repeatedPhraseIndex = i;
+                    break;
+                  }
+                }
+                
+                if (repeatedPhraseIndex >= 0) {
+                  const alreadyCountedRepetition = wordMiscues.get(repeatedPhraseIndex) === 'repetition';
+                  
+                  if (!alreadyCountedRepetition) {
+                    console.log(`⚠️ REPETITION! Child repeated phrase "${lastFour[0]} ${lastFour[1]}" (story position #${repeatedPhraseIndex}) - DepEd Rule: Underline repeated portion`);
+                    setMiscues(prev => prev + 1);
+                    setMiscueTypes(prev => ({ ...prev, repetition: prev.repetition + 1 }));
+                    setWordMiscues(prev => new Map(prev).set(repeatedPhraseIndex, 'repetition'));
+                    setWordMarkings(prev => new Map(prev).set(repeatedPhraseIndex, {
+                      type: 'repetition',
+                      marking: `Underline repeated phrase: "${lastFour[0]} ${lastFour[1]}"`,
+                      spokenWord: `${lastFour[0]} ${lastFour[1]} ${lastFour[2]} ${lastFour[3]}`,
+                      correctWord: `${realWords[repeatedPhraseIndex]} ${realWords[repeatedPhraseIndex + 1]}`
+                    }));
+                    
+                    // Mark this transcript position as processed
+                    processedTranscriptWordsRef.current = transcriptWords.length;
+                    return;
+                  }
+                }
+              }
             }
           }
 
@@ -2918,62 +3103,71 @@ const ReadingSessionPage: React.FC = () => {
                             // Only show miscue colors AFTER session is completed or stopped (not during active recording)
                             const showMiscueColors = isCompleted || (!isRecording && wordsRead > 0);
 
-                            // Color mapping for miscue types following DepEd Phil-IRI visual system
+                            // Color mapping for miscue types - Balanced: DepEd format + color coding for visibility
                             const getMiscueColor = (type: MiscueType | undefined) => {
                               if (!type || !showMiscueColors) return null; // Hide during recording
                               const colors = {
-                                mispronunciation: 'bg-red-100 text-red-800 border-2 border-red-400 underline decoration-2 decoration-red-600', // Underlined
-                                omission: 'bg-orange-100 text-orange-800 border-2 border-orange-400 rounded-full', // Circled
-                                substitution: 'bg-yellow-100 text-yellow-800 border-2 border-yellow-400 underline decoration-2 decoration-yellow-600', // Underlined
-                                insertion: 'bg-cyan-100 text-cyan-800 border-2 border-cyan-400', // Caret shown separately
-                                repetition: 'bg-blue-100 text-blue-800 border-2 border-blue-400 underline decoration-4 decoration-blue-600', // Underlined portion
-                                transposition: 'bg-purple-100 text-purple-800 border-2 border-purple-400', // Transpositional symbol
-                                reversal: 'bg-pink-100 text-pink-800 border-2 border-pink-400', // Correct word above
-                                selfCorrection: 'bg-green-100 text-green-800 border-2 border-green-400' // 'S' marking
+                                mispronunciation: 'bg-red-50 text-red-900 border border-red-200', // Light red, underlined
+                                omission: 'bg-orange-50 text-orange-900 border border-orange-200', // Light orange, circled
+                                substitution: 'bg-yellow-50 text-yellow-900 border border-yellow-200', // Light yellow, underlined
+                                insertion: 'bg-cyan-50 text-cyan-900 border border-cyan-200', // Light cyan, caret shown
+                                repetition: 'bg-blue-50 text-blue-900 border border-blue-200', // Light blue, underlined
+                                transposition: 'bg-purple-50 text-purple-900 border border-purple-200', // Light purple, curved line
+                                reversal: 'bg-pink-50 text-pink-900 border border-pink-200', // Light pink, word above
+                                selfCorrection: 'bg-green-50 text-green-900 border border-green-200' // Light green for self-correction
                               };
                               return colors[type];
                             };
 
-                            // Add DepEd marking indicators
+                            // Add DepEd marking indicators - Color-coded underlines for visibility
                             const getMiscueMarkingStyle = (type: MiscueType | undefined) => {
                               if (!type || !showMiscueColors) return {};
 
                               const styles: { [key in MiscueType]: React.CSSProperties } = {
                                 mispronunciation: {
                                   textDecoration: 'underline',
-                                  textDecorationColor: '#dc2626',
-                                  textDecorationThickness: '2px'
+                                  textDecorationColor: '#dc2626', // red-600
+                                  textDecorationThickness: '2px',
+                                  textDecorationStyle: 'solid'
                                 },
                                 omission: {
-                                  border: '2px solid #ea580c',
-                                  borderRadius: '50%',
-                                  padding: '2px 4px'
+                                  position: 'relative'
+                                  // Circle is rendered separately as overlay
                                 },
                                 substitution: {
                                   textDecoration: 'underline',
-                                  textDecorationColor: '#ca8a04',
-                                  textDecorationThickness: '2px'
+                                  textDecorationColor: '#ca8a04', // yellow-600
+                                  textDecorationThickness: '2px',
+                                  textDecorationStyle: 'solid'
                                 },
                                 insertion: {
                                   position: 'relative'
+                                  // Caret is rendered separately
                                 },
                                 repetition: {
-                                  textDecoration: 'underline wavy',
-                                  textDecorationColor: '#2563eb',
-                                  textDecorationThickness: '3px'
+                                  textDecoration: 'underline',
+                                  textDecorationColor: '#2563eb', // blue-600
+                                  textDecorationThickness: '2px',
+                                  textDecorationStyle: 'solid'
                                 },
                                 transposition: {
                                   position: 'relative'
+                                  // Curved line is rendered separately
                                 },
                                 reversal: {
                                   position: 'relative'
+                                  // No underline, just word above
                                 },
                                 selfCorrection: {
                                   position: 'relative'
+                                  // No underline, just 'S' above
                                 }
                               };
                               return styles[type] || {};
                             };
+
+                            // Get marking details for this word
+                            const marking = !isSpecialChar ? wordMarkings.get(realWordIndex) : undefined;
 
                             return (
                               <span
@@ -2982,9 +3176,9 @@ const ReadingSessionPage: React.FC = () => {
                                 className={
                                   isSpecialChar
                                     ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"
-                                    : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl transition-all duration-300 ease-in-out ` +
+                                    : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl transition-all duration-300 ease-in-out relative ` +
                                     (isCurrent
-                                      ? "bg-blue-500 text-white font-bold shadow-lg z-10 relative"
+                                      ? "bg-blue-500 text-white font-bold shadow-lg z-10"
                                       : miscueType
                                         ? `${getMiscueColor(miscueType)} font-semibold`
                                         : isRead
@@ -3014,63 +3208,102 @@ const ReadingSessionPage: React.FC = () => {
                               >
                                 {word}
 
-                                {/* DepEd Phil-IRI Marking Annotations */}
-                                {!isSpecialChar && miscueType && showMiscueColors && wordMarkings.has(realWordIndex) && (
-                                  <span className="relative">
-                                    {(() => {
-                                      const marking = wordMarkings.get(realWordIndex)!;
-                                      switch (marking.type) {
-                                        case 'mispronunciation':
-                                        case 'substitution':
-                                          return (
-                                            <span
-                                              className="absolute left-0 top-[-20px] bg-red-600 text-white text-xs px-1 py-0.5 rounded shadow-lg whitespace-nowrap z-20"
-                                              title={marking.marking}
-                                            >
-                                              {marking.spokenWord}
-                                            </span>
-                                          );
-                                        case 'reversal':
-                                          return (
-                                            <span
-                                              className="absolute left-0 top-[-20px] bg-pink-600 text-white text-xs px-1 py-0.5 rounded shadow-lg whitespace-nowrap z-20"
-                                              title={marking.marking}
-                                            >
-                                              {marking.correctWord}
-                                            </span>
-                                          );
-                                        case 'selfCorrection':
-                                          return (
-                                            <span
-                                              className="absolute left-0 top-[-20px] bg-green-600 text-white text-xs px-1 py-0.5 rounded-full shadow-lg z-20 font-bold"
-                                              title={marking.marking}
-                                            >
-                                              S
-                                            </span>
-                                          );
-                                        case 'insertion':
-                                          return (
-                                            <span
-                                              className="absolute left-[-8px] top-[50%] text-cyan-600 text-lg font-bold z-20"
-                                              title={marking.marking}
-                                            >
-                                              ^
-                                            </span>
-                                          );
-                                        case 'transposition':
-                                          return (
-                                            <span
-                                              className="absolute left-0 top-[-25px] text-purple-600 text-lg font-bold z-20"
-                                              title={marking.marking}
-                                            >
-                                              ⤴⤵
-                                            </span>
-                                          );
-                                        default:
-                                          return null;
-                                      }
-                                    })()}
-                                  </span>
+                                {/* DepEd Phil-IRI Table 4 Marking Annotations - Color-coded for visibility */}
+                                {!isSpecialChar && miscueType && showMiscueColors && marking && (
+                                  <>
+                                    {/* MISPRONUNCIATION: Italic phonetic spelling above, underlined word */}
+                                    {marking.type === 'mispronunciation' && (
+                                      <span
+                                        className="absolute left-0 -top-7 text-sm italic text-red-700 bg-red-100 px-2 py-0.5 rounded shadow-sm whitespace-nowrap z-20 border border-red-300"
+                                        style={{ fontFamily: 'cursive' }}
+                                        title="DepEd: Underline text and write phonetic spelling above"
+                                      >
+                                        {marking.spokenWord}
+                                      </span>
+                                    )}
+
+                                    {/* OMISSION: Circle around word */}
+                                    {marking.type === 'omission' && (
+                                      <span
+                                        className="absolute inset-0 border-2 border-orange-600 rounded-full z-10"
+                                        title="DepEd: Circle the omitted word"
+                                        style={{ 
+                                          width: 'calc(100% + 8px)', 
+                                          height: 'calc(100% + 8px)',
+                                          left: '-4px',
+                                          top: '-4px'
+                                        }}
+                                      />
+                                    )}
+
+                                    {/* SUBSTITUTION: Italic substituted word above, underlined word */}
+                                    {marking.type === 'substitution' && (
+                                      <span
+                                        className="absolute left-0 -top-7 text-sm italic text-yellow-800 bg-yellow-100 px-2 py-0.5 rounded shadow-sm whitespace-nowrap z-20 border border-yellow-300"
+                                        style={{ fontFamily: 'cursive' }}
+                                        title="DepEd: Underline text and write substituted word above"
+                                      >
+                                        {marking.spokenWord}
+                                      </span>
+                                    )}
+
+                                    {/* INSERTION: Caret (^) after word + italic inserted word above */}
+                                    {marking.type === 'insertion' && (
+                                      <>
+                                        <span
+                                          className="absolute -right-3 top-0 text-lg text-cyan-600 font-bold z-20"
+                                          title="DepEd: Use caret to show where word was inserted"
+                                        >
+                                          ^
+                                        </span>
+                                        <span
+                                          className="absolute left-0 -top-7 text-sm italic text-cyan-800 bg-cyan-100 px-2 py-0.5 rounded shadow-sm whitespace-nowrap z-20 border border-cyan-300"
+                                          style={{ fontFamily: 'cursive' }}
+                                        >
+                                          {marking.spokenWord}
+                                        </span>
+                                      </>
+                                    )}
+
+                                    {/* REPETITION: Underline the repeated portion */}
+                                    {marking.type === 'repetition' && (
+                                      <span
+                                        className="absolute left-0 -bottom-1 w-full border-b-2 border-blue-600 z-10"
+                                        title="DepEd: Underline the portion repeated"
+                                      />
+                                    )}
+
+                                    {/* TRANSPOSITION: Curved line connecting transposed words */}
+                                    {marking.type === 'transposition' && (
+                                      <span
+                                        className="absolute left-full ml-1 top-1/2 transform -translate-y-1/2 text-2xl text-purple-600 font-bold z-20"
+                                        title="DepEd: Use transpositional symbol"
+                                      >
+                                        ⌢
+                                      </span>
+                                    )}
+
+                                    {/* REVERSAL: Italic correct word above */}
+                                    {marking.type === 'reversal' && (
+                                      <span
+                                        className="absolute left-0 -top-7 text-sm italic text-pink-800 bg-pink-100 px-2 py-0.5 rounded shadow-sm whitespace-nowrap z-20 border border-pink-300"
+                                        style={{ fontFamily: 'cursive' }}
+                                        title="DepEd: Write correct word above"
+                                      >
+                                        {marking.correctWord}
+                                      </span>
+                                    )}
+
+                                    {/* SELF-CORRECTION: Simple 'S' above */}
+                                    {marking.type === 'selfCorrection' && (
+                                      <span
+                                        className="absolute left-0 -top-7 text-base font-bold text-green-700 bg-green-100 px-2 py-1 rounded-full shadow-sm z-20 border-2 border-green-500"
+                                        title="DepEd: Write S above self-corrected word"
+                                      >
+                                        S
+                                      </span>
+                                    )}
+                                  </>
                                 )}
 
                                 {/* Show inserted words as floating badges after this word - ONLY after session completes */}
