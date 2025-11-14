@@ -368,6 +368,14 @@ const StudentTestPage: React.FC = () => {
               throw new Error('ISR result missing ID');
             }
             
+            console.log('📝 Updating ISR result with quiz data:', {
+              resultId,
+              correctAnswers: correct,
+              percentage,
+              comprehensionLevel: getComprehensionLevel(percentage),
+              answerCount: answerLetters.length
+            });
+            
             // Update the ISR result with quiz data
             await isrResultService.updateISRResult(resultId, {
               testId: testId,
@@ -380,7 +388,8 @@ const StudentTestPage: React.FC = () => {
                 answers: answerLetters,
               },
             });
-            console.log('✅ ISR result updated with quiz data:', resultId);
+            console.log('✅ ISR result updated successfully! The review record will be automatically updated in the backend.');
+            console.log('💡 You can now view the updated ISR data in the Reports page.');
           } else {
             console.log('⚠️ No matching ISR result found for this test. Creating new ISR result...');
             // If no matching result, we could create a new one, but typically the reading session
