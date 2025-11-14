@@ -2110,9 +2110,8 @@ const ReadingSessionPage: React.FC = () => {
 
   const isCompleted = (currentSession?.status as any) === "completed";
 
-  // TEMPORARILY DISABLED: Function to save ISR result to MongoDB
-  // TODO: Fix API endpoint and data structure mismatch
-  /* const saveISRResult = async (
+  // Function to save ISR result to MongoDB
+  const saveISRResult = async (
     studentId: string,
     studentName: string
   ) => {
@@ -2276,7 +2275,7 @@ const ReadingSessionPage: React.FC = () => {
       console.error("Error saving ISR result to MongoDB:", error);
       throw error; // Re-throw to show error to user
     }
-  }; */
+  };
 
   const handleCompleteSession = async () => {
     if (!sessionId || !currentSession) return;
