@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { Story } from '../../../types/Story';
 import { UnifiedStoryService } from '../../../services/UnifiedStoryService';
 import Swal from 'sweetalert2';
+import TeacherLoader from '../../teacher/TeacherLoader';
 
 interface StorySelectorProps {
   onStorySelect: (story: Story) => void;
@@ -85,7 +86,7 @@ const StorySelector: React.FC<StorySelectorProps> = ({ onStorySelect, selectedSt
 
       {/* Stories List */}
       {loading ? (
-        <div className="text-center py-4">Loading...</div>
+        <TeacherLoader label="Loading stories..." />
       ) : (
         <div className="grid gap-4">
           {stories.length === 0 ? (

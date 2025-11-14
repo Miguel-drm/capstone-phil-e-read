@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import type { Story } from '../../types/Story';
 import AddStoryModal from './AddStoryModal';
 import { useAuth } from '../../contexts/AuthContext';
+import AdminLoader from '../../components/admin/AdminLoader';
 
 interface StoryFilters {
   language?: string;
@@ -376,7 +377,7 @@ export default function StoriesManagement() {
       </div>
 
       {loading ? (
-        <div className="text-center py-4">Loading...</div>
+        <AdminLoader label="Loading stories..." />
       ) : viewMode === 'sets' ? (
         // Grade-based horizontal layout: Grade 3, 4, 5, 6 with sets A B C D for each
         <div className="space-y-8">

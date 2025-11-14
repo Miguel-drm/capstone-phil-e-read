@@ -38,6 +38,7 @@ import {
 import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { studentService } from '../../services/studentService';
+import AdminLoader from '../../components/admin/AdminLoader';
 import ReportManagementHub from './ReportManagementHub';
 
 import * as XLSX from 'xlsx';
@@ -1643,17 +1644,7 @@ const Reports: React.FC = () => {
 
 
   if (reportData.loading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="relative">
-            <div className="animate-spin rounded-full h-16 w-16 border-4 border-slate-200 border-t-blue-600 mx-auto"></div>
-            <DocumentTextIcon className="absolute inset-0 m-auto h-6 w-6 text-blue-600" />
-          </div>
-          <p className="mt-4 text-slate-600 font-medium">Loading Report Templates...</p>
-        </div>
-      </div>
-    );
+    return <AdminLoader label="Loading Report Templates..." fullScreen size="lg" />;
   }
 
   return (

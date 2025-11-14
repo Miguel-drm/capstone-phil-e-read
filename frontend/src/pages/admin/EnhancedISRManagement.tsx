@@ -15,6 +15,7 @@ import {
 import { isrService, type ISRSubmissionData, type ISRStudentData } from '../../services/isrService';
 import DepEdISRViewer from '../../components/admin/DepEdISRViewer';
 import * as XLSX from 'xlsx';
+import AdminLoader from '../../components/admin/AdminLoader';
 
 interface FilterOptions {
     status: 'all' | 'approved' | 'pending' | 'rejected';
@@ -174,15 +175,7 @@ const EnhancedISRManagement: React.FC = () => {
     }, []);
 
     if (loading) {
-        return (
-            <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50">
-                <div className="relative">
-                    <div className="animate-spin rounded-full h-16 w-16 border-4 border-slate-200 border-t-indigo-600"></div>
-                    <DocumentTextIcon className="absolute inset-0 m-auto h-8 w-8 text-indigo-600" />
-                </div>
-                <p className="mt-4 text-slate-600 font-medium">Loading Enhanced ISR Management...</p>
-            </div>
-        );
+        return <AdminLoader label="Loading Enhanced ISR Management..." fullScreen size="lg" />;
     }
     if (showStudentDetails && selectedClass) {
         const statusConfig = getStatusConfig(selectedClass.status);

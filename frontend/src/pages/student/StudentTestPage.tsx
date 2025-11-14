@@ -681,43 +681,161 @@ const StudentTestPage: React.FC = () => {
                       ✅ Test result saved successfully
                     </div>
                   )}
-                  <div className="flex flex-col items-center gap-4 mb-6">
-                    {/* Score Ring */}
-                    <div className="relative w-28 h-28">
-                      <div className="absolute inset-0 rounded-full bg-gradient-to-br from-green-400 to-emerald-500"></div>
-                      <div className="absolute inset-[6px] rounded-full bg-white flex items-center justify-center">
-                        <span className="text-3xl font-extrabold text-gray-900">
-                          {typeof score === 'number' && test ? Math.round((score / test.questions.length) * 100) : 0}%
-                        </span>
+                  <div className="flex flex-col items-center gap-6 mb-8">
+                    {/* Enhanced Score Display */}
+                    <div className="relative">
+                      {/* Animated Score Ring */}
+                      <div className="relative w-36 h-36">
+                        {/* Background ring */}
+                        <svg className="absolute inset-0 w-full h-full transform -rotate-90">
+                          <circle
+                            cx="72"
+                            cy="72"
+                            r="64"
+                            stroke="#e5e7eb"
+                            strokeWidth="12"
+                            fill="none"
+                          />
+                          {/* Progress ring with animation */}
+                          <circle
+                            cx="72"
+                            cy="72"
+                            r="64"
+                            stroke="url(#scoreGradient)"
+                            strokeWidth="12"
+                            fill="none"
+                            strokeLinecap="round"
+                            strokeDasharray={`${2 * Math.PI * 64}`}
+                            strokeDashoffset={`${2 * Math.PI * 64 * (1 - (typeof score === 'number' && test ? (score / test.questions.length) : 0))}`}
+                            className="transition-all duration-1000 ease-out"
+                          />
+                          <defs>
+                            <linearGradient id="scoreGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                              <stop offset="0%" stopColor="#10b981" />
+                              <stop offset="100%" stopColor="#059669" />
+                            </linearGradient>
+                          </defs>
+                        </svg>
+                        {/* Score percentage */}
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="text-center">
+                            <div className="text-4xl font-extrabold text-gray-900">
+                              {typeof score === 'number' && test ? Math.round((score / test.questions.length) * 100) : 0}%
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      {/* Celebration icon */}
+                      <div className="absolute -top-2 -right-2 w-12 h-12 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center shadow-lg animate-bounce">
+                        <span className="text-2xl">🎉</span>
                       </div>
                     </div>
-                    <div className="text-2xl md:text-3xl font-extrabold text-gray-900 text-center">Well done!</div>
-                    <div className="text-gray-600 text-center">You've finished this session. What would you like to do next?</div>
+
+                    {/* Score Breakdown */}
+                    <div className="w-full max-w-sm bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6 border-2 border-blue-200 shadow-lg">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                          <span className="text-sm font-semibold text-gray-700">Correct Answers</span>
+                        </div>
+                        <span className="text-2xl font-bold text-green-600">
+                          {score !== null && typeof score === 'number' ? score : 0}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                          <span className="text-sm font-semibold text-gray-700">Incorrect Answers</span>
+                        </div>
+                        <span className="text-2xl font-bold text-red-600">
+                          {score !== null && typeof score === 'number' && test ? test.questions.length - score : 0}
+                        </span>
+                      </div>
+                      <div className="pt-4 border-t-2 border-blue-300">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-bold text-gray-800">Total Questions</span>
+                          <span className="text-2xl font-extrabold text-indigo-600">
+                            {test?.questions.length || 0}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Congratulations Message */}
+                    <div className="text-center space-y-2">
+                      <div className="text-3xl md:text-4xl font-extrabold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                        {(() => {
+                          if (score !== null && typeof score === 'number' && test) {
+                            const percentage = score / test.questions.length;
+                            if (percentage >= 0.9) return 'Excellent Work!';
+                            if (percentage >= 0.7) return 'Well Done!';
+                            return 'Good Effort!';
+                          }
+                          return 'Quiz Complete!';
+                        })()}
+                      </div>
+                      <div className="text-gray-600 text-base">
+                        {(() => {
+                          if (score !== null && typeof score === 'number' && test) {
+                            const percentage = score / test.questions.length;
+                            if (percentage >= 0.9) return 'Outstanding performance! Keep up the great work!';
+                            if (percentage >= 0.7) return 'Great job! You\'re making excellent progress!';
+                            return 'Keep practicing and you\'ll improve even more!';
+                          }
+                          return 'Thank you for completing the quiz!';
+                        })()}
+                      </div>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-4">
+                    {/* Optimized Save Result Button */}
                     <button
-                      className={`w-full px-6 py-4 rounded-2xl text-base md:text-lg font-bold shadow transition-all ${saveSuccess ? 'bg-green-600 text-white cursor-default' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                      className={`w-full px-8 py-5 rounded-2xl text-lg md:text-xl font-bold shadow-lg transition-all transform hover:scale-[1.02] ${
+                        saveSuccess 
+                          ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white cursor-default ring-4 ring-green-200' 
+                          : savingResult 
+                            ? 'bg-gradient-to-r from-blue-400 to-blue-500 text-white cursor-wait' 
+                            : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700'
+                      }`}
                       onClick={saveSuccess ? undefined : handleSaveResult}
                       disabled={savingResult || saveSuccess}
                     >
                       {savingResult ? (
-                        <>
-                          <svg className="animate-spin h-5 w-5 mr-2 inline text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg>
-                          Saving...
-                        </>
-                      ) : saveSuccess ? 'Saved' : 'Save Result'}
+                        <div className="flex items-center justify-center gap-3">
+                          <svg className="animate-spin h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+                          </svg>
+                          <span>Saving Results...</span>
+                        </div>
+                      ) : saveSuccess ? (
+                        <div className="flex items-center justify-center gap-3">
+                          <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                          <span>Results Saved Successfully!</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center gap-3">
+                          <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                          </svg>
+                          <span>Save Result</span>
+                        </div>
+                      )}
                     </button>
+                    
+                    {/* Back to Reading Sessions Button */}
                     <button
-                      className="w-full px-6 py-4 bg-violet-600 text-white rounded-2xl text-base md:text-lg font-bold shadow hover:bg-violet-700 transition-all"
-                      onClick={() => setShowScoreDetails(true)}
-                    >
-                      View ISR
-                    </button>
-                    <button
-                      className="w-full px-6 py-4 bg-emerald-600 text-white rounded-2xl text-base md:text-lg font-bold shadow hover:bg-emerald-700 transition-all"
+                      className="w-full px-6 py-4 bg-gradient-to-r from-emerald-600 to-green-600 text-white rounded-2xl text-base md:text-lg font-bold shadow-lg hover:from-emerald-700 hover:to-green-700 transition-all transform hover:scale-[1.02]"
                       onClick={() => navigate('/teacher/Reading')}
                     >
-                      Back to Reading Sessions
+                      <div className="flex items-center justify-center gap-2">
+                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                        </svg>
+                        <span>Back to Reading Sessions</span>
+                      </div>
                     </button>
                   </div>
                 </div>

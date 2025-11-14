@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as echarts from 'echarts';
 import { type Student } from '../../../services/studentService';
 import { useAuth } from '../../../contexts/AuthContext';
-import { isrResultService } from '../../../services/ISRresultService';
 
 interface ParentProgressChartProps {
   data: {
@@ -832,8 +831,7 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
           {!chartInstance.current && (
               <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-90">
                 <div className="text-center text-gray-500">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                  <h3 className="text-lg font-medium mb-2">Loading Chart...</h3>
+                  <ParentLoader label="Loading Chart..." size="sm" />
                   <p className="text-sm mb-4">Preparing your child's progress data</p>
                   <button
                     onClick={() => {

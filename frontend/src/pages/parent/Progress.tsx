@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ParentProgressChart from '../../components/dashboard/parent/ParentProgressChart';
 import type { Student } from '../../services/studentService';
-import Loader from '../../components/Loader';
+import ParentLoader from '../../components/parent/ParentLoader';
 import { formatDateHuman } from '@/utils/date';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../config/firebase';
@@ -193,11 +193,7 @@ const ProgressPage: React.FC = () => {
   }, [readingResults]);
 
   if (loading) {
-    return (
-      <div className="p-6 space-y-6">
-        <Loader label="Loading your child's progress..." />
-      </div>
-    );
+    return <ParentLoader label="Loading your child's progress..." fullScreen />;
   }
 
   if (children.length === 0) {

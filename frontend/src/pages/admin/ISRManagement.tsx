@@ -15,6 +15,7 @@ import {
 import * as XLSX from 'xlsx';
 import { isrService, type ISRSubmissionData, type ISRStudentData } from '../../services/isrService';
 import DepEdISRViewer from '../../components/admin/DepEdISRViewer';
+import AdminLoader from '../../components/admin/AdminLoader';
 
 // Essential types only
 interface FilterOptions {
@@ -315,15 +316,7 @@ const ISRManagement: React.FC = () => {
 
   // Loading state
   if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50">
-        <div className="relative">
-          <div className="animate-spin rounded-full h-12 w-12 border-4 border-slate-200 border-t-indigo-600"></div>
-          <DocumentTextIcon className="absolute inset-0 m-auto h-6 w-6 text-indigo-600" />
-        </div>
-        <p className="mt-4 text-slate-600 font-medium">Loading ISR Management...</p>
-      </div>
-    );
+    return <AdminLoader label="Loading ISR Management..." fullScreen size="lg" />;
   }
 
   // Student details view - simplified
