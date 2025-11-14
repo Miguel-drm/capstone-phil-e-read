@@ -1,6 +1,7 @@
 import React from 'react';
 import ProfileImageUploader from './ProfileImageUploader';
 import TeacherProfileImage from './TeacherProfileImage';
+import TeacherLoader from '../../teacher/TeacherLoader';
 import { useAuth } from '../../../contexts/AuthContext';
 
 const ProfileOverview: React.FC = () => {
@@ -9,7 +10,7 @@ const ProfileOverview: React.FC = () => {
 
   const refetchTeacherData = () => window.location.reload();
 
-  if (!firebaseUid) return <div>Loading...</div>;
+  if (!firebaseUid) return <TeacherLoader label="Loading profile..." />;
 
   return (
     <div>

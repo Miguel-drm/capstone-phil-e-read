@@ -8,7 +8,7 @@ import { UnifiedStoryService } from '../../services/UnifiedStoryService';
 import { getUserProfile } from '../../services/authService';
 import type { Story } from '../../types/Story';
 import { useNavigate } from 'react-router-dom';
-import Loader from '../../components/Loader';
+import TeacherLoader from '../../components/teacher/TeacherLoader';
 
 
 const Reading: React.FC = () => {
@@ -556,7 +556,7 @@ const Reading: React.FC = () => {
         {activeTab === 'stories' && (
           <div>
             {storiesLoading ? (
-              <Loader label="Loading stories..." />
+              <TeacherLoader label="Loading stories..." />
             ) : storiesError ? (
               <div className="text-center py-10 text-red-500">{storiesError}</div>
             ) : stories.length === 0 ? (
