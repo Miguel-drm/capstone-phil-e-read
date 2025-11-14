@@ -135,6 +135,10 @@ app.get('/api/test', (req, res) => {
 
     app.get('/api/stories', async (req: Request, res: Response) => {
       try {
+        console.log('📚 /api/stories endpoint called');
+        console.log('Request origin:', req.get('origin'));
+        console.log('Request host:', req.get('host'));
+        
         const { readingLevel, categories, language, title } = req.query;
         console.log('Query params:', { readingLevel, categories, language, title });
         
@@ -146,13 +150,30 @@ app.get('/api/test', (req, res) => {
         };
         console.log('Applying filters:', filters);
         
+        console.log('🔍 Fetching stories from database...');
         const stories = await mongoStoryService.getStories(filters);
-        console.log('Stories found:', stories.length);
+        console.log(`✅ Stories found: ${stories.length}`);
 
         // Fix pdfUrl and categories for each story
-        const baseUrl = isProduction
-          ? 'https://phil-e-read-1.onrender.com'
-          : `http://localhost:${PORT}`;
+        // Use environment variable for production URL, or detect from request
+        const getBaseUrl = () => {
+          if (process.env.API_BASE_URL) {
+            return process.env.API_BASE_URL;
+          }
+          if (isProduction) {
+            // Try to get from request host, or use default
+            const host = req.get('host');
+            const protocol = req.protocol || 'https';
+            if (host) {
+              return `${protocol}://${host}`;
+            }
+            return 'https://phileread-api.onrender.com'; // Default production URL
+          }
+          return `http://localhost:${PORT}`;
+        };
+
+        const baseUrl = getBaseUrl();
+        console.log('Using baseUrl for PDF URLs:', baseUrl);
 
         const fixedStories = stories.map(story => {
           // Ensure categories is always an array of strings
@@ -720,14 +741,15 @@ app.get('/api/test', (req, res) => {
       }
     });
 
-    app.get('/api/isr-results/student/:studentId', async (req: Request, res: Response) => {
+    app.get('/api/isr-results/student/:studentId', async (req: Request, res: Response): Promise<void> => {
       try {
         const studentId = req.params.studentId;
         const studentName = req.query.studentName as string | undefined; // Optional query parameter
         
         if (!studentId || studentId.trim() === '') {
           console.warn('⚠️ Empty studentId provided to /api/isr-results/student/:studentId');
-          return res.status(400).json({ error: 'Student ID is required' });
+          res.status(400).json({ error: 'Student ID is required' });
+          return;
         }
 
         console.log(`🔍 API: Fetching ISR results for student: ${studentId}${studentName ? ` (Name: ${studentName})` : ''}`);
