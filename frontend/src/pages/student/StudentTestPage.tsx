@@ -4,6 +4,7 @@ import { doc, getDoc, collection, addDoc, Timestamp, serverTimestamp } from 'fir
 import { db } from '../../config/firebase';
 import { getAuth } from 'firebase/auth';
 import { useAuth } from '../../contexts/AuthContext';
+import { isrResultService } from '../../services/ISRresultService';
 
 // Confetti component for celebration
 const Confetti: React.FC = () => (
@@ -285,9 +286,24 @@ const StudentTestPage: React.FC = () => {
   // New: Save result handler for modal
   const handleSaveResult = async () => {
     console.log('Save Result button clicked');
-    if (!test || !currentUser) return;
+    if (!test || !currentUser || !studentId) return;
     const correct = score ?? 0;
     const now = new Date();
+    const percentage = Math.round((correct / test.questions.length) * 100);
+    
+    // Convert answer indices to letter choices (a, b, c, d)
+    const answerLetters = answers.map((answerIdx) => {
+      if (answerIdx === -1) return ''; // No answer selected
+      return String.fromCharCode(97 + answerIdx); // Convert 0->'a', 1->'b', etc.
+    });
+
+    // Determine comprehension level based on percentage
+    const getComprehensionLevel = (percent: number): 'Independent' | 'Instructional' | 'Frustration' => {
+      if (percent >= 80) return 'Independent';
+      if (percent >= 50) return 'Instructional';
+      return 'Frustration';
+    };
+
     let testResultData: any = {
       testId,
       testName: test.testName,
@@ -296,8 +312,8 @@ const StudentTestPage: React.FC = () => {
       type: 'test' as const,
       totalQuestions: test.questions.length,
       correctAnswers: correct,
-      score: Math.round((correct / test.questions.length) * 100),
-      comprehension: Math.round((correct / test.questions.length) * 100),
+      score: percentage,
+      comprehension: percentage,
       answers: test.questions.map((q, i) => ({
         questionId: `${testId}-q${i}`,
         question: q.question,
@@ -328,6 +344,55 @@ const StudentTestPage: React.FC = () => {
       
       // Save to Firebase
       await saveQuizAnswersToFirebase(testResultData);
+      
+      // Update ISR result in MongoDB with quiz data
+      try {
+        // Get the most recent ISR result for this student
+        const isrResults = await isrResultService.getISRResultsByStudent(studentId);
+        
+        if (isrResults && isrResults.length > 0) {
+          // Find the most recent ISR result that matches this test (by testId or book title)
+          // Or just use the most recent one
+          const mostRecentResult = isrResults[0]; // Results are sorted by createdAt descending
+          
+          // Check if this result matches the current test (by testId or book title)
+          const matchesTest = mostRecentResult.testId === testId || 
+                             mostRecentResult.book === test.testName ||
+                             mostRecentResult.sessionTitle?.includes(test.testName);
+          
+          if (matchesTest || isrResults.length === 1) {
+            // Get the result ID (handle both id and _id formats)
+            const resultId = (mostRecentResult as any).id || (mostRecentResult as any)._id;
+            if (!resultId) {
+              console.error('⚠️ ISR result has no ID field');
+              throw new Error('ISR result missing ID');
+            }
+            
+            // Update the ISR result with quiz data
+            await isrResultService.updateISRResult(resultId, {
+              testId: testId,
+              testName: test.testName,
+              partA: {
+                ...mostRecentResult.partA,
+                correctAnswers: correct,
+                percentage: percentage,
+                comprehensionLevel: getComprehensionLevel(percentage),
+                answers: answerLetters,
+              },
+            });
+            console.log('✅ ISR result updated with quiz data:', resultId);
+          } else {
+            console.log('⚠️ No matching ISR result found for this test. Creating new ISR result...');
+            // If no matching result, we could create a new one, but typically the reading session
+            // should have already created the ISR result. So we'll just log a warning.
+          }
+        } else {
+          console.log('⚠️ No ISR results found for student. Quiz data saved to Firebase only.');
+        }
+      } catch (isrError) {
+        console.error('Error updating ISR result with quiz data:', isrError);
+        // Don't fail the entire save if ISR update fails - Firebase save already succeeded
+      }
       
       setSavingResult(false);
       setSaveSuccess(true);
