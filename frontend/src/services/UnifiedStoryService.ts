@@ -12,17 +12,35 @@ export class UnifiedStoryService {
   private static instance: UnifiedStoryService;
   private static getApiBaseUrl(): string {
     const envBase = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
-    if (envBase && envBase.trim()) return `${envBase.replace(/\/$/, '')}/api`;
+    
+    // If environment variable is set, use it
+    if (envBase && envBase.trim()) {
+      const baseUrl = envBase.replace(/\/$/, '');
+      console.log('🔗 UnifiedStoryService: Using VITE_API_URL:', baseUrl);
+      return `${baseUrl}/api`;
+    }
+    
+    // In development (localhost), use local backend
     if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      console.log('🔗 UnifiedStoryService: Using localhost backend');
       return 'http://localhost:5000/api';
     }
-    return '/api';
+    
+    // In production, default to backend API URL
+    // Change this to your actual backend URL if VITE_API_URL is not set
+    const productionBackendUrl = 'https://phileread-api.onrender.com';
+    console.warn('⚠️ UnifiedStoryService: VITE_API_URL not set, using default production backend:', productionBackendUrl);
+    return `${productionBackendUrl}/api`;
   }
 
   private readonly API_BASE_URL = UnifiedStoryService.getApiBaseUrl();
   private readonly STORIES_URL = `${this.API_BASE_URL}/stories`;
 
-  private constructor() {}
+  private constructor() {
+    // Log the API base URL on initialization for debugging
+    console.log('📚 UnifiedStoryService initialized with API_BASE_URL:', this.API_BASE_URL);
+    console.log('📚 UnifiedStoryService STORIES_URL:', this.STORIES_URL);
+  }
 
   public static getInstance(): UnifiedStoryService {
     if (!UnifiedStoryService.instance) {
