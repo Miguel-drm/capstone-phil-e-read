@@ -99,10 +99,10 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
   ];
 
   const chartData = {
-    assessmentPeriods: ['Grade III', 'Grade IV', 'Grade V', 'Grade VI'],
-    oralReadingScores: [85, 88, 92, 95], // Percentage scores for oral reading fluency
-    comprehensionScores: [78, 82, 87, 91], // Percentage scores for comprehension
-    readingLevels: ['Instructional', 'Instructional', 'Independent', 'Independent'] // Reading level classifications
+    assessmentPeriods: [],
+    oralReadingScores: [],
+    comprehensionScores: [],
+    readingLevels: []
   };
 
   useEffect(() => {

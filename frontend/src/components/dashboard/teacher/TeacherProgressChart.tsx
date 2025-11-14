@@ -39,7 +39,6 @@ interface TeacherProgressChartProps {
 
 
 const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
-  data,
   grades,
   students,
   title = "Student Reading Progress",
@@ -79,24 +78,18 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
     comprehensionScores: number[];
     readingLevels: number[];
   }>({
-    assessmentPeriods: ['Latest Session'],
+    assessmentPeriods: [],
     oralReadingScores: [],
     comprehensionScores: [],
     readingLevels: []
   });
 
-  // Use computed data for teachers, fallback to passed data (no mock data)
+  // Use only computed data from real database (no mock data, no fallback)
   const safeData = {
-    assessmentPeriods: computedData.assessmentPeriods.length ? computedData.assessmentPeriods : (data.assessmentPeriods || []),
-    oralReadingScores: computedData.oralReadingScores.length ? computedData.oralReadingScores : (data.oralReadingScores || []),
-    comprehensionScores: computedData.comprehensionScores.length ? computedData.comprehensionScores : (data.comprehensionScores || []),
-    readingLevels: computedData.readingLevels.length ? computedData.readingLevels : (data.readingLevels?.map(level => {
-      const lower = level.toLowerCase();
-      if (lower.includes('independent')) return 3;
-      if (lower.includes('instructional')) return 2;
-      if (lower.includes('frustration')) return 1;
-      return 0; // Return 0 instead of default 2 to show no data
-    }) || [])
+    assessmentPeriods: computedData.assessmentPeriods,
+    oralReadingScores: computedData.oralReadingScores,
+    comprehensionScores: computedData.comprehensionScores,
+    readingLevels: computedData.readingLevels
   };
 
   // Memoized safe data
@@ -243,60 +236,82 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
 
   // Process student data into chart format
   const processStudentData = useCallback((readingResults: any[], testResults: any[]) => {
-    // Sort to get the most recent results
+    // Sort to get results in chronological order (oldest to newest)
     const sortedReadingResults = readingResults.sort((a, b) =>
-      new Date(b.createdAt || b.sessionDate || 0).getTime() - new Date(a.createdAt || a.sessionDate || 0).getTime()
+      new Date(a.createdAt || a.sessionDate || 0).getTime() - new Date(b.createdAt || b.sessionDate || 0).getTime()
     );
 
     const sortedTestResults = testResults.sort((a, b) =>
-      new Date(b.createdAt || b.testDate || 0).getTime() - new Date(a.createdAt || a.testDate || 0).getTime()
+      new Date(a.createdAt || a.testDate || 0).getTime() - new Date(b.createdAt || b.testDate || 0).getTime()
     );
 
-    // Get only the LATEST (most recent) session
-    const latestReadingResult = sortedReadingResults[0];
-    const latestTestResult = sortedTestResults[0];
+    // Take up to 10 most recent sessions
+    const recentReadingResults = sortedReadingResults.slice(-10);
+    const recentTestResults = sortedTestResults.slice(-10);
 
-    // Single data point for the latest session
-    let oralScore = 0;
-    let compScore = 0;
-    let levelScore = 0;
+    // Extract data from all sessions
+    const sessionLabels: string[] = [];
+    const oralScores: number[] = [];
+    const compScores: number[] = [];
+    const levelScores: number[] = [];
 
-    // Oral reading score from latest result
-    if (latestReadingResult?.oralReadingScore) {
-      oralScore = Math.max(0, Math.min(100, latestReadingResult.oralReadingScore));
-    }
-
-    // Comprehension score from latest result
-    if (latestTestResult?.comprehension) {
-      compScore = Math.max(0, Math.min(100, latestTestResult.comprehension));
-    } else if (latestTestResult?.score) {
-      compScore = Math.max(0, Math.min(100, latestTestResult.score));
-    }
-
-    // Reading level from latest result
-    if (latestReadingResult) {
-      const readingLevelField = latestReadingResult.readingLevel || latestReadingResult.reading_level || latestReadingResult.level;
-      if (readingLevelField) {
-        const level = String(readingLevelField).toLowerCase().trim();
-        if (level.includes('independent')) levelScore = 3;
-        else if (level.includes('instructional')) levelScore = 2;
-        else if (level.includes('frustration')) levelScore = 1;
-        else levelScore = 0;
-      } else {
-        // Derive from oral reading score
-        if (oralScore >= 95) levelScore = 3;
-        else if (oralScore >= 85) levelScore = 2;
-        else if (oralScore > 0) levelScore = 1;
-        else levelScore = 0;
+    // Process each session
+    const maxSessions = Math.max(recentReadingResults.length, recentTestResults.length);
+    
+    for (let i = 0; i < maxSessions; i++) {
+      sessionLabels.push(`Session ${i + 1}`);
+      
+      // Oral reading score
+      let oralScore = 0;
+      if (recentReadingResults[i]?.oralReadingScore) {
+        oralScore = Math.max(0, Math.min(100, recentReadingResults[i].oralReadingScore));
       }
+      oralScores.push(oralScore);
+
+      // Comprehension score
+      let compScore = 0;
+      if (recentTestResults[i]?.comprehension) {
+        compScore = Math.max(0, Math.min(100, recentTestResults[i].comprehension));
+      } else if (recentTestResults[i]?.score) {
+        compScore = Math.max(0, Math.min(100, recentTestResults[i].score));
+      }
+      compScores.push(compScore);
+
+      // Reading level
+      let levelScore = 0;
+      if (recentReadingResults[i]) {
+        const readingLevelField = recentReadingResults[i].readingLevel || recentReadingResults[i].reading_level || recentReadingResults[i].level;
+        if (readingLevelField) {
+          const level = String(readingLevelField).toLowerCase().trim();
+          if (level.includes('independent')) levelScore = 3;
+          else if (level.includes('instructional')) levelScore = 2;
+          else if (level.includes('frustration')) levelScore = 1;
+          else levelScore = 0;
+        } else {
+          // Derive from oral reading score
+          if (oralScore >= 95) levelScore = 3;
+          else if (oralScore >= 85) levelScore = 2;
+          else if (oralScore > 0) levelScore = 1;
+          else levelScore = 0;
+        }
+      }
+      levelScores.push(levelScore);
     }
 
-    // Return single session data
+    // Add baseline at the END (right side)
+    if (maxSessions > 0) {
+      sessionLabels.push('Baseline');
+      oralScores.push(0);
+      compScores.push(0);
+      levelScores.push(0);
+    }
+
+    // Return multi-session data
     return {
-      assessmentPeriods: ['Latest Session'],
-      oralReadingScores: [oralScore],
-      comprehensionScores: [compScore],
-      readingLevels: [levelScore]
+      assessmentPeriods: sessionLabels,
+      oralReadingScores: oralScores,
+      comprehensionScores: compScores,
+      readingLevels: levelScores
     };
   }, []);
 
@@ -459,49 +474,19 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
             animationEasing: 'cubicOut' as const,
             tooltip: {
               trigger: 'axis',
-              backgroundColor: 'rgba(255, 255, 255, 0.95)',
-              borderColor: '#e2e8f0',
-              borderWidth: 1,
-              textStyle: {
-                color: '#374151'
-              },
-              formatter: function (params: any) {
-                let result = `<div class="font-semibold text-gray-800 mb-2">${params[0].axisValue}</div>`;
-                params.forEach((param: any) => {
-                  const color = param.color;
-                  const value = param.value;
-                  const name = param.seriesName || 'Score';
-                  const displayValue = selectedMetric === 'reading-level'
-                    ? (typeof currentMetric.formatter === 'function' ? currentMetric.formatter(value) : `${value}`)
-                    : `${value}%`;
-                  result += `
-                <div class="flex items-center justify-between mb-1">
-                  <div class="flex items-center">
-                    <div class="w-3 h-3 rounded-full mr-2" style="background-color: ${color}"></div>
-                    <span class="text-gray-600">${name}</span>
-                  </div>
-                  <span class="font-semibold text-gray-800">${displayValue}</span>
-                </div>
-              `;
-                });
-                return result;
+              formatter: (params: any) => {
+                const value = params[0].value;
+                const displayValue = selectedMetric === 'reading-level' 
+                  ? (typeof currentMetric.formatter === 'function' ? currentMetric.formatter(value) : `${value}`)
+                  : `${value}%`;
+                return `${params[0].axisValue}<br/>${currentMetric.name}: <b>${displayValue}</b>`;
               }
             },
-            legend: {
-              data: [currentMetric.name],
-              textStyle: {
-                fontSize: 12,
-                color: '#6b7280'
-              },
-              itemGap: 10,
-              top: 15,
-              left: 'center'
-            },
             grid: {
-              left: '3%',
-              right: '3%',
+              left: '2%',
+              right: '2%',
               bottom: '8%',
-              top: '15%',
+              top: '3%',
               containLabel: true
             },
             xAxis: {
@@ -509,7 +494,8 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
               boundaryGap: false,
               data: safeData.assessmentPeriods,
               axisLabel: {
-                show: false // Hide session labels
+                color: '#6b7280',
+                fontSize: 11
               },
               axisLine: {
                 lineStyle: {
@@ -527,7 +513,15 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
               axisLabel: {
                 fontSize: 11,
                 color: '#6b7280',
-                formatter: typeof currentMetric.formatter === 'function' ? currentMetric.formatter : (val: number) => `${val}`
+                formatter: (val: number) => {
+                  if (selectedMetric === 'reading-level') {
+                    if (val === 3) return 'Independent';
+                    if (val === 2) return 'Instructional';
+                    if (val === 1) return 'Frustration';
+                    return '';
+                  }
+                  return typeof currentMetric.formatter === 'function' ? currentMetric.formatter(val) : `${val}`;
+                }
               },
               axisLine: {
                 show: false
@@ -536,117 +530,41 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
                 show: false
               },
               splitLine: {
-                show: false
-              },
-              // For reading level, show specific level labels
-              ...(selectedMetric === 'reading-level' ? {
-                interval: 1,
-                axisLabel: {
-                  fontSize: 11,
-                  color: '#6b7280',
-                  formatter: (value: number) => {
-                    switch (value) {
-                      case 3: return 'Independent';
-                      case 2: return 'Instructional';
-                      case 1: return 'Frustration';
-                      case 0: return 'No Data';
-                      default: return '';
-                    }
-                  }
+                lineStyle: {
+                  color: '#f3f4f6'
                 }
-              } : {})
+              }
             },
             series: [
               {
                 name: currentMetric.name,
-                type: 'custom',
-                renderItem: (params: any, api: any) => {
-                  const value = api.value(0);
-                  
-                  // Calculate right triangle dimensions with better proportions
-                  const chartHeight = params.coordSys.height;
-                  const chartWidth = params.coordSys.width;
-                  
-                  // Use more of the chart width for better visibility
-                  const leftX = params.coordSys.x + chartWidth * 0.05; // Start at 5%
-                  const rightX = params.coordSys.x + chartWidth * 0.95; // End at 95%
-                  const baseY = params.coordSys.y + chartHeight; // Bottom (y=0)
-                  
-                  // Left corner height based on data value (use full height range)
-                  const leftHeight = (value / currentMetric.yAxisMax) * chartHeight * 0.95;
-                  const leftY = baseY - leftHeight;
-                  
-                  return {
-                    type: 'group',
-                    children: [
-                      // Right triangle fill with gradient
-                      {
-                        type: 'polygon',
-                        shape: {
-                          points: [
-                            [leftX, leftY],      // Top left (data value height)
-                            [leftX, baseY],      // Bottom left (y=0)
-                            [rightX, baseY],     // Bottom right (y=0) - always at zero
-                          ]
-                        },
-                        style: {
-                          fill: {
-                            type: 'linear',
-                            x: 0,
-                            y: 0,
-                            x2: 1,
-                            y2: 0,
-                            colorStops: [
-                              { offset: 0, color: `${currentMetric.color}90` }, // 56% opacity at left
-                              { offset: 0.5, color: `${currentMetric.color}50` }, // 31% opacity at middle
-                              { offset: 1, color: `${currentMetric.color}15` }  // 8% opacity at right
-                            ]
-                          },
-                          shadowBlur: 15,
-                          shadowColor: `${currentMetric.color}40`,
-                          shadowOffsetY: 5
-                        }
-                      },
-                      // Triangle outline with thicker lines
-                      {
-                        type: 'polygon',
-                        shape: {
-                          points: [
-                            [leftX, leftY],      // Top left
-                            [leftX, baseY],      // Bottom left
-                            [rightX, baseY],     // Bottom right
-                          ]
-                        },
-                        style: {
-                          fill: 'transparent',
-                          stroke: currentMetric.color,
-                          lineWidth: 4,
-                          shadowBlur: 8,
-                          shadowColor: currentMetric.color,
-                          shadowOffsetY: 2
-                        }
-                      },
-                      // Add a highlight on the diagonal line
-                      {
-                        type: 'line',
-                        shape: {
-                          x1: leftX,
-                          y1: leftY,
-                          x2: rightX,
-                          y2: baseY
-                        },
-                        style: {
-                          stroke: currentMetric.color,
-                          lineWidth: 5,
-                          shadowBlur: 10,
-                          shadowColor: '#fff',
-                          shadowOffsetY: 0
-                        }
-                      }
-                    ]
-                  };
-                },
+                type: 'line',
                 data: currentMetric.data,
+                smooth: true,
+                symbol: 'circle',
+                symbolSize: 12,
+                lineStyle: {
+                  width: 4,
+                  color: currentMetric.color
+                },
+                itemStyle: {
+                  color: currentMetric.color,
+                  borderWidth: 2,
+                  borderColor: '#fff'
+                },
+                areaStyle: {
+                  color: {
+                    type: 'linear',
+                    x: 0,
+                    y: 0,
+                    x2: 0,
+                    y2: 1,
+                    colorStops: [
+                      { offset: 0, color: `${currentMetric.color}40` },
+                      { offset: 1, color: `${currentMetric.color}10` }
+                    ]
+                  }
+                },
                 markLine: targetLine ? {
                   data: [{ yAxis: targetLine, name: 'Target' }],
                   lineStyle: { color: '#f59e0b', type: 'dashed', width: 2 },
@@ -873,8 +791,8 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
           </div>
         </div>
         {/* Chart Container - Always Rendered */}
-        <div className="w-full flex-1 min-h-80 h-full relative">
-          <div ref={chartRef} className="w-full h-full" style={{ minHeight: '320px' }} />
+        <div className="w-full flex-1 h-full relative" style={{ minHeight: '400px' }}>
+          <div ref={chartRef} className="w-full h-full" style={{ minHeight: '400px' }} />
 
           {/* No Data Overlay */}
           {safeStudents.length === 0 ? (
@@ -929,12 +847,12 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
                 <i className="fas fa-chart-bar text-4xl mb-4 text-gray-300"></i>
                 <h3 className="text-lg font-medium mb-2">No Reading Data Available</h3>
                 <p className="text-sm mb-4">
-                  No reading data found for {filteredStudents.find(s => s.id === selectedStudent)?.name || 'this student'}.
+                  Start by adding reading sessions and assessments to see progress data for {filteredStudents.find(s => s.id === selectedStudent)?.name || 'this student'}.
                 </p>
                 <div className="text-xs text-gray-400">
-                  <p>• Add reading sessions to track oral reading scores</p>
-                  <p>• Add comprehension tests to track understanding</p>
-                  <p>• Update student profiles with reading levels</p>
+                  <p>• Reading levels will be tracked over time</p>
+                  <p>• Comprehension scores will show improvement</p>
+                  <p>• Progress updates automatically</p>
                 </div>
               </div>
             </div>
