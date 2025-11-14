@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as echarts from 'echarts';
 import { type Student } from '../../../services/studentService';
 import { useAuth } from '../../../contexts/AuthContext';
+import { isrResultService } from '../../../services/ISRresultService';
+import ParentLoader from '../../parent/ParentLoader';
 
 interface ParentProgressChartProps {
   data: {
