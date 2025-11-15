@@ -79,7 +79,7 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
     comprehensionScores: number[];
     readingLevels: number[];
   }>({
-    assessmentPeriods: ['Grade III', 'Grade IV', 'Grade V', 'Grade VI'],
+    assessmentPeriods: ['Latest Session'],
     oralReadingScores: [],
     comprehensionScores: [],
     readingLevels: []
@@ -133,7 +133,7 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
 
   // Reset student selection when class changes
   useEffect(() => {
-    if (selectedStudent && selectedStudent !== 'ALL_STUDENTS') {
+    if (selectedStudent) {
       const isStudentInClass = filteredStudents.some(s => s.id === selectedStudent);
       if (!isStudentInClass) {
         setSelectedStudent('');
@@ -206,9 +206,33 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
     }
 
     try {
-      // Results fetching removed - MongoDB results service no longer available
-      // Return empty arrays
-      const data = { readingResults: [], testResults: [] };
+      // RESTORED: Fetch ISR results from MongoDB
+      const { isrResultService } = await import('../../../services/ISRresultService');
+      const isrResults = await isrResultService.getISRResultsByStudent(studentId);
+      
+      console.log(`📊 Fetched ${isrResults.length} ISR results for student ${studentId}`);
+      
+      // Transform ISR results into reading results format
+      const readingResults = isrResults.map(result => ({
+        studentId: result.studentId,
+        oralReadingScore: result.partB?.wordReadingScore || 0,
+        readingLevel: result.partB?.wordReadingLevel || 'Instructional',
+        createdAt: result.createdAt || result.assessmentDate,
+        sessionDate: result.assessmentDate || result.createdAt,
+        miscues: result.partB?.miscues?.totalMiscues || 0,
+        wordsRead: result.partB?.wordsInPassage || 0,
+      }));
+      
+      // Transform ISR results into test results format (comprehension)
+      const testResults = isrResults.map(result => ({
+        studentId: result.studentId,
+        comprehension: result.partA?.percentage || 0,
+        score: result.partA?.percentage || 0,
+        createdAt: result.createdAt || result.assessmentDate,
+        testDate: result.assessmentDate || result.createdAt,
+      }));
+      
+      const data = { readingResults, testResults };
       dataCache.current.set(cacheKey, { data, timestamp: Date.now() });
       return data;
     } catch (error) {
@@ -219,65 +243,60 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
 
   // Process student data into chart format
   const processStudentData = useCallback((readingResults: any[], testResults: any[]) => {
+    // Sort to get the most recent results
     const sortedReadingResults = readingResults.sort((a, b) =>
-      new Date(a.createdAt || a.sessionDate || 0).getTime() - new Date(b.createdAt || b.sessionDate || 0).getTime()
+      new Date(b.createdAt || b.sessionDate || 0).getTime() - new Date(a.createdAt || a.sessionDate || 0).getTime()
     );
 
     const sortedTestResults = testResults.sort((a, b) =>
-      new Date(a.createdAt || a.testDate || 0).getTime() - new Date(b.createdAt || b.testDate || 0).getTime()
+      new Date(b.createdAt || b.testDate || 0).getTime() - new Date(a.createdAt || a.testDate || 0).getTime()
     );
 
-    const maxSessions = Math.max(sortedReadingResults.length, sortedTestResults.length, 4);
-    const sessionLabels = Array.from({ length: maxSessions }, (_, i) => `Session ${i + 1}`);
+    // Get only the LATEST (most recent) session
+    const latestReadingResult = sortedReadingResults[0];
+    const latestTestResult = sortedTestResults[0];
 
-    const oralScores: number[] = [];
-    const compScores: number[] = [];
-    const levelScores: number[] = [];
+    // Single data point for the latest session
+    let oralScore = 0;
+    let compScore = 0;
+    let levelScore = 0;
 
-    for (let i = 0; i < maxSessions; i++) {
-      const readingResult = sortedReadingResults[i];
-      const testResult = sortedTestResults[i];
+    // Oral reading score from latest result
+    if (latestReadingResult?.oralReadingScore) {
+      oralScore = Math.max(0, Math.min(100, latestReadingResult.oralReadingScore));
+    }
 
-      // Oral reading score
-      oralScores[i] = readingResult?.oralReadingScore
-        ? Math.max(0, Math.min(100, readingResult.oralReadingScore))
-        : 0;
+    // Comprehension score from latest result
+    if (latestTestResult?.comprehension) {
+      compScore = Math.max(0, Math.min(100, latestTestResult.comprehension));
+    } else if (latestTestResult?.score) {
+      compScore = Math.max(0, Math.min(100, latestTestResult.score));
+    }
 
-      // Comprehension score
-      if (testResult?.comprehension) {
-        compScores[i] = Math.max(0, Math.min(100, testResult.comprehension));
-      } else if (testResult?.score) {
-        compScores[i] = Math.max(0, Math.min(100, testResult.score));
+    // Reading level from latest result
+    if (latestReadingResult) {
+      const readingLevelField = latestReadingResult.readingLevel || latestReadingResult.reading_level || latestReadingResult.level;
+      if (readingLevelField) {
+        const level = String(readingLevelField).toLowerCase().trim();
+        if (level.includes('independent')) levelScore = 3;
+        else if (level.includes('instructional')) levelScore = 2;
+        else if (level.includes('frustration')) levelScore = 1;
+        else levelScore = 0;
       } else {
-        compScores[i] = 0;
-      }
-
-      // Reading level
-      if (readingResult) {
-        const readingLevelField = readingResult.readingLevel || readingResult.reading_level || readingResult.level;
-        if (readingLevelField) {
-          const level = String(readingLevelField).toLowerCase().trim();
-          if (level.includes('independent')) levelScores[i] = 3;
-          else if (level.includes('instructional')) levelScores[i] = 2;
-          else if (level.includes('frustration')) levelScores[i] = 1;
-          else levelScores[i] = 0;
-        } else {
-          // Derive from oral reading score
-          if (oralScores[i] >= 95) levelScores[i] = 3;
-          else if (oralScores[i] >= 85) levelScores[i] = 2;
-          else if (oralScores[i] > 0) levelScores[i] = 1;
-          else levelScores[i] = 0;
-        }
-      } else {
-        levelScores[i] = 0;
+        // Derive from oral reading score
+        if (oralScore >= 95) levelScore = 3;
+        else if (oralScore >= 85) levelScore = 2;
+        else if (oralScore > 0) levelScore = 1;
+        else levelScore = 0;
       }
     }
 
+    // Return single session data
     return {
-      assessmentPeriods: sessionLabels,
-      oralReadingScores: oralScores,
-      comprehensionScores: compScores,
-      readingLevels: levelScores
+      assessmentPeriods: ['Latest Session'],
+      oralReadingScores: [oralScore],
+      comprehensionScores: [compScore],
+      readingLevels: [levelScore]
     };
   }, []);
 
@@ -295,7 +314,7 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
         if (!selectedStudent) {
           // No student selected - show empty data
           setComputedData({
-            assessmentPeriods: ['Session 1', 'Session 2', 'Session 3', 'Session 4'],
+            assessmentPeriods: ['Latest Session'],
             oralReadingScores: [],
             comprehensionScores: [],
             readingLevels: []
@@ -303,88 +322,16 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
           return;
         }
 
-        if (selectedStudent === 'ALL_STUDENTS') {
-          // Aggregate data for all students in selected class
-          const studentsToProcess = selectedClass ? filteredStudents : safeStudents;
-
-          if (studentsToProcess.length === 0) {
-            setComputedData({
-              assessmentPeriods: ['Session 1', 'Session 2', 'Session 3', 'Session 4'],
-              oralReadingScores: [],
-              comprehensionScores: [],
-              readingLevels: []
-            });
-            return;
-          }
-
-          const allStudentsData = await Promise.all(
-            studentsToProcess.map(student => fetchStudentData(student.id!))
-          );
-
-          // Aggregate data
-          const aggregatedOralScores: number[] = [];
-          const aggregatedCompScores: number[] = [];
-          const aggregatedLevelScores: number[] = [];
-
-          for (let sessionIndex = 0; sessionIndex < 4; sessionIndex++) {
-            let oralSum = 0, oralCount = 0;
-            let compSum = 0, compCount = 0;
-            let levelSum = 0, levelCount = 0;
-
-            allStudentsData.forEach(({ readingResults, testResults }) => {
-              const readingResult = readingResults[sessionIndex];
-              const testResult = testResults[sessionIndex];
-
-              if (readingResult?.oralReadingScore) {
-                oralSum += readingResult.oralReadingScore;
-                oralCount++;
-              }
-
-              if (testResult?.comprehension) {
-                compSum += testResult.comprehension;
-                compCount++;
-              } else if (testResult?.score) {
-                compSum += testResult.score;
-                compCount++;
-              }
-
-              if (readingResult) {
-                const readingLevelField = readingResult.readingLevel || readingResult.reading_level || readingResult.level;
-                if (readingLevelField) {
-                  const level = String(readingLevelField).toLowerCase().trim();
-                  let levelValue = 2;
-                  if (level.includes('independent')) levelValue = 3;
-                  else if (level.includes('instructional')) levelValue = 2;
-                  else if (level.includes('frustration')) levelValue = 1;
-                  levelSum += levelValue;
-                  levelCount++;
-                }
-              }
-            });
-
-            aggregatedOralScores[sessionIndex] = oralCount > 0 ? Math.round(oralSum / oralCount) : 0;
-            aggregatedCompScores[sessionIndex] = compCount > 0 ? Math.round(compSum / compCount) : 0;
-            aggregatedLevelScores[sessionIndex] = levelCount > 0 ? Math.round(levelSum / levelCount) : 0;
-          }
-
-          setComputedData({
-            assessmentPeriods: ['Session 1', 'Session 2', 'Session 3', 'Session 4'],
-            oralReadingScores: aggregatedOralScores,
-            comprehensionScores: aggregatedCompScores,
-            readingLevels: aggregatedLevelScores
-          });
-        } else {
-          // Individual student data
-          const { readingResults, testResults } = await fetchStudentData(selectedStudent);
-          const processedData = processStudentData(readingResults, testResults);
-          setComputedData(processedData);
-        }
+        // Individual student data only (removed "All Students" aggregation)
+        const { readingResults, testResults } = await fetchStudentData(selectedStudent);
+        const processedData = processStudentData(readingResults, testResults);
+        setComputedData(processedData);
 
         setLastUpdated(new Date());
       } catch (error) {
         console.error('TeacherProgressChart: Error fetching data:', error);
         setComputedData({
-          assessmentPeriods: ['Session 1', 'Session 2', 'Session 3', 'Session 4'],
+          assessmentPeriods: ['Latest Session'],
           oralReadingScores: [],
           comprehensionScores: [],
           readingLevels: []
@@ -559,12 +506,10 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
             },
             xAxis: {
               type: 'category',
-              boundaryGap: true,
+              boundaryGap: false,
               data: safeData.assessmentPeriods,
               axisLabel: {
-                fontSize: 11,
-                color: '#6b7280',
-                rotate: 0
+                show: false // Hide session labels
               },
               axisLine: {
                 lineStyle: {
@@ -614,13 +559,94 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
             series: [
               {
                 name: currentMetric.name,
-                type: 'bar',
-                data: currentMetric.data,
-                itemStyle: {
-                  color: currentMetric.color,
-                  borderRadius: [4, 4, 0, 0]
+                type: 'custom',
+                renderItem: (params: any, api: any) => {
+                  const value = api.value(0);
+                  
+                  // Calculate right triangle dimensions with better proportions
+                  const chartHeight = params.coordSys.height;
+                  const chartWidth = params.coordSys.width;
+                  
+                  // Use more of the chart width for better visibility
+                  const leftX = params.coordSys.x + chartWidth * 0.05; // Start at 5%
+                  const rightX = params.coordSys.x + chartWidth * 0.95; // End at 95%
+                  const baseY = params.coordSys.y + chartHeight; // Bottom (y=0)
+                  
+                  // Left corner height based on data value (use full height range)
+                  const leftHeight = (value / currentMetric.yAxisMax) * chartHeight * 0.95;
+                  const leftY = baseY - leftHeight;
+                  
+                  return {
+                    type: 'group',
+                    children: [
+                      // Right triangle fill with gradient
+                      {
+                        type: 'polygon',
+                        shape: {
+                          points: [
+                            [leftX, leftY],      // Top left (data value height)
+                            [leftX, baseY],      // Bottom left (y=0)
+                            [rightX, baseY],     // Bottom right (y=0) - always at zero
+                          ]
+                        },
+                        style: {
+                          fill: {
+                            type: 'linear',
+                            x: 0,
+                            y: 0,
+                            x2: 1,
+                            y2: 0,
+                            colorStops: [
+                              { offset: 0, color: `${currentMetric.color}90` }, // 56% opacity at left
+                              { offset: 0.5, color: `${currentMetric.color}50` }, // 31% opacity at middle
+                              { offset: 1, color: `${currentMetric.color}15` }  // 8% opacity at right
+                            ]
+                          },
+                          shadowBlur: 15,
+                          shadowColor: `${currentMetric.color}40`,
+                          shadowOffsetY: 5
+                        }
+                      },
+                      // Triangle outline with thicker lines
+                      {
+                        type: 'polygon',
+                        shape: {
+                          points: [
+                            [leftX, leftY],      // Top left
+                            [leftX, baseY],      // Bottom left
+                            [rightX, baseY],     // Bottom right
+                          ]
+                        },
+                        style: {
+                          fill: 'transparent',
+                          stroke: currentMetric.color,
+                          lineWidth: 4,
+                          shadowBlur: 8,
+                          shadowColor: currentMetric.color,
+                          shadowOffsetY: 2
+                        }
+                      },
+                      // Add a highlight on the diagonal line
+                      {
+                        type: 'line',
+                        shape: {
+                          x1: leftX,
+                          y1: leftY,
+                          x2: rightX,
+                          y2: baseY
+                        },
+                        style: {
+                          stroke: currentMetric.color,
+                          lineWidth: 5,
+                          shadowBlur: 10,
+                          shadowColor: '#fff',
+                          shadowOffsetY: 0
+                        }
+                      }
+                    ]
+                  };
                 },
-                barWidth: '60%',
+                data: currentMetric.data,
                 markLine: targetLine ? {
                   data: [{ yAxis: targetLine, name: 'Target' }],
                   lineStyle: { color: '#f59e0b', type: 'dashed', width: 2 },
@@ -700,11 +726,9 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
         <div className="flex flex-col lg:grid lg:grid-cols-3 lg:items-center mb-3 lg:mb-4 space-y-2 lg:space-y-0">
           <div className="flex items-center gap-3">
             <h3 className="text-base md:text-lg font-semibold text-[#2C3E50] whitespace-nowrap flex-shrink-0">
-              {selectedStudent === 'ALL_STUDENTS'
-                ? `Class Progress (${filteredStudents.length} students)`
-                : selectedStudent
-                  ? `${filteredStudents.find(s => s.id === selectedStudent)?.name || 'Student'}'s Progress`
-                  : title}
+              {selectedStudent
+                ? `${filteredStudents.find(s => s.id === selectedStudent)?.name || 'Student'}'s Progress`
+                : title}
             </h3>
             {/* Real-time indicator */}
             <div className="flex items-center gap-2">
@@ -789,13 +813,7 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
                     ];
 
                     if (filteredStudents.length > 0) {
-                      // Add "All Students" option
-                      options.push({
-                        label: `📊 All Students (${filteredStudents.length})`,
-                        value: 'ALL_STUDENTS'
-                      });
-
-                      // Add individual students
+                      // Add individual students only (removed "All Students" option)
                       filteredStudents.forEach(student => {
                         options.push({
                           label: `👤 ${student.name || 'Unknown Student'}`,
@@ -817,13 +835,8 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
               <button
                 onClick={() => {
                   // Clear cache for selected student
-                  if (selectedStudent && selectedStudent !== 'ALL_STUDENTS') {
+                  if (selectedStudent) {
                     dataCache.current.delete(`student-${selectedStudent}`);
-                  } else if (selectedStudent === 'ALL_STUDENTS') {
-                    // Clear cache for all students in class
-                    filteredStudents.forEach(s => {
-                      dataCache.current.delete(`student-${s.id}`);
-                    });
                   }
                   setLastUpdated(new Date());
                 }}
@@ -903,7 +916,6 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
                 <h3 className="text-lg font-medium mb-2">Select a Student</h3>
                 <p className="text-sm mb-4">Choose a student to view their reading progress.</p>
                 <div className="text-xs text-gray-400">
-                  <p>• Select "📊 All Students" to see class averages</p>
                   <p>• Choose a specific student for individual progress</p>
                   <p>• Use the class dropdown to filter students</p>
                 </div>
@@ -917,9 +929,7 @@ const TeacherProgressChart: React.FC<TeacherProgressChartProps> = ({
                 <i className="fas fa-chart-bar text-4xl mb-4 text-gray-300"></i>
                 <h3 className="text-lg font-medium mb-2">No Reading Data Available</h3>
                 <p className="text-sm mb-4">
-                  {selectedStudent === 'ALL_STUDENTS'
-                    ? 'No reading data found for students in this class.'
-                    : `No reading data found for ${filteredStudents.find(s => s.id === selectedStudent)?.name || 'this student'}.`}
+                  No reading data found for {filteredStudents.find(s => s.id === selectedStudent)?.name || 'this student'}.
                 </p>
                 <div className="text-xs text-gray-400">
                   <p>• Add reading sessions to track oral reading scores</p>
