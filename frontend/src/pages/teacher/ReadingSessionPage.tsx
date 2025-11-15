@@ -64,7 +64,6 @@ const ReadingSessionPage: React.FC = () => {
 
   // Audio and speech recognition refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recognitionRef = useRef<any>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const scriptNodeRef = useRef<ScriptProcessorNode | null>(null);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -75,9 +74,6 @@ const ReadingSessionPage: React.FC = () => {
   const voskConnectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const voskHeartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [transcript, setTranscript] = useState("");
-  const [sttProvider, setSttProvider] = useState<"vosk" | "webspeech" | "none">(
-    "none"
-  );
   const [voskStatus, setVoskStatus] = useState<
     "disconnected" | "connecting" | "connected"
   >("disconnected");
@@ -85,13 +81,21 @@ const ReadingSessionPage: React.FC = () => {
   const [storyLanguage, setStoryLanguage] = useState<"english" | "tagalog">(
     "english"
   );
+  const [storyVocabulary, setStoryVocabulary] = useState<Set<string>>(new Set());
 
   // Refs for auto-scrolling to current word
   const currentWordRef = useRef<HTMLSpanElement>(null);
   const storyContentRef = useRef<HTMLDivElement>(null);
   // Derived metrics are calculated from elapsed time and transcript
 
-  // Vosk cleanup function (component-level for accessibility)
+  // ============================================================================
+  // VOSK CONNECTION MANAGEMENT
+  // ============================================================================
+  
+  /**
+   * Clean up all Vosk-related resources including WebSocket, audio nodes, and timers.
+   * This function ensures proper cleanup to prevent memory leaks and resource conflicts.
+   */
   const cleanupVosk = () => {
     // Clear all timeouts and intervals
     if (voskReconnectTimeoutRef.current) {
@@ -144,7 +148,216 @@ const ReadingSessionPage: React.FC = () => {
     voskSocketRef.current = null;
   };
 
-  // Debug state removed
+  /**
+   * Attempt to reconnect to Vosk with exponential backoff.
+   * Implements retry logic with increasing delays between attempts.
+   */
+  const attemptVoskReconnect = (startVoskFn: (isReconnect: boolean) => Promise<void>) => {
+    if (voskReconnectTimeoutRef.current) {
+      clearTimeout(voskReconnectTimeoutRef.current);
+    }
+
+    voskReconnectAttemptsRef.current += 1;
+    const delay = Math.min(1000 * Math.pow(2, voskReconnectAttemptsRef.current - 1), 10000);
+    
+    console.log(`🔄 Attempting Vosk reconnect (attempt ${voskReconnectAttemptsRef.current}) in ${delay}ms...`);
+    setVoskStatus("connecting");
+    
+    voskReconnectTimeoutRef.current = setTimeout(() => {
+      if (isRecording && !isPaused) {
+        cleanupVosk();
+        startVoskFn(true);
+      }
+    }, delay);
+  };
+
+  /**
+   * Initialize microphone access with optimal audio settings for Vosk.
+   * Returns a MediaStream configured for speech recognition.
+   */
+  const initializeMicrophone = async (): Promise<MediaStream> => {
+    try {
+      // Vosk works best with minimal audio processing
+      return await navigator.mediaDevices.getUserMedia({
+        audio: { 
+          channelCount: 1, 
+          sampleRate: 48000,
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false
+        },
+      });
+    } catch (error) {
+      // Fallback to default settings if constraints are not supported
+      return await navigator.mediaDevices.getUserMedia({
+        audio: { 
+          channelCount: 1, 
+          sampleRate: 48000
+        },
+      });
+    }
+  };
+
+  /**
+   * Create and configure audio context with audio processing nodes.
+   * Sets up the audio pipeline for downsampling and sending to Vosk.
+   */
+  const setupAudioContext = async (stream: MediaStream): Promise<{
+    context: AudioContext;
+    source: MediaStreamAudioSourceNode;
+    processor: ScriptProcessorNode;
+  }> => {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
+    
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+    }
+
+    const src = ctx.createMediaStreamSource(stream);
+    const script = ctx.createScriptProcessor(4096, 1, 1);
+
+    return { context: ctx, source: src, processor: script };
+  };
+
+  /**
+   * High-quality downsampling algorithm for converting 48kHz audio to 16kHz.
+   * Uses sinc-based resampling with anti-aliasing filter for better accuracy.
+   */
+  const downsampleTo16k = (input: Float32Array, sampleRate: number): Int16Array => {
+    const targetRate = 16000;
+    const ratio = sampleRate / targetRate;
+    const newLength = Math.floor(input.length / ratio);
+    const result = new Int16Array(newLength);
+    const filterLength = Math.min(32, Math.floor(input.length / 2));
+    
+    for (let i = 0; i < newLength; i++) {
+      const srcIndex = i * ratio;
+      const srcStart = Math.max(0, Math.floor(srcIndex - filterLength));
+      const srcEnd = Math.min(input.length, Math.ceil(srcIndex + filterLength));
+      
+      let sum = 0;
+      let weightSum = 0;
+      
+      for (let j = srcStart; j < srcEnd; j++) {
+        const offset = j - srcIndex;
+        if (Math.abs(offset) < 0.5) {
+          const weight = 1 - Math.abs(offset);
+          sum += input[j] * weight;
+          weightSum += weight;
+        } else {
+          const sinc = Math.sin(Math.PI * offset) / (Math.PI * offset);
+          const window = 0.5 * (1 + Math.cos(Math.PI * offset / filterLength));
+          const weight = sinc * window;
+          sum += input[j] * weight;
+          weightSum += Math.abs(weight);
+        }
+      }
+      
+      const sample = weightSum > 0 ? sum / weightSum : 0;
+      const clamped = Math.max(-1, Math.min(1, sample));
+      result[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+    }
+    
+    return result;
+  };
+
+  /**
+   * Set up WebSocket message handlers for Vosk recognition results.
+   * Processes both final and partial recognition results with vocabulary validation.
+   */
+  const setupVoskMessageHandlers = (ws: WebSocket) => {
+    ws.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        
+        if (msg.text && msg.text.trim()) {
+          const originalText = msg.text.trim();
+          const filteredText = filterThroughVocabulary(originalText, storyVocabulary);
+          
+          // Log vocabulary validation results
+          if (originalText !== filteredText) {
+            const rejectedWords = originalText.split(/\s+/).filter((word: string) => 
+              !filteredText.split(/\s+/).includes(word)
+            );
+            console.log(`Vocabulary filter: Rejected ${rejectedWords.length} word(s) not in story: ${rejectedWords.join(', ')}`);
+          }
+          
+          if (filteredText) {
+            voskFinalTranscriptRef.current += (voskFinalTranscriptRef.current ? " " : "") + filteredText;
+            setTranscript(voskFinalTranscriptRef.current);
+          }
+        } else if (msg.partial && msg.partial.trim()) {
+          const filteredPartial = filterThroughVocabulary(msg.partial.trim(), storyVocabulary);
+          
+          if (filteredPartial) {
+            setTranscript(voskFinalTranscriptRef.current + (voskFinalTranscriptRef.current ? " " : "") + filteredPartial);
+          } else {
+            setTranscript(voskFinalTranscriptRef.current);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to process Vosk recognition result:", error);
+      }
+    };
+  };
+
+  /**
+   * Set up WebSocket error and close handlers with reconnection logic.
+   * Provides user-friendly error messages and automatic reconnection.
+   */
+  const setupVoskConnectionHandlers = (
+    ws: WebSocket, 
+    isReconnect: boolean,
+    startVoskFn: (isReconnect: boolean) => Promise<void>
+  ) => {
+    ws.onerror = (error) => {
+      console.error("Speech recognition connection error:", error);
+      
+      if (voskReconnectAttemptsRef.current < 3) {
+        console.log("Attempting to reconnect to speech recognition service...");
+        attemptVoskReconnect(startVoskFn);
+      } else {
+        console.error("Unable to connect to speech recognition service after multiple attempts");
+        cleanupVosk();
+        setVoskStatus("disconnected");
+        if (!isReconnect) {
+          alert("Unable to connect to speech recognition service. Please check your internet connection and try again.");
+          setIsRecording(false);
+        }
+      }
+    };
+    
+    ws.onclose = (event) => {
+      setVoskStatus("disconnected");
+      
+      if (voskHeartbeatIntervalRef.current) {
+        clearInterval(voskHeartbeatIntervalRef.current);
+        voskHeartbeatIntervalRef.current = null;
+      }
+      
+      // Only attempt reconnect if recording is active and it wasn't a clean close
+      if (isRecording && !isPaused && event.code !== 1000) {
+        const closeReason = event.reason || "Connection closed unexpectedly";
+        console.warn(`Speech recognition connection closed: ${closeReason} (code: ${event.code})`);
+        
+        if (voskReconnectAttemptsRef.current < 3) {
+          console.log("Attempting to reconnect...");
+          attemptVoskReconnect(startVoskFn);
+        } else {
+          console.error("Connection lost after multiple reconnection attempts");
+          cleanupVosk();
+          if (!isReconnect) {
+            alert("Connection to speech recognition service was lost. Please check your internet connection and try again.");
+            setIsRecording(false);
+          }
+        }
+      }
+    };
+  };
+
+  // ============================================================================
+  // END VOSK CONNECTION MANAGEMENT
+  // ============================================================================
 
   // Detailed miscue tracking (Phil-IRI format) - Following DepEd Table 4 Rules
   const [miscues, setMiscues] = useState(0); // Total miscues
@@ -180,22 +393,6 @@ const ReadingSessionPage: React.FC = () => {
     const score = calculateOralReadingScore(wordsRead, miscues, words.length);
     return score.toFixed(1);
   }, [wordsRead, miscues, words.length]);
-
-  // Reduce noisy debug logs in production
-  useEffect(() => {
-    if ((import.meta as any)?.env?.MODE === "development") {
-      console.debug(
-        "wordsRead:",
-        wordsRead,
-        "miscues:",
-        miscues,
-        "totalWords:",
-        words.length,
-        "oralReadingScore:",
-        oralReadingScore
-      );
-    }
-  }, [wordsRead, miscues, words.length, oralReadingScore]);
 
   // Real-time Reading Speed (WPM)
   const readingSpeedWPM =
@@ -347,11 +544,6 @@ const ReadingSessionPage: React.FC = () => {
           return false;
         }
       }
-    }
-
-    // DEBUG: Log problematic comparisons
-    if ((normSpoken === 'in' && normExpected === 'when') || (normSpoken === 'when' && normExpected === 'in')) {
-      console.log(`🔍 DEBUG isWordMatch: "${spokenWord}" vs "${expectedWord}" (normalized: "${normSpoken}" vs "${normExpected}")`);
     }
 
     // Exact match
@@ -793,6 +985,142 @@ const ReadingSessionPage: React.FC = () => {
     return { displayWords, normalizedWords, isAlphanumeric };
   };
 
+  /**
+   * Extract vocabulary from story text for vocabulary-constrained recognition.
+   * Returns a Set of normalized words for efficient O(1) lookup.
+   * Includes word variations (plurals, past tense, gerunds) to handle children's speech patterns.
+   */
+  const extractVocabulary = (text: string): Set<string> => {
+    const vocabulary = new Set<string>();
+    
+    // Extract all words including contractions (e.g., "It's", "don't", "I'll")
+    const words = text.match(/\b\w+(?:'\w+)?\b/g) || [];
+    
+    for (const word of words) {
+      const normalized = normalize(word);
+      if (!normalized) continue;
+      
+      // Add the base word
+      vocabulary.add(normalized);
+      
+      // Add common variations to handle children's speech patterns
+      
+      // Plural variations: add singular form if word ends in 's' or 'es'
+      if (normalized.endsWith('s') && normalized.length > 2) {
+        vocabulary.add(normalized.slice(0, -1)); // Remove 's'
+        if (normalized.endsWith('es') && normalized.length > 3) {
+          vocabulary.add(normalized.slice(0, -2)); // Remove 'es'
+        }
+      } else {
+        // Add plural forms
+        vocabulary.add(normalized + 's');
+        vocabulary.add(normalized + 'es');
+      }
+      
+      // Past tense variations: handle -ed endings
+      if (normalized.endsWith('ed') && normalized.length > 3) {
+        vocabulary.add(normalized.slice(0, -2)); // Remove 'ed' (e.g., "walked" → "walk")
+        vocabulary.add(normalized.slice(0, -1)); // Remove 'd' (e.g., "walked" → "walke")
+        vocabulary.add(normalized.slice(0, -2) + 't'); // -ed → -t (e.g., "walked" → "walkt")
+      } else {
+        // Add past tense forms
+        vocabulary.add(normalized + 'ed');
+        vocabulary.add(normalized + 'd');
+      }
+      
+      // Gerund variations: handle -ing endings
+      if (normalized.endsWith('ing') && normalized.length > 4) {
+        vocabulary.add(normalized.slice(0, -3)); // Remove 'ing' (e.g., "walking" → "walk")
+        vocabulary.add(normalized.slice(0, -1)); // Remove 'g' (e.g., "walking" → "walkin")
+      } else {
+        // Add gerund forms
+        vocabulary.add(normalized + 'ing');
+        // Handle e-dropping: "shine" → "shining"
+        if (normalized.endsWith('e')) {
+          vocabulary.add(normalized.slice(0, -1) + 'ing');
+        }
+        // Handle consonant doubling: "run" → "running"
+        if (normalized.length >= 3) {
+          const lastChar = normalized[normalized.length - 1];
+          vocabulary.add(normalized + lastChar + 'ing');
+        }
+      }
+      
+      // Contraction variations
+      if (normalized.includes("'")) {
+        // Add version without apostrophe
+        vocabulary.add(normalized.replace("'", ''));
+      }
+    }
+    
+    return vocabulary;
+  };
+
+  /**
+   * Detect the primary language of the story based on vocabulary analysis.
+   * Uses existing isLikelyEnglishWord and isLikelyTagalogWord functions.
+   * Returns 'english' or 'tagalog', defaulting to 'english' if inconclusive.
+   */
+  const detectStoryLanguage = (vocabulary: Set<string>): 'english' | 'tagalog' => {
+    let englishCount = 0;
+    let tagalogCount = 0;
+    
+    // Count words that match English vs Tagalog patterns
+    for (const word of vocabulary) {
+      if (isLikelyEnglishWord(word)) {
+        englishCount++;
+      }
+      if (isLikelyTagalogWord(word)) {
+        tagalogCount++;
+      }
+    }
+    
+    // Return the language with more matches
+    // Default to English if counts are equal or both are zero
+    if (tagalogCount > englishCount) {
+      return 'tagalog';
+    }
+    return 'english';
+  };
+
+  /**
+   * Validate if a recognized word exists in the story vocabulary.
+   * Normalizes the input word before checking against the vocabulary Set.
+   * Returns true if the word is valid (exists in vocabulary), false otherwise.
+   */
+  const isValidWord = (word: string, vocabulary: Set<string>): boolean => {
+    if (!word || !vocabulary || vocabulary.size === 0) {
+      return false;
+    }
+    
+    // Normalize the word before checking
+    const normalizedWord = normalize(word);
+    
+    // Check if the normalized word exists in the vocabulary
+    return vocabulary.has(normalizedWord);
+  };
+
+  /**
+   * Filter recognized text through vocabulary validation.
+   * Accepts only words that exist in the story vocabulary.
+   * Rejects and logs words not in vocabulary.
+   * Returns filtered text with only valid words.
+   */
+  const filterThroughVocabulary = (text: string, vocabulary: Set<string>): string => {
+    if (!text || !vocabulary || vocabulary.size === 0) {
+      return text;
+    }
+    
+    // Split text into words
+    const words = text.split(/\s+/).filter(Boolean);
+    
+    // Filter words through vocabulary validation
+    const validWords = words.filter(word => isValidWord(word, vocabulary));
+    
+    // Return filtered text
+    return validWords.join(' ');
+  };
+
   // Start recording and speech recognition
   const handleStartRecording = () => {
     if (currentSession?.status === "completed") {
@@ -840,8 +1168,7 @@ const ReadingSessionPage: React.FC = () => {
       // Don't stop recording - speech recognition can still work
     }
 
-    // Choose STT path: Vosk (WS) for both Tagalog and English, else Web Speech
-    // Force-try Vosk for both languages; fallback to Web Speech if Vosk WS fails
+    // Use Vosk for both Tagalog and English stories
     const useVosk = storyLanguage === "tagalog" || storyLanguage === "english";
     if (useVosk) {
       try {
@@ -853,553 +1180,117 @@ const ReadingSessionPage: React.FC = () => {
           "wss://philiready-websocket-production.up.railway.app";
         const wsUrl = `${baseWsUrl}?lang=${storyLanguage}`;
         const startVosk = async (isReconnect: boolean = false) => {
-          // Reset reconnect attempts on manual start (not reconnect)
           if (!isReconnect) {
             voskReconnectAttemptsRef.current = 0;
             voskFinalTranscriptRef.current = "";
           }
 
-          let stream: MediaStream;
           try {
-            // Vosk works best with minimal audio processing - let the model handle noise
-            // Disable echo cancellation and noise suppression for better accuracy
-            // These can distort speech patterns that Vosk relies on
-            stream = await navigator.mediaDevices.getUserMedia({
-              audio: { 
-                channelCount: 1, 
-                sampleRate: 48000,
-                // Disable these for better Vosk accuracy - they can distort speech
-                echoCancellation: false,  // Vosk models handle echo better than browser processing
-                noiseSuppression: false,  // Browser noise suppression can remove speech features
-                autoGainControl: false    // AGC can distort speech dynamics
-              },
-            });
-          } catch (error) {
-            // If the above fails, try with default settings (some browsers require constraints)
-            try {
-              stream = await navigator.mediaDevices.getUserMedia({
-                audio: { 
-                  channelCount: 1, 
-                  sampleRate: 48000
-                },
-              });
-            } catch (fallbackError) {
-              console.warn("Vosk getUserMedia failed, falling back to Web Speech:", fallbackError);
-              cleanupVosk();
-              setVoskStatus("disconnected");
-              if (!isReconnect) {
-                startWebSpeech();
+            // Initialize microphone
+            const stream = await initializeMicrophone();
+            
+            // Setup audio context and processing nodes
+            const { context: ctx, source: src, processor: script } = await setupAudioContext(stream);
+            audioContextRef.current = ctx;
+            sourceNodeRef.current = src;
+            scriptNodeRef.current = script;
+
+            setVoskStatus("connecting");
+            
+            // Connection timeout
+            voskConnectionTimeoutRef.current = setTimeout(() => {
+              if (voskSocketRef.current?.readyState !== WebSocket.OPEN) {
+                console.warn("Vosk connection timeout, attempting reconnect...");
+                voskSocketRef.current?.close();
+                attemptVoskReconnect(startVosk);
               }
-              return;
-            }
-          }
+            }, 5000);
 
-          // Resume audio context if suspended (common in browsers)
-          const ctx = new (window.AudioContext ||
-            (window as any).webkitAudioContext)({ sampleRate: 48000 });
-          
-          if (ctx.state === 'suspended') {
-            try {
-              await ctx.resume();
-            } catch (e) {
-              console.warn("Failed to resume audio context:", e);
-            }
-          }
-
-          audioContextRef.current = ctx;
-          const src = ctx.createMediaStreamSource(stream);
-          sourceNodeRef.current = src;
-          
-          // Larger buffer size (4096) for better audio quality and accuracy
-          // Vosk works better with larger chunks that preserve more audio information
-          const script = ctx.createScriptProcessor(4096, 1, 1);
-          scriptNodeRef.current = script;
-
-          // High-quality downsampling with proper anti-aliasing filter
-          // Uses a more sophisticated resampling algorithm for better accuracy
-          const downsampleTo16k = (input: Float32Array): Int16Array => {
-            const sampleRate = ctx.sampleRate || 48000;
-            const targetRate = 16000;
-            const ratio = sampleRate / targetRate;
-            const newLength = Math.floor(input.length / ratio);
-            const result = new Int16Array(newLength);
+            // Create WebSocket connection
+            const ws = new WebSocket(wsUrl);
+            voskSocketRef.current = ws;
+            ws.binaryType = "arraybuffer";
             
-            // Use a better anti-aliasing filter (sinc-based resampling approximation)
-            // This preserves more speech information than simple averaging
-            const filterLength = Math.min(32, Math.floor(input.length / 2));
-            
-            for (let i = 0; i < newLength; i++) {
-              const srcIndex = i * ratio;
-              const srcStart = Math.max(0, Math.floor(srcIndex - filterLength));
-              const srcEnd = Math.min(input.length, Math.ceil(srcIndex + filterLength));
-              
-              let sum = 0;
-              let weightSum = 0;
-              
-              // Apply windowed sinc filter for better quality
-              for (let j = srcStart; j < srcEnd; j++) {
-                const offset = j - srcIndex;
-                if (Math.abs(offset) < 0.5) {
-                  // Use linear interpolation for close samples
-                  const weight = 1 - Math.abs(offset);
-                  sum += input[j] * weight;
-                  weightSum += weight;
-                } else {
-                  // Apply sinc-like window for anti-aliasing
-                  const sinc = Math.sin(Math.PI * offset) / (Math.PI * offset);
-                  const window = 0.5 * (1 + Math.cos(Math.PI * offset / filterLength));
-                  const weight = sinc * window;
-                  sum += input[j] * weight;
-                  weightSum += Math.abs(weight);
-                }
+            ws.onopen = () => {
+              if (voskConnectionTimeoutRef.current) {
+                clearTimeout(voskConnectionTimeoutRef.current);
+                voskConnectionTimeoutRef.current = null;
               }
               
-              // Normalize and convert to Int16
-              const sample = weightSum > 0 ? sum / weightSum : 0;
-              const clamped = Math.max(-1, Math.min(1, sample));
-              result[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
-            }
-            
-            return result;
-          };
-
-          setVoskStatus("connecting");
-          
-          // Connection timeout (5 seconds)
-          voskConnectionTimeoutRef.current = setTimeout(() => {
-            if (voskSocketRef.current?.readyState !== WebSocket.OPEN) {
-              console.warn("Vosk connection timeout, attempting reconnect...");
-              voskSocketRef.current?.close();
-              attemptVoskReconnect();
-            }
-          }, 5000);
-
-          const ws = new WebSocket(wsUrl);
-          voskSocketRef.current = ws;
-          ws.binaryType = "arraybuffer";
-          
-          ws.onopen = () => {
-            // Clear connection timeout
-            if (voskConnectionTimeoutRef.current) {
-              clearTimeout(voskConnectionTimeoutRef.current);
-              voskConnectionTimeoutRef.current = null;
-            }
-            
-            // Reset reconnect attempts on successful connection
-            voskReconnectAttemptsRef.current = 0;
-            
-            setVoskStatus("connected");
-            setSttProvider("vosk");
-            
-            // Start heartbeat to detect dead connections
-            voskHeartbeatIntervalRef.current = setInterval(() => {
-              if (ws.readyState === WebSocket.OPEN) {
-                // Send empty message as ping (server will ignore it)
-                try {
-                  ws.send(new ArrayBuffer(0));
-                } catch (e) {
-                  console.warn("Heartbeat send failed:", e);
-                  attemptVoskReconnect();
-                }
-              }
-            }, 30000); // Every 30 seconds
-            
-            script.onaudioprocess = (e: AudioProcessingEvent) => {
-              try {
-                const channel = e.inputBuffer.getChannelData(0);
-                const pcm16 = downsampleTo16k(channel);
+              voskReconnectAttemptsRef.current = 0;
+              setVoskStatus("connected");
+              
+              // Start heartbeat
+              voskHeartbeatIntervalRef.current = setInterval(() => {
                 if (ws.readyState === WebSocket.OPEN) {
-                  ws.send(pcm16.buffer);
-                } else if (ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
-                  // Connection lost, try to reconnect
-                  attemptVoskReconnect();
+                  try {
+                    ws.send(new ArrayBuffer(0));
+                  } catch (e) {
+                    console.warn("Heartbeat send failed:", e);
+                    attemptVoskReconnect(startVosk);
+                  }
                 }
-              } catch (error) {
-                console.warn("Error processing audio:", error);
-                // Don't stop recording, just log the error
-              }
-            };
-            src.connect(script);
-            script.connect(ctx.destination);
-          };
-          
-          ws.onmessage = (evt) => {
-            try {
-              const msg = JSON.parse(evt.data);
+              }, 30000);
               
-              // Process final results - accumulate them
-              if (msg.text && msg.text.trim()) {
-                // Final result - append to accumulated transcript
-                voskFinalTranscriptRef.current += (voskFinalTranscriptRef.current ? " " : "") + msg.text.trim();
-                setTranscript(voskFinalTranscriptRef.current);
-              } else if (msg.partial && msg.partial.trim()) {
-                // Partial result - show accumulated + partial for instant feedback
-                setTranscript(voskFinalTranscriptRef.current + (voskFinalTranscriptRef.current ? " " : "") + msg.partial);
-              }
-            } catch (error) {
-              console.warn("Error parsing Vosk message:", error);
-            }
-          };
-          
-          ws.onerror = (error) => {
-            console.warn("Vosk WS error:", error);
-            // Don't immediately fallback - try reconnecting first
-            if (voskReconnectAttemptsRef.current < 3) {
-              attemptVoskReconnect();
-            } else {
-              console.warn("Max reconnect attempts reached, falling back to Web Speech");
-              cleanupVosk();
-              setVoskStatus("disconnected");
-              if (!isReconnect) {
-                startWebSpeech();
-              }
-            }
-          };
-          
-          ws.onclose = (event) => {
+              // Setup audio processing
+              script.onaudioprocess = (e: AudioProcessingEvent) => {
+                try {
+                  const channel = e.inputBuffer.getChannelData(0);
+                  const pcm16 = downsampleTo16k(channel, ctx.sampleRate || 48000);
+                  if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(pcm16.buffer);
+                  } else if (ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
+                    attemptVoskReconnect(startVosk);
+                  }
+                } catch (error) {
+                  console.warn("Error processing audio:", error);
+                }
+              };
+              src.connect(script);
+              script.connect(ctx.destination);
+            };
+            
+            setupVoskMessageHandlers(ws);
+            setupVoskConnectionHandlers(ws, isReconnect, startVosk);
+            
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "Unknown error";
+            console.error("Failed to initialize speech recognition:", errorMessage, error);
+            cleanupVosk();
             setVoskStatus("disconnected");
             
-            // Clear heartbeat
-            if (voskHeartbeatIntervalRef.current) {
-              clearInterval(voskHeartbeatIntervalRef.current);
-              voskHeartbeatIntervalRef.current = null;
-            }
-            
-            // Only attempt reconnect if we're still recording and it wasn't a clean close
-            if (isRecording && !isPaused && event.code !== 1000) {
-              // Abnormal close, try to reconnect
-              if (voskReconnectAttemptsRef.current < 3) {
-                attemptVoskReconnect();
+            if (!isReconnect) {
+              // Provide specific error messages based on error type
+              if (errorMessage.includes("Permission denied") || errorMessage.includes("NotAllowedError")) {
+                alert("Microphone access denied. Please allow microphone access in your browser settings and try again.");
+              } else if (errorMessage.includes("NotFoundError") || errorMessage.includes("DevicesNotFoundError")) {
+                alert("No microphone found. Please connect a microphone and try again.");
               } else {
-                console.warn("Max reconnect attempts reached, falling back to Web Speech");
-                cleanupVosk();
-                if (!isReconnect) {
-                  startWebSpeech();
-                }
+                alert("Failed to start speech recognition. Please check your microphone and try again.");
               }
-            }
-          };
-        };
-
-        // Reconnection logic with exponential backoff
-        const attemptVoskReconnect = () => {
-          if (voskReconnectTimeoutRef.current) {
-            clearTimeout(voskReconnectTimeoutRef.current);
-          }
-
-          voskReconnectAttemptsRef.current += 1;
-          const delay = Math.min(1000 * Math.pow(2, voskReconnectAttemptsRef.current - 1), 10000); // Max 10 seconds
-          
-          console.log(`🔄 Attempting Vosk reconnect (attempt ${voskReconnectAttemptsRef.current}) in ${delay}ms...`);
-          setVoskStatus("connecting");
-          
-          voskReconnectTimeoutRef.current = setTimeout(() => {
-            if (isRecording && !isPaused) {
-              cleanupVosk();
-              startVosk(true); // Pass isReconnect flag
-            }
-          }, delay);
-        };
-
-
-        const startWebSpeech = () => {
-          const SpeechRecognition =
-            (window as any).SpeechRecognition ||
-            (window as any).webkitSpeechRecognition;
-          if (!SpeechRecognition) {
-            alert("SpeechRecognition not supported in this browser.");
-            return;
-          }
-          const recognition = new SpeechRecognition();
-          recognitionRef.current = recognition;
-          recognition.continuous = true;
-          recognition.interimResults = true;
-          // Optimize for faster recognition
-          recognition.maxAlternatives = 1; // Only get top result for speed
-          const selectRecognitionLang = (lang: "english" | "tagalog") => {
-            if (lang === "tagalog") {
-              const preferred = (navigator.languages || []).map((l) =>
-                l.toLowerCase()
-              );
-              if (preferred.includes("fil-ph")) return "fil-PH";
-              if (preferred.includes("tl-ph")) return "tl-PH";
-              return "fil-PH";
-            }
-            return "en-US";
-          };
-          recognition.lang = selectRecognitionLang(storyLanguage);
-          setSttProvider("webspeech");
-          let runningTranscript = "";
-          recognition.onresult = (event: any) => {
-            let interim = "";
-            for (let i = event.resultIndex; i < event.results.length; ++i) {
-              if (event.results[i].isFinal)
-                runningTranscript += event.results[i][0].transcript + " ";
-              else interim += event.results[i][0].transcript;
-            }
-            // Update immediately for instant feedback
-            setTranscript(runningTranscript + interim);
-          };
-          recognition.onerror = (e: any) => {
-            console.warn("Speech recognition error:", e.error);
-
-            // Handle different error types
-            if (e.error === 'network') {
-              console.warn("⚠️ Network error - speech recognition will auto-retry in 2 seconds...");
-              // Add delay before auto-restart to avoid rapid retry loops
-              setTimeout(() => {
-                if (isRecording && !isPaused && recognitionRef.current) {
-                  try {
-                    console.log("🔄 Retrying speech recognition after network error...");
-                    recognition.start();
-                  } catch (err) {
-                    console.warn("Failed to restart after network error:", err);
-                  }
-                }
-              }, 2000);
-            } else if (e.error === 'no-speech' || e.error === 'audio-capture') {
-              // These are recoverable, recognition will auto-restart via onend
-            } else if (e.error === 'not-allowed') {
-              console.error("❌ Microphone permission denied. Please allow microphone access.");
               setIsRecording(false);
-            } else if (e.error === 'aborted') {
-              // User stopped recording, don't restart
-              console.log("Speech recognition aborted by user");
             }
-          };
-          recognition.onend = () => {
-            // Auto-restart if still recording
-            if (isRecording && !isPaused && recognitionRef.current) {
-              console.log("Speech recognition ended, restarting...");
-              try {
-                recognition.start();
-              } catch (e) {
-                console.warn("Failed to restart recognition:", e);
-              }
-            }
-          };
-          recognition.start();
+          }
         };
 
-        // try Vosk, fallback to Web Speech
-        startVosk().catch(() => {
-          console.warn("Failed to start Vosk, using Web Speech");
-          startWebSpeech();
+
+        // Start Vosk
+        startVosk().catch((error) => {
+          const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          console.error("Failed to start speech recognition service:", errorMessage, error);
+          alert("Unable to start speech recognition. Please check your internet connection and microphone, then try again.");
+          setIsRecording(false);
         });
-      } catch {
-        // fallback
-        const SpeechRecognition =
-          (window as any).SpeechRecognition ||
-          (window as any).webkitSpeechRecognition;
-        if (SpeechRecognition) {
-          const recognition = new SpeechRecognition();
-          recognitionRef.current = recognition;
-          recognition.continuous = true;
-          recognition.interimResults = true;
-          recognition.lang = "fil-PH";
-          setSttProvider("webspeech");
-          let runningTranscript = "";
-          recognition.onresult = (event: any) => {
-            let interim = "";
-            for (let i = event.resultIndex; i < event.results.length; ++i) {
-              if (event.results[i].isFinal)
-                runningTranscript += event.results[i][0].transcript + " ";
-              else interim += event.results[i][0].transcript;
-            }
-            setTranscript(runningTranscript + interim);
-          };
-          recognition.onerror = (e: any) => {
-            console.warn("Speech recognition error:", e.error);
-
-            // Handle network errors with retry delay
-            if (e.error === 'network') {
-              console.warn("⚠️ Network error - will auto-retry in 2 seconds...");
-              setTimeout(() => {
-                if (isRecording && !isPaused && recognitionRef.current) {
-                  try {
-                    console.log("🔄 Retrying after network error...");
-                    recognition.start();
-                  } catch (err) {
-                    console.warn("Retry failed:", err);
-                  }
-                }
-              }, 2000);
-            } else if (e.error === 'no-speech' || e.error === 'audio-capture') {
-              console.log("Recoverable error, will auto-restart via onend");
-            } else if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-              console.error("❌ Microphone permission denied");
-              alert("Microphone access is required for reading sessions. Please allow microphone access and try again.");
-              setIsRecording(false);
-            } else if (e.error === 'aborted') {
-              console.log("Speech recognition aborted by user");
-            } else {
-              console.log("Unknown error, will attempt to restart");
-            }
-          };
-          recognition.onend = () => {
-            console.log("Speech recognition ended. isRecording:", isRecording, "isPaused:", isPaused);
-
-            // Auto-restart if still recording
-            if (isRecording && !isPaused && recognitionRef.current) {
-              console.log("🔄 Auto-restarting speech recognition...");
-
-              // Small delay before restart to avoid rapid restart loops
-              setTimeout(() => {
-                if (isRecording && !isPaused && recognitionRef.current) {
-                  try {
-                    recognition.start();
-                    console.log("✅ Speech recognition restarted successfully");
-                  } catch (e: any) {
-                    console.warn("Failed to restart recognition:", e.message);
-
-                    // If restart fails, try again after a longer delay
-                    setTimeout(() => {
-                      if (isRecording && !isPaused && recognitionRef.current) {
-                        try {
-                          recognition.start();
-                          console.log("✅ Speech recognition restarted on second attempt");
-                        } catch (e2) {
-                          console.error("Failed to restart recognition after retry:", e2);
-                        }
-                      }
-                    }, 1000);
-                  }
-                }
-              }, 100);
-            } else {
-              console.log("Not restarting: isRecording=" + isRecording + ", isPaused=" + isPaused);
-            }
-          };
-          recognition.start();
-        }
-      }
-    } else {
-      // Web Speech path (default)
-      const SpeechRecognition =
-        (window as any).SpeechRecognition ||
-        (window as any).webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        const recognition = new SpeechRecognition();
-        recognitionRef.current = recognition;
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        const selectRecognitionLang = (lang: "english" | "tagalog") => {
-          if (lang === "tagalog") {
-            const preferred = (navigator.languages || []).map((l) =>
-              l.toLowerCase()
-            );
-            if (preferred.includes("fil-ph")) return "fil-PH";
-            if (preferred.includes("tl-ph")) return "tl-PH";
-            return "fil-PH";
-          }
-          return "en-US";
-        };
-        recognition.lang = selectRecognitionLang(storyLanguage);
-        setSttProvider("webspeech");
-        let runningTranscript = "";
-        recognition.onresult = (event: any) => {
-          let interim = "";
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal)
-              runningTranscript += event.results[i][0].transcript + " ";
-            else interim += event.results[i][0].transcript;
-          }
-          setTranscript(runningTranscript + interim);
-        };
-        recognition.onerror = (e: any) => {
-          console.warn("Speech recognition error:", e.error);
-
-          // Handle network errors with retry delay
-          if (e.error === 'network') {
-            console.warn("⚠️ Network error - will auto-retry in 2 seconds...");
-            setTimeout(() => {
-              if (isRecording && !isPaused && recognitionRef.current) {
-                try {
-                  console.log("🔄 Retrying after network error...");
-                  recognition.start();
-                } catch (err) {
-                  console.warn("Retry failed:", err);
-                }
-              }
-            }, 2000);
-          } else if (e.error === 'no-speech' || e.error === 'audio-capture') {
-            console.log("Recoverable error, will auto-restart via onend");
-          } else if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-            console.error("❌ Microphone permission denied");
-            alert("Microphone access is required. Please allow microphone access and try again.");
-            setIsRecording(false);
-          } else if (e.error === 'aborted') {
-            console.log("Speech recognition aborted by user");
-          }
-        };
-        recognition.onend = () => {
-          console.log("Speech recognition ended. isRecording:", isRecording, "isPaused:", isPaused);
-
-          // Auto-restart if still recording
-          if (isRecording && !isPaused && recognitionRef.current) {
-            console.log("🔄 Auto-restarting speech recognition...");
-
-            setTimeout(() => {
-              if (isRecording && !isPaused && recognitionRef.current) {
-                try {
-                  recognition.start();
-                  console.log("✅ Speech recognition restarted successfully");
-                } catch (e: any) {
-                  console.warn("Failed to restart recognition:", e.message);
-
-                  // Retry after delay
-                  setTimeout(() => {
-                    if (isRecording && !isPaused && recognitionRef.current) {
-                      try {
-                        recognition.start();
-                        console.log("✅ Speech recognition restarted on second attempt");
-                      } catch (e2) {
-                        console.error("Failed to restart after retry:", e2);
-                      }
-                    }
-                  }, 1000);
-                }
-              }
-            }, 100);
-          } else {
-            console.log("Not restarting: isRecording=" + isRecording + ", isPaused=" + isPaused);
-          }
-        };
-        recognition.start();
-      } else {
-        alert("SpeechRecognition not supported in this browser.");
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        console.error("Failed to initialize speech recognition:", errorMessage, error);
+        alert("Unable to initialize speech recognition. Please refresh the page and try again.");
+        setIsRecording(false);
       }
     }
   };
 
-  // Keep SpeechRecognition language in sync if story language changes while recording
-  useEffect(() => {
-    const rec: any = recognitionRef.current;
-    if (!rec) return;
-    const target =
-      storyLanguage === "tagalog"
-        ? (navigator.languages || [])
-          .map((l) => l.toLowerCase())
-          .includes("fil-ph")
-          ? "fil-PH"
-          : "tl-PH"
-        : "en-US";
-    try {
-      if (rec.lang !== target) {
-        // Some implementations require restart to apply new language
-        const wasRunning = isRecording && !isPaused;
-        try {
-          rec.stop();
-        } catch { }
-        rec.lang = target;
-        if (wasRunning) {
-          try {
-            rec.start();
-          } catch { }
-        }
-      }
-    } catch { }
-  }, [storyLanguage, isRecording, isPaused]);
+
 
   // Handle Vosk language switching - reconnect with new language if needed
   useEffect(() => {
@@ -1500,7 +1391,6 @@ const ReadingSessionPage: React.FC = () => {
               ws.onopen = () => {
                 voskReconnectAttemptsRef.current = 0;
                 setVoskStatus("connected");
-                setSttProvider("vosk");
                 
                 voskHeartbeatIntervalRef.current = setInterval(() => {
                   if (ws.readyState === WebSocket.OPEN) {
@@ -1531,10 +1421,25 @@ const ReadingSessionPage: React.FC = () => {
                 try {
                   const msg = JSON.parse(evt.data);
                   if (msg.text && msg.text.trim()) {
-                    voskFinalTranscriptRef.current += (voskFinalTranscriptRef.current ? " " : "") + msg.text.trim();
-                    setTranscript(voskFinalTranscriptRef.current);
+                    // Filter through vocabulary validation
+                    const filteredText = filterThroughVocabulary(msg.text.trim(), storyVocabulary);
+                    
+                    // Only update transcript if we have valid words
+                    if (filteredText) {
+                      voskFinalTranscriptRef.current += (voskFinalTranscriptRef.current ? " " : "") + filteredText;
+                      setTranscript(voskFinalTranscriptRef.current);
+                    }
                   } else if (msg.partial && msg.partial.trim()) {
-                    setTranscript(voskFinalTranscriptRef.current + (voskFinalTranscriptRef.current ? " " : "") + msg.partial);
+                    // Filter partial results through vocabulary validation
+                    const filteredPartial = filterThroughVocabulary(msg.partial.trim(), storyVocabulary);
+                    
+                    // Show accumulated + filtered partial for instant feedback
+                    if (filteredPartial) {
+                      setTranscript(voskFinalTranscriptRef.current + (voskFinalTranscriptRef.current ? " " : "") + filteredPartial);
+                    } else {
+                      // If no valid words in partial, just show accumulated
+                      setTranscript(voskFinalTranscriptRef.current);
+                    }
                   }
                 } catch (error) {
                   console.warn("Error parsing Vosk message:", error);
@@ -1569,15 +1474,14 @@ const ReadingSessionPage: React.FC = () => {
       
       // Stop MediaRecorder
       if (mediaRecorderRef.current) {
-        mediaRecorderRef.current.stop();
-        mediaRecorderRef.current.stream
-          .getTracks()
-          .forEach((track) => track.stop());
-      }
-      
-      // Stop SpeechRecognition
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
+        try {
+          mediaRecorderRef.current.stop();
+          mediaRecorderRef.current.stream
+            .getTracks()
+            .forEach((track) => track.stop());
+        } catch (error) {
+          console.warn("Error stopping media recorder:", error);
+        }
       }
       
       // Cleanup Vosk (includes all cleanup logic)
@@ -1586,6 +1490,7 @@ const ReadingSessionPage: React.FC = () => {
       // Reset Vosk state
       voskFinalTranscriptRef.current = "";
       voskReconnectAttemptsRef.current = 0;
+      
       // If Tagalog story, optionally send audio to backend Whisper for better transcription
       const enableServerTranscribe =
         (import.meta as any)?.env?.VITE_ENABLE_SERVER_TRANSCRIBE === "true";
@@ -1604,14 +1509,16 @@ const ReadingSessionPage: React.FC = () => {
               setTranscript(data.text);
             }
           } else {
-            console.warn("Whisper transcription failed");
+            console.warn("Server transcription service unavailable");
           }
         } catch (e) {
-          console.warn("Error sending to Whisper:", e);
+          console.warn("Unable to connect to transcription service:", e);
         }
       }
     } catch (error) {
-      console.error("Failed to stop recording:", error);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      console.error("Error stopping recording:", errorMessage, error);
+      alert("An error occurred while stopping the recording. Your progress has been saved.");
     }
   };
 
@@ -1633,16 +1540,14 @@ const ReadingSessionPage: React.FC = () => {
     });
   };
 
-  // Pause/Resume speech recognition (optional)
+  // Pause/Resume recording (optional)
   const handlePauseRecording = () => {
     setIsPaused(true);
-    if (recognitionRef.current) recognitionRef.current.abort();
     if (mediaRecorderRef.current) mediaRecorderRef.current.pause();
   };
   const handleResumeRecording = () => {
     setIsPaused(false);
     if (mediaRecorderRef.current) mediaRecorderRef.current.resume();
-    if (recognitionRef.current) recognitionRef.current.start();
   };
 
   // Update elapsed time as time passes
@@ -1663,8 +1568,6 @@ const ReadingSessionPage: React.FC = () => {
       setIsLoadingPdf(true);
       setPdfError(null);
 
-      if ((import.meta as any)?.env?.MODE === "development")
-        console.debug("Fetching PDF from URL:", pdfUrl);
       const response = await fetch(pdfUrl);
       if (!response.ok) {
         // Try to get error details from response
@@ -1683,17 +1586,10 @@ const ReadingSessionPage: React.FC = () => {
 
       // Get the PDF as an array buffer
       const pdfArrayBuffer = await response.arrayBuffer();
-      if ((import.meta as any)?.env?.MODE === "development")
-        console.debug(
-          "Received array buffer of size:",
-          pdfArrayBuffer.byteLength
-        );
 
       // Check if we received valid PDF data (should start with %PDF-)
       const firstBytes = new Uint8Array(pdfArrayBuffer.slice(0, 5));
       const header = new TextDecoder().decode(firstBytes);
-      if ((import.meta as any)?.env?.MODE === "development")
-        console.debug("PDF header:", header);
       if (!header.startsWith("%PDF-")) {
         throw new Error("Invalid PDF data: Missing PDF header");
       }
@@ -1707,13 +1603,9 @@ const ReadingSessionPage: React.FC = () => {
         });
 
         const pdf = await loadingTask.promise;
-        if ((import.meta as any)?.env?.MODE === "development")
-          console.debug("PDF loaded successfully, pages:", pdf.numPages);
 
         let fullText = "";
         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-          if ((import.meta as any)?.env?.MODE === "development")
-            console.debug("Processing page", pageNum);
           const page = await pdf.getPage(pageNum);
           const textContent = await page.getTextContent();
           const pageText = textContent.items
@@ -1723,11 +1615,6 @@ const ReadingSessionPage: React.FC = () => {
           fullText += pageText + "\n\n";
         }
 
-        if ((import.meta as any)?.env?.MODE === "development")
-          console.debug(
-            "Text extraction complete, text length:",
-            fullText.length
-          );
         setPdfContent(fullText);
 
         // Split content into words and update state
@@ -1735,12 +1622,6 @@ const ReadingSessionPage: React.FC = () => {
           .split(/\s+/)
           .filter((word: string) => word.length > 0);
         setWords(wordArray);
-        if ((import.meta as any)?.env?.MODE === "development")
-          console.debug(
-            "PDF processing completed. Found",
-            wordArray.length,
-            "words"
-          );
       } catch (pdfError) {
         console.error("Error processing PDF:", pdfError);
         throw pdfError;
@@ -1765,14 +1646,10 @@ const ReadingSessionPage: React.FC = () => {
 
       try {
         setIsLoading(true);
-        if ((import.meta as any)?.env?.MODE === "development")
-          console.debug("Fetching session with ID:", sessionId);
 
         const sessionData = await readingSessionService.getSessionById(
           sessionId
         );
-        if ((import.meta as any)?.env?.MODE === "development")
-          console.debug("Session data:", sessionData);
 
         if (!sessionData) {
           throw new Error("Session not found");
@@ -1780,10 +1657,8 @@ const ReadingSessionPage: React.FC = () => {
 
         setCurrentSession(sessionData);
 
-        // Get all stories firsts
+        // Get all stories
         const stories = await UnifiedStoryService.getInstance().getStories({});
-        if ((import.meta as any)?.env?.MODE === "development")
-          console.debug("All stories:", stories);
 
         // Extract story by _id or title for compatibility
         const story = stories.find(
@@ -1794,9 +1669,6 @@ const ReadingSessionPage: React.FC = () => {
         if (!story || !story._id) {
           throw new Error("Story not found");
         }
-
-        if ((import.meta as any)?.env?.MODE === "development")
-          console.debug("Found matching story:", story);
 
         try {
           // Get the full story details
@@ -1809,16 +1681,6 @@ const ReadingSessionPage: React.FC = () => {
 
           // Store current story for ISR result saving
           setCurrentStory(fullStory);
-
-          if ((import.meta as any)?.env?.MODE === "development")
-            console.debug("Full story details:", {
-              id: fullStory._id,
-              title: fullStory.title,
-              language: fullStory.language,
-              hasTextContent: !!fullStory.textContent,
-              textContentLength: fullStory.textContent?.length,
-              textContentPreview: fullStory.textContent?.substring(0, 100),
-            });
 
           // Set story language for speech recognition - automatically detect from story
           if (fullStory.language) {
@@ -1839,19 +1701,9 @@ const ReadingSessionPage: React.FC = () => {
             }
             
             setStoryLanguage(internalLanguage);
-            if ((import.meta as any)?.env?.MODE === "development")
-              console.debug(
-                "Story language automatically set to:",
-                internalLanguage,
-                "(from story language:",
-                fullStory.language,
-                ")"
-              );
           } else {
             // Default to English if no language is specified
             setStoryLanguage("english");
-            if ((import.meta as any)?.env?.MODE === "development")
-              console.debug("No language specified in story, defaulting to English");
           }
 
           // Set text content first (this is what we want to display)
@@ -1859,18 +1711,25 @@ const ReadingSessionPage: React.FC = () => {
             fullStory.textContent &&
             fullStory.textContent.trim().length > 0
           ) {
-            setStoryText(fullStory.textContent.trim());
-            const wordArray = fullStory.textContent
-              .trim()
+            const trimmedText = fullStory.textContent.trim();
+            setStoryText(trimmedText);
+            const wordArray = trimmedText
               .split(/\s+/)
               .filter((word: string) => word.length > 0);
             setWords(wordArray);
-            if ((import.meta as any)?.env?.MODE === "development")
-              console.debug(
-                "Text content loaded. Found",
-                wordArray.length,
-                "words"
-              );
+            
+            // Extract vocabulary for vocabulary-constrained recognition
+            const vocabulary = extractVocabulary(trimmedText);
+            setStoryVocabulary(vocabulary);
+            
+            // Detect story language based on vocabulary
+            const detectedLanguage = detectStoryLanguage(vocabulary);
+            
+            // Only override the language if it wasn't already set from story metadata
+            // This allows manual language setting to take precedence
+            if (!fullStory.language) {
+              setStoryLanguage(detectedLanguage);
+            }
           }
 
           // Try to load PDF content only if the story has a PDF
@@ -1880,8 +1739,6 @@ const ReadingSessionPage: React.FC = () => {
                 story._id
               );
               await loadPdfContent(pdfUrl);
-              if ((import.meta as any)?.env?.MODE === "development")
-                console.debug("PDF content also loaded successfully");
             } catch (pdfError) {
               console.warn(
                 "PDF loading failed, but text content is available:",
@@ -1898,8 +1755,6 @@ const ReadingSessionPage: React.FC = () => {
           } else {
             // Story doesn't have a PDF, set a friendly message
             setPdfError("This story doesn't have a PDF file. Reading session will use text content only.");
-            if ((import.meta as any)?.env?.MODE === "development")
-              console.debug("Story has no PDF, skipping PDF loading");
           }
         } catch (error) {
           console.error("Error fetching story content:", error);
@@ -1929,8 +1784,6 @@ const ReadingSessionPage: React.FC = () => {
     navigate(-1);
   };
 
-  // Legacy helper removed
-
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (isRecording && !isPaused) {
@@ -1950,17 +1803,9 @@ const ReadingSessionPage: React.FC = () => {
     if (storyText && storyText.trim().length > 0) {
       const { displayWords } = splitAndNormalizeWords(storyText);
       setWords(displayWords);
-      if ((import.meta as any)?.env?.MODE === "development")
-        console.debug("Loaded storyText");
     } else if (pdfContent && pdfContent.trim().length > 0) {
       const { displayWords } = splitAndNormalizeWords(pdfContent);
       setWords(displayWords);
-      if ((import.meta as any)?.env?.MODE === "development")
-        console.debug("Loaded pdfContent");
-    } else {
-      // No content yet (initial fetch); avoid noisy warnings in production
-      if ((import.meta as any)?.env?.MODE === "development")
-        console.debug("No storyText or pdfContent loaded yet");
     }
   }, [storyText, pdfContent]);
 
@@ -1977,8 +1822,19 @@ const ReadingSessionPage: React.FC = () => {
     }
     if (text) {
       setRealWords(extractWordsFromText(text));
+      
+      // Extract vocabulary for vocabulary-constrained recognition
+      const vocabulary = extractVocabulary(text);
+      setStoryVocabulary(vocabulary);
+      
+      // Detect story language
+      const detectedLanguage = detectStoryLanguage(vocabulary);
+      setStoryLanguage(detectedLanguage);
+      
+      console.log(`📚 Story loaded: ${vocabulary.size} vocabulary words, language: ${detectedLanguage}`);
     } else {
       setRealWords([]);
+      setStoryVocabulary(new Set());
     }
   }, [storyText, pdfContent]);
 
@@ -2262,11 +2118,7 @@ const ReadingSessionPage: React.FC = () => {
           break;
         }
 
-        // REMOVED: "contains match" logic - too lenient and causes false positives
-        // Example: "buyer" contains "buy" but they're different words
-        // Compound word detection below handles legitimate cases
-
-        // NEW: Check if multiple spoken words combine to form the expected word
+        // Check if multiple spoken words combine to form the expected word
         // Example: "panda sal" should match "pandesal" (mispronunciation)
         if (wordsToCheck.length >= 2) {
           const currentIdx = wordsToCheck.indexOf(spokenWord);
@@ -3241,25 +3093,8 @@ const ReadingSessionPage: React.FC = () => {
         },
       };
 
-      // Log the data structure before saving (for debugging)
-      if ((import.meta as any)?.env?.MODE === "development") {
-        console.debug("📝 Saving ISR result to MongoDB:", {
-          studentId: isrResultData.studentId,
-          studentName: isrResultData.studentName,
-          teacherId: isrResultData.teacherId,
-          formTitle: isrResultData.formTitle,
-          hasPartA: !!isrResultData.partA,
-          hasPartB: !!isrResultData.partB,
-          structure: isrResultData
-        });
-      }
-
       // Save to MongoDB
-      const savedResultId = await isrResultService.createISRResult(isrResultData);
-
-      if ((import.meta as any)?.env?.MODE === "development") {
-        console.debug("✅ ISR result saved successfully with ID:", savedResultId);
-      }
+      await isrResultService.createISRResult(isrResultData);
     } catch (error) {
       console.error("Error saving ISR result to MongoDB:", error);
       throw error; // Re-throw to show error to user
@@ -3340,8 +3175,6 @@ const ReadingSessionPage: React.FC = () => {
     a.click();
     a.remove();
   };
-
-  // formatTime helper removed (unused)
 
   // Helper to check if a word index matches the current word
   function isWordCurrent(realWordIndex: number): boolean {
@@ -4032,7 +3865,7 @@ const ReadingSessionPage: React.FC = () => {
                   htmlFor="recognition-language"
                   className="text-xs sm:text-sm font-semibold text-blue-900"
                 >
-                  Language:
+                  Story Language:
                 </label>
                 <select
                   id="recognition-language"
@@ -4040,7 +3873,9 @@ const ReadingSessionPage: React.FC = () => {
                   onChange={(e) =>
                     setStoryLanguage(e.target.value as "english" | "tagalog")
                   }
-                  className="text-xs sm:text-sm px-2 py-1 rounded-md border border-blue-200 bg-white text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  disabled={isRecording}
+                  className="text-xs sm:text-sm px-2 py-1 rounded-md border border-blue-200 bg-white text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  title={isRecording ? "Cannot change language during recording" : "Select story language for speech recognition"}
                 >
                   <option value="english">English</option>
                   <option value="tagalog">Tagalog</option>
@@ -4059,44 +3894,26 @@ const ReadingSessionPage: React.FC = () => {
                   >
                     <span
                       className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${voskStatus === "connected"
-                        ? "bg-green-500"
+                        ? "bg-green-500 animate-pulse"
                         : voskStatus === "connecting"
-                          ? "bg-yellow-500"
+                          ? "bg-yellow-500 animate-pulse"
                           : "bg-red-500"
                         }`}
                     ></span>
                     <span className="hidden sm:inline">
                       {voskStatus === "connected"
-                        ? `Vosk (${storyLanguage === "tagalog" ? "Tagalog" : "English"}) connected`
+                        ? `Vosk ${storyLanguage === "tagalog" ? "Tagalog" : "English"} Model: Connected`
                         : voskStatus === "connecting"
-                          ? `Vosk (${storyLanguage === "tagalog" ? "Tagalog" : "English"}) connecting…`
-                          : `Vosk (${storyLanguage === "tagalog" ? "Tagalog" : "English"}) disconnected`}
+                          ? `Vosk ${storyLanguage === "tagalog" ? "Tagalog" : "English"} Model: Connecting…`
+                          : `Vosk ${storyLanguage === "tagalog" ? "Tagalog" : "English"} Model: Disconnected`}
                     </span>
                     <span className="sm:hidden">
                       {voskStatus === "connected"
-                        ? "Vosk"
+                        ? `Vosk ${storyLanguage === "tagalog" ? "TL" : "EN"}`
                         : voskStatus === "connecting"
-                          ? "Vosk..."
-                          : "Vosk"}
+                          ? `Vosk ${storyLanguage === "tagalog" ? "TL" : "EN"}...`
+                          : `Vosk ${storyLanguage === "tagalog" ? "TL" : "EN"}`}
                     </span>
-                  </span>
-                )}
-                {/* If we fell back, show a small fallback label */}
-                {(storyLanguage === "tagalog" || storyLanguage === "english") && sttProvider === "webspeech" && (
-                  <span className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                    <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500"></span>
-                    <span className="hidden sm:inline">
-                      Fallback: Web Speech
-                    </span>
-                    <span className="sm:hidden">Web Speech</span>
-                  </span>
-                )}
-                {/* For English */}
-                {storyLanguage !== "tagalog" && sttProvider === "webspeech" && (
-                  <span className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                    <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500"></span>
-                    <span className="hidden sm:inline">Web Speech</span>
-                    <span className="sm:hidden">Web Speech</span>
                   </span>
                 )}
               </div>
@@ -4258,7 +4075,7 @@ const ReadingSessionPage: React.FC = () => {
                 alert("No test found for this story.");
                 return;
               }
-              // Allow quiz access anytime (removed completion requirement)
+              
               navigate(`/student/test/${resolvedTestId}` as any, {
                 state: {
                   studentId,
