@@ -357,16 +357,18 @@ const ReadingSessionPage: React.FC = () => {
       setIsRecording(false);
     }
 
-    // Choose STT path: Vosk (WS) for Tagalog if enabled, else Web Speech
-    // Force-try Vosk whenever the story is Tagalog; fallback to Web Speech if Vosk WS fails
-    const useVosk = storyLanguage === 'tagalog';
+    // Choose STT path: Vosk (WS) for both Tagalog and English, else Web Speech
+    // Force-try Vosk for both languages; fallback to Web Speech if Vosk WS fails
+    const useVosk = storyLanguage === 'tagalog' || storyLanguage === 'english';
     if (useVosk) {
       try {
         // Railway WebSocket URL: wss://philiready-websocket-production.up.railway.app
         // Can be overridden with VITE_VOSK_WS_URL environment variable
-        const wsUrl = 
+        // Add language parameter to WebSocket URL
+        const baseWsUrl = 
           (import.meta as any)?.env?.VITE_VOSK_WS_URL || 
           'wss://philiready-websocket-production.up.railway.app';
+        const wsUrl = `${baseWsUrl}?lang=${storyLanguage}`;
         const startVosk = async () => {
           const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 48000 } });
           const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
@@ -1235,22 +1237,26 @@ const ReadingSessionPage: React.FC = () => {
               </select>
             </div>
             <div className="flex items-center gap-2">
-              {/* Always show Vosk status for Tagalog stories */}
-              {storyLanguage === 'tagalog' && (
+              {/* Always show Vosk status for Tagalog and English stories */}
+              {(storyLanguage === 'tagalog' || storyLanguage === 'english') && (
                 <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold ${voskStatus === 'connected' ? 'bg-green-100 text-green-800' : voskStatus === 'connecting' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
                   <span className={`w-2 h-2 rounded-full ${voskStatus === 'connected' ? 'bg-green-500' : voskStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'}`}></span>
-                  {voskStatus === 'connected' ? 'Vosk (Tagalog) connected' : voskStatus === 'connecting' ? 'Vosk (Tagalog) connecting…' : 'Vosk (Tagalog) disconnected'}
+                  {voskStatus === 'connected' 
+                    ? `Vosk (${storyLanguage === 'tagalog' ? 'Tagalog' : 'English'}) connected` 
+                    : voskStatus === 'connecting' 
+                      ? `Vosk (${storyLanguage === 'tagalog' ? 'Tagalog' : 'English'}) connecting…` 
+                      : `Vosk (${storyLanguage === 'tagalog' ? 'Tagalog' : 'English'}) disconnected`}
                 </span>
               )}
               {/* If we fell back, show a small fallback label */}
-              {storyLanguage === 'tagalog' && sttProvider === 'webspeech' && (
+              {(storyLanguage === 'tagalog' || storyLanguage === 'english') && sttProvider === 'webspeech' && (
                 <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
                   <span className="w-2 h-2 rounded-full bg-blue-500"></span>
                   Fallback: Web Speech
                 </span>
               )}
-              {/* For English */}
-              {storyLanguage !== 'tagalog' && sttProvider === 'webspeech' && (
+              {/* For other languages (if any) */}
+              {storyLanguage !== 'tagalog' && storyLanguage !== 'english' && sttProvider === 'webspeech' && (
                 <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
                   <span className="w-2 h-2 rounded-full bg-blue-500"></span>
                   Web Speech
