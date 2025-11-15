@@ -1,8 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import * as echarts from 'echarts';
 import { type Student } from '../../../services/studentService';
 import { useAuth } from '../../../contexts/AuthContext';
-import { isrResultService } from '../../../services/ISRresultService';
 import ParentLoader from '../../parent/ParentLoader';
 
 interface ParentProgressChartProps {
@@ -30,19 +29,6 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const { currentUser, userRole } = useAuth();
 
-  // Helper function to generate default periods (last 6 months)
-  const generateDefaultPeriods = (): string[] => {
-    const periods: string[] = [];
-    const now = new Date();
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    for (let i = 5; i >= 0; i--) {
-      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const periodName = `${monthNames[date.getMonth()]} ${date.getFullYear()}`;
-      periods.push(periodName);
-    }
-    return periods;
-  };
-
   // Parent-specific computed data from real database (100% database-dependent)
   const [computedData, setComputedData] = useState<{
     assessmentPeriods: string[];
@@ -50,35 +36,25 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
     comprehensionScores: number[];
     readingLevels: number[];
   }>({
-    assessmentPeriods: generateDefaultPeriods(), // Always initialize with default periods
-    oralReadingScores: [0, 0, 0, 0, 0, 0], // Initialize with zeros for flat line
-    comprehensionScores: [0, 0, 0, 0, 0, 0],
-    readingLevels: [0, 0, 0, 0, 0, 0]
+    assessmentPeriods: [],
+    oralReadingScores: [],
+    comprehensionScores: [],
+    readingLevels: []
   });
 
   // Use computed data from database (100% database-dependent)
   // Always prioritize computedData which comes from real database ISR results
-  // Always ensure we have periods and data arrays (even if all zeros for flat line)
-  const defaultPeriods = generateDefaultPeriods();
   const safeData = {
-    assessmentPeriods: computedData.assessmentPeriods.length > 0 
-      ? computedData.assessmentPeriods 
-      : (data.assessmentPeriods?.length > 0 ? data.assessmentPeriods : defaultPeriods),
-    oralReadingScores: computedData.oralReadingScores.length > 0
-      ? computedData.oralReadingScores
-      : (data.oralReadingScores?.length > 0 ? data.oralReadingScores : [0, 0, 0, 0, 0, 0]),
-    comprehensionScores: computedData.comprehensionScores.length > 0
-      ? computedData.comprehensionScores
-      : (data.comprehensionScores?.length > 0 ? data.comprehensionScores : [0, 0, 0, 0, 0, 0]),
-    readingLevels: computedData.readingLevels.length > 0
-      ? computedData.readingLevels
-      : (data.readingLevels?.map(level => {
-          const lower = String(level).toLowerCase();
-          if (lower.includes('independent')) return 2;
-          if (lower.includes('instructional')) return 1;
-          if (lower.includes('frustration')) return 0;
-          return 0;
-        }) || [0, 0, 0, 0, 0, 0])
+    assessmentPeriods: computedData.assessmentPeriods.length ? computedData.assessmentPeriods : (data.assessmentPeriods || []),
+    oralReadingScores: computedData.oralReadingScores.length ? computedData.oralReadingScores : (data.oralReadingScores || []),
+    comprehensionScores: computedData.comprehensionScores.length ? computedData.comprehensionScores : (data.comprehensionScores || []),
+    readingLevels: computedData.readingLevels.length ? computedData.readingLevels : (data.readingLevels?.map(level => {
+      const lower = String(level).toLowerCase();
+      if (lower.includes('independent')) return 3;
+      if (lower.includes('instructional')) return 2;
+      if (lower.includes('frustration')) return 1;
+      return 0;
+    }) || [])
   };
   
   // Debug: Log safeData to verify it has values
@@ -94,8 +70,8 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
     });
   }
 
-  // Get current metric data for chart rendering (same as TeacherProgressChart)
-  const getCurrentData = () => {
+  // OLD CHART CODE - Not needed for card display
+  /* const getCurrentData = () => {
     switch (selectedMetric) {
       case 'oral':
         return {
@@ -120,13 +96,14 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
           data: safeData.readingLevels,
           name: 'Reading Level',
           color: '#f59e0b',
-          yAxisMax: 2,
+          yAxisMax: 3,
           yAxisMin: 0,
           formatter: (value: number) => {
             switch (value) {
-              case 2: return 'Independent';
-              case 1: return 'Instructional';
-              case 0: return 'Frustration';
+              case 3: return 'Independent';
+              case 2: return 'Instructional';
+              case 1: return 'Frustration';
+              case 0: return 'No Data';
               default: return 'No Data';
             }
           }
@@ -143,7 +120,7 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
     }
   };
 
-  const currentMetric = getCurrentData();
+  const currentMetric = getCurrentData(); */
 
   // Helper function to convert hex color to rgba
   const hexToRgba = (hex: string, alpha: number): string => {
@@ -167,13 +144,11 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
 
         if (students.length === 0) {
           console.log('ParentProgressChart: No children connected to parent account');
-          // Still set default periods with zeros to show flat line
-          const defaultPeriods = generateDefaultPeriods();
           setComputedData({
-            assessmentPeriods: defaultPeriods,
-            oralReadingScores: [0, 0, 0, 0, 0, 0],
-            comprehensionScores: [0, 0, 0, 0, 0, 0],
-            readingLevels: [0, 0, 0, 0, 0, 0]
+            assessmentPeriods: [],
+            oralReadingScores: [],
+            comprehensionScores: [],
+            readingLevels: []
           });
           setLastUpdated(new Date());
           return;
@@ -183,238 +158,100 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
         const selectedChild = students[0];
         if (!selectedChild?.id) {
           console.warn('ParentProgressChart: Selected child has no ID');
-          // Still set default periods with zeros to show flat line
-          const defaultPeriods = generateDefaultPeriods();
           setComputedData({
-            assessmentPeriods: defaultPeriods,
-            oralReadingScores: [0, 0, 0, 0, 0, 0],
-            comprehensionScores: [0, 0, 0, 0, 0, 0],
-            readingLevels: [0, 0, 0, 0, 0, 0]
+            assessmentPeriods: [],
+            oralReadingScores: [],
+            comprehensionScores: [],
+            readingLevels: []
           });
           setLastUpdated(new Date());
           return;
         }
 
-        console.log('ParentProgressChart: Fetching ISR results from database for child:', selectedChild.name, 'ID:', selectedChild.id);
+        // RESTORED: Fetch ISR results from MongoDB
+        const { isrResultService } = await import('../../../services/ISRresultService');
+        const isrResults = await isrResultService.getISRResultsByStudent(selectedChild.id!);
+        
+        console.log(`📊 Fetched ${isrResults.length} ISR results for child ${selectedChild.name}`);
 
-        // Fetch ISR results from database (100% database-dependent)
-        // Pass both studentId and studentName to help with ID matching issues
-        let isrResults: any[] = [];
-        try {
-          isrResults = await isrResultService.getISRResultsByStudent(selectedChild.id, selectedChild.name);
-          console.log(`ParentProgressChart: Fetched ${isrResults.length} ISR result(s) from database for ${selectedChild.name} (ID: ${selectedChild.id})`);
-          
-          // Log detailed information about fetched results
-          if (isrResults.length > 0) {
-            console.log('ParentProgressChart: Fetched ISR results details:', {
-              totalResults: isrResults.length,
-              studentIds: [...new Set(isrResults.map((r: any) => r.studentId))],
-              studentNames: [...new Set(isrResults.map((r: any) => r.studentName))],
-              dateRange: {
-                earliest: isrResults[0]?.assessmentDate || isrResults[0]?.createdAt,
-                latest: isrResults[isrResults.length - 1]?.assessmentDate || isrResults[isrResults.length - 1]?.createdAt
-              },
-              sampleResult: {
-                studentId: isrResults[0].studentId,
-                studentName: isrResults[0].studentName,
-                assessmentDate: isrResults[0].assessmentDate,
-                partA: {
-                  percentage: isrResults[0].partA?.percentage,
-                  comprehensionLevel: isrResults[0].partA?.comprehensionLevel
-                },
-                partB: {
-                  wordReadingScore: isrResults[0].partB?.wordReadingScore,
-                  wordReadingLevel: isrResults[0].partB?.wordReadingLevel
-                }
-              }
-            });
-          } else {
-            console.warn(`⚠️ ParentProgressChart: No ISR results found for ${selectedChild.name} (ID: ${selectedChild.id})`);
-          }
-        } catch (error) {
-          console.error('ParentProgressChart: Error fetching ISR results:', error);
-          isrResults = [];
-        }
+        // Get the last 10 sessions (or all if less than 10) to show progress over time
+        const sortedResults = isrResults.sort((a, b) =>
+          new Date(a.createdAt || a.assessmentDate || 0).getTime() - new Date(b.createdAt || b.assessmentDate || 0).getTime()
+        );
 
-        // Process ISR results into chart data format
-        // Each ISR result contains:
-        // - partA.comprehensionLevel: 'Independent' | 'Instructional' | 'Frustration'
-        // - partA.percentage: comprehension score (0-100)
-        // - partB.wordReadingLevel: 'Independent' | 'Instructional' | 'Frustration'
-        // - partB.wordReadingScore: oral reading score (0-100)
-        // - assessmentDate: date when assessment was taken
-        const processedResults = isrResults.map((isrResult: any) => {
-          const partA = isrResult.partA || {};
-          const partB = isrResult.partB || {};
-          
-          // Get date from assessmentDate (when reading session was completed) or createdAt
-          const assessmentDate = isrResult.assessmentDate || isrResult.createdAt || new Date();
-          
-          // Convert reading level to numeric value for chart
-          const wordReadingLevel = partB.wordReadingLevel || '';
-          const comprehensionLevel = partA.comprehensionLevel || '';
-          
-          let readingLevelValue = 0; // Default to Frustration
-          const wordLevelLower = String(wordReadingLevel).toLowerCase().trim();
-          if (wordLevelLower === 'independent' || wordLevelLower.includes('independent')) {
-            readingLevelValue = 2;
-          } else if (wordLevelLower === 'instructional' || wordLevelLower.includes('instructional')) {
-            readingLevelValue = 1;
-          }
-          
-          return {
-            date: assessmentDate,
-            createdAt: assessmentDate,
-            assessmentDate: assessmentDate,
-            // Oral reading score from partB.wordReadingScore (accuracy percentage)
-            oralReadingScore: partB.wordReadingScore || 0,
-            // Comprehension score from partA.percentage
-            comprehension: partA.percentage || 0,
-            // Reading level as numeric (0=Frustration, 1=Instructional, 2=Independent)
-            readingLevel: readingLevelValue,
-            readingLevelText: wordReadingLevel || 'Frustration',
-            // Store raw data for debugging
-            rawData: {
-              partA: partA,
-              partB: partB,
-              wordReadingLevel: wordReadingLevel,
-              comprehensionLevel: comprehensionLevel
-            }
-          };
-        }).sort((a, b) => {
-          // Sort chronologically (oldest first)
-          const dateA = new Date(a.date || a.createdAt || a.assessmentDate || 0);
-          const dateB = new Date(b.date || b.createdAt || b.assessmentDate || 0);
-          return dateA.getTime() - dateB.getTime();
-        });
-
-        console.log('ParentProgressChart: Processed ISR results:', {
-          totalResults: processedResults.length,
-          results: processedResults.map(r => ({
-            date: r.date,
-            oralReadingScore: r.oralReadingScore,
-            comprehension: r.comprehension,
-            readingLevel: r.readingLevel,
-            readingLevelText: r.readingLevelText
-          }))
-        });
-
-        // Create time-based periods (last 6 months) - ALWAYS generate periods even if no data
-        const now = new Date();
-        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        const periods: string[] = [];
+        // Take up to 10 most recent sessions
+        const recentResults = sortedResults.slice(-10);
+        
+        // Extract data from all sessions
+        const sessionLabels: string[] = [];
         const oralScores: number[] = [];
         const compScores: number[] = [];
-        const readingLevels: number[] = [];
+        const levelScores: number[] = [];
 
-        // Always generate 6 months of periods for consistent chart display
-        for (let i = 5; i >= 0; i--) {
-          const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-          const periodName = `${monthNames[date.getMonth()]} ${date.getFullYear()}`;
-          periods.push(periodName);
-
-          // Find results for this period (using assessmentDate from database)
-          const periodResults = processedResults.filter(result => {
-            try {
-              const resultDate = new Date(result.date || result.assessmentDate || result.createdAt || 0);
-              if (isNaN(resultDate.getTime())) {
-                console.warn('ParentProgressChart: Invalid date in result:', result);
-                return false;
-              }
-              const matches = resultDate.getMonth() === date.getMonth() && resultDate.getFullYear() === date.getFullYear();
-              
-              // Log when we find matches for debugging
-              if (matches) {
-                console.log(`ParentProgressChart: Matched result for period ${periodName}:`, {
-                  resultDate: resultDate.toISOString(),
-                  periodDate: date.toISOString(),
-                  oralScore: result.oralReadingScore,
-                  compScore: result.comprehension,
-                  readingLevel: result.readingLevelText
-                });
-              }
-              
-              return matches;
-            } catch (e) {
-              console.warn('ParentProgressChart: Error parsing date:', e, result);
-              return false;
-            }
-          });
-
-          // Calculate averages for this period from ISR database results
-          let oralSum = 0, oralCount = 0;
-          let compSum = 0, compCount = 0;
-          let levelSum = 0, levelCount = 0;
-
-          periodResults.forEach(result => {
-            // Process oral reading scores from ISR database (partB.wordReadingScore)
-            // Include 0 values as they are valid scores
-            if (typeof result.oralReadingScore === 'number' && !isNaN(result.oralReadingScore)) {
-              oralSum += Math.max(0, Math.min(100, result.oralReadingScore));
-              oralCount += 1;
-            }
-
-            // Process comprehension scores from ISR database (partA.percentage)
-            // Include 0 values as they are valid scores
-            if (typeof result.comprehension === 'number' && !isNaN(result.comprehension)) {
-              compSum += Math.max(0, Math.min(100, result.comprehension));
-              compCount += 1;
-            }
-
-            // Process reading levels from ISR database (already converted to numeric: 0=Frustration, 1=Instructional, 2=Independent)
-            // Include 0 values as they represent "Frustration" level
-            if (typeof result.readingLevel === 'number' && !isNaN(result.readingLevel)) {
-              levelSum += result.readingLevel;
-              levelCount += 1;
-            }
-          });
-
-          // Calculate averages for this period
-          const avgOral = oralCount > 0 ? Math.round(oralSum / oralCount) : 0;
-          const avgComp = compCount > 0 ? Math.round(compSum / compCount) : 0;
-          const avgLevel = levelCount > 0 ? Math.round(levelSum / levelCount) : 0;
+        recentResults.forEach((result, index) => {
+          // Create session label
+          sessionLabels.push(`Session ${index + 1}`);
           
-          oralScores.push(avgOral);
-          compScores.push(avgComp);
-          readingLevels.push(avgLevel);
-          
-          // Log period data for debugging
-          if (periodResults.length > 0) {
-            console.log(`ParentProgressChart: Period ${periodName}:`, {
-              resultsCount: periodResults.length,
-              avgOral: avgOral,
-              avgComp: avgComp,
-              avgLevel: avgLevel,
-              levelText: avgLevel === 2 ? 'Independent' : avgLevel === 1 ? 'Instructional' : 'Frustration'
-            });
+          // Oral reading score from Part B
+          let oralScore = 0;
+          if (result.partB?.wordReadingScore) {
+            oralScore = Math.max(0, Math.min(100, result.partB.wordReadingScore));
           }
-        }
+          oralScores.push(oralScore);
 
-        console.log('ParentProgressChart: Final chart data (100% database-dependent):', {
-          periods: periods,
-          oralScores: oralScores,
-          compScores: compScores,
-          readingLevels: readingLevels,
-          totalDataPoints: processedResults.length
+          // Comprehension score from Part A
+          let compScore = 0;
+          if (result.partA?.percentage) {
+            compScore = Math.max(0, Math.min(100, result.partA.percentage));
+          }
+          compScores.push(compScore);
+
+          // Reading level from Part B (use 0-3 scale)
+          let levelScore = 0;
+          if (result.partB?.wordReadingLevel) {
+            const level = String(result.partB.wordReadingLevel).toLowerCase().trim();
+            if (level.includes('independent')) levelScore = 3;
+            else if (level.includes('instructional')) levelScore = 2;
+            else if (level.includes('frustration')) levelScore = 1;
+            else levelScore = 2;
+          } else {
+            // Derive from oral reading score
+            if (oralScore >= 95) levelScore = 3;
+            else if (oralScore >= 85) levelScore = 2;
+            else if (oralScore > 0) levelScore = 1;
+            else levelScore = 0;
+          }
+          levelScores.push(levelScore);
         });
 
+        // Add baseline at the END (right side)
+        if (recentResults.length > 0) {
+          sessionLabels.push('Baseline');
+          oralScores.push(0);
+          compScores.push(0);
+          levelScores.push(0);
+        }
+        
+        console.log(`📊 ParentProgressChart: Processed ${recentResults.length} sessions`);
+        console.log(`   Oral scores: ${oralScores.join(', ')}`);
+        console.log(`   Comp scores: ${compScores.join(', ')}`);
+        console.log(`   Level scores: ${levelScores.join(', ')}`);
+
         setComputedData({
-          assessmentPeriods: periods,
+          assessmentPeriods: sessionLabels,
           oralReadingScores: oralScores,
           comprehensionScores: compScores,
-          readingLevels: readingLevels
+          readingLevels: levelScores
         });
 
         setLastUpdated(new Date());
       } catch (error) {
         console.error('ParentProgressChart: Error fetching child reading results:', error);
-        // On error, still set default periods with zeros to show flat line
-        const defaultPeriods = generateDefaultPeriods();
         setComputedData({
-          assessmentPeriods: defaultPeriods,
-          oralReadingScores: [0, 0, 0, 0, 0, 0],
-          comprehensionScores: [0, 0, 0, 0, 0, 0],
-          readingLevels: [0, 0, 0, 0, 0, 0]
+          assessmentPeriods: [],
+          oralReadingScores: [],
+          comprehensionScores: [],
+          readingLevels: []
         });
         setLastUpdated(new Date());
       } finally {
@@ -432,7 +269,150 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
     };
   }, [currentUser?.uid, userRole, students, refreshTrigger]);
 
-  // Initialize and update chart (same structure as TeacherProgressChart)
+  // Initialize line chart
+  useEffect(() => {
+    if (!chartRef.current) return;
+
+    // Initialize chart
+    if (!chartInstance.current) {
+      chartInstance.current = echarts.init(chartRef.current);
+    }
+
+    // Get current metric data
+    let chartData: number[] = [];
+    let chartColor = '#3b82f6';
+    let chartName = 'Score';
+    let yMax = 100;
+    let formatter = (val: number) => `${val}%`;
+
+    if (selectedMetric === 'oral') {
+      chartData = safeData.oralReadingScores;
+      chartColor = '#3b82f6';
+      chartName = 'Oral Reading Fluency';
+      yMax = 100;
+      formatter = (val: number) => `${val}%`;
+    } else if (selectedMetric === 'comprehension') {
+      chartData = safeData.comprehensionScores;
+      chartColor = '#10b981';
+      chartName = 'Comprehension Score';
+      yMax = 100;
+      formatter = (val: number) => `${val}%`;
+    } else {
+      chartData = safeData.readingLevels;
+      chartColor = '#f59e0b';
+      chartName = 'Reading Level';
+      yMax = 3;
+      formatter = (val: number) => {
+        if (val === 3) return 'Independent';
+        if (val === 2) return 'Instructional';
+        if (val === 1) return 'Frustration';
+        return 'No Data';
+      };
+    }
+
+    const option = {
+      grid: {
+        left: '2%',
+        right: '2%',
+        bottom: '8%',
+        top: '3%',
+        containLabel: true
+      },
+      xAxis: {
+        type: 'category',
+        data: safeData.assessmentPeriods,
+        boundaryGap: false,
+        axisLabel: {
+          color: '#6b7280',
+          fontSize: 11
+        },
+        axisLine: {
+          lineStyle: { color: '#e5e7eb' }
+        }
+      },
+      yAxis: {
+        type: 'value',
+        max: yMax,
+        min: 0,
+        axisLabel: {
+          color: '#6b7280',
+          fontSize: 11,
+          formatter: (val: number) => {
+            if (selectedMetric === 'reading-level') {
+              if (val === 3) return 'Independent';
+              if (val === 2) return 'Instructional';
+              if (val === 1) return 'Frustration';
+              return ''; // Hide "No Data" label
+            }
+            return formatter(val);
+          }
+        },
+        splitLine: {
+          lineStyle: { color: '#f3f4f6' }
+        }
+      },
+      series: [{
+        name: chartName,
+        type: 'line',
+        data: chartData,
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 12,
+        lineStyle: {
+          width: 4,
+          color: chartColor
+        },
+        itemStyle: {
+          color: chartColor,
+          borderWidth: 2,
+          borderColor: '#fff'
+        },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: `${chartColor}40` },
+              { offset: 1, color: `${chartColor}10` }
+            ]
+          }
+        }
+      }],
+      tooltip: {
+        trigger: 'axis',
+        formatter: (params: any) => {
+          const value = params[0].value;
+          const displayValue = selectedMetric === 'reading-level' ? formatter(value) : `${value}%`;
+          return `${params[0].axisValue}<br/>${chartName}: <b>${displayValue}</b>`;
+        }
+      }
+    };
+
+    chartInstance.current.setOption(option);
+
+    // Handle resize
+    const handleResize = () => chartInstance.current?.resize();
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [safeData, selectedMetric]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (chartInstance.current) {
+        chartInstance.current.dispose();
+        chartInstance.current = null;
+      }
+    };
+  }, []);
+
+  /* OLD CHART CODE REMOVED
   useEffect(() => {
     if (chartRef.current) {
       try {
@@ -708,8 +688,9 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
       } catch (error) {
         console.error('ParentProgressChart: Error initializing chart:', error);
       }
-    }
-  }, [safeData, selectedMetric, currentMetric, forceChartInit, computedData]);
+      }
+  }, [safeData, selectedMetric, currentMetric, forceChartInit]);
+  */
 
   return (
     <div className="bg-white rounded-2xl p-3 transition-all duration-300 overflow-hidden flex flex-col h-full w-full">
@@ -825,12 +806,33 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
           </div>
         </div>
 
-        {/* Chart Container - Always Rendered */}
-        <div className="w-full flex-1 min-h-80 h-full relative">
-          <div ref={chartRef} className="w-full h-full" style={{ minHeight: '320px' }} />
+        {/* Line Chart Display - Maximized */}
+        <div className="w-full flex-1 h-full relative" style={{ minHeight: '400px' }}>
+          <div ref={chartRef} className="w-full h-full" style={{ minHeight: '400px' }} />
+
+          {/* No Data Overlay */}
+          {safeData.oralReadingScores.every(score => score === 0) &&
+            safeData.comprehensionScores.every(score => score === 0) &&
+            safeData.readingLevels.every(level => level === 0) && (
+              <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-95">
+                <div className="text-center text-gray-500">
+                  <i className="fas fa-book-reader text-4xl mb-4 text-gray-300"></i>
+                  <h3 className="text-lg font-medium mb-2">Your Child's Reading Journey Starts Here</h3>
+                  <p className="text-sm mb-4">Reading progress will appear here as your child completes activities with their teacher.</p>
+                  <div className="text-xs text-gray-400">
+                    <p>• Track reading skills as they grow</p>
+                    <p>• See comprehension improvements</p>
+                    <p>• Updates happen automatically</p>
+                  </div>
+                </div>
+              </div>
+            )}
 
           {/* Chart Loading/Retry Overlay - Only show if chart hasn't initialized yet */}
-          {!chartInstance.current && (
+          {!chartInstance.current && 
+            (safeData.oralReadingScores.some(score => score > 0) ||
+              safeData.comprehensionScores.some(score => score > 0) ||
+              safeData.readingLevels.some(level => level > 0)) && (
               <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-90">
                 <div className="text-center text-gray-500">
                   <ParentLoader label="Loading Chart..." size="sm" />
