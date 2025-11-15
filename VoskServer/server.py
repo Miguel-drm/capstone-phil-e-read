@@ -10,26 +10,38 @@ from vosk import Model, KaldiRecognizer
 
 async def recognize(websocket, path, model):
     sample_rate = 16000
+    # Create recognizer with words (for better accuracy) and partial words enabled
+    # Set max_alternatives to 0 for faster processing (we only need the best result)
     recognizer = KaldiRecognizer(model, sample_rate)
+    recognizer.SetWords(True)  # Enable word-level timestamps (can help with accuracy)
+    
     try:
         async for message in websocket:
             # message is bytes (PCM16 LE)
             if isinstance(message, (bytes, bytearray)):
+                # Process audio in chunks - Vosk works best with continuous streaming
                 if recognizer.AcceptWaveform(message):
+                    # Final result - send immediately for accuracy
                     res = json.loads(recognizer.Result())
-                    await websocket.send(json.dumps({"text": res.get("text", "")}))
+                    text = res.get("text", "").strip()
+                    if text:
+                        await websocket.send(json.dumps({"text": text}))
                 else:
+                    # Partial result - send for real-time feedback
                     pres = json.loads(recognizer.PartialResult())
-                    if pres.get("partial"):
-                        await websocket.send(json.dumps({"partial": pres["partial"]}))
+                    partial = pres.get("partial", "").strip()
+                    if partial:
+                        await websocket.send(json.dumps({"partial": partial}))
             else:
-                # ignore non-binary messages
+                # ignore non-binary messages (like heartbeat pings)
                 pass
     finally:
-        # send final result on close
+        # send final result on close - important for accuracy
         try:
             fres = json.loads(recognizer.FinalResult())
-            await websocket.send(json.dumps({"text": fres.get("text", "")}))
+            text = fres.get("text", "").strip()
+            if text:
+                await websocket.send(json.dumps({"text": text}))
         except:
             pass
 

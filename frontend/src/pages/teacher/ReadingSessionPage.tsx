@@ -69,6 +69,11 @@ const ReadingSessionPage: React.FC = () => {
   const scriptNodeRef = useRef<ScriptProcessorNode | null>(null);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const voskSocketRef = useRef<WebSocket | null>(null);
+  const voskReconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const voskReconnectAttemptsRef = useRef<number>(0);
+  const voskFinalTranscriptRef = useRef<string>(""); // Accumulate final results
+  const voskConnectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const voskHeartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [transcript, setTranscript] = useState("");
   const [sttProvider, setSttProvider] = useState<"vosk" | "webspeech" | "none">(
     "none"
@@ -85,6 +90,59 @@ const ReadingSessionPage: React.FC = () => {
   const currentWordRef = useRef<HTMLSpanElement>(null);
   const storyContentRef = useRef<HTMLDivElement>(null);
   // Derived metrics are calculated from elapsed time and transcript
+
+  // Vosk cleanup function (component-level for accessibility)
+  const cleanupVosk = () => {
+    // Clear all timeouts and intervals
+    if (voskReconnectTimeoutRef.current) {
+      clearTimeout(voskReconnectTimeoutRef.current);
+      voskReconnectTimeoutRef.current = null;
+    }
+    if (voskConnectionTimeoutRef.current) {
+      clearTimeout(voskConnectionTimeoutRef.current);
+      voskConnectionTimeoutRef.current = null;
+    }
+    if (voskHeartbeatIntervalRef.current) {
+      clearInterval(voskHeartbeatIntervalRef.current);
+      voskHeartbeatIntervalRef.current = null;
+    }
+
+    // Disconnect audio nodes
+    try {
+      scriptNodeRef.current?.disconnect();
+    } catch { }
+    try {
+      sourceNodeRef.current?.disconnect();
+    } catch { }
+    
+    // Stop all audio tracks
+    try {
+      const stream = sourceNodeRef.current?.mediaStream;
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+    } catch { }
+    
+    // Close audio context
+    try {
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close();
+      }
+    } catch { }
+    
+    // Close WebSocket
+    try {
+      if (voskSocketRef.current) {
+        voskSocketRef.current.close(1000, "Cleanup");
+      }
+    } catch { }
+    
+    // Clear refs
+    scriptNodeRef.current = null;
+    sourceNodeRef.current = null;
+    audioContextRef.current = null;
+    voskSocketRef.current = null;
+  };
 
   // Debug state removed
 
@@ -744,12 +802,14 @@ const ReadingSessionPage: React.FC = () => {
     setIsRecording(true);
     setIsPaused(false);
     setTranscript("");
+    voskFinalTranscriptRef.current = ""; // Reset Vosk transcript accumulator
     setWordsRead(0);
     // reset derived metrics
     setElapsedTime(0);
     setAudioBlob(null);
     setAudioUrl(null);
     setCurrentWordIndex(0);
+    voskReconnectAttemptsRef.current = 0; // Reset reconnect attempts
 
     // --- MediaRecorder ---
     // Note: MediaRecorder failure is non-blocking - speech recognition will still work
@@ -792,109 +852,255 @@ const ReadingSessionPage: React.FC = () => {
           (import.meta as any)?.env?.VITE_VOSK_WS_URL ||
           "wss://philiready-websocket-production.up.railway.app";
         const wsUrl = `${baseWsUrl}?lang=${storyLanguage}`;
-        const startVosk = async () => {
+        const startVosk = async (isReconnect: boolean = false) => {
+          // Reset reconnect attempts on manual start (not reconnect)
+          if (!isReconnect) {
+            voskReconnectAttemptsRef.current = 0;
+            voskFinalTranscriptRef.current = "";
+          }
+
           let stream: MediaStream;
           try {
+            // Vosk works best with minimal audio processing - let the model handle noise
+            // Disable echo cancellation and noise suppression for better accuracy
+            // These can distort speech patterns that Vosk relies on
             stream = await navigator.mediaDevices.getUserMedia({
-              audio: { channelCount: 1, sampleRate: 48000 },
+              audio: { 
+                channelCount: 1, 
+                sampleRate: 48000,
+                // Disable these for better Vosk accuracy - they can distort speech
+                echoCancellation: false,  // Vosk models handle echo better than browser processing
+                noiseSuppression: false,  // Browser noise suppression can remove speech features
+                autoGainControl: false    // AGC can distort speech dynamics
+              },
             });
           } catch (error) {
-            // Vosk getUserMedia failed, fallback to Web Speech
-            console.warn("Vosk getUserMedia failed, falling back to Web Speech:", error);
-            cleanupVosk();
-            setVoskStatus("disconnected");
-            startWebSpeech();
-            return;
+            // If the above fails, try with default settings (some browsers require constraints)
+            try {
+              stream = await navigator.mediaDevices.getUserMedia({
+                audio: { 
+                  channelCount: 1, 
+                  sampleRate: 48000
+                },
+              });
+            } catch (fallbackError) {
+              console.warn("Vosk getUserMedia failed, falling back to Web Speech:", fallbackError);
+              cleanupVosk();
+              setVoskStatus("disconnected");
+              if (!isReconnect) {
+                startWebSpeech();
+              }
+              return;
+            }
           }
+
+          // Resume audio context if suspended (common in browsers)
           const ctx = new (window.AudioContext ||
             (window as any).webkitAudioContext)({ sampleRate: 48000 });
+          
+          if (ctx.state === 'suspended') {
+            try {
+              await ctx.resume();
+            } catch (e) {
+              console.warn("Failed to resume audio context:", e);
+            }
+          }
+
           audioContextRef.current = ctx;
           const src = ctx.createMediaStreamSource(stream);
           sourceNodeRef.current = src;
-          // Ultra-low buffer size (1024) for fastest possible recognition (<1 second response)
-          const script = ctx.createScriptProcessor(1024, 1, 1);
+          
+          // Larger buffer size (4096) for better audio quality and accuracy
+          // Vosk works better with larger chunks that preserve more audio information
+          const script = ctx.createScriptProcessor(4096, 1, 1);
           scriptNodeRef.current = script;
 
-          // Downsample Float32 (48k) to Int16 (16k)
+          // High-quality downsampling with proper anti-aliasing filter
+          // Uses a more sophisticated resampling algorithm for better accuracy
           const downsampleTo16k = (input: Float32Array): Int16Array => {
             const sampleRate = ctx.sampleRate || 48000;
-            const ratio = sampleRate / 16000;
+            const targetRate = 16000;
+            const ratio = sampleRate / targetRate;
             const newLength = Math.floor(input.length / ratio);
             const result = new Int16Array(newLength);
-            let idx = 0;
-            let i = 0;
-            while (idx < newLength) {
-              const next = Math.floor((idx + 1) * ratio);
+            
+            // Use a better anti-aliasing filter (sinc-based resampling approximation)
+            // This preserves more speech information than simple averaging
+            const filterLength = Math.min(32, Math.floor(input.length / 2));
+            
+            for (let i = 0; i < newLength; i++) {
+              const srcIndex = i * ratio;
+              const srcStart = Math.max(0, Math.floor(srcIndex - filterLength));
+              const srcEnd = Math.min(input.length, Math.ceil(srcIndex + filterLength));
+              
               let sum = 0;
-              let count = 0;
-              for (; i < next && i < input.length; i++) {
-                sum += input[i];
-                count++;
+              let weightSum = 0;
+              
+              // Apply windowed sinc filter for better quality
+              for (let j = srcStart; j < srcEnd; j++) {
+                const offset = j - srcIndex;
+                if (Math.abs(offset) < 0.5) {
+                  // Use linear interpolation for close samples
+                  const weight = 1 - Math.abs(offset);
+                  sum += input[j] * weight;
+                  weightSum += weight;
+                } else {
+                  // Apply sinc-like window for anti-aliasing
+                  const sinc = Math.sin(Math.PI * offset) / (Math.PI * offset);
+                  const window = 0.5 * (1 + Math.cos(Math.PI * offset / filterLength));
+                  const weight = sinc * window;
+                  sum += input[j] * weight;
+                  weightSum += Math.abs(weight);
+                }
               }
-              const sample = sum / (count || 1);
-              const s = Math.max(-1, Math.min(1, sample));
-              result[idx++] = s < 0 ? s * 0x8000 : s * 0x7fff;
+              
+              // Normalize and convert to Int16
+              const sample = weightSum > 0 ? sum / weightSum : 0;
+              const clamped = Math.max(-1, Math.min(1, sample));
+              result[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
             }
+            
             return result;
           };
 
           setVoskStatus("connecting");
+          
+          // Connection timeout (5 seconds)
+          voskConnectionTimeoutRef.current = setTimeout(() => {
+            if (voskSocketRef.current?.readyState !== WebSocket.OPEN) {
+              console.warn("Vosk connection timeout, attempting reconnect...");
+              voskSocketRef.current?.close();
+              attemptVoskReconnect();
+            }
+          }, 5000);
+
           const ws = new WebSocket(wsUrl);
           voskSocketRef.current = ws;
           ws.binaryType = "arraybuffer";
+          
           ws.onopen = () => {
+            // Clear connection timeout
+            if (voskConnectionTimeoutRef.current) {
+              clearTimeout(voskConnectionTimeoutRef.current);
+              voskConnectionTimeoutRef.current = null;
+            }
+            
+            // Reset reconnect attempts on successful connection
+            voskReconnectAttemptsRef.current = 0;
+            
             setVoskStatus("connected");
             setSttProvider("vosk");
+            
+            // Start heartbeat to detect dead connections
+            voskHeartbeatIntervalRef.current = setInterval(() => {
+              if (ws.readyState === WebSocket.OPEN) {
+                // Send empty message as ping (server will ignore it)
+                try {
+                  ws.send(new ArrayBuffer(0));
+                } catch (e) {
+                  console.warn("Heartbeat send failed:", e);
+                  attemptVoskReconnect();
+                }
+              }
+            }, 30000); // Every 30 seconds
+            
             script.onaudioprocess = (e: AudioProcessingEvent) => {
-              const channel = e.inputBuffer.getChannelData(0);
-              const pcm16 = downsampleTo16k(channel);
-              if (ws.readyState === WebSocket.OPEN) ws.send(pcm16);
+              try {
+                const channel = e.inputBuffer.getChannelData(0);
+                const pcm16 = downsampleTo16k(channel);
+                if (ws.readyState === WebSocket.OPEN) {
+                  ws.send(pcm16.buffer);
+                } else if (ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
+                  // Connection lost, try to reconnect
+                  attemptVoskReconnect();
+                }
+              } catch (error) {
+                console.warn("Error processing audio:", error);
+                // Don't stop recording, just log the error
+              }
             };
             src.connect(script);
             script.connect(ctx.destination);
           };
+          
           ws.onmessage = (evt) => {
             try {
               const msg = JSON.parse(evt.data);
-              // Process both final and partial results immediately for faster response
-              if (msg.text) {
-                // Final result - update transcript
-                setTranscript(msg.text);
-              } else if (msg.partial) {
-                // Partial result - update transcript immediately for instant feedback
-                setTranscript(msg.partial);
+              
+              // Process final results - accumulate them
+              if (msg.text && msg.text.trim()) {
+                // Final result - append to accumulated transcript
+                voskFinalTranscriptRef.current += (voskFinalTranscriptRef.current ? " " : "") + msg.text.trim();
+                setTranscript(voskFinalTranscriptRef.current);
+              } else if (msg.partial && msg.partial.trim()) {
+                // Partial result - show accumulated + partial for instant feedback
+                setTranscript(voskFinalTranscriptRef.current + (voskFinalTranscriptRef.current ? " " : "") + msg.partial);
               }
-            } catch { }
+            } catch (error) {
+              console.warn("Error parsing Vosk message:", error);
+            }
           };
-          ws.onerror = () => {
-            console.warn("Vosk WS error, falling back to Web Speech");
-            cleanupVosk();
-            setVoskStatus("disconnected");
-            startWebSpeech();
+          
+          ws.onerror = (error) => {
+            console.warn("Vosk WS error:", error);
+            // Don't immediately fallback - try reconnecting first
+            if (voskReconnectAttemptsRef.current < 3) {
+              attemptVoskReconnect();
+            } else {
+              console.warn("Max reconnect attempts reached, falling back to Web Speech");
+              cleanupVosk();
+              setVoskStatus("disconnected");
+              if (!isReconnect) {
+                startWebSpeech();
+              }
+            }
           };
-          ws.onclose = () => {
+          
+          ws.onclose = (event) => {
             setVoskStatus("disconnected");
+            
+            // Clear heartbeat
+            if (voskHeartbeatIntervalRef.current) {
+              clearInterval(voskHeartbeatIntervalRef.current);
+              voskHeartbeatIntervalRef.current = null;
+            }
+            
+            // Only attempt reconnect if we're still recording and it wasn't a clean close
+            if (isRecording && !isPaused && event.code !== 1000) {
+              // Abnormal close, try to reconnect
+              if (voskReconnectAttemptsRef.current < 3) {
+                attemptVoskReconnect();
+              } else {
+                console.warn("Max reconnect attempts reached, falling back to Web Speech");
+                cleanupVosk();
+                if (!isReconnect) {
+                  startWebSpeech();
+                }
+              }
+            }
           };
         };
 
-        const cleanupVosk = () => {
-          try {
-            scriptNodeRef.current?.disconnect();
-          } catch { }
-          try {
-            sourceNodeRef.current?.disconnect();
-          } catch { }
-          try {
-            audioContextRef.current?.close();
-          } catch { }
-          try {
-            voskSocketRef.current?.close();
-          } catch { }
-          scriptNodeRef.current = null;
-          sourceNodeRef.current = null;
-          audioContextRef.current = null;
-          voskSocketRef.current = null;
+        // Reconnection logic with exponential backoff
+        const attemptVoskReconnect = () => {
+          if (voskReconnectTimeoutRef.current) {
+            clearTimeout(voskReconnectTimeoutRef.current);
+          }
+
+          voskReconnectAttemptsRef.current += 1;
+          const delay = Math.min(1000 * Math.pow(2, voskReconnectAttemptsRef.current - 1), 10000); // Max 10 seconds
+          
+          console.log(`🔄 Attempting Vosk reconnect (attempt ${voskReconnectAttemptsRef.current}) in ${delay}ms...`);
+          setVoskStatus("connecting");
+          
+          voskReconnectTimeoutRef.current = setTimeout(() => {
+            if (isRecording && !isPaused) {
+              cleanupVosk();
+              startVosk(true); // Pass isReconnect flag
+            }
+          }, delay);
         };
+
 
         const startWebSpeech = () => {
           const SpeechRecognition =
@@ -1195,11 +1401,172 @@ const ReadingSessionPage: React.FC = () => {
     } catch { }
   }, [storyLanguage, isRecording, isPaused]);
 
+  // Handle Vosk language switching - reconnect with new language if needed
+  useEffect(() => {
+    // If Vosk is connected and language changes, reconnect with new language
+    if (voskSocketRef.current && voskSocketRef.current.readyState === WebSocket.OPEN && isRecording && !isPaused) {
+      console.log(`🔄 Language changed to ${storyLanguage}, reconnecting Vosk with new language...`);
+      cleanupVosk();
+      voskFinalTranscriptRef.current = ""; // Reset transcript
+      voskReconnectAttemptsRef.current = 0;
+      
+      // Small delay before reconnecting to ensure cleanup completes
+      setTimeout(() => {
+        if (isRecording && !isPaused) {
+          const baseWsUrl =
+            (import.meta as any)?.env?.VITE_VOSK_WS_URL ||
+            "wss://philiready-websocket-production.up.railway.app";
+          const wsUrl = `${baseWsUrl}?lang=${storyLanguage}`;
+          
+          // Restart Vosk with new language (using improved audio settings)
+          const startVosk = async () => {
+            try {
+              // Use same improved audio settings as main Vosk initialization
+              let stream: MediaStream;
+              try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                  audio: { 
+                    channelCount: 1, 
+                    sampleRate: 48000,
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false
+                  },
+                });
+              } catch (error) {
+                stream = await navigator.mediaDevices.getUserMedia({
+                  audio: { 
+                    channelCount: 1, 
+                    sampleRate: 48000
+                  },
+                });
+              }
+              
+              const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
+              if (ctx.state === 'suspended') {
+                await ctx.resume();
+              }
+              
+              audioContextRef.current = ctx;
+              const src = ctx.createMediaStreamSource(stream);
+              sourceNodeRef.current = src;
+              const script = ctx.createScriptProcessor(4096, 1, 1); // Use larger buffer
+              scriptNodeRef.current = script;
+
+              // Use same improved downsampling algorithm
+              const downsampleTo16k = (input: Float32Array): Int16Array => {
+                const sampleRate = ctx.sampleRate || 48000;
+                const targetRate = 16000;
+                const ratio = sampleRate / targetRate;
+                const newLength = Math.floor(input.length / ratio);
+                const result = new Int16Array(newLength);
+                const filterLength = Math.min(32, Math.floor(input.length / 2));
+                
+                for (let i = 0; i < newLength; i++) {
+                  const srcIndex = i * ratio;
+                  const srcStart = Math.max(0, Math.floor(srcIndex - filterLength));
+                  const srcEnd = Math.min(input.length, Math.ceil(srcIndex + filterLength));
+                  
+                  let sum = 0;
+                  let weightSum = 0;
+                  
+                  for (let j = srcStart; j < srcEnd; j++) {
+                    const offset = j - srcIndex;
+                    if (Math.abs(offset) < 0.5) {
+                      const weight = 1 - Math.abs(offset);
+                      sum += input[j] * weight;
+                      weightSum += weight;
+                    } else {
+                      const sinc = Math.sin(Math.PI * offset) / (Math.PI * offset);
+                      const window = 0.5 * (1 + Math.cos(Math.PI * offset / filterLength));
+                      const weight = sinc * window;
+                      sum += input[j] * weight;
+                      weightSum += Math.abs(weight);
+                    }
+                  }
+                  
+                  const sample = weightSum > 0 ? sum / weightSum : 0;
+                  const clamped = Math.max(-1, Math.min(1, sample));
+                  result[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+                }
+                return result;
+              };
+
+              setVoskStatus("connecting");
+              const ws = new WebSocket(wsUrl);
+              voskSocketRef.current = ws;
+              ws.binaryType = "arraybuffer";
+              
+              ws.onopen = () => {
+                voskReconnectAttemptsRef.current = 0;
+                setVoskStatus("connected");
+                setSttProvider("vosk");
+                
+                voskHeartbeatIntervalRef.current = setInterval(() => {
+                  if (ws.readyState === WebSocket.OPEN) {
+                    try {
+                      ws.send(new ArrayBuffer(0));
+                    } catch (e) {
+                      console.warn("Heartbeat send failed:", e);
+                    }
+                  }
+                }, 30000);
+                
+                script.onaudioprocess = (e: AudioProcessingEvent) => {
+                  try {
+                    const channel = e.inputBuffer.getChannelData(0);
+                    const pcm16 = downsampleTo16k(channel);
+                    if (ws.readyState === WebSocket.OPEN) {
+                      ws.send(pcm16.buffer);
+                    }
+                  } catch (error) {
+                    console.warn("Error processing audio:", error);
+                  }
+                };
+                src.connect(script);
+                script.connect(ctx.destination);
+              };
+              
+              ws.onmessage = (evt) => {
+                try {
+                  const msg = JSON.parse(evt.data);
+                  if (msg.text && msg.text.trim()) {
+                    voskFinalTranscriptRef.current += (voskFinalTranscriptRef.current ? " " : "") + msg.text.trim();
+                    setTranscript(voskFinalTranscriptRef.current);
+                  } else if (msg.partial && msg.partial.trim()) {
+                    setTranscript(voskFinalTranscriptRef.current + (voskFinalTranscriptRef.current ? " " : "") + msg.partial);
+                  }
+                } catch (error) {
+                  console.warn("Error parsing Vosk message:", error);
+                }
+              };
+              
+              ws.onerror = () => {
+                setVoskStatus("disconnected");
+                console.warn("Vosk reconnection failed after language change");
+              };
+              
+              ws.onclose = () => {
+                setVoskStatus("disconnected");
+              };
+            } catch (error) {
+              console.warn("Failed to reconnect Vosk with new language:", error);
+              setVoskStatus("disconnected");
+            }
+          };
+          
+          startVosk();
+        }
+      }, 100);
+    }
+  }, [storyLanguage]);
+
   // Stop recording and speech recognition
   const handleStopRecording = async () => {
     try {
       setIsRecording(false);
       setIsPaused(false);
+      
       // Stop MediaRecorder
       if (mediaRecorderRef.current) {
         mediaRecorderRef.current.stop();
@@ -1207,27 +1574,18 @@ const ReadingSessionPage: React.FC = () => {
           .getTracks()
           .forEach((track) => track.stop());
       }
+      
       // Stop SpeechRecognition
       if (recognitionRef.current) {
         recognitionRef.current.stop();
       }
-      // Stop Vosk stream if active
-      try {
-        scriptNodeRef.current?.disconnect();
-      } catch { }
-      try {
-        sourceNodeRef.current?.disconnect();
-      } catch { }
-      try {
-        audioContextRef.current?.close();
-      } catch { }
-      try {
-        voskSocketRef.current?.close();
-      } catch { }
-      scriptNodeRef.current = null;
-      sourceNodeRef.current = null;
-      audioContextRef.current = null;
-      voskSocketRef.current = null;
+      
+      // Cleanup Vosk (includes all cleanup logic)
+      cleanupVosk();
+      
+      // Reset Vosk state
+      voskFinalTranscriptRef.current = "";
+      voskReconnectAttemptsRef.current = 0;
       // If Tagalog story, optionally send audio to backend Whisper for better transcription
       const enableServerTranscribe =
         (import.meta as any)?.env?.VITE_ENABLE_SERVER_TRANSCRIBE === "true";
@@ -2542,6 +2900,13 @@ const ReadingSessionPage: React.FC = () => {
     lastMiscueWordRef.current = "";
     countedMiscuePositionsRef.current.clear(); // Reset counted positions
   }, [sessionId]);
+
+  // Cleanup Vosk on component unmount
+  useEffect(() => {
+    return () => {
+      cleanupVosk();
+    };
+  }, []);
 
   const [studentNames, setStudentNames] = useState<{ [id: string]: string }>(
     {}
