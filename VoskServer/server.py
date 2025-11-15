@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import os
+import urllib.parse
 import websockets
 from vosk import Model, KaldiRecognizer
 
@@ -32,25 +33,74 @@ async def recognize(websocket, path, model):
         except:
             pass
 
+async def handler(ws, path):
+    """
+    WebSocket handler that selects the appropriate model based on language query parameter.
+    Expected URL format: ws://host:port/?lang=tagalog or ws://host:port/?lang=english
+    """
+    # Parse query parameters from path
+    parsed = urllib.parse.urlparse(path)
+    query_params = urllib.parse.parse_qs(parsed.query)
+    language = query_params.get("lang", ["tagalog"])[0].lower()  # Default to tagalog
+    
+    # Select model based on language
+    if language == "english" or language == "en":
+        model = models.get("english")
+        if not model:
+            await ws.close(code=1008, reason="English model not loaded")
+            return
+    else:  # Default to tagalog
+        model = models.get("tagalog")
+        if not model:
+            await ws.close(code=1008, reason="Tagalog model not loaded")
+            return
+    
+    await recognize(ws, path, model)
+
 async def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default=os.getenv("VOSK_MODEL_PATH", "./model"), help="Path to Vosk model directory (root folder)")
+    parser.add_argument("--tagalog-model", default=os.getenv("VOSK_TAGALOG_MODEL_PATH", "./model-tagalog"), help="Path to Tagalog Vosk model directory")
+    parser.add_argument("--english-model", default=os.getenv("VOSK_ENGLISH_MODEL_PATH", "./model-english"), help="Path to English Vosk model directory")
     parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "2700")))
     args = parser.parse_args()
 
-    if not os.path.isdir(args.model):
-        print("Model path does not exist:", args.model)
+    global models
+    models = {}
+    
+    # Load Tagalog model
+    if os.path.isdir(args.tagalog_model):
+        print("Loading Tagalog model from:", args.tagalog_model)
+        models["tagalog"] = Model(args.tagalog_model)
+        print("✓ Tagalog model loaded")
+    else:
+        print("⚠ Warning: Tagalog model path does not exist:", args.tagalog_model)
+        print("  Tagalog recognition will not be available")
+    
+    # Load English model
+    if os.path.isdir(args.english_model):
+        print("Loading English model from:", args.english_model)
+        models["english"] = Model(args.english_model)
+        print("✓ English model loaded")
+    else:
+        print("⚠ Warning: English model path does not exist:", args.english_model)
+        print("  English recognition will not be available")
+    
+    if not models:
+        print("❌ Error: No models loaded. Please ensure at least one model directory exists.")
         return
+    
+    print(f"Starting WebSocket server on port {args.port}")
+    print("Supported languages:", list(models.keys()))
+    print("Usage: ws://host:port/?lang=tagalog or ws://host:port/?lang=english")
 
-    print("Loading model from:", args.model)
-    model = Model(args.model)
-    print("Model loaded. Starting WebSocket on port", args.port)
-
-    async def handler(ws):
-        # websockets v12+ passes only the websocket object to the handler
-        await recognize(ws, "/", model)
-
-    async with websockets.serve(handler, "0.0.0.0", args.port, max_size=None):
+    # Create a wrapper to handle both old and new websockets API
+    async def wrapped_handler(ws, path=None):
+        # In websockets v12+, path is None and we get it from ws.path
+        if path is None:
+            path = getattr(ws, 'path', '/')
+        return await handler(ws, path)
+    
+    async with websockets.serve(wrapped_handler, "0.0.0.0", args.port, max_size=None):
         await asyncio.Future()  # run forever
 
 if __name__ == "__main__":
