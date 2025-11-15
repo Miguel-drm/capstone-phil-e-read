@@ -300,13 +300,12 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
         });
 
         // Create time-based periods (last 6 months) - ALWAYS generate periods even if no data
+        const now = new Date();
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         const periods: string[] = [];
         const oralScores: number[] = [];
         const compScores: number[] = [];
         const readingLevels: number[] = [];
-
-        const now = new Date();
-        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
         // Always generate 6 months of periods for consistent chart display
         for (let i = 5; i >= 0; i--) {
@@ -543,6 +542,7 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
               boundaryGap: false,
               data: safeData.assessmentPeriods,
               axisLabel: {
+                show: false, // Hide session labels
                 fontSize: 11,
                 color: '#6b7280',
                 rotate: 0,
