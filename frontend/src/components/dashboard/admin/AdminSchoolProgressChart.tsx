@@ -32,9 +32,9 @@ interface AdminSchoolProgressChartProps {
 const getGradeIndex = (grade: string | undefined): number => {
   if (!grade) return -1;
   const upper = grade.toUpperCase();
-  
+
   console.log(`🔍 AdminSchoolProgressChart: Mapping grade "${grade}" (upper: "${upper}") to index...`);
-  
+
   // Handle "Grade 4 - Narra" format and other variations
   if (upper.includes('III') || upper.includes('3') || upper.includes('GRADE 3')) {
     console.log(`✅ Mapped "${grade}" to Grade III (index 0)`);
@@ -52,13 +52,12 @@ const getGradeIndex = (grade: string | undefined): number => {
     console.log(`✅ Mapped "${grade}" to Grade VI (index 3)`);
     return 3;
   }
-  
+
   console.log(`❌ Could not map grade "${grade}" to any index`);
   return -1;
 };
 
 const AdminSchoolProgressChart: React.FC<AdminSchoolProgressChartProps> = ({
-  data,
   grades: _grades,
   students,
   title = "Reading Progress (My School)",
@@ -99,18 +98,12 @@ const AdminSchoolProgressChart: React.FC<AdminSchoolProgressChartProps> = ({
     readingLevels: []
   });
 
-  // Use computed data for admins, fallback to passed data (no mock data)
+  // Use only computed data from real database (no mock data, no fallback)
   const safeData = {
-    assessmentPeriods: computedData.assessmentPeriods.length ? computedData.assessmentPeriods : (data.assessmentPeriods || []),
-    oralReadingScores: computedData.oralReadingScores.length ? computedData.oralReadingScores : (data.oralReadingScores || []),
-    comprehensionScores: computedData.comprehensionScores.length ? computedData.comprehensionScores : (data.comprehensionScores || []),
-    readingLevels: computedData.readingLevels.length ? computedData.readingLevels : (data.readingLevels?.map(level => {
-      const lower = level.toLowerCase();
-      if (lower.includes('independent')) return 3;
-      if (lower.includes('instructional')) return 2;
-      if (lower.includes('frustration')) return 1;
-      return 0; // Return 0 instead of default 2 to show no data
-    }) || [])
+    assessmentPeriods: computedData.assessmentPeriods,
+    oralReadingScores: computedData.oralReadingScores,
+    comprehensionScores: computedData.comprehensionScores,
+    readingLevels: computedData.readingLevels
   };
 
   const safeStudents = Array.isArray(students) ? students : [];
@@ -196,11 +189,11 @@ const AdminSchoolProgressChart: React.FC<AdminSchoolProgressChartProps> = ({
 
         // Test API endpoints directly (EXACT COPY FROM TEACHER)
         console.log('AdminSchoolProgressChart: Testing API endpoints...');
-        
+
         // Get all teachers first for system-wide approach
         const teachersSnap = await getDocs(collection(db, 'users'));
         const teacherIds: string[] = [];
-        
+
         teachersSnap.forEach(doc => {
           const userData = doc.data();
           if (userData.role === 'teacher') {
@@ -284,15 +277,52 @@ const AdminSchoolProgressChart: React.FC<AdminSchoolProgressChartProps> = ({
         const levelSums = [0, 0, 0, 0];
         const levelCounts = [0, 0, 0, 0];
 
-        // SYSTEM-WIDE: Get ALL data using admin methods first, then individual teachers as backup
+        // SYSTEM-WIDE: Get ALL data from all students across all classes
         let allReadingResults: any[] = [];
         let allTestResults: any[] = [];
 
-        // Results fetching removed - MongoDB results service no longer available
-        // Return empty arrays
-        allReadingResults = [];
-        allTestResults = [];
-        console.log('AdminSchoolProgressChart: Results service removed, using empty data');
+        // Fetch ISR results for ALL students in the system
+        try {
+          const { isrResultService } = await import('../../../services/ISRresultService');
+
+          // Fetch results for each student
+          for (const student of safeStudents) {
+            if (student.id) {
+              try {
+                const studentResults = await isrResultService.getISRResultsByStudent(student.id);
+
+                // Transform ISR results into reading results format
+                const readingResults = studentResults.map(result => ({
+                  studentId: result.studentId,
+                  gradeId: student.gradeId,
+                  grade: student.grade,
+                  oralReadingScore: result.partB?.wordReadingScore || 0,
+                  readingLevel: result.partB?.wordReadingLevel || 'Instructional',
+                  createdAt: result.createdAt || result.assessmentDate,
+                }));
+
+                // Transform ISR results into test results format (comprehension)
+                const testResults = studentResults.map(result => ({
+                  studentId: result.studentId,
+                  gradeId: student.gradeId,
+                  grade: student.grade,
+                  comprehension: result.partA?.percentage || 0,
+                  score: result.partA?.percentage || 0,
+                  createdAt: result.createdAt || result.assessmentDate,
+                }));
+
+                allReadingResults.push(...readingResults);
+                allTestResults.push(...testResults);
+              } catch (error) {
+                console.warn(`Error fetching results for student ${student.name}:`, error);
+              }
+            }
+          }
+
+          console.log(`AdminSchoolProgressChart: Fetched ${allReadingResults.length} reading results from ${safeStudents.length} students`);
+        } catch (error) {
+          console.error('AdminSchoolProgressChart: Error fetching ISR results:', error);
+        }
 
         console.log(`AdminSchoolProgressChart: Total reading results: ${allReadingResults.length}`);
         console.log(`AdminSchoolProgressChart: Total test results: ${allTestResults.length}`);
@@ -312,7 +342,7 @@ const AdminSchoolProgressChart: React.FC<AdminSchoolProgressChartProps> = ({
             const resultAny = result as any;
             gradeName = result.grade || result.gradeName || resultAny.grade || resultAny.gradeName || '';
           }
-          
+
           console.log(`📖 Reading result grade mapping: gradeId=${result.gradeId}, gradeName="${gradeName}", oralScore=${result.oralReadingScore}`);
 
           const gradeIndex = getGradeIndex(gradeName);
@@ -341,7 +371,7 @@ const AdminSchoolProgressChart: React.FC<AdminSchoolProgressChartProps> = ({
             // Additional fallback: use direct grade fields from result
             gradeName = result.grade || result.gradeName || '';
           }
-          
+
           console.log(`📈 Test result grade mapping: gradeId=${result.gradeId}, gradeName="${gradeName}", comprehension=${result.comprehension}, score=${result.score}`);
 
           const gradeIndex = getGradeIndex(gradeName);
@@ -642,49 +672,19 @@ const AdminSchoolProgressChart: React.FC<AdminSchoolProgressChartProps> = ({
             animationEasing: 'cubicOut' as const,
             tooltip: {
               trigger: 'axis',
-              backgroundColor: 'rgba(255, 255, 255, 0.95)',
-              borderColor: '#e2e8f0',
-              borderWidth: 1,
-              textStyle: {
-                color: '#374151'
-              },
-              formatter: function (params: any) {
-                let result = `<div class="font-semibold text-gray-800 mb-2">${params[0].axisValue}</div>`;
-                params.forEach((param: any) => {
-                  const color = param.color;
-                  const value = param.value;
-                  const name = param.seriesName || 'Score';
-                  const displayValue = selectedMetric === 'reading-level'
-                    ? (typeof currentMetric.formatter === 'function' ? currentMetric.formatter(value) : `${value}`)
-                    : `${value}%`;
-                  result += `
-                <div class="flex items-center justify-between mb-1">
-                  <div class="flex items-center">
-                    <div class="w-3 h-3 rounded-full mr-2" style="background-color: ${color}"></div>
-                    <span class="text-gray-600">${name}</span>
-                  </div>
-                  <span class="font-semibold text-gray-800">${displayValue}</span>
-                </div>
-              `;
-                });
-                return result;
+              formatter: (params: any) => {
+                const value = params[0].value;
+                const displayValue = selectedMetric === 'reading-level'
+                  ? (typeof currentMetric.formatter === 'function' ? currentMetric.formatter(value) : `${value}`)
+                  : `${value}%`;
+                return `${params[0].axisValue}<br/>${currentMetric.name}: <b>${displayValue}</b>`;
               }
             },
-            legend: {
-              data: [currentMetric.name],
-              textStyle: {
-                fontSize: 12,
-                color: '#6b7280'
-              },
-              itemGap: 10,
-              top: 15,
-              left: 'center'
-            },
             grid: {
-              left: '3%',
-              right: '3%',
+              left: '2%',
+              right: '2%',
               bottom: '8%',
-              top: '15%',
+              top: '3%',
               containLabel: true
             },
             xAxis: {
@@ -692,10 +692,8 @@ const AdminSchoolProgressChart: React.FC<AdminSchoolProgressChartProps> = ({
               boundaryGap: false,
               data: safeData.assessmentPeriods,
               axisLabel: {
-                show: false, // Hide session labels
-                fontSize: 11,
                 color: '#6b7280',
-                rotate: 0
+                fontSize: 11
               },
               axisLine: {
                 lineStyle: {
@@ -713,7 +711,15 @@ const AdminSchoolProgressChart: React.FC<AdminSchoolProgressChartProps> = ({
               axisLabel: {
                 fontSize: 11,
                 color: '#6b7280',
-                formatter: typeof currentMetric.formatter === 'function' ? currentMetric.formatter : (val: number) => `${val}`
+                formatter: (val: number) => {
+                  if (selectedMetric === 'reading-level') {
+                    if (val === 3) return 'Independent';
+                    if (val === 2) return 'Instructional';
+                    if (val === 1) return 'Frustration';
+                    return '';
+                  }
+                  return typeof currentMetric.formatter === 'function' ? currentMetric.formatter(val) : `${val}`;
+                }
               },
               axisLine: {
                 show: false
@@ -722,117 +728,41 @@ const AdminSchoolProgressChart: React.FC<AdminSchoolProgressChartProps> = ({
                 show: false
               },
               splitLine: {
-                show: false
-              },
-              // For reading level, show specific level labels
-              ...(selectedMetric === 'reading-level' ? {
-                interval: 1,
-                axisLabel: {
-                  fontSize: 11,
-                  color: '#6b7280',
-                  formatter: (value: number) => {
-                    switch (value) {
-                      case 3: return 'Independent';
-                      case 2: return 'Instructional';
-                      case 1: return 'Frustration';
-                      case 0: return 'No Data';
-                      default: return '';
-                    }
-                  }
+                lineStyle: {
+                  color: '#f3f4f6'
                 }
-              } : {})
+              }
             },
             series: [
               {
                 name: currentMetric.name,
-                type: 'custom',
-                renderItem: (params: any, api: any) => {
-                  const value = api.value(0);
-                  
-                  // Calculate right triangle dimensions with better proportions
-                  const chartHeight = params.coordSys.height;
-                  const chartWidth = params.coordSys.width;
-                  
-                  // Use more of the chart width for better visibility
-                  const leftX = params.coordSys.x + chartWidth * 0.05; // Start at 5%
-                  const rightX = params.coordSys.x + chartWidth * 0.95; // End at 95%
-                  const baseY = params.coordSys.y + chartHeight; // Bottom (y=0)
-                  
-                  // Left corner height based on data value (use full height range)
-                  const leftHeight = (value / currentMetric.yAxisMax) * chartHeight * 0.95;
-                  const leftY = baseY - leftHeight;
-                  
-                  return {
-                    type: 'group',
-                    children: [
-                      // Right triangle fill with gradient
-                      {
-                        type: 'polygon',
-                        shape: {
-                          points: [
-                            [leftX, leftY],      // Top left (data value height)
-                            [leftX, baseY],      // Bottom left (y=0)
-                            [rightX, baseY],     // Bottom right (y=0) - always at zero
-                          ]
-                        },
-                        style: {
-                          fill: {
-                            type: 'linear',
-                            x: 0,
-                            y: 0,
-                            x2: 1,
-                            y2: 0,
-                            colorStops: [
-                              { offset: 0, color: `${currentMetric.color}90` }, // 56% opacity at left
-                              { offset: 0.5, color: `${currentMetric.color}50` }, // 31% opacity at middle
-                              { offset: 1, color: `${currentMetric.color}15` }  // 8% opacity at right
-                            ]
-                          },
-                          shadowBlur: 15,
-                          shadowColor: `${currentMetric.color}40`,
-                          shadowOffsetY: 5
-                        }
-                      },
-                      // Triangle outline with thicker lines
-                      {
-                        type: 'polygon',
-                        shape: {
-                          points: [
-                            [leftX, leftY],      // Top left
-                            [leftX, baseY],      // Bottom left
-                            [rightX, baseY],     // Bottom right
-                          ]
-                        },
-                        style: {
-                          fill: 'transparent',
-                          stroke: currentMetric.color,
-                          lineWidth: 4,
-                          shadowBlur: 8,
-                          shadowColor: currentMetric.color,
-                          shadowOffsetY: 2
-                        }
-                      },
-                      // Add a highlight on the diagonal line
-                      {
-                        type: 'line',
-                        shape: {
-                          x1: leftX,
-                          y1: leftY,
-                          x2: rightX,
-                          y2: baseY
-                        },
-                        style: {
-                          stroke: currentMetric.color,
-                          lineWidth: 5,
-                          shadowBlur: 10,
-                          shadowColor: '#fff',
-                          shadowOffsetY: 0
-                        }
-                      }
-                    ]
-                  };
-                },
+                type: 'line',
                 data: currentMetric.data,
+                smooth: true,
+                symbol: 'circle',
+                symbolSize: 12,
+                lineStyle: {
+                  width: 4,
+                  color: currentMetric.color
+                },
+                itemStyle: {
+                  color: currentMetric.color,
+                  borderWidth: 2,
+                  borderColor: '#fff'
+                },
+                areaStyle: {
+                  color: {
+                    type: 'linear',
+                    x: 0,
+                    y: 0,
+                    x2: 0,
+                    y2: 1,
+                    colorStops: [
+                      { offset: 0, color: `${currentMetric.color}40` },
+                      { offset: 1, color: `${currentMetric.color}10` }
+                    ]
+                  }
+                },
                 markLine: targetLine ? {
                   data: [{ yAxis: targetLine, name: 'Target' }],
                   lineStyle: { color: '#f59e0b', type: 'dashed', width: 2 },
@@ -1013,8 +943,8 @@ const AdminSchoolProgressChart: React.FC<AdminSchoolProgressChartProps> = ({
           </div>
         </div>
         {/* Chart Container - Always Rendered */}
-        <div className="w-full flex-1 min-h-80 h-full relative">
-          <div ref={chartRef} className="w-full h-full" style={{ minHeight: '320px' }} />
+        <div className="w-full flex-1 h-full relative" style={{ minHeight: '400px' }}>
+          <div ref={chartRef} className="w-full h-full" style={{ minHeight: '400px' }} />
 
           {/* No Data Overlay */}
           {safeData.oralReadingScores.every(score => score === 0) &&
