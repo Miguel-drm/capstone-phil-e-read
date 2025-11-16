@@ -82,6 +82,8 @@ const ReadingSessionPage: React.FC = () => {
     "english"
   );
   const [storyVocabulary, setStoryVocabulary] = useState<Set<string>>(new Set());
+  const [isDetectingSpeech, setIsDetectingSpeech] = useState(false); // Visual indicator for when speech is detected
+  const audioCooldownRef = useRef<boolean>(false); // Block audio sending during cooldown period
 
   // Refs for auto-scrolling to current word
   const currentWordRef = useRef<HTMLSpanElement>(null);
@@ -91,7 +93,7 @@ const ReadingSessionPage: React.FC = () => {
   // ============================================================================
   // VOSK CONNECTION MANAGEMENT
   // ============================================================================
-  
+
   /**
    * Clean up all Vosk-related resources including WebSocket, audio nodes, and timers.
    * This function ensures proper cleanup to prevent memory leaks and resource conflicts.
@@ -118,7 +120,7 @@ const ReadingSessionPage: React.FC = () => {
     try {
       sourceNodeRef.current?.disconnect();
     } catch { }
-    
+
     // Stop all audio tracks
     try {
       const stream = sourceNodeRef.current?.mediaStream;
@@ -126,21 +128,21 @@ const ReadingSessionPage: React.FC = () => {
         stream.getTracks().forEach(track => track.stop());
       }
     } catch { }
-    
+
     // Close audio context
     try {
       if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
         audioContextRef.current.close();
       }
     } catch { }
-    
+
     // Close WebSocket
     try {
       if (voskSocketRef.current) {
         voskSocketRef.current.close(1000, "Cleanup");
       }
     } catch { }
-    
+
     // Clear refs
     scriptNodeRef.current = null;
     sourceNodeRef.current = null;
@@ -159,10 +161,10 @@ const ReadingSessionPage: React.FC = () => {
 
     voskReconnectAttemptsRef.current += 1;
     const delay = Math.min(1000 * Math.pow(2, voskReconnectAttemptsRef.current - 1), 10000);
-    
+
     console.log(`🔄 Attempting Vosk reconnect (attempt ${voskReconnectAttemptsRef.current}) in ${delay}ms...`);
     setVoskStatus("connecting");
-    
+
     voskReconnectTimeoutRef.current = setTimeout(() => {
       if (isRecording && !isPaused) {
         cleanupVosk();
@@ -179,8 +181,8 @@ const ReadingSessionPage: React.FC = () => {
     try {
       // Vosk works best with minimal audio processing
       return await navigator.mediaDevices.getUserMedia({
-        audio: { 
-          channelCount: 1, 
+        audio: {
+          channelCount: 1,
           sampleRate: 48000,
           echoCancellation: false,
           noiseSuppression: false,
@@ -190,8 +192,8 @@ const ReadingSessionPage: React.FC = () => {
     } catch (error) {
       // Fallback to default settings if constraints are not supported
       return await navigator.mediaDevices.getUserMedia({
-        audio: { 
-          channelCount: 1, 
+        audio: {
+          channelCount: 1,
           sampleRate: 48000
         },
       });
@@ -208,7 +210,7 @@ const ReadingSessionPage: React.FC = () => {
     processor: ScriptProcessorNode;
   }> => {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
-    
+
     if (ctx.state === 'suspended') {
       await ctx.resume();
     }
@@ -229,15 +231,15 @@ const ReadingSessionPage: React.FC = () => {
     const newLength = Math.floor(input.length / ratio);
     const result = new Int16Array(newLength);
     const filterLength = Math.min(32, Math.floor(input.length / 2));
-    
+
     for (let i = 0; i < newLength; i++) {
       const srcIndex = i * ratio;
       const srcStart = Math.max(0, Math.floor(srcIndex - filterLength));
       const srcEnd = Math.min(input.length, Math.ceil(srcIndex + filterLength));
-      
+
       let sum = 0;
       let weightSum = 0;
-      
+
       for (let j = srcStart; j < srcEnd; j++) {
         const offset = j - srcIndex;
         if (Math.abs(offset) < 0.5) {
@@ -252,12 +254,12 @@ const ReadingSessionPage: React.FC = () => {
           weightSum += Math.abs(weight);
         }
       }
-      
+
       const sample = weightSum > 0 ? sum / weightSum : 0;
       const clamped = Math.max(-1, Math.min(1, sample));
       result[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
     }
-    
+
     return result;
   };
 
@@ -269,26 +271,26 @@ const ReadingSessionPage: React.FC = () => {
     ws.onmessage = (evt) => {
       try {
         const msg = JSON.parse(evt.data);
-        
+
         if (msg.text && msg.text.trim()) {
           const originalText = msg.text.trim();
           const filteredText = filterThroughVocabulary(originalText, storyVocabulary);
-          
+
           // Log vocabulary validation results
           if (originalText !== filteredText) {
-            const rejectedWords = originalText.split(/\s+/).filter((word: string) => 
+            const rejectedWords = originalText.split(/\s+/).filter((word: string) =>
               !filteredText.split(/\s+/).includes(word)
             );
             console.log(`Vocabulary filter: Rejected ${rejectedWords.length} word(s) not in story: ${rejectedWords.join(', ')}`);
           }
-          
+
           if (filteredText) {
             voskFinalTranscriptRef.current += (voskFinalTranscriptRef.current ? " " : "") + filteredText;
             setTranscript(voskFinalTranscriptRef.current);
           }
         } else if (msg.partial && msg.partial.trim()) {
           const filteredPartial = filterThroughVocabulary(msg.partial.trim(), storyVocabulary);
-          
+
           if (filteredPartial) {
             setTranscript(voskFinalTranscriptRef.current + (voskFinalTranscriptRef.current ? " " : "") + filteredPartial);
           } else {
@@ -306,13 +308,13 @@ const ReadingSessionPage: React.FC = () => {
    * Provides user-friendly error messages and automatic reconnection.
    */
   const setupVoskConnectionHandlers = (
-    ws: WebSocket, 
+    ws: WebSocket,
     isReconnect: boolean,
     startVoskFn: (isReconnect: boolean) => Promise<void>
   ) => {
     ws.onerror = (error) => {
       console.error("Speech recognition connection error:", error);
-      
+
       if (voskReconnectAttemptsRef.current < 3) {
         console.log("Attempting to reconnect to speech recognition service...");
         attemptVoskReconnect(startVoskFn);
@@ -326,20 +328,20 @@ const ReadingSessionPage: React.FC = () => {
         }
       }
     };
-    
+
     ws.onclose = (event) => {
       setVoskStatus("disconnected");
-      
+
       if (voskHeartbeatIntervalRef.current) {
         clearInterval(voskHeartbeatIntervalRef.current);
         voskHeartbeatIntervalRef.current = null;
       }
-      
+
       // Only attempt reconnect if recording is active and it wasn't a clean close
       if (isRecording && !isPaused && event.code !== 1000) {
         const closeReason = event.reason || "Connection closed unexpectedly";
         console.warn(`Speech recognition connection closed: ${closeReason} (code: ${event.code})`);
-        
+
         if (voskReconnectAttemptsRef.current < 3) {
           console.log("Attempting to reconnect...");
           attemptVoskReconnect(startVoskFn);
@@ -435,7 +437,7 @@ const ReadingSessionPage: React.FC = () => {
   // Helper: Detect if a word is likely English (for language validation)
   function isLikelyEnglishWord(word: string): boolean {
     const normalized = normalize(word);
-    
+
     // Common English-only patterns
     const englishPatterns = [
       /^(th|wh|sh|ch|ph)/i,  // English consonant clusters at start
@@ -446,10 +448,10 @@ const ReadingSessionPage: React.FC = () => {
       /less$/i,               // -less ending (English)
       /ment$/i,               // -ment ending (English)
     ];
-    
+
     // Check if word matches English patterns
     const hasEnglishPattern = englishPatterns.some(pattern => pattern.test(normalized));
-    
+
     // Common English function words
     const englishFunctionWords = [
       'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
@@ -458,14 +460,14 @@ const ReadingSessionPage: React.FC = () => {
       'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might',
       'can', 'must', 'shall', 'this', 'that', 'these', 'those'
     ];
-    
+
     return hasEnglishPattern || englishFunctionWords.includes(normalized);
   }
 
   // Helper: Detect if a word is likely Tagalog (for language validation)
   function isLikelyTagalogWord(word: string): boolean {
     const normalized = normalize(word);
-    
+
     // Common Tagalog patterns
     const tagalogPatterns = [
       /^(ng|mga|ka|pa|na|ba|po)/i,  // Tagalog particles/prefixes
@@ -474,10 +476,10 @@ const ReadingSessionPage: React.FC = () => {
       /in$/i,                         // -in ending (Tagalog verb form)
       /ay$/i,                         // -ay ending (Tagalog)
     ];
-    
+
     // Check if word matches Tagalog patterns
     const hasTagalogPattern = tagalogPatterns.some(pattern => pattern.test(normalized));
-    
+
     // Common Tagalog function words
     const tagalogFunctionWords = [
       'ang', 'ng', 'sa', 'mga', 'ay', 'na', 'pa', 'ba', 'po', 'opo',
@@ -485,7 +487,7 @@ const ReadingSessionPage: React.FC = () => {
       'ko', 'mo', 'niya', 'namin', 'natin', 'ninyo', 'nila',
       'ito', 'iyan', 'iyon', 'dito', 'diyan', 'doon'
     ];
-    
+
     return hasTagalogPattern || tagalogFunctionWords.includes(normalized);
   }
 
@@ -525,19 +527,19 @@ const ReadingSessionPage: React.FC = () => {
       if (storyLanguage === 'tagalog') {
         const spokenIsEnglish = isLikelyEnglishWord(normSpoken);
         const expectedIsTagalog = isLikelyTagalogWord(normExpected);
-        
+
         // If child said an English word but expected word is clearly Tagalog, reject
         if (spokenIsEnglish && expectedIsTagalog && normSpoken !== normExpected) {
           console.log(`⚠️ Language mismatch: Child said English word "${spokenWord}" in Tagalog story (expected Tagalog: "${expectedWord}")`);
           return false;
         }
       }
-      
+
       // REVERSE: If reading English story, reject Tagalog words that don't match English expected words
       if (storyLanguage === 'english') {
         const spokenIsTagalog = isLikelyTagalogWord(normSpoken);
         const expectedIsEnglish = isLikelyEnglishWord(normExpected);
-        
+
         // If child said a Tagalog word but expected word is clearly English, reject
         if (spokenIsTagalog && expectedIsEnglish && normSpoken !== normExpected) {
           console.log(`⚠️ Language mismatch: Child said Tagalog word "${spokenWord}" in English story (expected English: "${expectedWord}")`);
@@ -595,10 +597,10 @@ const ReadingSessionPage: React.FC = () => {
       // Common word form variations (WORKAROUND: specific -ing variations)
       'shiny': ['shining', 'shin'],
 
-      // Filipino accent variations - TH sounds
-      'the': ['da', 'de', 'duh', 'di'],
-      'this': ['dis', 'dees'],
-      'that': ['dat', 'det'],
+      // Filipino accent variations - TH sounds (very common in Philippines)
+      'the': ['da', 'de', 'duh', 'di', 'za', 'ze'],
+      'this': ['dis', 'dees', 'tis', 'zis'],
+      'that': ['dat', 'det', 'tat', 'zat'],
       'three': ['tree', 'tri'],
       'think': ['tink', 'tingk'],
       'thing': ['ting'],
@@ -634,7 +636,7 @@ const ReadingSessionPage: React.FC = () => {
       'mouth': ['mout', 'mowt'],
       'south': ['sout', 'sowt'],
       'north': ['nort', 'norts'],
-      
+
       // Common sight words and function words
       'about': ['abowt', 'bout'],
       'after': ['after', 'apter'],
@@ -828,7 +830,7 @@ const ReadingSessionPage: React.FC = () => {
       'taught': ['teach', 'teached', 'taughted'],
       'understood': ['understand', 'understanded', 'understooded'],
       'won': ['win', 'winned', 'woned'],
-      
+
       // Common nouns and story words
       'animal': ['animel', 'anmal'],
       'bedroom': ['bedrum', 'bed room'],
@@ -857,7 +859,7 @@ const ReadingSessionPage: React.FC = () => {
       'tonight': ['tonite', 'to night'],
       'vegetable': ['vegtable', 'vegitable'],
       'yesterday': ['yesturday', 'yesterdey'],
-      
+
       // Adjectives and descriptive words
       'angry': ['angri', 'angery'],
       'busy': ['bisy', 'bizzy'],
@@ -992,19 +994,19 @@ const ReadingSessionPage: React.FC = () => {
    */
   const extractVocabulary = (text: string): Set<string> => {
     const vocabulary = new Set<string>();
-    
+
     // Extract all words including contractions (e.g., "It's", "don't", "I'll")
     const words = text.match(/\b\w+(?:'\w+)?\b/g) || [];
-    
+
     for (const word of words) {
       const normalized = normalize(word);
       if (!normalized) continue;
-      
+
       // Add the base word
       vocabulary.add(normalized);
-      
+
       // Add common variations to handle children's speech patterns
-      
+
       // Plural variations: add singular form if word ends in 's' or 'es'
       if (normalized.endsWith('s') && normalized.length > 2) {
         vocabulary.add(normalized.slice(0, -1)); // Remove 's'
@@ -1016,7 +1018,7 @@ const ReadingSessionPage: React.FC = () => {
         vocabulary.add(normalized + 's');
         vocabulary.add(normalized + 'es');
       }
-      
+
       // Past tense variations: handle -ed endings
       if (normalized.endsWith('ed') && normalized.length > 3) {
         vocabulary.add(normalized.slice(0, -2)); // Remove 'ed' (e.g., "walked" → "walk")
@@ -1027,7 +1029,7 @@ const ReadingSessionPage: React.FC = () => {
         vocabulary.add(normalized + 'ed');
         vocabulary.add(normalized + 'd');
       }
-      
+
       // Gerund variations: handle -ing endings
       if (normalized.endsWith('ing') && normalized.length > 4) {
         vocabulary.add(normalized.slice(0, -3)); // Remove 'ing' (e.g., "walking" → "walk")
@@ -1045,14 +1047,14 @@ const ReadingSessionPage: React.FC = () => {
           vocabulary.add(normalized + lastChar + 'ing');
         }
       }
-      
+
       // Contraction variations
       if (normalized.includes("'")) {
         // Add version without apostrophe
         vocabulary.add(normalized.replace("'", ''));
       }
     }
-    
+
     return vocabulary;
   };
 
@@ -1064,7 +1066,7 @@ const ReadingSessionPage: React.FC = () => {
   const detectStoryLanguage = (vocabulary: Set<string>): 'english' | 'tagalog' => {
     let englishCount = 0;
     let tagalogCount = 0;
-    
+
     // Count words that match English vs Tagalog patterns
     for (const word of vocabulary) {
       if (isLikelyEnglishWord(word)) {
@@ -1074,7 +1076,7 @@ const ReadingSessionPage: React.FC = () => {
         tagalogCount++;
       }
     }
-    
+
     // Return the language with more matches
     // Default to English if counts are equal or both are zero
     if (tagalogCount > englishCount) {
@@ -1092,10 +1094,10 @@ const ReadingSessionPage: React.FC = () => {
     if (!word || !vocabulary || vocabulary.size === 0) {
       return false;
     }
-    
+
     // Normalize the word before checking
     const normalizedWord = normalize(word);
-    
+
     // Check if the normalized word exists in the vocabulary
     return vocabulary.has(normalizedWord);
   };
@@ -1110,13 +1112,26 @@ const ReadingSessionPage: React.FC = () => {
     if (!text || !vocabulary || vocabulary.size === 0) {
       return text;
     }
-    
+
     // Split text into words
     const words = text.split(/\s+/).filter(Boolean);
-    
-    // Filter words through vocabulary validation
-    const validWords = words.filter(word => isValidWord(word, vocabulary));
-    
+
+    // STRICT FILTERING: Only accept words that:
+    // 1. Are in vocabulary
+    // 2. Are at least 2 characters (reject single char noise)
+    // 3. Contain only letters (reject numbers/symbols from noise)
+    const validWords = words.filter(word => {
+      // Reject very short words (likely noise)
+      if (word.length < 2) return false;
+      
+      // Reject if contains mostly non-letters (noise/gibberish)
+      const letterCount = (word.match(/[a-zA-Z]/g) || []).length;
+      if (letterCount < word.length * 0.7) return false; // At least 70% letters
+      
+      // Check vocabulary
+      return isValidWord(word, vocabulary);
+    });
+
     // Return filtered text
     return validWords.join(' ');
   };
@@ -1188,7 +1203,7 @@ const ReadingSessionPage: React.FC = () => {
           try {
             // Initialize microphone
             const stream = await initializeMicrophone();
-            
+
             // Setup audio context and processing nodes
             const { context: ctx, source: src, processor: script } = await setupAudioContext(stream);
             audioContextRef.current = ctx;
@@ -1196,7 +1211,7 @@ const ReadingSessionPage: React.FC = () => {
             scriptNodeRef.current = script;
 
             setVoskStatus("connecting");
-            
+
             // Connection timeout
             voskConnectionTimeoutRef.current = setTimeout(() => {
               if (voskSocketRef.current?.readyState !== WebSocket.OPEN) {
@@ -1210,16 +1225,16 @@ const ReadingSessionPage: React.FC = () => {
             const ws = new WebSocket(wsUrl);
             voskSocketRef.current = ws;
             ws.binaryType = "arraybuffer";
-            
+
             ws.onopen = () => {
               if (voskConnectionTimeoutRef.current) {
                 clearTimeout(voskConnectionTimeoutRef.current);
                 voskConnectionTimeoutRef.current = null;
               }
-              
+
               voskReconnectAttemptsRef.current = 0;
               setVoskStatus("connected");
-              
+
               // Start heartbeat
               voskHeartbeatIntervalRef.current = setInterval(() => {
                 if (ws.readyState === WebSocket.OPEN) {
@@ -1231,17 +1246,57 @@ const ReadingSessionPage: React.FC = () => {
                   }
                 }
               }, 30000);
-              
+
               // Setup audio processing
               script.onaudioprocess = (e: AudioProcessingEvent) => {
                 try {
                   const channel = e.inputBuffer.getChannelData(0);
-                  const pcm16 = downsampleTo16k(channel, ctx.sampleRate || 48000);
-                  if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(pcm16.buffer);
-                  } else if (ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
-                    attemptVoskReconnect(startVosk);
+
+                  // Calculate RMS (Root Mean Square) volume to detect silence
+                  let sum = 0;
+                  let peak = 0;
+                  for (let i = 0; i < channel.length; i++) {
+                    const abs = Math.abs(channel[i]);
+                    sum += channel[i] * channel[i];
+                    if (abs > peak) peak = abs;
                   }
+                  const rms = Math.sqrt(sum / channel.length);
+
+                  // AGGRESSIVE NOISE FILTERING - Multiple checks
+                  const SILENCE_THRESHOLD = 0.03; // 3% - filters crowd noise, wind
+                  const PEAK_THRESHOLD = 0.1;     // 10% - must have clear peaks (speech has peaks)
+                  const MIN_DYNAMIC_RANGE = 0.02; // Speech has variation, noise is constant
+
+                  // Calculate dynamic range (difference between peak and RMS)
+                  const dynamicRange = peak - rms;
+
+                  // Speech detection requires ALL conditions:
+                  // 1. RMS above threshold (not too quiet)
+                  // 2. Peak above threshold (has clear sound peaks)
+                  // 3. Dynamic range sufficient (not constant noise)
+                  const isSpeechDetected = 
+                    rms > SILENCE_THRESHOLD && 
+                    peak > PEAK_THRESHOLD && 
+                    dynamicRange > MIN_DYNAMIC_RANGE;
+
+                  setIsDetectingSpeech(isSpeechDetected);
+
+                  // Check cooldown - don't send audio during cooldown period
+                  if (audioCooldownRef.current) {
+                    return; // Skip sending audio during cooldown
+                  }
+
+                  // Only send audio data if ALL speech detection criteria are met
+                  if (isSpeechDetected) {
+                    const pcm16 = downsampleTo16k(channel, ctx.sampleRate || 48000);
+                    if (ws.readyState === WebSocket.OPEN) {
+                      ws.send(pcm16.buffer);
+                    } else if (ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
+                      attemptVoskReconnect(startVosk);
+                    }
+                  }
+                  // If below threshold, don't send anything (silence/noise)
+                  // This aggressively filters: background noise, crowd, wind, constant sounds
                 } catch (error) {
                   console.warn("Error processing audio:", error);
                 }
@@ -1249,16 +1304,16 @@ const ReadingSessionPage: React.FC = () => {
               src.connect(script);
               script.connect(ctx.destination);
             };
-            
+
             setupVoskMessageHandlers(ws);
             setupVoskConnectionHandlers(ws, isReconnect, startVosk);
-            
+
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "Unknown error";
             console.error("Failed to initialize speech recognition:", errorMessage, error);
             cleanupVosk();
             setVoskStatus("disconnected");
-            
+
             if (!isReconnect) {
               // Provide specific error messages based on error type
               if (errorMessage.includes("Permission denied") || errorMessage.includes("NotAllowedError")) {
@@ -1300,7 +1355,7 @@ const ReadingSessionPage: React.FC = () => {
       cleanupVosk();
       voskFinalTranscriptRef.current = ""; // Reset transcript
       voskReconnectAttemptsRef.current = 0;
-      
+
       // Small delay before reconnecting to ensure cleanup completes
       setTimeout(() => {
         if (isRecording && !isPaused) {
@@ -1308,7 +1363,7 @@ const ReadingSessionPage: React.FC = () => {
             (import.meta as any)?.env?.VITE_VOSK_WS_URL ||
             "wss://philiready-websocket-production.up.railway.app";
           const wsUrl = `${baseWsUrl}?lang=${storyLanguage}`;
-          
+
           // Restart Vosk with new language (using improved audio settings)
           const startVosk = async () => {
             try {
@@ -1316,8 +1371,8 @@ const ReadingSessionPage: React.FC = () => {
               let stream: MediaStream;
               try {
                 stream = await navigator.mediaDevices.getUserMedia({
-                  audio: { 
-                    channelCount: 1, 
+                  audio: {
+                    channelCount: 1,
                     sampleRate: 48000,
                     echoCancellation: false,
                     noiseSuppression: false,
@@ -1326,18 +1381,18 @@ const ReadingSessionPage: React.FC = () => {
                 });
               } catch (error) {
                 stream = await navigator.mediaDevices.getUserMedia({
-                  audio: { 
-                    channelCount: 1, 
+                  audio: {
+                    channelCount: 1,
                     sampleRate: 48000
                   },
                 });
               }
-              
+
               const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
               if (ctx.state === 'suspended') {
                 await ctx.resume();
               }
-              
+
               audioContextRef.current = ctx;
               const src = ctx.createMediaStreamSource(stream);
               sourceNodeRef.current = src;
@@ -1352,15 +1407,15 @@ const ReadingSessionPage: React.FC = () => {
                 const newLength = Math.floor(input.length / ratio);
                 const result = new Int16Array(newLength);
                 const filterLength = Math.min(32, Math.floor(input.length / 2));
-                
+
                 for (let i = 0; i < newLength; i++) {
                   const srcIndex = i * ratio;
                   const srcStart = Math.max(0, Math.floor(srcIndex - filterLength));
                   const srcEnd = Math.min(input.length, Math.ceil(srcIndex + filterLength));
-                  
+
                   let sum = 0;
                   let weightSum = 0;
-                  
+
                   for (let j = srcStart; j < srcEnd; j++) {
                     const offset = j - srcIndex;
                     if (Math.abs(offset) < 0.5) {
@@ -1375,7 +1430,7 @@ const ReadingSessionPage: React.FC = () => {
                       weightSum += Math.abs(weight);
                     }
                   }
-                  
+
                   const sample = weightSum > 0 ? sum / weightSum : 0;
                   const clamped = Math.max(-1, Math.min(1, sample));
                   result[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
@@ -1387,11 +1442,11 @@ const ReadingSessionPage: React.FC = () => {
               const ws = new WebSocket(wsUrl);
               voskSocketRef.current = ws;
               ws.binaryType = "arraybuffer";
-              
+
               ws.onopen = () => {
                 voskReconnectAttemptsRef.current = 0;
                 setVoskStatus("connected");
-                
+
                 voskHeartbeatIntervalRef.current = setInterval(() => {
                   if (ws.readyState === WebSocket.OPEN) {
                     try {
@@ -1401,14 +1456,54 @@ const ReadingSessionPage: React.FC = () => {
                     }
                   }
                 }, 30000);
-                
+
                 script.onaudioprocess = (e: AudioProcessingEvent) => {
                   try {
                     const channel = e.inputBuffer.getChannelData(0);
-                    const pcm16 = downsampleTo16k(channel);
-                    if (ws.readyState === WebSocket.OPEN) {
-                      ws.send(pcm16.buffer);
+
+                    // Calculate RMS (Root Mean Square) volume to detect silence
+                    let sum = 0;
+                    let peak = 0;
+                    for (let i = 0; i < channel.length; i++) {
+                      const abs = Math.abs(channel[i]);
+                      sum += channel[i] * channel[i];
+                      if (abs > peak) peak = abs;
                     }
+                    const rms = Math.sqrt(sum / channel.length);
+
+                    // AGGRESSIVE NOISE FILTERING - Multiple checks
+                    const SILENCE_THRESHOLD = 0.03; // 3% - filters crowd noise, wind
+                    const PEAK_THRESHOLD = 0.1;     // 10% - must have clear peaks (speech has peaks)
+                    const MIN_DYNAMIC_RANGE = 0.02; // Speech has variation, noise is constant
+
+                    // Calculate dynamic range (difference between peak and RMS)
+                    const dynamicRange = peak - rms;
+
+                    // Speech detection requires ALL conditions:
+                    // 1. RMS above threshold (not too quiet)
+                    // 2. Peak above threshold (has clear sound peaks)
+                    // 3. Dynamic range sufficient (not constant noise)
+                    const isSpeechDetected = 
+                      rms > SILENCE_THRESHOLD && 
+                      peak > PEAK_THRESHOLD && 
+                      dynamicRange > MIN_DYNAMIC_RANGE;
+
+                    setIsDetectingSpeech(isSpeechDetected);
+
+                    // Check cooldown - don't send audio during cooldown period
+                    if (audioCooldownRef.current) {
+                      return; // Skip sending audio during cooldown
+                    }
+
+                    // Only send audio data if ALL speech detection criteria are met
+                    if (isSpeechDetected) {
+                      const pcm16 = downsampleTo16k(channel);
+                      if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(pcm16.buffer);
+                      }
+                    }
+                    // If below threshold, don't send anything (silence/noise)
+                    // This aggressively filters: background noise, crowd, wind, constant sounds
                   } catch (error) {
                     console.warn("Error processing audio:", error);
                   }
@@ -1416,14 +1511,14 @@ const ReadingSessionPage: React.FC = () => {
                 src.connect(script);
                 script.connect(ctx.destination);
               };
-              
+
               ws.onmessage = (evt) => {
                 try {
                   const msg = JSON.parse(evt.data);
                   if (msg.text && msg.text.trim()) {
                     // Filter through vocabulary validation
                     const filteredText = filterThroughVocabulary(msg.text.trim(), storyVocabulary);
-                    
+
                     // Only update transcript if we have valid words
                     if (filteredText) {
                       voskFinalTranscriptRef.current += (voskFinalTranscriptRef.current ? " " : "") + filteredText;
@@ -1432,7 +1527,7 @@ const ReadingSessionPage: React.FC = () => {
                   } else if (msg.partial && msg.partial.trim()) {
                     // Filter partial results through vocabulary validation
                     const filteredPartial = filterThroughVocabulary(msg.partial.trim(), storyVocabulary);
-                    
+
                     // Show accumulated + filtered partial for instant feedback
                     if (filteredPartial) {
                       setTranscript(voskFinalTranscriptRef.current + (voskFinalTranscriptRef.current ? " " : "") + filteredPartial);
@@ -1445,12 +1540,12 @@ const ReadingSessionPage: React.FC = () => {
                   console.warn("Error parsing Vosk message:", error);
                 }
               };
-              
+
               ws.onerror = () => {
                 setVoskStatus("disconnected");
                 console.warn("Vosk reconnection failed after language change");
               };
-              
+
               ws.onclose = () => {
                 setVoskStatus("disconnected");
               };
@@ -1459,7 +1554,7 @@ const ReadingSessionPage: React.FC = () => {
               setVoskStatus("disconnected");
             }
           };
-          
+
           startVosk();
         }
       }, 100);
@@ -1471,7 +1566,8 @@ const ReadingSessionPage: React.FC = () => {
     try {
       setIsRecording(false);
       setIsPaused(false);
-      
+      setIsDetectingSpeech(false); // Reset speech detection indicator
+
       // Stop MediaRecorder
       if (mediaRecorderRef.current) {
         try {
@@ -1483,14 +1579,14 @@ const ReadingSessionPage: React.FC = () => {
           console.warn("Error stopping media recorder:", error);
         }
       }
-      
+
       // Cleanup Vosk (includes all cleanup logic)
       cleanupVosk();
-      
+
       // Reset Vosk state
       voskFinalTranscriptRef.current = "";
       voskReconnectAttemptsRef.current = 0;
-      
+
       // If Tagalog story, optionally send audio to backend Whisper for better transcription
       const enableServerTranscribe =
         (import.meta as any)?.env?.VITE_ENABLE_SERVER_TRANSCRIBE === "true";
@@ -1686,10 +1782,10 @@ const ReadingSessionPage: React.FC = () => {
           if (fullStory.language) {
             // Normalize language value (handle case variations)
             const normalizedLang = String(fullStory.language).toLowerCase().trim();
-            
+
             // Map story language to internal format
             let internalLanguage: "english" | "tagalog" = "english"; // Default
-            
+
             if (normalizedLang === "tagalog" || normalizedLang === "filipino" || normalizedLang === "none") {
               internalLanguage = "tagalog";
             } else if (normalizedLang === "english") {
@@ -1699,7 +1795,7 @@ const ReadingSessionPage: React.FC = () => {
               console.warn(`Unknown story language value: "${fullStory.language}", defaulting to English`);
               internalLanguage = "english";
             }
-            
+
             setStoryLanguage(internalLanguage);
           } else {
             // Default to English if no language is specified
@@ -1717,14 +1813,14 @@ const ReadingSessionPage: React.FC = () => {
               .split(/\s+/)
               .filter((word: string) => word.length > 0);
             setWords(wordArray);
-            
+
             // Extract vocabulary for vocabulary-constrained recognition
             const vocabulary = extractVocabulary(trimmedText);
             setStoryVocabulary(vocabulary);
-            
+
             // Detect story language based on vocabulary
             const detectedLanguage = detectStoryLanguage(vocabulary);
-            
+
             // Only override the language if it wasn't already set from story metadata
             // This allows manual language setting to take precedence
             if (!fullStory.language) {
@@ -1822,15 +1918,15 @@ const ReadingSessionPage: React.FC = () => {
     }
     if (text) {
       setRealWords(extractWordsFromText(text));
-      
+
       // Extract vocabulary for vocabulary-constrained recognition
       const vocabulary = extractVocabulary(text);
       setStoryVocabulary(vocabulary);
-      
+
       // Detect story language
       const detectedLanguage = detectStoryLanguage(vocabulary);
       setStoryLanguage(detectedLanguage);
-      
+
       console.log(`📚 Story loaded: ${vocabulary.size} vocabulary words, language: ${detectedLanguage}`);
     } else {
       setRealWords([]);
@@ -1905,7 +2001,7 @@ const ReadingSessionPage: React.FC = () => {
     if (currentWordIndex !== lastWordIndexRef.current) {
       lastWordIndexRef.current = currentWordIndex;
       stuckStartTimeRef.current = Date.now();
-      
+
       if (stuckTimerRef.current) {
         clearTimeout(stuckTimerRef.current);
       }
@@ -1917,11 +2013,11 @@ const ReadingSessionPage: React.FC = () => {
           const currentTranscriptWords = transcript.split(/\s+/).filter(Boolean);
           const timeStuck = Date.now() - stuckStartTimeRef.current;
           console.log(`⏰ Auto-advance: Been on word "${realWords[currentWordIndex]}" for ${timeStuck}ms without match`);
-          
+
           // Check if there are new words in transcript (child is still reading)
           if (currentTranscriptWords.length > processedTranscriptWordsRef.current) {
             console.log(`   Child is still reading (${currentTranscriptWords.length - processedTranscriptWordsRef.current} new words), marking as omission and advancing`);
-            
+
             // Mark current word as omission
             setMiscues(prev => prev + 1);
             setMiscueTypes(prev => ({ ...prev, omission: prev.omission + 1 }));
@@ -1932,14 +2028,14 @@ const ReadingSessionPage: React.FC = () => {
               spokenWord: '(auto-detected omission)',
               correctWord: realWords[currentWordIndex]
             }));
-            
+
             // Advance to next word
             const newIndex = currentWordIndex + 1;
             setCurrentWordIndex(newIndex);
             setWordsRead(newIndex);
           }
         }
-      }, 3000); // 3 second timeout for continuous reading
+      }, 5000); // 5 second timeout - Filipino elementary students need more time per word
     }
 
     // Clear any pending match check
@@ -1947,9 +2043,15 @@ const ReadingSessionPage: React.FC = () => {
       clearTimeout(matchTimeoutRef.current);
     }
 
-    // Balanced delay: Fast enough for readers, slow enough to avoid interim results (250ms)
+    // Optimized delay: 150ms is fast enough for Filipino students while avoiding interim results
     matchTimeoutRef.current = setTimeout(() => {
-      const transcriptWords = transcript.split(/\s+/).filter(Boolean);
+      // STRICT FILTERING: Only process real words (2+ chars, mostly letters)
+      const transcriptWords = transcript.split(/\s+/).filter(word => {
+        if (!word || word.length < 2) return false; // Reject noise/single chars
+        const letterCount = (word.match(/[a-zA-Z]/g) || []).length;
+        return letterCount >= word.length * 0.7; // At least 70% letters
+      });
+      
       if (transcriptWords.length === 0) return;
 
       const expectedWord = realWords[currentWordIndex];
@@ -1997,7 +2099,31 @@ const ReadingSessionPage: React.FC = () => {
 
         // Reset and mark as processed
         lastMiscueWordRef.current = "";
-        processedTranscriptWordsRef.current = transcriptWords.length;
+        processedTranscriptWordsRef.current = 0; // Reset to 0 to start fresh
+
+        // AGGRESSIVE CLEAR: Completely clear transcript after match to prevent false positives
+        // This prevents old words from triggering future matches
+        voskFinalTranscriptRef.current = "";
+        setTranscript("");
+
+        // Activate cooldown to stop audio processing briefly (300ms)
+        audioCooldownRef.current = true;
+        setTimeout(() => {
+          audioCooldownRef.current = false;
+        }, 300);
+
+        // Send end-of-utterance signal to Vosk to reset its internal state
+        if (voskSocketRef.current && voskSocketRef.current.readyState === WebSocket.OPEN) {
+          try {
+            voskSocketRef.current.send(JSON.stringify({ eof: 1 }));
+            console.log("🧹 Cleared transcript and reset Vosk after successful match (300ms cooldown)");
+          } catch (e) {
+            console.log("🧹 Cleared transcript after successful match (Vosk reset failed)");
+          }
+        } else {
+          console.log("🧹 Cleared transcript after successful match");
+        }
+
         return; // Exit early
       } else {
         console.log(`   ✗ "${expectedWord}" NOT found in transcript`);
@@ -2045,7 +2171,7 @@ const ReadingSessionPage: React.FC = () => {
               // For longer words (4+ chars), allow 85%+ similarity (more lenient for continuous reading)
               const isShortWord = spokenWord.length <= 3;
               const requiredSimilarity = isShortWord ? 1.0 : 0.85;
-              
+
               // CRITICAL: Only treat as skip-ahead if current word similarity is LOW (<50%)
               // If current word similarity is medium-high (50%+), it's likely a mispronunciation, not an omission
               // Example: "hat" vs "Hot" = 75% similar → mispronunciation, not omission
@@ -2083,6 +2209,29 @@ const ReadingSessionPage: React.FC = () => {
                   setCurrentWordIndex(newIndex);
                   setWordsRead(newIndex);
 
+                  // AGGRESSIVE CLEAR: Completely clear transcript after skip-ahead
+                  processedTranscriptWordsRef.current = 0;
+                  voskFinalTranscriptRef.current = "";
+                  setTranscript("");
+
+                  // Activate cooldown to stop audio processing briefly (300ms)
+                  audioCooldownRef.current = true;
+                  setTimeout(() => {
+                    audioCooldownRef.current = false;
+                  }, 300);
+
+                  // Send end-of-utterance signal to Vosk to reset its internal state
+                  if (voskSocketRef.current && voskSocketRef.current.readyState === WebSocket.OPEN) {
+                    try {
+                      voskSocketRef.current.send(JSON.stringify({ eof: 1 }));
+                      console.log("🧹 Cleared transcript and reset Vosk after skip-ahead (300ms cooldown)");
+                    } catch (e) {
+                      console.log("🧹 Cleared transcript after skip-ahead detection");
+                    }
+                  } else {
+                    console.log("🧹 Cleared transcript after skip-ahead detection");
+                  }
+
                   foundSkipAhead = true;
                   break;
                 } else {
@@ -2091,6 +2240,30 @@ const ReadingSessionPage: React.FC = () => {
                   const newIndex = currentWordIndex + lookAhead + 1;
                   setCurrentWordIndex(newIndex);
                   setWordsRead(newIndex);
+
+                  // AGGRESSIVE CLEAR: Completely clear transcript
+                  processedTranscriptWordsRef.current = 0;
+                  voskFinalTranscriptRef.current = "";
+                  setTranscript("");
+
+                  // Activate cooldown to stop audio processing briefly (300ms)
+                  audioCooldownRef.current = true;
+                  setTimeout(() => {
+                    audioCooldownRef.current = false;
+                  }, 300);
+
+                  // Send end-of-utterance signal to Vosk to reset its internal state
+                  if (voskSocketRef.current && voskSocketRef.current.readyState === WebSocket.OPEN) {
+                    try {
+                      voskSocketRef.current.send(JSON.stringify({ eof: 1 }));
+                      console.log("🧹 Cleared transcript and reset Vosk after error recovery (300ms cooldown)");
+                    } catch (e) {
+                      console.log("🧹 Cleared transcript after error recovery");
+                    }
+                  } else {
+                    console.log("🧹 Cleared transcript after error recovery");
+                  }
+
                   foundSkipAhead = true;
                   break;
                 }
@@ -2126,11 +2299,11 @@ const ReadingSessionPage: React.FC = () => {
             const nextSpokenWord = wordsToCheck[currentIdx + 1];
             const combinedSpoken = normalize(spokenWord + nextSpokenWord);
             const similarity = getCachedSimilarity(combinedSpoken, normalizedExpected);
-            
+
             if (similarity >= 0.70) {
               console.log(`✅ SPLIT-WORD MATCH! "${spokenWord} ${nextSpokenWord}" = "${expectedWord}" (${(similarity * 100).toFixed(0)}% similar)`);
               console.log(`   This is a mispronunciation where child split the word into parts`);
-              
+
               // Count as mispronunciation
               if (!countedMiscuePositionsRef.current.has(currentWordIndex)) {
                 countedMiscuePositionsRef.current.add(currentWordIndex);
@@ -2144,7 +2317,7 @@ const ReadingSessionPage: React.FC = () => {
                   correctWord: expectedWord
                 }));
               }
-              
+
               // Advance to next word
               wordsAdvanced = 1;
               matched = true;
@@ -2224,6 +2397,29 @@ const ReadingSessionPage: React.FC = () => {
         const newIndex = currentWordIndex + wordsAdvanced;
         setCurrentWordIndex(newIndex);
         setWordsRead(newIndex);
+
+        // AGGRESSIVE CLEAR: Completely clear transcript after match
+        processedTranscriptWordsRef.current = 0;
+        voskFinalTranscriptRef.current = "";
+        setTranscript("");
+
+        // Activate cooldown to stop audio processing briefly (300ms)
+        audioCooldownRef.current = true;
+        setTimeout(() => {
+          audioCooldownRef.current = false;
+        }, 300);
+
+        // Send end-of-utterance signal to Vosk to reset its internal state
+        if (voskSocketRef.current && voskSocketRef.current.readyState === WebSocket.OPEN) {
+          try {
+            voskSocketRef.current.send(JSON.stringify({ eof: 1 }));
+            console.log("🧹 Cleared transcript and reset Vosk after word match (300ms cooldown)");
+          } catch (e) {
+            console.log("🧹 Cleared transcript after word match");
+          }
+        } else {
+          console.log("🧹 Cleared transcript after word match");
+        }
       } else {
         // NO MATCH - Advanced miscue detection (7 types)
         console.log(`❌ No match found in recent words`);
@@ -2240,7 +2436,7 @@ const ReadingSessionPage: React.FC = () => {
           // STRICT: Only count words that are truly extra and not fragments of nearby words
           // CRITICAL: Skip insertion check if we already counted a miscue for this position
           const alreadyCountedMiscue = countedMiscuePositionsRef.current.has(currentWordIndex);
-          
+
           if (newWords.length > 0 && !alreadyCountedMiscue) {
             let insertionCount = 0;
             const insertedWordsList: string[] = [];
@@ -2251,7 +2447,7 @@ const ReadingSessionPage: React.FC = () => {
               // CRITICAL FIX: Check if this word belongs to a FUTURE position in the story
               // Example: "aman" at "hot" should match "a man" later in "heard a man yell"
               let belongsToFuturePosition = false;
-              
+
               // Check if word matches a future word (look ahead up to 20 words)
               for (let lookAhead = 1; lookAhead <= 20 && currentWordIndex + lookAhead < realWords.length; lookAhead++) {
                 const futureWord = realWords[currentWordIndex + lookAhead];
@@ -2260,7 +2456,7 @@ const ReadingSessionPage: React.FC = () => {
                   console.log(`   ℹ️ "${word}" matches future word "${futureWord}" at position ${currentWordIndex + lookAhead} - not counting as insertion`);
                   break;
                 }
-                
+
                 // Also check if word is a compound of future consecutive words
                 if (lookAhead < 20 && currentWordIndex + lookAhead + 1 < realWords.length) {
                   const futureWord2 = realWords[currentWordIndex + lookAhead + 1];
@@ -2272,7 +2468,7 @@ const ReadingSessionPage: React.FC = () => {
                   }
                 }
               }
-              
+
               if (belongsToFuturePosition) {
                 continue; // Skip this word - it belongs to a future position
               }
@@ -2283,7 +2479,7 @@ const ReadingSessionPage: React.FC = () => {
               // ENHANCED CHECK: Is this word a fragment/compound of ANY story words?
               // Check both nearby words AND all story words for compounds
               let isLikelyFragment = false;
-              
+
               // First check: nearby words (current position ± 5 words)
               for (let i = 0; i <= 5 && currentWordIndex + i < realWords.length; i++) {
                 const nearbyWord = normalize(realWords[currentWordIndex + i]);
@@ -2305,7 +2501,7 @@ const ReadingSessionPage: React.FC = () => {
                   }
                 }
               }
-              
+
               // Second check: ALL story words for compound matches (e.g., "aman" = "a" + "man")
               // This catches cases where speech recognition joins words that appear anywhere in the story
               if (!isLikelyFragment) {
@@ -2313,14 +2509,14 @@ const ReadingSessionPage: React.FC = () => {
                   const word1 = normalize(realWords[i]);
                   const word2 = normalize(realWords[i + 1]);
                   const compound = word1 + word2;
-                  
+
                   // Check if the "inserted" word is a compound of ANY two consecutive story words
                   if (normalizedWord === compound) {
                     isLikelyFragment = true;
                     console.log(`   ℹ️ "${word}" is a compound of story words "${realWords[i]}" + "${realWords[i + 1]}" (positions ${i} and ${i + 1}) - not counting as insertion`);
                     break;
                   }
-                  
+
                   // Also check high similarity (90%+) for speech recognition errors
                   const similarity = getCachedSimilarity(normalizedWord, compound);
                   if (similarity >= 0.90) {
@@ -2330,7 +2526,7 @@ const ReadingSessionPage: React.FC = () => {
                   }
                 }
               }
-              
+
               // Third check: Check if word is a compound of ANY two story words (not necessarily consecutive)
               // This catches "aman" from "a" (position 8) + "man" (position 15)
               if (!isLikelyFragment && normalizedWord.length >= 4) {
@@ -2339,7 +2535,7 @@ const ReadingSessionPage: React.FC = () => {
                     const word1 = normalize(realWords[i]);
                     const word2 = normalize(realWords[j]);
                     const compound = word1 + word2;
-                    
+
                     if (normalizedWord === compound) {
                       isLikelyFragment = true;
                       console.log(`   ℹ️ "${word}" is a compound of non-consecutive story words "${realWords[i]}" (pos ${i}) + "${realWords[j]}" (pos ${j}) - not counting as insertion`);
@@ -2369,7 +2565,7 @@ const ReadingSessionPage: React.FC = () => {
             if (insertionCount > 0) {
               // Mark this position as counted to prevent double-counting
               countedMiscuePositionsRef.current.add(currentWordIndex);
-              
+
               setMiscues(prev => prev + insertionCount);
               setMiscueTypes(prev => ({ ...prev, insertion: prev.insertion + insertionCount }));
 
@@ -2406,17 +2602,17 @@ const ReadingSessionPage: React.FC = () => {
           // DepEd Rule: Count as one error every word or phrase repeated. Underline the portion repeated.
           // CRITICAL FIX: Use recentWords instead of wordsForMiscueDetection to catch repetitions
           // wordsForMiscueDetection only contains NEW words, so it misses when someone repeats a word they just said
-          
+
           if (recentWords.length >= 2) {
             // Method 1: Check if last 2 consecutive words are identical (e.g., "the the", "wanted wanted")
             const lastTwo = recentWords.slice(-2);
             const normalizedLast1 = normalize(lastTwo[0]);
             const normalizedLast2 = normalize(lastTwo[1]);
-            
+
             if (normalizedLast1 === normalizedLast2 && normalizedLast1.length > 0) {
               // CRITICAL FIX: Find which story word was repeated and mark THAT position
               // Don't mark currentWordIndex - mark the word that was actually repeated!
-              
+
               // Find which story word matches the repeated word
               let repeatedWordIndex = -1;
               for (let i = Math.max(0, currentWordIndex - 3); i <= currentWordIndex && i < realWords.length; i++) {
@@ -2425,11 +2621,11 @@ const ReadingSessionPage: React.FC = () => {
                   break;
                 }
               }
-              
+
               // If we found the repeated word in the story, mark it
               if (repeatedWordIndex >= 0) {
                 const alreadyCountedRepetition = wordMiscues.get(repeatedWordIndex) === 'repetition';
-                
+
                 if (!alreadyCountedRepetition) {
                   console.log(`⚠️ REPETITION! Child repeated "${lastTwo[0]}" (story word #${repeatedWordIndex}: "${realWords[repeatedWordIndex]}") - DepEd Rule: Underline repeated portion`);
                   setMiscues(prev => prev + 1);
@@ -2441,7 +2637,7 @@ const ReadingSessionPage: React.FC = () => {
                     spokenWord: `${lastTwo[0]} ${lastTwo[1]}`,
                     correctWord: realWords[repeatedWordIndex]
                   }));
-                  
+
                   // Mark this transcript position as processed to avoid double-counting
                   processedTranscriptWordsRef.current = transcriptWords.length;
                   return; // Don't count as other miscue types
@@ -2454,10 +2650,10 @@ const ReadingSessionPage: React.FC = () => {
             if (recentWords.length >= 3) {
               const lastWord = recentWords[recentWords.length - 1];
               const normalizedLast = normalize(lastWord);
-              
+
               // Count how many times this word appears in recent words
               const occurrences = recentWords.filter(w => normalize(w) === normalizedLast).length;
-              
+
               // If word appears 2+ times in recent words, it's a repetition
               if (occurrences >= 2 && normalizedLast.length > 0) {
                 // CRITICAL FIX: Find which story word was repeated and mark THAT position
@@ -2468,10 +2664,10 @@ const ReadingSessionPage: React.FC = () => {
                     break;
                   }
                 }
-                
+
                 if (repeatedWordIndex >= 0) {
                   const alreadyCountedRepetition = wordMiscues.get(repeatedWordIndex) === 'repetition';
-                  
+
                   if (!alreadyCountedRepetition) {
                     console.log(`⚠️ REPETITION! Child said "${lastWord}" ${occurrences} times (story word #${repeatedWordIndex}: "${realWords[repeatedWordIndex]}") - DepEd Rule: Underline repeated portion`);
                     setMiscues(prev => prev + 1);
@@ -2483,7 +2679,7 @@ const ReadingSessionPage: React.FC = () => {
                       spokenWord: lastWord,
                       correctWord: realWords[repeatedWordIndex]
                     }));
-                    
+
                     // Mark this transcript position as processed
                     processedTranscriptWordsRef.current = transcriptWords.length;
                     return;
@@ -2498,7 +2694,7 @@ const ReadingSessionPage: React.FC = () => {
               const lastFour = recentWords.slice(-4);
               const firstPair = normalize(lastFour[0]) + ' ' + normalize(lastFour[1]);
               const secondPair = normalize(lastFour[2]) + ' ' + normalize(lastFour[3]);
-              
+
               if (firstPair === secondPair && firstPair.length > 0) {
                 // CRITICAL FIX: Find which story word position the phrase starts at
                 let repeatedPhraseIndex = -1;
@@ -2508,10 +2704,10 @@ const ReadingSessionPage: React.FC = () => {
                     break;
                   }
                 }
-                
+
                 if (repeatedPhraseIndex >= 0) {
                   const alreadyCountedRepetition = wordMiscues.get(repeatedPhraseIndex) === 'repetition';
-                  
+
                   if (!alreadyCountedRepetition) {
                     console.log(`⚠️ REPETITION! Child repeated phrase "${lastFour[0]} ${lastFour[1]}" (story position #${repeatedPhraseIndex}) - DepEd Rule: Underline repeated portion`);
                     setMiscues(prev => prev + 1);
@@ -2523,7 +2719,7 @@ const ReadingSessionPage: React.FC = () => {
                       spokenWord: `${lastFour[0]} ${lastFour[1]} ${lastFour[2]} ${lastFour[3]}`,
                       correctWord: `${realWords[repeatedPhraseIndex]} ${realWords[repeatedPhraseIndex + 1]}`
                     }));
-                    
+
                     // Mark this transcript position as processed
                     processedTranscriptWordsRef.current = transcriptWords.length;
                     return;
@@ -2721,7 +2917,7 @@ const ReadingSessionPage: React.FC = () => {
 
       // Mark these words as processed
       processedTranscriptWordsRef.current = transcriptWords.length;
-    }, 250); // 250ms delay - prevents interim results from triggering false omissions
+    }, 150); // 150ms delay - faster response for Filipino students, still prevents interim results
 
     return () => {
       if (matchTimeoutRef.current) {
@@ -3224,9 +3420,14 @@ const ReadingSessionPage: React.FC = () => {
       {/* Display last recognized word */}
       {isRecording && (
         <div className="w-full flex justify-center mb-4">
-          <div className="bg-yellow-100 border border-yellow-300 rounded-lg px-6 py-3 flex items-center gap-3 shadow text-lg">
-            <span className="font-semibold text-yellow-800">Mic heard:</span>
-            <span className="font-mono text-yellow-900 text-xl font-bold">
+          <div className={`border rounded-lg px-6 py-3 flex items-center gap-3 shadow text-lg transition-colors duration-200 ${isDetectingSpeech
+            ? 'bg-green-100 border-green-400'
+            : 'bg-yellow-100 border-yellow-300'
+            }`}>
+            <span className={`font-semibold ${isDetectingSpeech ? 'text-green-800' : 'text-yellow-800'}`}>
+              {isDetectingSpeech ? '🎤 Listening:' : 'Mic ready:'}
+            </span>
+            <span className={`font-mono text-xl font-bold ${isDetectingSpeech ? 'text-green-900' : 'text-yellow-900'}`}>
               {transcript.trim().split(/\s+/).filter(Boolean).slice(-1)[0] ||
                 "-"}
             </span>
@@ -3391,7 +3592,7 @@ const ReadingSessionPage: React.FC = () => {
                                     ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"
                                     : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl transition-all duration-300 ease-in-out relative ` +
                                     (isCurrent
-                                      ? "bg-blue-500 text-white font-bold shadow-lg z-10"
+                                      ? "bg-yellow-400 text-black font-extrabold shadow-2xl z-10 border-4 border-yellow-600"
                                       : miscueType
                                         ? `${getMiscueColor(miscueType)} font-semibold`
                                         : isRead
@@ -3401,9 +3602,10 @@ const ReadingSessionPage: React.FC = () => {
                                 style={
                                   isCurrent
                                     ? {
-                                      boxShadow: "0 2px 8px rgba(59, 130, 246, 0.5)",
-                                      transform: "scale(1.05)",
-                                      transition: "all 0.2s ease-in-out"
+                                      boxShadow: "0 4px 16px rgba(234, 179, 8, 0.8), 0 0 0 4px rgba(234, 179, 8, 0.3)",
+                                      transform: "scale(1.15)",
+                                      transition: "all 0.3s ease-in-out",
+                                      animation: "pulse 1.5s ease-in-out infinite"
                                     }
                                     : miscueType
                                       ? {
@@ -3440,8 +3642,8 @@ const ReadingSessionPage: React.FC = () => {
                                       <span
                                         className="absolute inset-0 border-2 border-orange-600 rounded-full z-10"
                                         title="DepEd: Circle the omitted word"
-                                        style={{ 
-                                          width: 'calc(100% + 8px)', 
+                                        style={{
+                                          width: 'calc(100% + 8px)',
                                           height: 'calc(100% + 8px)',
                                           left: '-4px',
                                           top: '-4px'
@@ -4075,7 +4277,7 @@ const ReadingSessionPage: React.FC = () => {
                 alert("No test found for this story.");
                 return;
               }
-              
+
               navigate(`/student/test/${resolvedTestId}` as any, {
                 state: {
                   studentId,
