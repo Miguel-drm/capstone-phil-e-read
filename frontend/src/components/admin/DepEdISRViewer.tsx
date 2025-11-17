@@ -10,6 +10,7 @@ interface ISRData {
   levelStarted?: string; // The level where the student started (marked with *)
   readingData: {
     level: string;
+    levelStarted?: boolean;
     set?: string; // A, B, C, or D
     wordReading: {
       ind: boolean;
@@ -44,7 +45,7 @@ const DepEdISRViewer: React.FC<DepEdISRViewerProps> = ({
   onClose
 }) => {
 
-  const levels = ['K', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
+const levels = ['K', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -136,7 +137,9 @@ const DepEdISRViewer: React.FC<DepEdISRViewerProps> = ({
               <tbody>
                 {levels.map((level) => {
                   const readingEntry = data.readingData?.find(entry => entry.level === level);
-                  const isStartedLevel = data.levelStarted === level;
+                  const isStartedLevel =
+                    data.levelStarted === level ||
+                    Boolean(readingEntry?.levelStarted);
                   
                   // Debug: Log entry data for this level
                   if (readingEntry) {

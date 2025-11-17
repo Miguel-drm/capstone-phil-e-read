@@ -129,8 +129,13 @@ class StudentService {
   // Add a new student
   async addStudent(studentData: Omit<Student, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
     try {
+      // Remove any undefined fields (Firestore does not allow them)
+      const cleanedStudentData = Object.fromEntries(
+        Object.entries(studentData).filter(([_, value]) => value !== undefined)
+      );
+
       const docRef = await addDoc(collection(db, this.collectionName), {
-        ...studentData,
+        ...cleanedStudentData,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
