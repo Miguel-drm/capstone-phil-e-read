@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { User } from 'firebase/auth';
-import { onAuthStateChange, signIn, signUp, signOutUser, resetPassword, getUserProfile, isProfileComplete } from '../services/authService';
+import { onAuthStateChange, signIn, signUp, signOutUser, resetPassword, getUserProfile, isProfileComplete, signInWithGoogleExisting, signUpWithGoogle } from '../services/authService';
 import type { UserProfile, UserRole } from '../services/authService';
 
 interface AuthContextType {
@@ -11,6 +11,8 @@ interface AuthContextType {
   isProfileComplete: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, displayName?: string) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
+  signUpWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   refreshUserProfile: () => Promise<void>;
@@ -75,6 +77,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  const handleSignInWithGoogle = async () => {
+    try {
+      await signInWithGoogleExisting();
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  const handleSignUpWithGoogle = async () => {
+    try {
+      await signUpWithGoogle();
+    } catch (error) {
+      throw error;
+    }
+  };
+
   const handleSignOut = async () => {
     try {
       await signOutUser();
@@ -109,6 +127,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     isProfileComplete: userProfile ? isProfileComplete(userProfile) : false,
     signIn: handleSignIn,
     signUp: handleSignUp,
+    signInWithGoogle: handleSignInWithGoogle,
+    signUpWithGoogle: handleSignUpWithGoogle,
     signOut: handleSignOut,
     resetPassword: handleResetPassword,
     refreshUserProfile
