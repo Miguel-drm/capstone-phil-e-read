@@ -5,6 +5,8 @@ import {
   sendPasswordResetEmail,
   updateProfile,
   onAuthStateChanged,
+  signInWithPopup,
+  GoogleAuthProvider,
   type User,
   type UserCredential
 } from 'firebase/auth';
@@ -95,6 +97,64 @@ export const signUp = async (email: string, password: string, displayName?: stri
 export const signIn = async (email: string, password: string): Promise<UserCredential> => {
   try {
     return await signInWithEmailAndPassword(auth, email, password);
+  } catch (error) {
+    throw error;
+  }
+};
+
+const createUserDoc = async (user: User) => {
+  const role = determineUserRole(user.email || '');
+  await setDoc(doc(db, 'users', user.uid), {
+    email: user.email,
+    displayName: user.displayName || '',
+    photoURL: user.photoURL || '',
+    role,
+    createdAt: new Date().toISOString()
+  });
+};
+
+// Google sign-in for existing accounts only
+export const signInWithGoogleExisting = async (): Promise<UserCredential> => {
+  try {
+    const provider = new GoogleAuthProvider();
+    const result = await signInWithPopup(auth, provider);
+    if (result.user) {
+      const userDoc = await getDoc(doc(db, 'users', result.user.uid));
+      if (!userDoc.exists()) {
+        const isNewUser = result.user.metadata?.creationTime === result.user.metadata?.lastSignInTime;
+        if (isNewUser) {
+          try {
+            await result.user.delete();
+          } catch (deleteErr) {
+            console.warn('Unable to delete unregistered Google auth user:', deleteErr);
+          }
+        }
+        await signOut(auth);
+        const error: AuthError = {
+          code: 'auth/user-not-registered',
+          message: 'Google account is not registered. Please sign up first.'
+        };
+        throw error;
+      }
+    }
+    return result;
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Google sign-up that creates account document
+export const signUpWithGoogle = async (): Promise<UserCredential> => {
+  try {
+    const provider = new GoogleAuthProvider();
+    const result = await signInWithPopup(auth, provider);
+    if (result.user) {
+      const userDoc = await getDoc(doc(db, 'users', result.user.uid));
+      if (!userDoc.exists()) {
+        await createUserDoc(result.user);
+      }
+    }
+    return result;
   } catch (error) {
     throw error;
   }
@@ -254,15 +314,10 @@ export const getUserProfile = async (): Promise<UserProfile | null> => {
       console.log('Loaded user profile from Firestore:', userData);
       
       if (!userData) {
-        // If no user document exists, create one with default role
+        // If no user document exists, just return a best-effort profile
+        // without creating any Firestore document. Account creation is
+        // handled explicitly in signUp/signUpWithGoogle.
         const role = determineUserRole(user.email || '');
-        await setDoc(doc(db, 'users', user.uid), {
-          email: user.email,
-          displayName: user.displayName || '',
-          role: role,
-          createdAt: new Date().toISOString()
-        });
-        
         const initialProfile: UserProfile = {
           displayName: user.displayName || undefined,
           email: user.email || undefined,
@@ -279,16 +334,9 @@ export const getUserProfile = async (): Promise<UserProfile | null> => {
         };
       }
     } catch (error) {
-      console.warn('Error reading user profile, creating new one:', error);
-      // If there's a permission error or document doesn't exist, create a new one
+      console.warn('Error reading user profile:', error);
+      // On read error, return a best-effort profile without creating data.
       const role = determineUserRole(user.email || '');
-      await setDoc(doc(db, 'users', user.uid), {
-        email: user.email,
-        displayName: user.displayName || '',
-        role: role,
-        createdAt: new Date().toISOString()
-      });
-      
       const initialProfile: UserProfile = {
         displayName: user.displayName || undefined,
         email: user.email || undefined,
