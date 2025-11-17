@@ -649,16 +649,15 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
             return 'K';
           };
 
-          const studentGradeLevel = convertGradeToRomanLevel(firstISRResult.gradeSection || student.grade);
-
-          // Build reading data - ONLY for entries matching the student's grade level
+          // Determine student's grade level strictly from the class list grade
+          // (e.g., "Grade 3 - LOKO" → "III") so Level Started always aligns
+          // with the grade where the student is currently enrolled.
+          const studentGradeLevel = convertGradeToRomanLevel(student.grade);
+          
+          // Build reading data from ALL ISR entries for this student so the ISR
+          // table is fully database‑dependent and does not drop levels when the
+          // assessment level differs from the student's current grade.
           const readingData = sortedEntries
-            .filter((result) => {
-              const entry = result.calculatedEntry;
-              const romanLevel = convertLevelToRoman(entry.level);
-              // Only include entries that match the student's grade level
-              return romanLevel === studentGradeLevel;
-            })
             .map((result) => {
               const entry = result.calculatedEntry;
               const isrResult = result.isrResult;
@@ -1024,14 +1023,9 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     
     const studentLevel = convertGradeToRomanLevel(student.grade);
 
-    // Filter entries to ONLY include the student's grade level
-    // Map entries and ensure all fields are properly formatted
+    // Map entries and ensure all fields are properly formatted.
+    // Include all entries so we never drop ISR data due to unexpected shapes.
     const readingDataFromRecord = (reviewRecord.entries || [])
-      .filter((entry: any) => {
-        // Only include entries that match the student's grade level
-        const entryLevel = entry.level || '';
-        return entryLevel === studentLevel && (entry.dateTaken || entry.wordReading || entry.comprehension);
-      })
       .map((entry: any) => {
         // CRITICAL: Use flags directly from review record (100% database-dependent)
         // The review record is built from ISR results in MongoDB, so these values come from the database
@@ -1075,28 +1069,39 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
           set: entry.set || 'A', // Ensure set is always provided (A, B, C, or D)
           wordReading: wordReading,
           comprehension: comprehension,
-          dateTaken: entry.dateTaken ? new Date(entry.dateTaken).toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: '2-digit', 
-            day: '2-digit' 
-          }) : '', // Date from review record entry (reading session completion date from database)
+          dateTaken: entry.dateTaken
+            ? new Date(entry.dateTaken).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+              })
+            : '', // Date from review record entry (reading session completion date from database)
         };
       })
       .sort((a: any, b: any) => {
-        // Sort by date if available, otherwise by level order
-        if (a.dateTaken && b.dateTaken) {
-          const dateA = new Date(a.dateTaken).getTime();
-          const dateB = new Date(b.dateTaken).getTime();
-          return dateB - dateA; // Most recent first
-        }
+        // Sort by level order first, then by date (oldest to newest)
         const levelOrder = ['K', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
         const aIndex = levelOrder.indexOf(a.level);
         const bIndex = levelOrder.indexOf(b.level);
-        return aIndex - bIndex;
+        if (aIndex !== bIndex) return aIndex - bIndex;
+
+        if (a.dateTaken && b.dateTaken) {
+          const dateA = new Date(a.dateTaken).getTime();
+          const dateB = new Date(b.dateTaken).getTime();
+          return dateA - dateB;
+        }
+        return 0;
       });
     
-    // Set levelStarted to the student's grade level
+    // Level Started should align with the student's grade level (e.g., Grade 3 → III)
+    // so we always use the converted grade level here.
     const actualLevelStarted = studentLevel;
+
+    // Align ISR table with the Level Started row: only keep data for that level.
+    const alignedReadingData =
+      actualLevelStarted && readingDataFromRecord.length > 0
+        ? readingDataFromRecord.filter((e: any) => e.level === actualLevelStarted)
+        : readingDataFromRecord;
     
     // Debug: Log the final ISR data
     console.log('📋 Final ISR data prepared:', {
@@ -1104,8 +1109,8 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
       age: student.age,
       readingLevel: student.readingLevel,
       finalAge: student.age?.toString() || '',
-      readingDataCount: readingDataFromRecord.length,
-      readingData: readingDataFromRecord
+      readingDataCount: alignedReadingData.length,
+      readingData: alignedReadingData
     });
 
     return {
@@ -1116,7 +1121,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
       teacher: teacherName,
       language: storyLanguage,
       levelStarted: actualLevelStarted, // Mark the level where student started (oldest assessment)
-      readingData: readingDataFromRecord,
+      readingData: alignedReadingData,
       observations: {
         // Base observations on actual reading session data
         wordByWord: (latestReading?.readingSpeed || 0) < 80, // Slow reading speed suggests word-by-word reading

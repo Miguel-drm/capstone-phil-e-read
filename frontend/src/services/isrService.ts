@@ -36,6 +36,7 @@ export interface ISRStudentData {
   school: string;
   teacher: string;
   language: 'English' | 'Filipino';
+  levelStarted?: string;
   readingData: {
     level: string;
     levelStarted?: boolean; // true if this is the starting level (shows *)
@@ -976,6 +977,7 @@ class ISRService {
       // Ensure reading data is in correct format with all fields
       readingData = readingData.map((rd: any) => ({
         level: rd.level || 'Current',
+        levelStarted: Boolean(rd.levelStarted || rd.isLevelStarted || rd.level_started),
         wordReading: {
           ind: rd.wordReading?.ind || false,
           ins: rd.wordReading?.ins || false,
@@ -990,6 +992,8 @@ class ISRService {
         set: rd.set || ''
       }));
     }
+    
+    const startedLevel = readingData.find((rd: any) => rd.levelStarted)?.level || '';
     
     // Extract observations - preserve exactly as submitted
     const observations = studentData.observations || {
@@ -1010,6 +1014,7 @@ class ISRService {
       school: school,
       teacher: teacher,
       language: language as 'English' | 'Filipino',
+      levelStarted: startedLevel,
       readingData: readingData,
       observations: {
         wordByWord: observations.wordByWord || false,
@@ -1030,6 +1035,7 @@ class ISRService {
     
     return [{
       level: 'Current',
+      levelStarted: true,
       wordReading: {
         ind: readingLevel === 'Ind' || readingLevel === 'Independent',
         ins: readingLevel === 'Ins' || readingLevel === 'Instructional', 
