@@ -324,7 +324,7 @@ const Header: React.FC<HeaderProps> = ({
                 )}
               </span>
             </button>
-            <h1 className="text-xl font-semibold text-gray-900 ml-4">{getPageTitle()}</h1>
+  
           </div>
 
           {/* Right side */}

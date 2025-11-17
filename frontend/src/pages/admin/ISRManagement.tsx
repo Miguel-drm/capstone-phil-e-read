@@ -10,7 +10,10 @@ import {
   XCircleIcon,
   EyeIcon,
   ArrowDownTrayIcon,
-  TableCellsIcon
+  TableCellsIcon,
+  AcademicCapIcon,
+  UserIcon,
+  UsersIcon
 } from '@heroicons/react/24/outline';
 import * as XLSX from 'xlsx';
 import { isrService, type ISRSubmissionData, type ISRStudentData } from '../../services/isrService';
@@ -58,25 +61,29 @@ const StudentCard = memo(({
   return (
     <div
       key={uniqueKey}
-      className="bg-white rounded-lg border border-slate-200 shadow-sm hover:shadow-md transition-all duration-200 p-4"
+      className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-lg hover:border-indigo-300 transition-all duration-200 p-5 group"
     >
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <div className="p-2 bg-indigo-100 rounded-lg">
-            <UserGroupIcon className="h-4 w-4 text-indigo-600" />
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-start gap-3 flex-1">
+          <div className="p-2.5 bg-gradient-to-br from-indigo-100 to-indigo-50 rounded-lg border border-indigo-200 group-hover:from-indigo-200 group-hover:to-indigo-100 transition-colors">
+            <UsersIcon className="h-5 w-5 text-indigo-600" />
           </div>
-          <div>
-            <h3 className="font-semibold text-slate-900 text-sm">{student.studentName}</h3>
-            <p className="text-xs text-slate-600">{student.language}</p>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-bold text-slate-900 text-sm mb-1 truncate">{student.studentName}</h3>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-slate-100 text-slate-700">
+                {student.language}
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
       <button
         onClick={() => onViewISR(student)}
-        className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium py-2 px-3 rounded-lg transition-colors"
+        className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white text-sm font-semibold py-2.5 px-4 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md"
       >
-        <EyeIcon className="h-3 w-3" />
+        <EyeIcon className="h-5 w-5 stroke-2" />
         View ISR
       </button>
     </div>
@@ -103,7 +110,9 @@ const RecordCard = memo(({
           <div>
             <h3 className="font-semibold text-slate-900 text-sm">
               {record.status === 'approved'
-                ? `Grade ${record.grade} - ${record.section}`
+                ? record.section && record.section !== 'N/A' && record.section.trim() !== ''
+                  ? `Grade ${record.grade} - ${record.section}`
+                  : `Grade ${record.grade}`
                 : 'Class Information Hidden'
               }
             </h3>
@@ -127,7 +136,7 @@ const RecordCard = memo(({
         onClick={() => onClassClick(record)}
         className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium py-2 px-3 rounded-lg transition-colors"
       >
-        <EyeIcon className="h-3 w-3" />
+        <EyeIcon className="h-4 w-4 stroke-2" />
         View Details
       </button>
     </div>
@@ -144,6 +153,7 @@ const ISRManagement: React.FC = () => {
   const [selectedClass, setSelectedClass] = useState<ISRSubmissionData | null>(null);
   const [showStudentDetails, setShowStudentDetails] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
+  const [detailViewMode, setDetailViewMode] = useState<'grid' | 'table'>('grid');
 
   const [filters, setFilters] = useState<FilterOptions>({
     status: 'all'
@@ -336,31 +346,46 @@ const ISRManagement: React.FC = () => {
               Back to ISR Records
             </button>
 
-            <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-indigo-100 rounded-lg">
-                    <DocumentTextIcon className="h-6 w-6 text-indigo-600" />
+            <div className="bg-gradient-to-r from-white to-indigo-50/30 rounded-xl border-2 border-indigo-200 shadow-lg p-6 mb-6">
+              <div className="flex items-start justify-between">
+                <div className="flex items-start gap-4">
+                  <div className="p-3 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl shadow-md">
+                    <AcademicCapIcon className="h-8 w-8 text-white" />
                   </div>
-                  <div>
-                    <h1 className="text-xl font-bold text-slate-900">
+                  <div className="flex-1">
+                    <h1 className="text-2xl font-bold text-slate-900 mb-1">
                       {selectedClass.status === 'approved'
-                        ? `Grade ${selectedClass.grade} - ${selectedClass.section}`
+                        ? selectedClass.section && selectedClass.section !== 'N/A' && selectedClass.section.trim() !== ''
+                          ? `Grade ${selectedClass.grade} - ${selectedClass.section}`
+                          : `Grade ${selectedClass.grade}`
                         : 'Class Information Hidden'
                       }
                     </h1>
-                    <p className="text-sm text-slate-600">
-                      {selectedClass.status === 'approved'
-                        ? `${selectedClass.teacherName} • ${selectedClass.studentCount} students`
-                        : 'Pending Admin Approval • Student details hidden'
-                      }
-                    </p>
+                    <div className="flex items-center gap-4 flex-wrap">
+                      <p className="text-base text-slate-600 flex items-center gap-2">
+                        <UserIcon className="h-4 w-4 text-slate-500" />
+                        {selectedClass.status === 'approved'
+                          ? selectedClass.teacherName
+                          : 'Pending Admin Approval'
+                        }
+                      </p>
+                      {selectedClass.status === 'approved' && (
+                        <p className="text-base text-slate-600 flex items-center gap-2">
+                          <UsersIcon className="h-4 w-4 text-slate-500" />
+                          {selectedClass.studentCount} students
+                        </p>
+                      )}
+                      <p className="text-base text-slate-600 flex items-center gap-2">
+                        <CalendarIcon className="h-4 w-4 text-slate-500" />
+                        {selectedClass.submissionDate.toLocaleDateString()}
+                      </p>
+                    </div>
                   </div>
                 </div>
 
-                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${statusConfig.badge}`}>
-                  <StatusIcon className="h-4 w-4" />
-                  <span className="font-semibold text-sm">{getStatusText(selectedClass.status)}</span>
+                <div className={`flex items-center gap-2 px-4 py-2 rounded-lg shadow-sm ${statusConfig.badge}`}>
+                  <StatusIcon className="h-5 w-5" />
+                  <span className="font-semibold text-base">{getStatusText(selectedClass.status)}</span>
                 </div>
               </div>
             </div>
@@ -368,15 +393,110 @@ const ISRManagement: React.FC = () => {
 
           {/* Simplified student grid - only show if approved */}
           {selectedClass.status === 'approved' ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
-              {selectedClass.students.map((student, index) => (
-                <StudentCard
-                  key={`${student.studentId || 'student'}-${student.studentName || 'unknown'}-${index}`}
-                  student={student}
-                  index={index}
-                  onViewISR={handleViewStudentISR}
-                />
-              ))}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                  <UsersIcon className="h-5 w-5 text-indigo-600" />
+                  Student Records ({selectedClass.students.length})
+                </h2>
+                
+                {/* View toggle buttons */}
+                <div className="flex items-center gap-1 bg-white rounded-lg border border-slate-200 p-1 shadow-sm">
+                  <button
+                    onClick={() => setDetailViewMode('grid')}
+                    className={`p-2 rounded-md transition-all duration-200 ${
+                      detailViewMode === 'grid'
+                        ? 'bg-indigo-100 text-indigo-700 shadow-sm'
+                        : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                    title="Grid View"
+                  >
+                    <TableCellsIcon className="h-5 w-5" />
+                  </button>
+                  <button
+                    onClick={() => setDetailViewMode('table')}
+                    className={`p-2 rounded-md transition-all duration-200 ${
+                      detailViewMode === 'table'
+                        ? 'bg-indigo-100 text-indigo-700 shadow-sm'
+                        : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                    title="Table View"
+                  >
+                    <DocumentTextIcon className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Grid View */}
+              {detailViewMode === 'grid' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                  {selectedClass.students.map((student, index) => (
+                    <StudentCard
+                      key={`${student.studentId || 'student'}-${student.studentName || 'unknown'}-${index}`}
+                      student={student}
+                      index={index}
+                      onViewISR={handleViewStudentISR}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* Table View */}
+              {detailViewMode === 'table' && (
+                <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-slate-50 border-b border-slate-200">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                            <div className="flex items-center gap-2">
+                              <UsersIcon className="h-4 w-4 text-indigo-600" />
+                              Student Name
+                            </div>
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                            Language
+                          </th>
+                          <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {selectedClass.students.map((student, index) => (
+                          <tr
+                            key={`${student.studentId || 'student'}-${student.studentName || 'unknown'}-${index}`}
+                            className="hover:bg-slate-50 transition-colors"
+                          >
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-3">
+                                <div className="p-1.5 bg-indigo-50 rounded-lg border border-indigo-100">
+                                  <UsersIcon className="h-4 w-4 text-indigo-600" />
+                                </div>
+                                <span className="text-sm font-semibold text-slate-900">{student.studentName}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-700">
+                                {student.language}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                onClick={() => handleViewStudentISR(student)}
+                                className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white text-sm font-semibold py-2 px-4 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md"
+                              >
+                                <EyeIcon className="h-4 w-4 stroke-2" />
+                                View ISR
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-8">
@@ -610,22 +730,25 @@ const ISRManagement: React.FC = () => {
                 <div className="bg-slate-50 px-4 py-3 border-b border-slate-200">
                   <div className="grid grid-cols-12 gap-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     <div className="col-span-4 flex items-center gap-2">
-                      <DocumentTextIcon className="h-3 w-3" />
+                      <AcademicCapIcon className="h-4 w-4 text-indigo-600" />
                       Class Information
                     </div>
                     <div className="col-span-2 flex items-center gap-2">
-                      <UserGroupIcon className="h-3 w-3" />
+                      <UserIcon className="h-4 w-4 text-indigo-600" />
                       Teacher
                     </div>
                     <div className="col-span-1 flex items-center gap-2">
-                      <UserGroupIcon className="h-3 w-3" />
+                      <UsersIcon className="h-4 w-4 text-indigo-600" />
                       Students
                     </div>
                     <div className="col-span-2 flex items-center gap-2">
-                      <CalendarIcon className="h-3 w-3" />
+                      <CalendarIcon className="h-4 w-4 text-indigo-600" />
                       Submitted
                     </div>
-                    <div className="col-span-3">Status & Actions</div>
+                    <div className="col-span-3 flex items-center gap-2">
+                      <CheckCircleIcon className="h-4 w-4 text-indigo-600" />
+                      Status & Actions
+                    </div>
                   </div>
                 </div>
 
@@ -641,18 +764,20 @@ const ISRManagement: React.FC = () => {
                       >
                         <div className="grid grid-cols-12 gap-4 items-center">
                           <div className="col-span-4">
-                            <div className="flex items-center gap-2">
-                              <div className="p-1.5 bg-slate-100 rounded">
-                                <DocumentTextIcon className="h-3 w-3 text-slate-600" />
+                            <div className="flex items-center gap-3">
+                              <div className="p-2 bg-indigo-50 rounded-lg border border-indigo-100">
+                                <AcademicCapIcon className="h-4 w-4 text-indigo-600" />
                               </div>
                               <div>
                                 <h3 className="text-sm font-semibold text-slate-900">
                                   {record.status === 'approved'
-                                    ? `Grade ${record.grade} - ${record.section}`
+                                    ? record.section && record.section !== 'N/A' && record.section.trim() !== ''
+                                      ? `Grade ${record.grade} - ${record.section}`
+                                      : `Grade ${record.grade}`
                                     : 'Class Information Hidden'
                                   }
                                 </h3>
-                                <p className="text-xs text-slate-600">
+                                <p className="text-xs text-slate-600 mt-0.5">
                                   {record.status === 'approved'
                                     ? record.className
                                     : 'Pending Admin Approval'
@@ -663,16 +788,24 @@ const ISRManagement: React.FC = () => {
                           </div>
 
                           <div className="col-span-2">
-                            <div className="text-sm font-medium text-slate-900">
-                              {record.status === 'approved'
-                                ? record.teacherName
-                                : 'Hidden'
-                              }
+                            <div className="flex items-center gap-2">
+                              <div className="p-1.5 bg-slate-50 rounded-lg">
+                                <UserIcon className="h-3.5 w-3.5 text-slate-600" />
+                              </div>
+                              <span className="text-sm font-medium text-slate-900">
+                                {record.status === 'approved'
+                                  ? record.teacherName
+                                  : 'Hidden'
+                                }
+                              </span>
                             </div>
                           </div>
 
                           <div className="col-span-1">
-                            <span className="text-sm font-medium text-slate-900">{record.studentCount}</span>
+                            <div className="flex items-center gap-2">
+                              <UsersIcon className="h-3.5 w-3.5 text-slate-500" />
+                              <span className="text-sm font-medium text-slate-900">{record.studentCount}</span>
+                            </div>
                           </div>
 
                           <div className="col-span-2">
@@ -687,10 +820,10 @@ const ISRManagement: React.FC = () => {
                               <StatusBadge status={getStatusText(record.status)} config={statusConfig} />
                               <button
                                 onClick={() => handleClassClick(record)}
-                                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                                className="p-2 bg-slate-100 hover:bg-indigo-100 text-slate-600 hover:text-indigo-700 rounded-lg transition-all duration-200 hover:shadow-sm border border-slate-200 hover:border-indigo-300"
                                 title="View details"
                               >
-                                <EyeIcon className="h-3 w-3" />
+                                <EyeIcon className="h-5 w-5 stroke-2" />
                               </button>
                             </div>
                           </div>
