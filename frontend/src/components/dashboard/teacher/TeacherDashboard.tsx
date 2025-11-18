@@ -10,6 +10,8 @@ import ReadingLevelDistributionChart from './ReadingLevelDistributionChart';
 import RecentActivity from './RecentActivity';
 import QuickActions from './QuickActions';
 import PendingLinkRequests from './PendingLinkRequests';
+import MyActivityDashboard from './MyActivityDashboard';
+import MyClassesBreakdown from './MyClassesBreakdown';
 
 interface TeacherDashboardProps {
   showSessionsModal: boolean;
@@ -368,6 +370,22 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
           </div>
           <div className="h-full flex flex-col">
             <ReadingLevelDistributionChart classes={grades.map(g => ({ id: g.id, name: g.name }))} />
+          </div>
+        </div>
+
+        {/* My Activity and My Classes Breakdown side by side */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
+          <div className="h-full flex flex-col">
+            <MyActivityDashboard
+              totalStudents={calculateStats.totalStudents}
+              totalClasses={calculateStats.totalClasses}
+            />
+          </div>
+          <div className="h-full flex flex-col">
+            <MyClassesBreakdown
+              classes={grades}
+              students={students}
+            />
           </div>
         </div>
       </div>
