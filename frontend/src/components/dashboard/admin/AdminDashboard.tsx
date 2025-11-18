@@ -2096,20 +2096,20 @@ const AdminDashboard: React.FC = () => {
 
   return (
     <>
-      {/* Admin Stats Overview */}
+      {/* Admin Stats Overview - Improved Layout */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {overviewStats.map((stat, index) => (
-          <div key={index} className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">{stat.title}</p>
-                <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
-                <p className={`text-sm ${stat.changeType === 'positive' ? 'text-green-600' : 'text-gray-600'}`}>
+          <div key={index} className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs sm:text-sm font-medium text-gray-600 mb-1">{stat.title}</p>
+                <p className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1">{stat.value}</p>
+                <p className={`text-xs sm:text-sm font-medium ${stat.changeType === 'positive' ? 'text-green-600' : stat.changeType === 'negative' ? 'text-red-600' : 'text-gray-600'}`}>
                   {stat.change}
                 </p>
               </div>
-              <div className={`w-12 h-12 rounded-lg ${stat.bgColor} flex items-center justify-center`}>
-                <i className={`${stat.icon} ${stat.iconColor} text-xl`}></i>
+              <div className={`w-12 h-12 sm:w-14 sm:h-14 rounded-xl ${stat.bgColor} flex items-center justify-center flex-shrink-0 shadow-sm`}>
+                <i className={`${stat.icon} ${stat.iconColor} text-lg sm:text-xl`}></i>
               </div>
             </div>
           </div>

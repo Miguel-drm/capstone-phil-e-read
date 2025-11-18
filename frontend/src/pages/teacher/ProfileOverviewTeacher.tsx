@@ -9,7 +9,7 @@ import { studentService, type Student } from '../../services/studentService';
 import { updateUserProfile } from '../../services/authService';
 
 const ProfileOverviewTeacher: React.FC = () => {
-  const { userProfile } = useAuth();
+  const { userProfile, refreshUserProfile } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -18,6 +18,7 @@ const ProfileOverviewTeacher: React.FC = () => {
     email: userProfile?.email || '',
     phoneNumber: userProfile?.phoneNumber || '',
     school: userProfile?.school || '',
+    schoolCode: userProfile?.schoolCode || '',
     gradeLevel: userProfile?.gradeLevel || '',
     addressStreet: (userProfile as any)?.addressStreet || '',
     addressCity: (userProfile as any)?.addressCity || '',
@@ -37,7 +38,7 @@ const ProfileOverviewTeacher: React.FC = () => {
   const { currentUser } = useAuth();
   const firebaseUid = currentUser?.uid;
   const [profileImage, setProfileImage] = useState<string | null>(null);
-  const [errors, setErrors] = useState<{ phoneNumber?: string; school?: string; gradeLevel?: string }>({});
+  const [errors, setErrors] = useState<{ phoneNumber?: string; school?: string; schoolCode?: string; gradeLevel?: string }>({});
   const [showCropModal, setShowCropModal] = useState(false);
   const [imageToCrop, setImageToCrop] = useState<string | null>(null);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
@@ -58,6 +59,7 @@ const ProfileOverviewTeacher: React.FC = () => {
         email: userProfile.email || '',
         phoneNumber: userProfile.phoneNumber || '',
         school: userProfile.school || '',
+        schoolCode: userProfile.schoolCode || '',
         gradeLevel: userProfile.gradeLevel || '',
         addressStreet: (userProfile as any)?.addressStreet || prev.addressStreet,
         addressCity: (userProfile as any)?.addressCity || prev.addressCity,
@@ -132,10 +134,14 @@ const ProfileOverviewTeacher: React.FC = () => {
         displayName: profileData.displayName,
         phoneNumber: profileData.phoneNumber,
         school: profileData.school,
+        schoolCode: profileData.schoolCode,
         gradeLevel: profileData.gradeLevel,
         address: composedAddress,
       });
 
+      // Refresh user profile to get updated data including schoolCode
+      await refreshUserProfile();
+      
       setIsEditing(false);
     } catch (error) {
       console.error('Save profile failed:', error);
@@ -292,12 +298,15 @@ const ProfileOverviewTeacher: React.FC = () => {
   };
 
   const validateFields = (data: typeof profileData) => {
-    const newErrors: { phoneNumber?: string; school?: string; gradeLevel?: string } = {};
+    const newErrors: { phoneNumber?: string; school?: string; schoolCode?: string; gradeLevel?: string } = {};
     if (data.phoneNumber && !/^[0-9]*$/.test(data.phoneNumber)) {
       newErrors.phoneNumber = 'Phone number must contain numbers only.';
     }
     if (data.school && /\d/.test(data.school)) {
       newErrors.school = 'School name cannot contain numbers.';
+    }
+    if (data.schoolCode && !/^\d{4}$/.test(data.schoolCode)) {
+      newErrors.schoolCode = 'School code must be exactly 4 digits.';
     }
     if (data.gradeLevel && !/^\d*$/.test(data.gradeLevel)) {
       newErrors.gradeLevel = 'Grade level must be a number.';
@@ -313,6 +322,9 @@ const ProfileOverviewTeacher: React.FC = () => {
     }
     if (name === 'school') {
       filteredValue = value.replace(/\d/g, '');
+    }
+    if (name === 'schoolCode') {
+      filteredValue = value.replace(/[^\d]/g, '').slice(0, 4); // Only digits, max 4
     }
     if (name === 'gradeLevel') {
       filteredValue = value.replace(/[^\d]/g, '');
@@ -585,6 +597,27 @@ const ProfileOverviewTeacher: React.FC = () => {
                       className={`w-full border ${errors.school ? 'border-red-400' : 'border-gray-300'} rounded-lg px-3 py-2 text-sm sm:text-base focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100`}
                     />
                     {errors.school && <div className="text-xs text-red-500 mt-1">{errors.school}</div>}
+                  </div>
+                  <div>
+                    <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1 sm:mb-2">
+                      School Code <span className="text-gray-500 text-xs">(4 digits)</span>
+                    </label>
+                    <input
+                      type="text"
+                      name="schoolCode"
+                      value={profileData.schoolCode || ''}
+                      onChange={handleInputChange}
+                      disabled={!isEditing}
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={4}
+                      placeholder="e.g., 1023"
+                      className={`w-full border ${errors.schoolCode ? 'border-red-400' : 'border-gray-300'} rounded-lg px-3 py-2 text-sm sm:text-base focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100`}
+                    />
+                    {errors.schoolCode && <div className="text-xs text-red-500 mt-1">{errors.schoolCode}</div>}
+                    <div className="text-xs text-gray-500 mt-1">
+                      Enter 4-digit school code (e.g., 1023). Used for generating student LRNs
+                    </div>
                   </div>
                 </div>
                 <div>
