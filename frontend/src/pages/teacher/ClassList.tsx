@@ -15,7 +15,7 @@ import { isrResultService, type ISRResult } from '../../services/ISRresultServic
 import PillSelect from '../../components/ui/PillSelect';
 
 const ClassList: React.FC = () => {
-  const { currentUser, userRole, isProfileComplete } = useAuth();
+  const { currentUser, userRole, isProfileComplete, userProfile } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('name');
   const [isImporting, setIsImporting] = useState(false);
@@ -579,16 +579,16 @@ const ClassList: React.FC = () => {
     try {
       setLoadingStudentId(editingStudent.id);
 
-      // Update student with only name and LRN
+      // Update student with only name (LRN cannot be changed as it's the document ID)
       await studentService.updateStudent(editingStudent.id, {
-        name: editForm.name.trim(),
-        lrn: editForm.lrn.trim()
+        name: editForm.name.trim()
+        // Note: LRN is not updated as it's the document ID
       });
 
-      // Update local state
+      // Update local state (LRN remains unchanged)
       setStudents(prev => prev.map(s =>
         s.id === editingStudent.id
-          ? { ...s, name: editForm.name.trim(), lrn: editForm.lrn.trim() }
+          ? { ...s, name: editForm.name.trim() }
           : s
       ));
 
@@ -1266,7 +1266,7 @@ const ClassList: React.FC = () => {
           popup: 'rounded-2xl shadow-2xl border border-gray-200',
           title: 'text-white text-xl font-bold',
           confirmButton: 'px-5 py-2.5 text-sm font-semibold bg-white text-indigo-600 rounded-lg shadow-md hover:bg-white/90 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
-          cancelButton: 'px-5 py-2.5 text-sm font-semibold bg-white/20 text-white border border-white/30 rounded-lg hover:bg-white/30 transition-all duration-200',
+          cancelButton: 'px-5 py-2.5 text-sm font-semibold bg-gray-100 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-200 transition-all duration-200',
           closeButton: 'text-white hover:text-white/80',
         },
         backdrop: 'rgba(0,0,0,0.6)',
@@ -1521,7 +1521,7 @@ const ClassList: React.FC = () => {
                   <span class="font-semibold text-gray-900">${p.name}</span>
                   <span class="text-xs text-gray-500 mt-0.5">${p.email}</span>
                 </div>
-                <i class="fas fa-check-circle text-indigo-600 opacity-0 parent-check"></i>
+                <i class="fas fa-check-circle text-indigo-600 opacity-0 parent-check pointer-events-none"></i>
               </label>
             `).join('')}
           </div>
@@ -1692,7 +1692,7 @@ const ClassList: React.FC = () => {
           popup: 'rounded-2xl shadow-2xl border border-gray-200',
           title: 'text-white text-xl font-bold',
           confirmButton: 'px-5 py-2.5 text-sm font-semibold bg-white text-indigo-600 rounded-lg shadow-md hover:bg-white/90 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
-          cancelButton: 'px-5 py-2.5 text-sm font-semibold bg-white/20 text-white border border-white/30 rounded-lg hover:bg-white/30 transition-all duration-200',
+          cancelButton: 'px-5 py-2.5 text-sm font-semibold bg-gray-100 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-200 transition-all duration-200',
           closeButton: 'text-white hover:text-white/80',
         },
         backdrop: 'rgba(0,0,0,0.6)',
@@ -1708,9 +1708,10 @@ const ClassList: React.FC = () => {
             </div>
             <div class="mb-5">
               <label class="block text-sm font-semibold text-gray-700 mb-2">
-                LRN (Learner Reference Number) <span class="text-red-500">*</span>
+                LRN (Learner Reference Number) <span class="text-green-600 text-xs">(Auto-generated)</span>
               </label>
-              <input id="student-lrn" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all" placeholder="e.g., 123456789012">
+              <input id="student-lrn" readonly class="w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm bg-gray-50 text-gray-600 cursor-not-allowed" placeholder="Will be generated automatically">
+              <p class="text-xs text-gray-500 mt-1">Format: [SchoolCode][Year][Sequence] - 12 digits, unique, no duplicates</p>
             </div>
             <div class="mb-5">
               <label class="block text-sm font-semibold text-gray-700 mb-2">Age</label>
@@ -1726,13 +1727,15 @@ const ClassList: React.FC = () => {
           </div>
         `,
         showCancelButton: true,
-        confirmButtonText: isAddingStudentToGrade ? '<span class="inline-flex items-center"><span class="loader-spinner mr-2 w-4 h-4 border-2 border-indigo-600/30 border-t-indigo-600 rounded-full animate-spin"></span> Adding...</span>' : '<i class="fas fa-user-plus mr-2"></i>Add',
+        confirmButtonText: isAddingStudentToGrade ? '<span class="inline-flex items-center"><span class="loader-spinner mr-2 w-4 h-4 border-2 border-indigo-600/30 border-t-indigo-600 rounded-full animate-spin"></span> Adding...</span>' : 'Add',
         cancelButtonText: 'Cancel',
         focusConfirm: false,
         allowOutsideClick: !isAddingStudentToGrade,
-        didOpen: (modalElement) => {
+        didOpen: async (modalElement) => {
           const title = modalElement.querySelector('.swal2-title') as HTMLElement;
           if (title) {
+            // Clear any existing content first
+            title.textContent = '';
             title.style.background = 'linear-gradient(to right, #4f46e5, #7c3aed)';
             title.style.padding = '1.25rem 1.5rem';
             title.style.borderRadius = '0.875rem 0.875rem 0 0';
@@ -1749,6 +1752,58 @@ const ClassList: React.FC = () => {
               </div>
             `;
           }
+          
+          // Hide any duplicate/invisible buttons or text in actions area
+          const actions = modalElement.querySelector('.swal2-actions') as HTMLElement;
+          if (actions) {
+            // Remove any invisible or duplicate elements
+            const allButtons = actions.querySelectorAll('button');
+            allButtons.forEach((btn) => {
+              // Keep only visible buttons, remove any with opacity-0 or display-none
+              const style = window.getComputedStyle(btn);
+              if (style.opacity === '0' || style.display === 'none' || style.visibility === 'hidden') {
+                btn.style.pointerEvents = 'none';
+                btn.style.display = 'none';
+              }
+            });
+            
+            // Also check for any invisible text nodes or spans
+            const allElements = actions.querySelectorAll('*');
+            allElements.forEach((el) => {
+              const style = window.getComputedStyle(el);
+              if (style.opacity === '0' && style.pointerEvents !== 'none') {
+                (el as HTMLElement).style.pointerEvents = 'none';
+              }
+            });
+          }
+          
+          // Also check the title area for any invisible text
+          const titleArea = modalElement.querySelector('.swal2-title-container') as HTMLElement;
+          if (titleArea) {
+            const allTitleElements = titleArea.querySelectorAll('*');
+            allTitleElements.forEach((el) => {
+              const style = window.getComputedStyle(el);
+              if (style.opacity === '0' && style.pointerEvents !== 'none') {
+                (el as HTMLElement).style.pointerEvents = 'none';
+              }
+            });
+          }
+          
+          // Generate and display LRN when modal opens
+          try {
+            // Get school code from teacher profile, default to '1023' if not set
+            const schoolCode = (userProfile as any)?.schoolCode || '1023';
+            if (!schoolCode || schoolCode.length !== 4) {
+              console.warn('School code not set or invalid. Using default: 1023');
+            }
+            const lrn = await studentService.generateUniqueLRN(schoolCode);
+            const lrnInput = document.getElementById('student-lrn') as HTMLInputElement;
+            if (lrnInput) {
+              lrnInput.value = lrn;
+            }
+          } catch (error) {
+            console.error('Error generating LRN on modal open:', error);
+          }
         },
         preConfirm: () => {
           // This is for the modal's confirm button loading state
@@ -1760,9 +1815,15 @@ const ClassList: React.FC = () => {
           const parentId = (document.getElementById('student-parent-id') as HTMLSelectElement).value;
           const parent = parents.find(p => p.id === parentId);
 
-          if (!name || !lrn) {
-            Swal.showValidationMessage('Please fill in all required fields (Name and LRN)');
+          if (!name) {
+            Swal.showValidationMessage('Please fill in the student name');
             setIsAddingStudentToGrade(false); // Reset if validation fails
+            return false;
+          }
+
+          if (!lrn || lrn.length !== 12) {
+            Swal.showValidationMessage('LRN is required and must be 12 digits. Please refresh and try again.');
+            setIsAddingStudentToGrade(false);
             return false;
           }
 
@@ -1771,6 +1832,13 @@ const ClassList: React.FC = () => {
       });
 
       if (formValues) {
+        // Double-check LRN doesn't already exist (safety check)
+        const lrnExists = await studentService.lrnExists(formValues.lrn);
+        if (lrnExists) {
+          showError('Duplicate LRN', 'This LRN already exists. Please try adding the student again.');
+          return;
+        }
+
         // Logic to add the student
         const newStudent = {
           name: formValues.name,
@@ -1788,7 +1856,7 @@ const ClassList: React.FC = () => {
         };
         const studentId = await studentService.addStudent(newStudent);
         await gradeService.addStudentToGrade(gradeId, { studentId, name: formValues.name });
-        showSuccess('Student Added', `${formValues.name} has been added to ${gradeName}.`);
+        showSuccess('Student Added', `${formValues.name} has been added to ${gradeName} with LRN: ${formValues.lrn}`);
         await loadStudents();
         await loadGrades();
         await loadClassStatistics();
@@ -2012,7 +2080,7 @@ const ClassList: React.FC = () => {
                                         popup: 'rounded-2xl shadow-2xl border border-gray-200',
                                         title: 'text-white text-xl font-bold',
                                         confirmButton: 'px-5 py-2.5 text-sm font-semibold bg-white text-indigo-600 rounded-lg shadow-md hover:bg-white/90 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
-                                        cancelButton: 'px-5 py-2.5 text-sm font-semibold bg-white/20 text-white border border-white/30 rounded-lg hover:bg-white/30 transition-all duration-200',
+                                        cancelButton: 'px-5 py-2.5 text-sm font-semibold bg-gray-100 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-200 transition-all duration-200',
                                         closeButton: 'text-white hover:text-white/80',
                                       },
                                       backdrop: 'rgba(0,0,0,0.6)',
@@ -2496,7 +2564,7 @@ const ClassList: React.FC = () => {
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleCancelImport}
-                  className="px-4 py-2 text-sm font-semibold text-white bg-white/20 hover:bg-white/30 border border-white/30 rounded-lg transition-all duration-200 backdrop-blur-sm"
+                  className="px-4 py-2 text-sm font-semibold text-indigo-700 bg-white hover:bg-indigo-50 border border-white/30 rounded-lg transition-all duration-200"
                 >
                   Cancel
                 </button>
@@ -2517,7 +2585,7 @@ const ClassList: React.FC = () => {
                   <button
                     onClick={handleImportStudents}
                     disabled={isImporting || duplicateStats.within > 0 || duplicateStats.existing > 0}
-                    className="inline-flex items-center px-5 py-2.5 text-sm font-semibold text-white bg-white hover:bg-white/90 rounded-lg shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 disabled:hover:shadow-lg"
+                    className="inline-flex items-center px-5 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 disabled:hover:shadow-lg"
                     title={duplicateStats.within > 0 || duplicateStats.existing > 0 ? 'Resolve duplicate entries before importing' : undefined}
                   >
                     {isImporting ? (
@@ -2664,15 +2732,16 @@ const ClassList: React.FC = () => {
 
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  LRN (Learner Reference Number)
+                  LRN (Learner Reference Number) <span className="text-gray-500 text-xs">(Cannot be changed)</span>
                 </label>
                 <input
                   type="text"
                   value={editForm.lrn}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, lrn: e.target.value }))}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm transition-all"
-                  placeholder="Enter LRN (optional)"
+                  readOnly
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 bg-gray-50 text-gray-600 cursor-not-allowed shadow-sm"
+                  placeholder="LRN (read-only)"
                 />
+                <p className="text-xs text-gray-500 mt-1">LRN is the unique identifier and cannot be modified</p>
               </div>
 
               <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-lg p-4 shadow-sm">
@@ -2682,7 +2751,7 @@ const ClassList: React.FC = () => {
                   </div>
                   <div className="text-sm text-amber-900">
                     <p className="font-semibold mb-1">Note:</p>
-                    <p className="text-amber-800">Only the student's name and LRN can be modified. Other information like grade, reading level, and age cannot be changed here.</p>
+                    <p className="text-amber-800">Only the student's name can be modified. LRN is the unique identifier and cannot be changed. Other information like grade, reading level, and age cannot be changed here.</p>
                   </div>
                 </div>
               </div>

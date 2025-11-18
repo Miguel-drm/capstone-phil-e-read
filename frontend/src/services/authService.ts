@@ -28,6 +28,7 @@ export interface UserProfile {
   phoneNumber?: string;
   gradeLevel?: string;
   school?: string;
+  schoolCode?: string; // 4-digit school code used for LRN generation
   address?: string;
   relationshipToChild?: string;
   occupation?: string;
@@ -266,6 +267,7 @@ export const updateUserProfile = async (updates: UserProfile): Promise<void> => 
       const isComplete = isProfileComplete(updatedProfile);
       
       // Update user document in Firestore with completion status and other fields
+      // Filter out undefined values, but keep empty strings for schoolCode (allows clearing the field)
       const cleanedUpdates = Object.fromEntries(
         Object.entries({
           ...updates,
@@ -362,6 +364,7 @@ export const getUserProfile = async (): Promise<UserProfile | null> => {
       phoneNumber: String(userData.phoneNumber || ''),
       gradeLevel: String(userData.gradeLevel || ''),
       school: String(userData.school || ''),
+      schoolCode: String(userData.schoolCode || ''),
       address: String(userData.address || ''),
       isProfileComplete: Boolean(userData.isProfileComplete || false),
       banner: userData.banner || undefined,

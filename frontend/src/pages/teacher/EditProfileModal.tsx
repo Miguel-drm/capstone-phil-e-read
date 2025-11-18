@@ -62,7 +62,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
   // Bio removed per requirements
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
-  const [errors, setErrors] = useState<{ phoneNumber?: string; school?: string; gradeLevel?: string; address?: string; zipCode?: string }>(() => ({}));
+  const [errors, setErrors] = useState<{ phoneNumber?: string; school?: string; schoolCode?: string; gradeLevel?: string; address?: string; zipCode?: string }>(() => ({}));
 
   // Cropper modal state
   const [showCropModal, setShowCropModal] = useState(false);
@@ -75,6 +75,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
   const [editProfile, setEditProfile] = useState({
     phoneNumber: userProfile?.phoneNumber || '',
     school: userProfile?.school || '',
+    schoolCode: (userProfile as any)?.schoolCode || '',
     gradeLevel: userProfile?.gradeLevel || '',
     address: userProfile?.address || '',
   });
@@ -214,6 +215,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
       // Bio removed
       if (userRole === 'teacher') {
         profileToSave.school = editProfile.school;
+        profileToSave.schoolCode = editProfile.schoolCode;
         profileToSave.gradeLevel = editProfile.gradeLevel;
       }
       const combinedAddress = [editAddress.addressLine, editAddress.city, editAddress.province, editAddress.zipCode]
@@ -222,7 +224,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
       profileToSave.address = combinedAddress;
       console.log('profileToSave:', profileToSave);
       await updateUserProfile(profileToSave);
-      await refreshUserProfile();
+      await refreshUserProfile(); // Refresh to get updated profile including schoolCode
       showSuccess('Profile Updated', 'Your profile has been updated!');
       setTimeout(() => {
         onClose();
@@ -242,7 +244,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
   };
 
   const validateFields = (data: typeof editProfile, addressOverride?: { addressLine: string; city: string; province: string; zipCode: string }) => {
-    const newErrors: { phoneNumber?: string; school?: string; gradeLevel?: string; address?: string; zipCode?: string } = {};
+    const newErrors: { phoneNumber?: string; school?: string; schoolCode?: string; gradeLevel?: string; address?: string; zipCode?: string } = {};
     if (data && data.phoneNumber && !/^\d*$/.test(data.phoneNumber)) {
       newErrors.phoneNumber = 'Phone number must contain numbers only.';
     }
@@ -256,6 +258,11 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
     }
     if (userRole === 'teacher' && data && data.school && /\d/.test(data.school)) {
       newErrors.school = 'School name cannot contain numbers.';
+    }
+    if (userRole === 'teacher' && data && data.schoolCode) {
+      if (!/^\d{4}$/.test(data.schoolCode)) {
+        newErrors.schoolCode = 'School code must be exactly 4 digits.';
+      }
     }
     if (userRole === 'teacher') {
     if (data && data.gradeLevel && !/^\d*$/.test(data.gradeLevel)) {
@@ -288,6 +295,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
       filteredValue = normalized;
     }
     if (name === 'school') filteredValue = value.replace(/\d/g, '');
+    if (name === 'schoolCode') filteredValue = value.replace(/[^\d]/g, '').slice(0, 4); // Only digits, max 4
     if (name === 'gradeLevel') filteredValue = value.replace(/[^\d]/g, '');
 
     // Structured address fields
@@ -481,6 +489,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
           </div>
           {/* School (teachers only) */}
           {userRole === 'teacher' && (
+          <>
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-2">School</label>
             <input
@@ -493,6 +502,31 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
             />
             {errors.school && <div className="text-xs text-red-500 mt-1">{errors.school}</div>}
           </div>
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              School Code <span className="text-gray-500 text-xs">(4 digits, used for LRN generation)</span>
+            </label>
+            <input
+              type="text"
+              name="schoolCode"
+              value={editProfile.schoolCode}
+              onChange={handleInputChange}
+              disabled={savingEdit}
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={4}
+              placeholder="e.g., 1023"
+              className={`w-full border ${errors.schoolCode ? 'border-red-400' : (editProfile.schoolCode.length === 4 ? 'border-green-400' : 'border-gray-300')} rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100`}
+            />
+            {errors.schoolCode ? (
+              <div className="text-xs text-red-500 mt-1">{errors.schoolCode}</div>
+            ) : (
+              <div className={`text-xs mt-1 ${editProfile.schoolCode.length === 4 ? 'text-green-600' : 'text-gray-500'}`}>
+                {editProfile.schoolCode.length === 4 ? 'School code looks good.' : 'Enter 4-digit school code (e.g., 1023). This will be used to generate student LRNs.'}
+              </div>
+            )}
+          </div>
+          </>
           )}
           {/* Address (all roles) */}
           {
