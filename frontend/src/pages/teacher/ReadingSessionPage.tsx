@@ -1688,23 +1688,23 @@ const ReadingSessionPage: React.FC = () => {
                 // constraint is too strict. Better to let Vosk recognize naturally and filter
                 // on frontend where we have more control and can be more lenient for children.
                 //
-                // Natural recognition mode - no grammar constraint
+                // Grammar constraint mode - force Vosk to only recognize story words
                 const config1 = JSON.stringify({
                   config: {
                     words: true,
-                    max_alternatives: 0
-                    // NO grammar/word_list - let Vosk recognize naturally
+                    max_alternatives: 0,
+                    grammar: vocabularyList  // Send story vocabulary to Vosk
                   }
                 });
 
-                console.log(`🎯 Vosk configured for NATURAL recognition (no grammar constraint)`);
-                console.log(`📝 Frontend vocabulary filter will handle ${vocabularyList.length} story words`);
+                console.log(`🎯 Vosk configured with GRAMMAR CONSTRAINT`);
+                console.log(`📝 Sending ${vocabularyList.length} story words to Vosk`);
                 console.log(`📝 Vocabulary sample (first 20):`, vocabularyList.slice(0, 20).join(', '));
 
                 // Send config
                 try {
                   ws.send(config1);
-                  console.log('✓ Sent Vosk config (natural recognition mode)');
+                  console.log('✓ Sent Vosk config with grammar constraint');
                 } catch (e) {
                   console.warn('Failed to send config:', e);
                 }
