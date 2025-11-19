@@ -5,6 +5,7 @@ import UpcomingSessions from './UpcomingSessions';
 import { useAuth } from '../../../contexts/AuthContext';
 import { gradeService, type ClassGrade } from '../../../services/gradeService';
 import { studentService, type Student } from '../../../services/studentService';
+import { readingSessionService, type ReadingSession } from '../../../services/readingSessionService';
 import ClassPerformanceChart from './ClassPerformanceChart';
 import ReadingLevelDistributionChart from './ReadingLevelDistributionChart';
 import RecentActivity from './RecentActivity';
@@ -22,6 +23,7 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
   const { currentUser } = useAuth();
   const [grades, setGrades] = useState<ClassGrade[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
+  const [readingSessions, setReadingSessions] = useState<ReadingSession[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
 
@@ -29,10 +31,18 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
   const calculateStats = useMemo(() => {
     const totalStudents = students.length;
     
-    // For now, use placeholder values since we don't have reading results in the grade structure
-    // These would need to be fetched from the results service in a real implementation
-    const totalReadingSessions = 0; // Would need to fetch from resultService
-    const thisWeekSessions = 0; // Would need to fetch from resultService
+    // Calculate total reading sessions
+    const totalReadingSessions = readingSessions.length;
+    
+    // Calculate sessions created this week
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    const thisWeekSessions = readingSessions.filter(session => {
+      if (!session.createdAt) return false;
+      // Handle Firestore Timestamp or Date object
+      const createdDate = session.createdAt.toDate ? session.createdAt.toDate() : new Date(session.createdAt);
+      return createdDate >= oneWeekAgo;
+    }).length;
     
     // Calculate total classes/grades
     const totalClasses = grades.length;
@@ -59,7 +69,7 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
       newStudentsThisMonth,
       studentsWithData
     };
-  }, [students, grades]);
+  }, [students, grades, readingSessions]);
 
   const statsData = [
     {
@@ -211,11 +221,23 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
             console.warn('TeacherDashboard: Could not fetch students:', studentError);
             setStudents([]);
           }
+
+          // Fetch reading sessions for this teacher
+          try {
+            console.log('TeacherDashboard: Fetching reading sessions for teacher:', currentUser.uid);
+            const sessions = await readingSessionService.getTeacherSessions(currentUser.uid);
+            console.log('TeacherDashboard: Fetched reading sessions:', sessions.length);
+            setReadingSessions(sessions);
+          } catch (sessionError) {
+            console.warn('TeacherDashboard: Could not fetch reading sessions:', sessionError);
+            setReadingSessions([]);
+          }
         } catch (error) {
           console.error('Error in dashboard data fetch:', error);
           // Set empty arrays as fallback
           setGrades([]);
           setStudents([]);
+          setReadingSessions([]);
         } finally {
           setIsLoading(false);
         }
