@@ -2877,65 +2877,81 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
   if (!isOpen) return null;
 
   return (
-    <div className="origin-top-right absolute right-0 mt-2 w-[32rem] max-w-[calc(100vw-2rem)] min-w-[20rem] rounded-lg bg-white shadow-lg ring-1 ring-black ring-opacity-5 z-50 overflow-hidden">
-      <div className="p-4 max-h-[80vh] overflow-y-auto">
+    <>
+      {/* Mobile backdrop */}
+      <div 
+        className="fixed inset-0 bg-black bg-opacity-20 z-40 sm:hidden"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      
+      {/* Notification Dropdown - Responsive positioning */}
+      <div className="fixed sm:absolute top-16 sm:top-auto left-0.5 sm:left-auto right-0.5 sm:right-0 sm:origin-top-right sm:mt-2 w-[calc(100vw-1rem)] sm:w-[32rem] sm:max-w-[calc(100vw-2rem)] min-w-[280px] sm:min-w-[20rem] max-h-[calc(100vh-5rem)] sm:max-h-[80vh] rounded-lg bg-white shadow-lg ring-1 ring-black ring-opacity-5 z-50 overflow-hidden mx-auto sm:mx-0">
+        <div className="p-3 sm:p-4 max-h-full overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <BellIcon className="h-5 w-5 text-gray-600" />
-            <h3 className="text-lg font-semibold text-gray-900">Notifications</h3>
+        <div className="flex items-center justify-between mb-3 sm:mb-4">
+          <div className="flex items-center gap-2 min-w-0">
+            <BellIcon className="h-4 w-4 sm:h-5 sm:w-5 text-gray-600 flex-shrink-0" />
+            <h3 className="text-base sm:text-lg font-semibold text-gray-900 truncate">Notifications</h3>
             {inboxCount > 0 && (
-              <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+              <span className="bg-red-500 text-white text-xs font-bold px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full flex-shrink-0">
                 {inboxCount}
               </span>
             )}
             {/* Debug: Show badge count info - Removed for cleaner UI */}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600"
+              className="text-gray-400 hover:text-gray-600 p-1"
+              aria-label="Close notifications"
             >
-              <XMarkIcon className="h-5 w-5" />
+              <XMarkIcon className="h-4 w-4 sm:h-5 sm:w-5" />
             </button>
           </div>
         </div>
 
 
 
-        {/* Tabs */}
-        <div className="flex mb-4 border-b border-gray-200">
+        {/* Tabs - Responsive */}
+        <div className="flex mb-3 sm:mb-4 border-b border-gray-200 overflow-x-auto scrollbar-hide -mx-3 sm:-mx-4 px-3 sm:px-4">
           <button
             onClick={() => setActiveTab('inbox')}
-            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'inbox'
+            className={`px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${activeTab === 'inbox'
               ? 'border-blue-500 text-blue-600'
               : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
           >
-            Inbox ({inboxCount})
+            <span className="hidden sm:inline">Inbox </span>
+            <span className="sm:hidden">Inbox</span>
+            <span className="ml-1">({inboxCount})</span>
           </button>
           <button
             onClick={() => setActiveTab('archived')}
-            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'archived'
+            className={`px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${activeTab === 'archived'
               ? 'border-blue-500 text-blue-600'
               : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
           >
-            Archived ({archivedCount})
+            <span className="hidden sm:inline">Archived </span>
+            <span className="sm:hidden">Arch</span>
+            <span className="ml-1">({archivedCount})</span>
           </button>
           <button
             onClick={() => setActiveTab('recent')}
-            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'recent'
+            className={`px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${activeTab === 'recent'
               ? 'border-blue-500 text-blue-600'
               : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
           >
-            Recent ({recentCount})
+            <span className="hidden sm:inline">Recent </span>
+            <span className="sm:hidden">Recent</span>
+            <span className="ml-1">({recentCount})</span>
           </button>
         </div>
 
         {/* Content */}
-        <div className="max-h-[60vh] overflow-y-auto overflow-x-hidden">
+        <div className="max-h-[60vh] sm:max-h-[60vh] overflow-y-auto overflow-x-hidden -mx-3 sm:-mx-4 px-3 sm:px-4">
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -3482,6 +3498,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
             </button>
           </div>
         )}
+        </div>
       </div>
 
       {/* Link Request Approval Modal */}
@@ -3520,14 +3537,11 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
       {isISRViewerOpen && selectedStudent && (
         <DepEdISRViewer
           data={selectedStudent}
-          onApprove={handleApproveISRFromNotification}
-          onReject={handleRejectISRFromNotification}
           onClose={() => {
             setIsISRViewerOpen(false);
             setSelectedISR(null);
             setSelectedStudent(null);
           }}
-          isLoading={isApproving}
         />
       )}
 
@@ -3664,7 +3678,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 };
 

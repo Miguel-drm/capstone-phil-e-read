@@ -1,14 +1,13 @@
 import { 
   collection, 
   doc, 
-  addDoc, 
+  setDoc,
   updateDoc, 
   getDocs, 
   getDoc, 
   query, 
   where, 
   orderBy, 
-  limit,
   writeBatch,
   serverTimestamp
 } from 'firebase/firestore';
@@ -16,11 +15,11 @@ import { getAuth } from 'firebase/auth';
 import { db } from '../config/firebase';
 
 export interface Student {
-  id?: string;
+  id?: string; // This will be the LRN (kept for backward compatibility in code)
   name: string;
   grade: string;
   readingLevel: string;
-  lrn?: string;
+  lrn: string; // Required - used as Firebase document ID
   age?: number;
   performance: 'Excellent' | 'Good' | 'Needs Improvement';
   lastAssessment: string;
@@ -39,7 +38,7 @@ export interface ImportedStudent {
   lastName?: string;
   grade: string;
   readingLevel: string;
-  lrn?: string;
+  lrn: string; // Required - will be used as Firebase document ID
   age?: number;
   performance?: string;
   parentId?: string;
@@ -51,6 +50,76 @@ class StudentService {
 
   public getCollectionName(): string {
     return this.collectionName;
+  }
+
+  // Generate a unique LRN based on school code, year, and sequence
+  // Format: [SchoolCode (4 digits)][Year (2 digits)][Sequence (6 digits)] = 12 digits total
+  async generateUniqueLRN(schoolCode: string = '1023', year?: number): Promise<string> {
+    try {
+      // Use current year if not provided, format as 2 digits (e.g., 2025 -> 25)
+      const currentYear = year || new Date().getFullYear();
+      const yearCode = currentYear.toString().slice(-2); // Last 2 digits of year
+      
+      // Ensure school code is 4 digits (pad with zeros if needed, or truncate)
+      const normalizedSchoolCode = schoolCode.padStart(4, '0').slice(0, 4);
+      
+      // Get all existing students to find the highest sequence number
+      const allStudents = await this.getAllStudents();
+      
+      // Filter students that match the school code and year pattern
+      const pattern = new RegExp(`^${normalizedSchoolCode}${yearCode}`);
+      const matchingStudents = allStudents.filter(s => {
+        const lrn = s.lrn || s.id || '';
+        return pattern.test(lrn);
+      });
+      
+      // Find the highest sequence number
+      let maxSequence = 0;
+      for (const student of matchingStudents) {
+        const lrn = student.lrn || student.id || '';
+        if (lrn.length === 12) {
+          const sequence = parseInt(lrn.slice(6), 10); // Last 6 digits
+          if (!isNaN(sequence) && sequence > maxSequence) {
+            maxSequence = sequence;
+          }
+        }
+      }
+      
+      // Generate next sequence number
+      const nextSequence = maxSequence + 1;
+      const sequenceStr = nextSequence.toString().padStart(6, '0'); // 6 digits
+      
+      // Combine: SchoolCode (4) + Year (2) + Sequence (6) = 12 digits
+      const newLRN = `${normalizedSchoolCode}${yearCode}${sequenceStr}`;
+      
+      // Double-check it doesn't exist (safety check)
+      const existingStudent = await this.getStudent(newLRN);
+      if (existingStudent) {
+        // If it exists, try next number
+        const fallbackSequence = nextSequence + 1;
+        const fallbackSequenceStr = fallbackSequence.toString().padStart(6, '0');
+        return `${normalizedSchoolCode}${yearCode}${fallbackSequenceStr}`;
+      }
+      
+      return newLRN;
+    } catch (error) {
+      console.error('Error generating LRN:', error);
+      // Fallback: generate based on timestamp if something goes wrong
+      const timestamp = Date.now().toString().slice(-8); // Last 8 digits
+      const fallbackSchoolCode = (schoolCode || '1023').padStart(4, '0').slice(0, 4);
+      return `${fallbackSchoolCode}${timestamp}`;
+    }
+  }
+
+  // Check if an LRN already exists
+  async lrnExists(lrn: string): Promise<boolean> {
+    try {
+      const student = await this.getStudent(lrn);
+      return student !== null;
+    } catch (error) {
+      console.error('Error checking LRN existence:', error);
+      return false;
+    }
   }
 
   // Get all students for a teacher
@@ -67,7 +136,8 @@ class StudentService {
       querySnapshot.forEach((doc) => {
         const data = doc.data();
         students.push({
-          id: doc.id,
+          id: doc.id, // LRN is now the document ID
+          lrn: doc.id, // Ensure lrn field matches the document ID
           ...data
         } as Student);
       });
@@ -92,7 +162,8 @@ class StudentService {
           const data = doc.data();
           if (data.teacherId === teacherId) {
             students.push({
-              id: doc.id,
+              id: doc.id, // LRN is now the document ID
+              lrn: doc.id, // Ensure lrn field matches the document ID
               ...data
             } as Student);
           }
@@ -106,15 +177,16 @@ class StudentService {
     }
   }
 
-  // Get a single student by ID
-  async getStudent(studentId: string): Promise<Student | null> {
+  // Get a single student by LRN (which is now the document ID)
+  async getStudent(lrn: string): Promise<Student | null> {
     try {
-      const docRef = doc(db, this.collectionName, studentId);
+      const docRef = doc(db, this.collectionName, lrn);
       const docSnap = await getDoc(docRef);
       
       if (docSnap.exists()) {
         return {
-          id: docSnap.id,
+          id: docSnap.id, // LRN is the document ID
+          lrn: docSnap.id, // Ensure lrn field matches the document ID
           ...docSnap.data()
         } as Student;
       } else {
@@ -126,28 +198,43 @@ class StudentService {
     }
   }
 
-  // Add a new student
+  // Add a new student (LRN is used as the document ID)
   async addStudent(studentData: Omit<Student, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
     try {
-      const docRef = await addDoc(collection(db, this.collectionName), {
-        ...studentData,
+      // Validate that LRN is provided
+      if (!studentData.lrn || studentData.lrn.trim() === '') {
+        throw new Error('LRN (Learning Reference Number) is required');
+      }
+
+      // Remove any undefined fields (Firestore does not allow them)
+      const cleanedStudentData = Object.fromEntries(
+        Object.entries(studentData).filter(([_, value]) => value !== undefined)
+      );
+
+      // Use LRN as the document ID
+      const docRef = doc(db, this.collectionName, studentData.lrn);
+      await setDoc(docRef, {
+        ...cleanedStudentData,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
       
-      return docRef.id;
+      return studentData.lrn; // Return LRN as the ID
     } catch (error) {
       console.error('Error adding student:', error);
       throw new Error('Failed to add student');
     }
   }
 
-  // Update an existing student
-  async updateStudent(studentId: string, studentData: Partial<Student>): Promise<void> {
+  // Update an existing student (LRN is used as the document ID)
+  async updateStudent(lrn: string, studentData: Partial<Student>): Promise<void> {
     try {
-      const docRef = doc(db, this.collectionName, studentId);
+      // Prevent updating the LRN field (it's the document ID)
+      const { lrn: _, ...dataToUpdate } = studentData;
+      
+      const docRef = doc(db, this.collectionName, lrn);
       await updateDoc(docRef, {
-        ...studentData,
+        ...dataToUpdate,
         updatedAt: serverTimestamp()
       });
     } catch (error) {
@@ -156,8 +243,8 @@ class StudentService {
     }
   }
 
-  // Delete a student
-  async deleteStudent(studentId: string): Promise<void> {
+  // Delete a student (LRN is used as the document ID)
+  async deleteStudent(lrn: string): Promise<void> {
     try {
       // Check authentication
       const auth = getAuth();
@@ -166,12 +253,12 @@ class StudentService {
       }
 
       console.log('Attempting to delete student:', {
-        studentId,
+        lrn,
         currentUser: auth.currentUser.uid
       });
 
       // Get student data first to verify ownership
-      const studentRef = doc(db, this.collectionName, studentId);
+      const studentRef = doc(db, this.collectionName, lrn);
       const studentDoc = await getDoc(studentRef);
       
       if (!studentDoc.exists()) {
@@ -195,13 +282,14 @@ class StudentService {
       batch.delete(studentRef);
 
       // Find and delete student from all grade collections
+      // Note: studentId in grade subcollections should be the LRN
       const gradesRef = collection(db, 'classGrades');
       const gradesSnapshot = await getDocs(gradesRef);
       const affectedGradeIds: string[] = [];
 
       for (const gradeDoc of gradesSnapshot.docs) {
         const studentsRef = collection(gradeDoc.ref, 'students');
-        const studentInGradeQuery = query(studentsRef, where('studentId', '==', studentId));
+        const studentInGradeQuery = query(studentsRef, where('studentId', '==', lrn));
         const studentInGradeSnapshot = await getDocs(studentInGradeQuery);
 
         studentInGradeSnapshot.docs.forEach((doc) => {
@@ -239,60 +327,57 @@ class StudentService {
     }
   }
 
-  // Import multiple students
+  // Import multiple students (LRN is used as the document ID)
   async importStudents(students: ImportedStudent[], teacherId: string): Promise<string[]> {
     try {
       const batch = writeBatch(db);
-      const studentIds: string[] = [];
+      const studentLrns: string[] = [];
 
       for (const studentData of students) {
-        // Try to find an existing student with the same name for this teacher
-        const q = query(
-          collection(db, this.collectionName),
-          where('teacherId', '==', teacherId),
-          where('name', '==', studentData.name), // Match by combined name
-          limit(1)
-        );
-        const querySnapshot = await getDocs(q);
+        // Validate LRN is provided
+        if (!studentData.lrn || studentData.lrn.trim() === '') {
+          console.warn('Skipping student without LRN:', studentData.name);
+          continue;
+        }
 
-        if (!querySnapshot.empty) {
-          // Student found, update it
-          const existingDoc = querySnapshot.docs[0];
-          const docRef = doc(db, this.collectionName, existingDoc.id);
+        // Use LRN as the document ID - check if student already exists
+        const docRef = doc(db, this.collectionName, studentData.lrn);
+        const existingDoc = await getDoc(docRef);
+
+        if (existingDoc.exists()) {
+          // Student found (by LRN), update it
           batch.update(docRef, {
-            name: studentData.name, // Update combined name
-            grade: studentData.grade, // Update grade if changed
-            readingLevel: studentData.readingLevel, // Update reading level if changed
-            lrn: studentData.lrn || null, // Update LRN if changed
-            age: studentData.age || null, // Update age if changed
-            performance: studentData.performance || 'Good', // Update performance if changed
-            parentId: studentData.parentId || null, // Update parent info
-            parentName: studentData.parentName || null, // Update parent info
+            name: studentData.name,
+            grade: studentData.grade,
+            readingLevel: studentData.readingLevel,
+            age: studentData.age || null,
+            performance: studentData.performance || 'Good',
+            parentId: studentData.parentId || null,
+            parentName: studentData.parentName || null,
             updatedAt: serverTimestamp()
           });
-          studentIds.push(existingDoc.id);
+          studentLrns.push(studentData.lrn);
         } else {
-          // No existing student, add a new one
-          const docRef = doc(collection(db, this.collectionName));
-          studentIds.push(docRef.id);
-
+          // No existing student, add a new one using LRN as document ID
           batch.set(docRef, {
             ...studentData,
+            lrn: studentData.lrn, // Ensure LRN is stored in the document
             age: studentData.age || null,
-            performance: (studentData.performance || 'Good') as const,
+            performance: (studentData.performance || 'Good') as 'Excellent' | 'Good' | 'Needs Improvement',
             lastAssessment: new Date().toISOString().split('T')[0],
-            status: 'active' as const, // Set as active upon import
+            status: 'active' as 'active' | 'pending' | 'inactive',
             teacherId,
             parentId: studentData.parentId || null,
             parentName: studentData.parentName || null,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
           });
+          studentLrns.push(studentData.lrn);
         }
       }
 
       await batch.commit();
-      return studentIds;
+      return studentLrns;
     } catch (error) {
       console.error('Error importing students:', error);
       throw new Error('Failed to import students');
@@ -313,7 +398,8 @@ class StudentService {
       
       querySnapshot.forEach((doc) => {
         const student = {
-          id: doc.id,
+          id: doc.id, // LRN is now the document ID
+          lrn: doc.id, // Ensure lrn field matches the document ID
           ...doc.data()
         } as Student;
         
@@ -346,7 +432,8 @@ class StudentService {
       
       querySnapshot.forEach((doc) => {
         students.push({
-          id: doc.id,
+          id: doc.id, // LRN is now the document ID
+          lrn: doc.id, // Ensure lrn field matches the document ID
           ...doc.data()
         } as Student);
       });
@@ -389,15 +476,16 @@ class StudentService {
   }
 
   // Batch delete multiple students (optimized: only main collection)
-  async batchDeleteStudents(studentIds: string[]): Promise<void> {
+  // Note: studentIds should now be LRNs
+  async batchDeleteStudents(studentLrns: string[]): Promise<void> {
     const auth = getAuth();
     if (!auth.currentUser) throw new Error('No authenticated user');
     const BATCH_SIZE = 400; // Firestore max is 500, use 400 for safety
-    for (let i = 0; i < studentIds.length; i += BATCH_SIZE) {
+    for (let i = 0; i < studentLrns.length; i += BATCH_SIZE) {
       const batch = writeBatch(db);
-      const chunk = studentIds.slice(i, i + BATCH_SIZE);
-      for (const studentId of chunk) {
-        const studentRef = doc(db, this.collectionName, studentId);
+      const chunk = studentLrns.slice(i, i + BATCH_SIZE);
+      for (const lrn of chunk) {
+        const studentRef = doc(db, this.collectionName, lrn);
         batch.delete(studentRef);
       }
       await batch.commit();
@@ -406,15 +494,16 @@ class StudentService {
   }
 
   // Batch archive/unarchive multiple students
-  async batchSetArchived(studentIds: string[], archived: boolean, archivedByAdmin: boolean = false): Promise<void> {
+  // Note: studentIds should now be LRNs
+  async batchSetArchived(studentLrns: string[], archived: boolean, archivedByAdmin: boolean = false): Promise<void> {
     const auth = getAuth();
     if (!auth.currentUser) throw new Error('No authenticated user');
     const BATCH_SIZE = 400;
-    for (let i = 0; i < studentIds.length; i += BATCH_SIZE) {
+    for (let i = 0; i < studentLrns.length; i += BATCH_SIZE) {
       const batch = writeBatch(db);
-      const chunk = studentIds.slice(i, i + BATCH_SIZE);
-      for (const studentId of chunk) {
-        const studentRef = doc(db, this.collectionName, studentId);
+      const chunk = studentLrns.slice(i, i + BATCH_SIZE);
+      for (const lrn of chunk) {
+        const studentRef = doc(db, this.collectionName, lrn);
         const updateData: any = { archived, updatedAt: serverTimestamp() };
         if (archived && archivedByAdmin) {
           updateData.archivedByAdmin = true;
@@ -432,7 +521,11 @@ class StudentService {
   async getAllStudents(): Promise<Student[]> {
     try {
       const querySnapshot = await getDocs(collection(db, this.collectionName));
-      return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Student[];
+      return querySnapshot.docs.map(doc => ({ 
+        id: doc.id, // LRN is now the document ID
+        lrn: doc.id, // Ensure lrn field matches the document ID
+        ...doc.data() 
+      })) as Student[];
     } catch (error) {
       console.error('Error getting all students:', error);
       throw new Error('Failed to fetch all students');
@@ -476,7 +569,11 @@ class StudentService {
         where('parentId', '==', parentId)
       );
       const querySnapshot = await getDocs(q);
-      return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Student[];
+      return querySnapshot.docs.map(doc => ({ 
+        id: doc.id, // LRN is now the document ID
+        lrn: doc.id, // Ensure lrn field matches the document ID
+        ...doc.data() 
+      })) as Student[];
     } catch (error) {
       console.error('Error getting students by parent:', error);
       throw new Error('Failed to fetch students by parent');

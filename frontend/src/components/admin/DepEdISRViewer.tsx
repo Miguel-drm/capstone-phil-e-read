@@ -10,6 +10,7 @@ interface ISRData {
   levelStarted?: string; // The level where the student started (marked with *)
   readingData: {
     level: string;
+    levelStarted?: boolean;
     set?: string; // A, B, C, or D
     wordReading: {
       ind: boolean;
@@ -44,7 +45,56 @@ const DepEdISRViewer: React.FC<DepEdISRViewerProps> = ({
   onClose
 }) => {
 
-  const levels = ['K', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
+const levels = ['K', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
+
+  // Determine levelStarted if missing - use the first entry with data
+  const determineLevelStarted = (): string => {
+    // If levelStarted is already set, use it
+    if (data.levelStarted) {
+      return data.levelStarted;
+    }
+    
+    // Find the first readingData entry with levelStarted flag
+    const entryWithFlag = data.readingData?.find(entry => entry.levelStarted);
+    if (entryWithFlag?.level) {
+      return entryWithFlag.level;
+    }
+    
+    // Find the first entry with a dateTaken (earliest assessment)
+    const entriesWithDate = data.readingData?.filter(entry => entry.dateTaken);
+    if (entriesWithDate && entriesWithDate.length > 0) {
+      // Sort by dateTaken to get the earliest
+      const sortedByDate = [...entriesWithDate].sort((a, b) => {
+        const dateA = new Date(a.dateTaken).getTime();
+        const dateB = new Date(b.dateTaken).getTime();
+        return dateA - dateB;
+      });
+      
+      // Get the level of the earliest entry
+      const earliestLevel = sortedByDate[0]?.level;
+      if (earliestLevel) {
+        return earliestLevel;
+      }
+    }
+    
+    // Find the first entry with any data (wordReading or comprehension)
+    const entryWithData = data.readingData?.find(entry => 
+      entry.wordReading?.ind || entry.wordReading?.ins || entry.wordReading?.frus ||
+      entry.comprehension?.ind || entry.comprehension?.ins || entry.comprehension?.frus
+    );
+    if (entryWithData?.level) {
+      return entryWithData.level;
+    }
+    
+    // If still nothing, use the first entry's level
+    if (data.readingData && data.readingData.length > 0) {
+      return data.readingData[0].level;
+    }
+    
+    return '';
+  };
+
+  const effectiveLevelStarted = determineLevelStarted();
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -136,7 +186,10 @@ const DepEdISRViewer: React.FC<DepEdISRViewerProps> = ({
               <tbody>
                 {levels.map((level) => {
                   const readingEntry = data.readingData?.find(entry => entry.level === level);
-                  const isStartedLevel = data.levelStarted === level;
+                  const isStartedLevel =
+                    effectiveLevelStarted === level ||
+                    data.levelStarted === level ||
+                    Boolean(readingEntry?.levelStarted);
                   
                   // Debug: Log entry data for this level
                   if (readingEntry) {

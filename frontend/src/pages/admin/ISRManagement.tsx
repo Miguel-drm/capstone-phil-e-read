@@ -10,12 +10,17 @@ import {
   XCircleIcon,
   EyeIcon,
   ArrowDownTrayIcon,
-  TableCellsIcon
+  TableCellsIcon,
+  AcademicCapIcon,
+  UserIcon,
+  UsersIcon
 } from '@heroicons/react/24/outline';
 import * as XLSX from 'xlsx';
 import { isrService, type ISRSubmissionData, type ISRStudentData } from '../../services/isrService';
 import DepEdISRViewer from '../../components/admin/DepEdISRViewer';
 import AdminLoader from '../../components/admin/AdminLoader';
+import { useAuth } from '../../contexts/AuthContext';
+import { showSuccess, showError } from '../../services/alertService';
 
 // Essential types only
 interface FilterOptions {
@@ -58,25 +63,29 @@ const StudentCard = memo(({
   return (
     <div
       key={uniqueKey}
-      className="bg-white rounded-lg border border-slate-200 shadow-sm hover:shadow-md transition-all duration-200 p-4"
+      className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-lg hover:border-indigo-300 transition-all duration-200 p-5 group"
     >
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <div className="p-2 bg-indigo-100 rounded-lg">
-            <UserGroupIcon className="h-4 w-4 text-indigo-600" />
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-start gap-3 flex-1">
+          <div className="p-2.5 bg-gradient-to-br from-indigo-100 to-indigo-50 rounded-lg border border-indigo-200 group-hover:from-indigo-200 group-hover:to-indigo-100 transition-colors">
+            <UsersIcon className="h-5 w-5 text-indigo-600" />
           </div>
-          <div>
-            <h3 className="font-semibold text-slate-900 text-sm">{student.studentName}</h3>
-            <p className="text-xs text-slate-600">{student.language}</p>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-bold text-slate-900 text-sm mb-1 truncate">{student.studentName}</h3>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-slate-100 text-slate-700">
+                {student.language}
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
       <button
         onClick={() => onViewISR(student)}
-        className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium py-2 px-3 rounded-lg transition-colors"
+        className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white text-sm font-semibold py-2.5 px-4 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md"
       >
-        <EyeIcon className="h-3 w-3" />
+        <EyeIcon className="h-5 w-5 stroke-2" />
         View ISR
       </button>
     </div>
@@ -87,11 +96,17 @@ const StudentCard = memo(({
 const RecordCard = memo(({
   record,
   statusConfig,
-  onClassClick
+  onClassClick,
+  onApprove,
+  onReject,
+  isProcessing
 }: {
   record: ISRSubmissionData;
   statusConfig: StatusConfig;
   onClassClick: (record: ISRSubmissionData) => void;
+  onApprove?: (record: ISRSubmissionData) => void;
+  onReject?: (record: ISRSubmissionData) => void;
+  isProcessing?: boolean;
 }) => {
   return (
     <div className="bg-white rounded-lg border border-slate-200 shadow-sm hover:shadow-md transition-all duration-200 p-4">
@@ -103,7 +118,9 @@ const RecordCard = memo(({
           <div>
             <h3 className="font-semibold text-slate-900 text-sm">
               {record.status === 'approved'
-                ? `Grade ${record.grade} - ${record.section}`
+                ? record.section && record.section !== 'N/A' && record.section.trim() !== ''
+                  ? `Grade ${record.grade} - ${record.section}`
+                  : `Grade ${record.grade}`
                 : 'Class Information Hidden'
               }
             </h3>
@@ -123,18 +140,40 @@ const RecordCard = memo(({
         <span>{record.submissionDate.toLocaleDateString()}</span>
       </div>
 
-      <button
-        onClick={() => onClassClick(record)}
-        className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium py-2 px-3 rounded-lg transition-colors"
-      >
-        <EyeIcon className="h-3 w-3" />
-        View Details
-      </button>
+      {record.status === 'pending' && onApprove && onReject ? (
+        <div className="flex gap-2">
+          <button
+            onClick={() => onApprove(record)}
+            disabled={isProcessing}
+            className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium py-2 px-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <CheckCircleIcon className="h-4 w-4 stroke-2" />
+            Approve
+          </button>
+          <button
+            onClick={() => onReject(record)}
+            disabled={isProcessing}
+            className="flex-1 flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium py-2 px-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <XCircleIcon className="h-4 w-4 stroke-2" />
+            Reject
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => onClassClick(record)}
+          className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium py-2 px-3 rounded-lg transition-colors"
+        >
+          <EyeIcon className="h-4 w-4 stroke-2" />
+          View Details
+        </button>
+      )}
     </div>
   );
 });
 
 const ISRManagement: React.FC = () => {
+  const { currentUser } = useAuth();
   // Essential state only
   const [allRecords, setAllRecords] = useState<ISRSubmissionData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -144,6 +183,8 @@ const ISRManagement: React.FC = () => {
   const [selectedClass, setSelectedClass] = useState<ISRSubmissionData | null>(null);
   const [showStudentDetails, setShowStudentDetails] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
+  const [detailViewMode, setDetailViewMode] = useState<'grid' | 'table'>('grid');
+  const [processingRecordId, setProcessingRecordId] = useState<string | null>(null);
 
   const [filters, setFilters] = useState<FilterOptions>({
     status: 'all'
@@ -308,6 +349,77 @@ const ISRManagement: React.FC = () => {
     return statusMap[status as keyof typeof statusMap] || 'Pending';
   }, []);
 
+  // Handle approve ISR
+  const handleApproveISR = useCallback(async (record: ISRSubmissionData) => {
+    if (!currentUser) {
+      showError('Error', 'You must be logged in to approve ISR records');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Are you sure you want to approve this ISR submission for ${record.className || 'this class'}?`
+    );
+
+    if (!confirmed) return;
+
+    setProcessingRecordId(record.id);
+    try {
+      const success = await isrService.approveISR(
+        record.id,
+        currentUser.uid,
+        currentUser.displayName || 'Admin'
+      );
+
+      if (success) {
+        showSuccess('Approved', 'ISR submission has been approved successfully');
+        await fetchISRRecords(); // Refresh the records
+      } else {
+        showError('Failed', 'Failed to approve ISR submission');
+      }
+    } catch (error) {
+      console.error('Error approving ISR:', error);
+      showError('Error', 'An error occurred while approving the ISR submission');
+    } finally {
+      setProcessingRecordId(null);
+    }
+  }, [currentUser, fetchISRRecords]);
+
+  // Handle reject ISR
+  const handleRejectISR = useCallback(async (record: ISRSubmissionData) => {
+    if (!currentUser) {
+      showError('Error', 'You must be logged in to reject ISR records');
+      return;
+    }
+
+    const reason = window.prompt(
+      `Are you sure you want to reject this ISR submission for ${record.className || 'this class'}?\n\nPlease provide a reason (optional):`
+    );
+
+    if (reason === null) return; // User cancelled
+
+    setProcessingRecordId(record.id);
+    try {
+      const success = await isrService.rejectISR(
+        record.id,
+        currentUser.uid,
+        currentUser.displayName || 'Admin',
+        reason || undefined
+      );
+
+      if (success) {
+        showSuccess('Rejected', 'ISR submission has been rejected');
+        await fetchISRRecords(); // Refresh the records
+      } else {
+        showError('Failed', 'Failed to reject ISR submission');
+      }
+    } catch (error) {
+      console.error('Error rejecting ISR:', error);
+      showError('Error', 'An error occurred while rejecting the ISR submission');
+    } finally {
+      setProcessingRecordId(null);
+    }
+  }, [currentUser, fetchISRRecords]);
+
 
 
   useEffect(() => {
@@ -336,31 +448,46 @@ const ISRManagement: React.FC = () => {
               Back to ISR Records
             </button>
 
-            <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-indigo-100 rounded-lg">
-                    <DocumentTextIcon className="h-6 w-6 text-indigo-600" />
+            <div className="bg-gradient-to-r from-white to-indigo-50/30 rounded-xl border-2 border-indigo-200 shadow-lg p-6 mb-6">
+              <div className="flex items-start justify-between">
+                <div className="flex items-start gap-4">
+                  <div className="p-3 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl shadow-md">
+                    <AcademicCapIcon className="h-8 w-8 text-white" />
                   </div>
-                  <div>
-                    <h1 className="text-xl font-bold text-slate-900">
+                  <div className="flex-1">
+                    <h1 className="text-2xl font-bold text-slate-900 mb-1">
                       {selectedClass.status === 'approved'
-                        ? `Grade ${selectedClass.grade} - ${selectedClass.section}`
+                        ? selectedClass.section && selectedClass.section !== 'N/A' && selectedClass.section.trim() !== ''
+                          ? `Grade ${selectedClass.grade} - ${selectedClass.section}`
+                          : `Grade ${selectedClass.grade}`
                         : 'Class Information Hidden'
                       }
                     </h1>
-                    <p className="text-sm text-slate-600">
-                      {selectedClass.status === 'approved'
-                        ? `${selectedClass.teacherName} • ${selectedClass.studentCount} students`
-                        : 'Pending Admin Approval • Student details hidden'
-                      }
-                    </p>
+                    <div className="flex items-center gap-4 flex-wrap">
+                      <p className="text-base text-slate-600 flex items-center gap-2">
+                        <UserIcon className="h-4 w-4 text-slate-500" />
+                        {selectedClass.status === 'approved'
+                          ? selectedClass.teacherName
+                          : 'Pending Admin Approval'
+                        }
+                      </p>
+                      {selectedClass.status === 'approved' && (
+                        <p className="text-base text-slate-600 flex items-center gap-2">
+                          <UsersIcon className="h-4 w-4 text-slate-500" />
+                          {selectedClass.studentCount} students
+                        </p>
+                      )}
+                      <p className="text-base text-slate-600 flex items-center gap-2">
+                        <CalendarIcon className="h-4 w-4 text-slate-500" />
+                        {selectedClass.submissionDate.toLocaleDateString()}
+                      </p>
+                    </div>
                   </div>
                 </div>
 
-                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${statusConfig.badge}`}>
-                  <StatusIcon className="h-4 w-4" />
-                  <span className="font-semibold text-sm">{getStatusText(selectedClass.status)}</span>
+                <div className={`flex items-center gap-2 px-4 py-2 rounded-lg shadow-sm ${statusConfig.badge}`}>
+                  <StatusIcon className="h-5 w-5" />
+                  <span className="font-semibold text-base">{getStatusText(selectedClass.status)}</span>
                 </div>
               </div>
             </div>
@@ -368,15 +495,110 @@ const ISRManagement: React.FC = () => {
 
           {/* Simplified student grid - only show if approved */}
           {selectedClass.status === 'approved' ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
-              {selectedClass.students.map((student, index) => (
-                <StudentCard
-                  key={`${student.studentId || 'student'}-${student.studentName || 'unknown'}-${index}`}
-                  student={student}
-                  index={index}
-                  onViewISR={handleViewStudentISR}
-                />
-              ))}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                  <UsersIcon className="h-5 w-5 text-indigo-600" />
+                  Student Records ({selectedClass.students.length})
+                </h2>
+                
+                {/* View toggle buttons */}
+                <div className="flex items-center gap-1 bg-white rounded-lg border border-slate-200 p-1 shadow-sm">
+                  <button
+                    onClick={() => setDetailViewMode('grid')}
+                    className={`p-2 rounded-md transition-all duration-200 ${
+                      detailViewMode === 'grid'
+                        ? 'bg-indigo-100 text-indigo-700 shadow-sm'
+                        : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                    title="Grid View"
+                  >
+                    <TableCellsIcon className="h-5 w-5" />
+                  </button>
+                  <button
+                    onClick={() => setDetailViewMode('table')}
+                    className={`p-2 rounded-md transition-all duration-200 ${
+                      detailViewMode === 'table'
+                        ? 'bg-indigo-100 text-indigo-700 shadow-sm'
+                        : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                    title="Table View"
+                  >
+                    <DocumentTextIcon className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Grid View */}
+              {detailViewMode === 'grid' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                  {selectedClass.students.map((student, index) => (
+                    <StudentCard
+                      key={`${student.studentId || 'student'}-${student.studentName || 'unknown'}-${index}`}
+                      student={student}
+                      index={index}
+                      onViewISR={handleViewStudentISR}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* Table View */}
+              {detailViewMode === 'table' && (
+                <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-slate-50 border-b border-slate-200">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                            <div className="flex items-center gap-2">
+                              <UsersIcon className="h-4 w-4 text-indigo-600" />
+                              Student Name
+                            </div>
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                            Language
+                          </th>
+                          <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {selectedClass.students.map((student, index) => (
+                          <tr
+                            key={`${student.studentId || 'student'}-${student.studentName || 'unknown'}-${index}`}
+                            className="hover:bg-slate-50 transition-colors"
+                          >
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-3">
+                                <div className="p-1.5 bg-indigo-50 rounded-lg border border-indigo-100">
+                                  <UsersIcon className="h-4 w-4 text-indigo-600" />
+                                </div>
+                                <span className="text-sm font-semibold text-slate-900">{student.studentName}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-700">
+                                {student.language}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                onClick={() => handleViewStudentISR(student)}
+                                className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white text-sm font-semibold py-2 px-4 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md"
+                              >
+                                <EyeIcon className="h-4 w-4 stroke-2" />
+                                View ISR
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-8">
@@ -410,94 +632,96 @@ const ISRManagement: React.FC = () => {
   // Main view - simplified
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="p-4 max-w-7xl mx-auto">
-        {/* Simplified header */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-indigo-100 rounded-lg">
-                <DocumentTextIcon className="h-6 w-6 text-indigo-600" />
+      <div className="p-3 sm:p-4 lg:p-6 max-w-7xl mx-auto">
+        {/* Simplified header - Responsive */}
+        <div className="mb-4 sm:mb-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 mb-4">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+              <div className="p-2 bg-indigo-100 rounded-lg flex-shrink-0">
+                <DocumentTextIcon className="h-5 w-5 sm:h-6 sm:w-6 text-indigo-600" />
               </div>
-              <div>
-                <h1 className="text-2xl font-bold text-slate-900">ISR Management</h1>
-                <p className="text-slate-600 text-sm">Individual Summary Records management</p>
+              <div className="min-w-0">
+                <h1 className="text-xl sm:text-2xl font-bold text-slate-900 truncate">ISR Management</h1>
+                <p className="text-slate-600 text-xs sm:text-sm truncate">Individual Summary Records management</p>
               </div>
             </div>
 
             <button
               onClick={exportToExcel}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors"
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm sm:text-base font-medium transition-colors w-full sm:w-auto justify-center"
             >
               <ArrowDownTrayIcon className="h-4 w-4" />
-              Export
+              <span className="hidden sm:inline">Export</span>
+              <span className="sm:hidden">Export to Excel</span>
             </button>
           </div>
 
-          {/* Essential statistics only - 5 most important cards */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-            <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-slate-100 rounded-lg">
-                  <DocumentTextIcon className="h-5 w-5 text-slate-600" />
+          {/* Essential statistics only - 5 most important cards - Responsive */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3 lg:gap-4 mb-4 sm:mb-6">
+            <div className="bg-white rounded-lg p-3 sm:p-4 border border-slate-200 shadow-sm">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="p-1.5 sm:p-2 bg-slate-100 rounded-lg flex-shrink-0">
+                  <DocumentTextIcon className="h-4 w-4 sm:h-5 sm:w-5 text-slate-600" />
                 </div>
-                <div>
-                  <p className="text-xs text-slate-600">Total</p>
-                  <p className="text-2xl font-bold text-slate-900">{statistics.total}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-lg p-4 border border-amber-200 shadow-sm">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-amber-100 rounded-lg">
-                  <ClockIcon className="h-5 w-5 text-amber-600" />
-                </div>
-                <div>
-                  <p className="text-xs text-amber-700">Pending</p>
-                  <p className="text-2xl font-bold text-amber-900">{statistics.pending}</p>
+                <div className="min-w-0">
+                  <p className="text-xs text-slate-600 truncate">Total</p>
+                  <p className="text-xl sm:text-2xl font-bold text-slate-900">{statistics.total}</p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg p-4 border border-emerald-200 shadow-sm">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-emerald-100 rounded-lg">
-                  <CheckCircleIcon className="h-5 w-5 text-emerald-600" />
+            <div className="bg-white rounded-lg p-3 sm:p-4 border border-amber-200 shadow-sm">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="p-1.5 sm:p-2 bg-amber-100 rounded-lg flex-shrink-0">
+                  <ClockIcon className="h-4 w-4 sm:h-5 sm:w-5 text-amber-600" />
                 </div>
-                <div>
-                  <p className="text-xs text-emerald-700">Approved</p>
-                  <p className="text-2xl font-bold text-emerald-900">{statistics.approved}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-lg p-4 border border-rose-200 shadow-sm">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-rose-100 rounded-lg">
-                  <XCircleIcon className="h-5 w-5 text-rose-600" />
-                </div>
-                <div>
-                  <p className="text-xs text-rose-700">Rejected</p>
-                  <p className="text-2xl font-bold text-rose-900">{statistics.rejected}</p>
+                <div className="min-w-0">
+                  <p className="text-xs text-amber-700 truncate">Pending</p>
+                  <p className="text-xl sm:text-2xl font-bold text-amber-900">{statistics.pending}</p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg p-4 border border-blue-200 shadow-sm">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <UserGroupIcon className="h-5 w-5 text-blue-600" />
+            <div className="bg-white rounded-lg p-3 sm:p-4 border border-emerald-200 shadow-sm">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="p-1.5 sm:p-2 bg-emerald-100 rounded-lg flex-shrink-0">
+                  <CheckCircleIcon className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-600" />
                 </div>
-                <div>
-                  <p className="text-xs text-blue-700">Students</p>
-                  <p className="text-2xl font-bold text-blue-900">{statistics.totalStudents}</p>
+                <div className="min-w-0">
+                  <p className="text-xs text-emerald-700 truncate">Approved</p>
+                  <p className="text-xl sm:text-2xl font-bold text-emerald-900">{statistics.approved}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg p-3 sm:p-4 border border-rose-200 shadow-sm">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="p-1.5 sm:p-2 bg-rose-100 rounded-lg flex-shrink-0">
+                  <XCircleIcon className="h-4 w-4 sm:h-5 sm:w-5 text-rose-600" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs text-rose-700 truncate">Rejected</p>
+                  <p className="text-xl sm:text-2xl font-bold text-rose-900">{statistics.rejected}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg p-3 sm:p-4 border border-blue-200 shadow-sm">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="p-1.5 sm:p-2 bg-blue-100 rounded-lg flex-shrink-0">
+                  <UserGroupIcon className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs text-blue-700 truncate">Students</p>
+                  <p className="text-xl sm:text-2xl font-bold text-blue-900">{statistics.totalStudents}</p>
                 </div>
               </div>
             </div>
           </div>
-        </div>        {
-/* Simplified status filter tabs */}
-        <div className="flex flex-wrap gap-2 mb-4">
+        </div>
+        
+        {/* Simplified status filter tabs - Responsive */}
+        <div className="flex flex-wrap gap-2 mb-3 sm:mb-4 overflow-x-auto scrollbar-hide pb-2 -mx-3 sm:-mx-0 px-3 sm:px-0">
           {[
             { key: 'all', label: 'All', count: statistics.total },
             { key: 'pending', label: 'Pending', count: statistics.pending },
@@ -524,12 +748,12 @@ const ISRManagement: React.FC = () => {
           })}
         </div>
 
-        {/* Simplified search and view controls */}
-        <div className="bg-white rounded-lg border border-slate-200 shadow-sm mb-4">
-          <div className="p-4">
-            <div className="flex items-center justify-between">
+        {/* Simplified search and view controls - Responsive */}
+        <div className="bg-white rounded-lg border border-slate-200 shadow-sm mb-3 sm:mb-4">
+          <div className="p-3 sm:p-4">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4">
               {/* Simple search bar */}
-              <div className="relative flex-1 max-w-md">
+              <div className="relative flex-1 min-w-0">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <MagnifyingGlassIcon className="h-4 w-4 text-slate-400" />
                 </div>
@@ -543,7 +767,7 @@ const ISRManagement: React.FC = () => {
               </div>
 
               {/* Simple view toggle */}
-              <div className="flex items-center gap-1 ml-4">
+              <div className="flex items-center gap-1 flex-shrink-0">
                 <button
                   onClick={() => setViewMode('table')}
                   className={`p-2 rounded-lg transition-colors ${viewMode === 'table' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'
@@ -589,43 +813,49 @@ const ISRManagement: React.FC = () => {
               </span>
             </div>
 
-            {/* Grid View - Simplified */}
+            {/* Grid View - Simplified - Responsive */}
             {viewMode === 'grid' && (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
                 {filteredRecords.map(record => (
                   <RecordCard
                     key={record.id}
                     record={record}
                     statusConfig={getStatusConfig(record.status)}
                     onClassClick={handleClassClick}
+                    onApprove={record.status === 'pending' ? handleApproveISR : undefined}
+                    onReject={record.status === 'pending' ? handleRejectISR : undefined}
+                    isProcessing={processingRecordId === record.id}
                   />
                 ))}
               </div>
             )}
 
-            {/* Table View - Simplified */}
+            {/* Table View - Simplified - Responsive */}
             {viewMode === 'table' && (
               <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-                {/* Simple table header */}
-                <div className="bg-slate-50 px-4 py-3 border-b border-slate-200">
+                {/* Simple table header - Hidden on mobile */}
+                <div className="hidden md:block bg-slate-50 px-4 py-3 border-b border-slate-200">
                   <div className="grid grid-cols-12 gap-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     <div className="col-span-4 flex items-center gap-2">
-                      <DocumentTextIcon className="h-3 w-3" />
+                      <AcademicCapIcon className="h-4 w-4 text-indigo-600" />
                       Class Information
                     </div>
                     <div className="col-span-2 flex items-center gap-2">
-                      <UserGroupIcon className="h-3 w-3" />
+                      <UserIcon className="h-4 w-4 text-indigo-600" />
                       Teacher
                     </div>
                     <div className="col-span-1 flex items-center gap-2">
-                      <UserGroupIcon className="h-3 w-3" />
+                      <UsersIcon className="h-4 w-4 text-indigo-600" />
                       Students
                     </div>
                     <div className="col-span-2 flex items-center gap-2">
-                      <CalendarIcon className="h-3 w-3" />
+                      <CalendarIcon className="h-4 w-4 text-indigo-600" />
                       Submitted
                     </div>
-                    <div className="col-span-3">Status & Actions</div>
+                    <div className="col-span-3 flex items-center gap-2">
+                      <CheckCircleIcon className="h-4 w-4 text-indigo-600" />
+                      Status & Actions
+                    </div>
                   </div>
                 </div>
 
@@ -637,22 +867,103 @@ const ISRManagement: React.FC = () => {
                     return (
                       <div
                         key={record.id}
-                        className={`px-4 py-3 transition-all duration-200 border-l-4 ${statusConfig.border} ${statusConfig.hover} hover:shadow-sm`}
+                        className={`px-3 sm:px-4 py-3 transition-all duration-200 border-l-4 ${statusConfig.border} ${statusConfig.hover} hover:shadow-sm`}
                       >
-                        <div className="grid grid-cols-12 gap-4 items-center">
-                          <div className="col-span-4">
+                        {/* Mobile View - Stacked */}
+                        <div className="md:hidden space-y-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <div className="p-1.5 bg-indigo-50 rounded-lg border border-indigo-100 flex-shrink-0">
+                                <AcademicCapIcon className="h-4 w-4 text-indigo-600" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <h3 className="text-sm font-semibold text-slate-900 truncate">
+                                  {record.status === 'approved'
+                                    ? record.section && record.section !== 'N/A' && record.section.trim() !== ''
+                                      ? `Grade ${record.grade} - ${record.section}`
+                                      : `Grade ${record.grade}`
+                                    : 'Class Information Hidden'
+                                  }
+                                </h3>
+                                <p className="text-xs text-slate-600 mt-0.5 truncate">
+                                  {record.status === 'approved'
+                                    ? record.className
+                                    : 'Pending Admin Approval'
+                                  }
+                                </p>
+                              </div>
+                            </div>
+                            <StatusBadge status={getStatusText(record.status)} config={statusConfig} />
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-3 text-xs">
                             <div className="flex items-center gap-2">
-                              <div className="p-1.5 bg-slate-100 rounded">
-                                <DocumentTextIcon className="h-3 w-3 text-slate-600" />
+                              <UserIcon className="h-3.5 w-3.5 text-slate-500 flex-shrink-0" />
+                              <span className="text-slate-700 truncate">
+                                {record.status === 'approved' ? record.teacherName : 'Hidden'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <UsersIcon className="h-3.5 w-3.5 text-slate-500 flex-shrink-0" />
+                              <span className="text-slate-700">{record.studentCount} students</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <CalendarIcon className="h-3.5 w-3.5 text-slate-500 flex-shrink-0" />
+                              <span className="text-slate-700">{record.submissionDate.toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {record.status === 'pending' && (
+                              <>
+                                <button
+                                  onClick={() => handleApproveISR(record)}
+                                  disabled={processingRecordId === record.id}
+                                  className="flex-1 sm:flex-none px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg transition-all duration-200 hover:shadow-sm border border-emerald-300 disabled:opacity-50 disabled:cursor-not-allowed text-xs font-medium"
+                                  title="Approve ISR"
+                                >
+                                  <CheckCircleIcon className="h-4 w-4 inline mr-1" />
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => handleRejectISR(record)}
+                                  disabled={processingRecordId === record.id}
+                                  className="flex-1 sm:flex-none px-3 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg transition-all duration-200 hover:shadow-sm border border-rose-300 disabled:opacity-50 disabled:cursor-not-allowed text-xs font-medium"
+                                  title="Reject ISR"
+                                >
+                                  <XCircleIcon className="h-4 w-4 inline mr-1" />
+                                  Reject
+                                </button>
+                              </>
+                            )}
+                            <button
+                              onClick={() => handleClassClick(record)}
+                              className="flex-1 sm:flex-none px-3 py-1.5 bg-slate-100 hover:bg-indigo-100 text-slate-600 hover:text-indigo-700 rounded-lg transition-all duration-200 hover:shadow-sm border border-slate-200 hover:border-indigo-300 text-xs font-medium"
+                              title="View details"
+                            >
+                              <EyeIcon className="h-4 w-4 inline mr-1" />
+                              View
+                            </button>
+                          </div>
+                        </div>
+                        
+                        {/* Desktop View - Grid */}
+                        <div className="hidden md:grid grid-cols-12 gap-4 items-center">
+                          <div className="col-span-4">
+                            <div className="flex items-center gap-3">
+                              <div className="p-2 bg-indigo-50 rounded-lg border border-indigo-100">
+                                <AcademicCapIcon className="h-4 w-4 text-indigo-600" />
                               </div>
                               <div>
                                 <h3 className="text-sm font-semibold text-slate-900">
                                   {record.status === 'approved'
-                                    ? `Grade ${record.grade} - ${record.section}`
+                                    ? record.section && record.section !== 'N/A' && record.section.trim() !== ''
+                                      ? `Grade ${record.grade} - ${record.section}`
+                                      : `Grade ${record.grade}`
                                     : 'Class Information Hidden'
                                   }
                                 </h3>
-                                <p className="text-xs text-slate-600">
+                                <p className="text-xs text-slate-600 mt-0.5">
                                   {record.status === 'approved'
                                     ? record.className
                                     : 'Pending Admin Approval'
@@ -663,16 +974,24 @@ const ISRManagement: React.FC = () => {
                           </div>
 
                           <div className="col-span-2">
-                            <div className="text-sm font-medium text-slate-900">
-                              {record.status === 'approved'
-                                ? record.teacherName
-                                : 'Hidden'
-                              }
+                            <div className="flex items-center gap-2">
+                              <div className="p-1.5 bg-slate-50 rounded-lg">
+                                <UserIcon className="h-3.5 w-3.5 text-slate-600" />
+                              </div>
+                              <span className="text-sm font-medium text-slate-900">
+                                {record.status === 'approved'
+                                  ? record.teacherName
+                                  : 'Hidden'
+                                }
+                              </span>
                             </div>
                           </div>
 
                           <div className="col-span-1">
-                            <span className="text-sm font-medium text-slate-900">{record.studentCount}</span>
+                            <div className="flex items-center gap-2">
+                              <UsersIcon className="h-3.5 w-3.5 text-slate-500" />
+                              <span className="text-sm font-medium text-slate-900">{record.studentCount}</span>
+                            </div>
                           </div>
 
                           <div className="col-span-2">
@@ -685,12 +1004,32 @@ const ISRManagement: React.FC = () => {
                           <div className="col-span-3">
                             <div className="flex items-center gap-2">
                               <StatusBadge status={getStatusText(record.status)} config={statusConfig} />
+                              {record.status === 'pending' && (
+                                <>
+                                  <button
+                                    onClick={() => handleApproveISR(record)}
+                                    disabled={processingRecordId === record.id}
+                                    className="p-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg transition-all duration-200 hover:shadow-sm border border-emerald-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title="Approve ISR"
+                                  >
+                                    <CheckCircleIcon className="h-5 w-5 stroke-2" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleRejectISR(record)}
+                                    disabled={processingRecordId === record.id}
+                                    className="p-2 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg transition-all duration-200 hover:shadow-sm border border-rose-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title="Reject ISR"
+                                  >
+                                    <XCircleIcon className="h-5 w-5 stroke-2" />
+                                  </button>
+                                </>
+                              )}
                               <button
                                 onClick={() => handleClassClick(record)}
-                                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                                className="p-2 bg-slate-100 hover:bg-indigo-100 text-slate-600 hover:text-indigo-700 rounded-lg transition-all duration-200 hover:shadow-sm border border-slate-200 hover:border-indigo-300"
                                 title="View details"
                               >
-                                <EyeIcon className="h-3 w-3" />
+                                <EyeIcon className="h-5 w-5 stroke-2" />
                               </button>
                             </div>
                           </div>

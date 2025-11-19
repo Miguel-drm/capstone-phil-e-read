@@ -15,7 +15,7 @@ import { isrResultService, type ISRResult } from '../../services/ISRresultServic
 import PillSelect from '../../components/ui/PillSelect';
 
 const ClassList: React.FC = () => {
-  const { currentUser, userRole, isProfileComplete } = useAuth();
+  const { currentUser, userRole, isProfileComplete, userProfile } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('name');
   const [isImporting, setIsImporting] = useState(false);
@@ -579,16 +579,16 @@ const ClassList: React.FC = () => {
     try {
       setLoadingStudentId(editingStudent.id);
 
-      // Update student with only name and LRN
+      // Update student with only name (LRN cannot be changed as it's the document ID)
       await studentService.updateStudent(editingStudent.id, {
-        name: editForm.name.trim(),
-        lrn: editForm.lrn.trim()
+        name: editForm.name.trim()
+        // Note: LRN is not updated as it's the document ID
       });
 
-      // Update local state
+      // Update local state (LRN remains unchanged)
       setStudents(prev => prev.map(s =>
         s.id === editingStudent.id
-          ? { ...s, name: editForm.name.trim(), lrn: editForm.lrn.trim() }
+          ? { ...s, name: editForm.name.trim() }
           : s
       ));
 
@@ -1263,36 +1263,41 @@ const ClassList: React.FC = () => {
       const { value: formValues } = await Swal.fire({
         title: 'Create New Class',
         customClass: {
-          popup: 'rounded-xl',
-          title: 'text-white text-xl font-semibold',
-          confirmButton: 'px-4 py-2 text-sm font-medium bg-blue-100 text-blue-700 rounded-lg shadow-md hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
-          cancelButton: 'px-4 py-2 text-sm font-medium bg-white text-gray-700 rounded-lg shadow-md hover:bg-gray-100 transition-all duration-200',
+          popup: 'rounded-2xl shadow-2xl border border-gray-200',
+          title: 'text-white text-xl font-bold',
+          confirmButton: 'px-5 py-2.5 text-sm font-semibold bg-white text-indigo-600 rounded-lg shadow-md hover:bg-white/90 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
+          cancelButton: 'px-5 py-2.5 text-sm font-semibold bg-gray-100 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-200 transition-all duration-200',
+          closeButton: 'text-white hover:text-white/80',
         },
         backdrop: 'rgba(0,0,0,0.6)',
         background: '#fff',
         showCloseButton: true,
         html: `
-          <div class="text-left p-4 bg-white rounded-b-xl -mt-4">
-            <div class="mb-6">
-              <label class="block text-sm font-medium text-gray-700 mb-2">Grade Level</label>
-              <input id="grade-level" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm bg-gray-100 text-gray-700" value="${lockedGradeLevel}" disabled />
+          <div class="text-left p-6 bg-white rounded-b-2xl -mt-4">
+            <div class="mb-5">
+              <label class="block text-sm font-semibold text-gray-700 mb-2">Grade Level</label>
+              <input id="grade-level" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm bg-gray-100 text-gray-700 cursor-not-allowed" value="${lockedGradeLevel}" disabled />
             </div>
-            <div class="mb-6">
-              <label class="block text-sm font-medium text-gray-700 mb-2">Section</label>
-              <input id="grade-section" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="e.g., Athena" />
+            <div class="mb-5">
+              <label class="block text-sm font-semibold text-gray-700 mb-2">
+                Section <span class="text-red-500">*</span>
+              </label>
+              <input id="grade-section" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all" placeholder="e.g., Athena" />
             </div>
-            <div class="mb-6">
-              <label class="block text-sm font-medium text-gray-700 mb-2">Description</label>
+            <div class="mb-5">
+              <label class="block text-sm font-semibold text-gray-700 mb-2">Description</label>
               <textarea
                 id="grade-description"
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                class="w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all resize-none"
                 placeholder="e.g., First grade students"
-                rows="2"
+                rows="3"
               ></textarea>
             </div>
-            <div class="mb-6">
-              <label class="block text-sm font-medium text-gray-700 mb-2">Color</label>
-              <select id="grade-color" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+            <div class="mb-5">
+              <label class="block text-sm font-semibold text-gray-700 mb-2">
+                Color <span class="text-red-500">*</span>
+              </label>
+              <select id="grade-color" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all bg-white">
                 <option value="blue">Blue</option>
                 <option value="green">Green</option>
                 <option value="yellow">Yellow</option>
@@ -1304,19 +1309,28 @@ const ClassList: React.FC = () => {
           </div>
         `,
         showCancelButton: true,
-        confirmButtonText: isCreatingGrade ? '<span class="inline-flex items-center"><span class="loader-spinner mr-2 w-4 h-4 border-white border-solid rounded-full animate-spin"></span> Creating...</span>' : 'Create Grade',
+        confirmButtonText: isCreatingGrade ? '<span class="inline-flex items-center"><span class="loader-spinner mr-2 w-4 h-4 border-2 border-indigo-600/30 border-t-indigo-600 rounded-full animate-spin"></span> Creating...</span>' : '<i class="fas fa-plus mr-2"></i>Create Grade',
         cancelButtonText: 'Cancel',
         focusConfirm: false,
         allowOutsideClick: !isCreatingGrade,
         didOpen: (modalElement) => {
-          // SweetAlert2 handles enabling/disabling based on preConfirm and confirmButtonText.
-          // No need to manually enable/disable here.
-          // Adjust title bar background if needed
           const title = modalElement.querySelector('.swal2-title') as HTMLElement;
           if (title) {
-            title.style.background = '#34495E'; // Solid dark blue color provided by user
-            title.style.padding = '1rem 1.5rem';
-            title.style.borderRadius = '0.75rem 0.75rem 0 0';
+            title.style.background = 'linear-gradient(to right, #4f46e5, #7c3aed)';
+            title.style.padding = '1.25rem 1.5rem';
+            title.style.borderRadius = '0.875rem 0.875rem 0 0';
+            title.style.display = 'flex';
+            title.style.alignItems = 'center';
+            title.style.gap = '0.75rem';
+            title.innerHTML = `
+              <div class="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center backdrop-blur-sm">
+                <i class="fas fa-layer-group text-white text-lg"></i>
+              </div>
+              <div>
+                <div class="text-xl font-bold">Create New Class</div>
+                <div class="text-xs text-indigo-100 mt-0.5 font-normal">Set up a new class for your students</div>
+              </div>
+            `;
           }
         },
         preConfirm: () => {
@@ -1487,16 +1501,27 @@ const ClassList: React.FC = () => {
         p.email.toLowerCase().includes(searchValue.toLowerCase())
       );
       return `
-        <div class="text-left p-4 bg-white rounded-b-xl -mt-4">
-          <input id="swal-parent-search" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-3" placeholder="Search parent..." value="${searchValue}" />
-          <div style="max-height:220px;overflow-y:auto;">
-            ${filteredParents.map(p => `
-              <label for="parent-${p.id}" class="flex items-center space-x-3 py-2 px-2 rounded-md hover:bg-blue-50 transition cursor-pointer mb-1">
-                <input type="radio" name="parent" value="${p.id}" id="parent-${p.id}" class="accent-blue-600" />
-                <div class="flex flex-col">
+        <div class="text-left p-6 bg-white rounded-b-2xl -mt-4">
+          <div class="relative mb-4">
+            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <i class="fas fa-search text-gray-400"></i>
+            </div>
+            <input id="swal-parent-search" class="w-full pl-11 pr-4 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all" placeholder="Search parent by name or email..." value="${searchValue}" />
+          </div>
+          <div style="max-height:280px;overflow-y:auto;" class="space-y-1">
+            ${filteredParents.length === 0 ? `
+              <div class="text-center py-8 text-gray-500">
+                <i class="fas fa-user-slash text-3xl mb-2 text-gray-300"></i>
+                <p class="text-sm">No parents found</p>
+              </div>
+            ` : filteredParents.map(p => `
+              <label for="parent-${p.id}" class="flex items-center space-x-3 py-3 px-4 rounded-lg hover:bg-indigo-50 border border-transparent hover:border-indigo-200 transition-all cursor-pointer">
+                <input type="radio" name="parent" value="${p.id}" id="parent-${p.id}" class="accent-indigo-600 w-4 h-4" />
+                <div class="flex flex-col flex-1">
                   <span class="font-semibold text-gray-900">${p.name}</span>
-                  <span class="text-xs text-gray-500">${p.email}</span>
+                  <span class="text-xs text-gray-500 mt-0.5">${p.email}</span>
                 </div>
+                <i class="fas fa-check-circle text-indigo-600 opacity-0 parent-check pointer-events-none"></i>
               </label>
             `).join('')}
           </div>
@@ -1507,17 +1532,18 @@ const ClassList: React.FC = () => {
     await Swal.fire({
       title: 'Link Parent',
       customClass: {
-        popup: 'rounded-xl shadow-2xl',
-        title: 'text-white text-xl font-semibold',
-        confirmButton: 'px-4 py-2 text-sm font-medium bg-blue-100 text-blue-700 rounded-lg shadow-md hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
-        cancelButton: 'px-4 py-2 text-sm font-medium bg-white text-gray-700 rounded-lg shadow-md hover:bg-gray-100 transition-all duration-200',
+        popup: 'rounded-2xl shadow-2xl border border-gray-200',
+        title: 'text-white text-xl font-bold',
+        confirmButton: 'px-5 py-2.5 text-sm font-semibold bg-white text-indigo-600 rounded-lg shadow-md hover:bg-white/90 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
+        cancelButton: 'px-5 py-2.5 text-sm font-semibold bg-white/20 text-white border border-white/30 rounded-lg hover:bg-white/30 transition-all duration-200',
+        closeButton: 'text-white hover:text-white/80',
       },
       backdrop: 'rgba(0,0,0,0.6)',
       background: '#fff',
       showCloseButton: true,
       html: renderParentList(''),
       showCancelButton: true,
-      confirmButtonText: 'Link',
+      confirmButtonText: '<i class="fas fa-link mr-2"></i>Link',
       cancelButtonText: 'Cancel',
       focusConfirm: false,
       preConfirm: () => {
@@ -1535,14 +1561,54 @@ const ClassList: React.FC = () => {
           input.addEventListener('input', (e) => {
             const value = (e.target as HTMLInputElement).value;
             Swal.update({ html: renderParentList(value) });
+            // Re-attach radio change listeners
+            const radios = Swal.getPopup()?.querySelectorAll('input[name="parent"]');
+            radios?.forEach(radio => {
+              radio.addEventListener('change', function(this: HTMLInputElement) {
+                const labels = Swal.getPopup()?.querySelectorAll('label');
+                labels?.forEach(label => {
+                  const check = label.querySelector('.parent-check');
+                  if (check) check.classList.add('opacity-0');
+                });
+                const selectedLabel = this.closest('label');
+                const check = selectedLabel?.querySelector('.parent-check');
+                if (check) check.classList.remove('opacity-0');
+              });
+            });
           });
         }
-        // Adjust title bar background if needed
+        // Add radio change listeners
+        const radios = Swal.getPopup()?.querySelectorAll('input[name="parent"]');
+        radios?.forEach(radio => {
+          radio.addEventListener('change', function(this: HTMLInputElement) {
+            const labels = Swal.getPopup()?.querySelectorAll('label');
+            labels?.forEach(label => {
+              const check = label.querySelector('.parent-check');
+              if (check) check.classList.add('opacity-0');
+            });
+            const selectedLabel = this.closest('label');
+            const check = selectedLabel?.querySelector('.parent-check');
+            if (check) check.classList.remove('opacity-0');
+          });
+        });
+        // Adjust title bar background
         const title = modalElement.querySelector('.swal2-title') as HTMLElement;
         if (title) {
-          title.style.background = '#34495E'; // Solid dark blue color provided by user
-          title.style.padding = '1rem 1.5rem';
-          title.style.borderRadius = '0.75rem 0.75rem 0 0';
+          title.style.background = 'linear-gradient(to right, #4f46e5, #7c3aed)';
+          title.style.padding = '1.25rem 1.5rem';
+          title.style.borderRadius = '0.875rem 0.875rem 0 0';
+          title.style.display = 'flex';
+          title.style.alignItems = 'center';
+          title.style.gap = '0.75rem';
+          title.innerHTML = `
+            <div class="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center backdrop-blur-sm">
+              <i class="fas fa-link text-white text-lg"></i>
+            </div>
+            <div>
+              <div class="text-xl font-bold">Link Parent</div>
+              <div class="text-xs text-indigo-100 mt-0.5 font-normal">Select a parent to link to this student</div>
+            </div>
+          `;
         }
       },
     }).then(async (result) => {
@@ -1623,31 +1689,37 @@ const ClassList: React.FC = () => {
       const { value: formValues } = await Swal.fire({
         title: `Add Student to ${gradeName}`,
         customClass: {
-          popup: 'rounded-xl',
-          title: 'text-white text-xl font-semibold',
-          confirmButton: 'px-4 py-2 text-sm font-medium bg-blue-100 text-blue-700 rounded-lg shadow-md hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
-          cancelButton: 'px-4 py-2 text-sm font-medium bg-white text-gray-700 rounded-lg shadow-md hover:bg-gray-100 transition-all duration-200',
+          popup: 'rounded-2xl shadow-2xl border border-gray-200',
+          title: 'text-white text-xl font-bold',
+          confirmButton: 'px-5 py-2.5 text-sm font-semibold bg-white text-indigo-600 rounded-lg shadow-md hover:bg-white/90 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
+          cancelButton: 'px-5 py-2.5 text-sm font-semibold bg-gray-100 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-200 transition-all duration-200',
+          closeButton: 'text-white hover:text-white/80',
         },
         backdrop: 'rgba(0,0,0,0.6)',
         background: '#fff',
         showCloseButton: true,
         html: `
-          <div class="text-left p-4 bg-white rounded-b-xl -mt-4">
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-gray-700 mb-2">Name</label>
-              <input id="student-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="e.g., Juan Dela Cruz">
+          <div class="text-left p-6 bg-white rounded-b-2xl -mt-4">
+            <div class="mb-5">
+              <label class="block text-sm font-semibold text-gray-700 mb-2">
+                Name <span class="text-red-500">*</span>
+              </label>
+              <input id="student-name" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all" placeholder="e.g., Juan Dela Cruz">
             </div>
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-gray-700 mb-2">LRN (Learner Reference Number)</label>
-              <input id="student-lrn" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="e.g., 123456789012">
+            <div class="mb-5">
+              <label class="block text-sm font-semibold text-gray-700 mb-2">
+                LRN (Learner Reference Number) <span class="text-green-600 text-xs">(Auto-generated)</span>
+              </label>
+              <input id="student-lrn" readonly class="w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm bg-gray-50 text-gray-600 cursor-not-allowed" placeholder="Will be generated automatically">
+              <p class="text-xs text-gray-500 mt-1">Format: [SchoolCode][Year][Sequence] - 12 digits, unique, no duplicates</p>
             </div>
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-gray-700 mb-2">Age</label>
-              <input id="student-age" type="number" min="5" max="18" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="e.g., 10" value="10">
+            <div class="mb-5">
+              <label class="block text-sm font-semibold text-gray-700 mb-2">Age</label>
+              <input id="student-age" type="number" min="5" max="18" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all" placeholder="e.g., 10" value="10">
             </div>
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-gray-700 mb-2">Parent (optional)</label>
-              <select id="student-parent-id" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+            <div class="mb-5">
+              <label class="block text-sm font-semibold text-gray-700 mb-2">Parent (optional)</label>
+              <select id="student-parent-id" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all bg-white">
                 <option value="">No parent</option>
                 ${parents.map(p => `<option value="${p.id}">${p.name} (${p.email})</option>`).join('')}
               </select>
@@ -1655,19 +1727,82 @@ const ClassList: React.FC = () => {
           </div>
         `,
         showCancelButton: true,
-        confirmButtonText: isAddingStudentToGrade ? '<span class="inline-flex items-center"><span class="loader-spinner mr-2 w-4 h-4 border-t-2 border-r-2 border-white border-solid rounded-full animate-spin"></span> Adding...</span>' : 'Add',
+        confirmButtonText: isAddingStudentToGrade ? '<span class="inline-flex items-center"><span class="loader-spinner mr-2 w-4 h-4 border-2 border-indigo-600/30 border-t-indigo-600 rounded-full animate-spin"></span> Adding...</span>' : 'Add',
         cancelButtonText: 'Cancel',
         focusConfirm: false,
         allowOutsideClick: !isAddingStudentToGrade,
-        didOpen: (modalElement) => {
-          // SweetAlert2 handles enabling/disabling based on preConfirm and confirmButtonText.
-          // No need to manually enable/disable here.
-          // Adjust title bar background if needed
+        didOpen: async (modalElement) => {
           const title = modalElement.querySelector('.swal2-title') as HTMLElement;
           if (title) {
-            title.style.background = '#34495E'; // Solid dark blue color provided by user
-            title.style.padding = '1rem 1.5rem';
-            title.style.borderRadius = '0.75rem 0.75rem 0 0';
+            // Clear any existing content first
+            title.textContent = '';
+            title.style.background = 'linear-gradient(to right, #4f46e5, #7c3aed)';
+            title.style.padding = '1.25rem 1.5rem';
+            title.style.borderRadius = '0.875rem 0.875rem 0 0';
+            title.style.display = 'flex';
+            title.style.alignItems = 'center';
+            title.style.gap = '0.75rem';
+            title.innerHTML = `
+              <div class="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center backdrop-blur-sm">
+                <i class="fas fa-user-plus text-white text-lg"></i>
+              </div>
+              <div>
+                <div class="text-xl font-bold">Add Student to ${gradeName}</div>
+                <div class="text-xs text-indigo-100 mt-0.5 font-normal">Fill in the student information below</div>
+              </div>
+            `;
+          }
+          
+          // Hide any duplicate/invisible buttons or text in actions area
+          const actions = modalElement.querySelector('.swal2-actions') as HTMLElement;
+          if (actions) {
+            // Remove any invisible or duplicate elements
+            const allButtons = actions.querySelectorAll('button');
+            allButtons.forEach((btn) => {
+              // Keep only visible buttons, remove any with opacity-0 or display-none
+              const style = window.getComputedStyle(btn);
+              if (style.opacity === '0' || style.display === 'none' || style.visibility === 'hidden') {
+                btn.style.pointerEvents = 'none';
+                btn.style.display = 'none';
+              }
+            });
+            
+            // Also check for any invisible text nodes or spans
+            const allElements = actions.querySelectorAll('*');
+            allElements.forEach((el) => {
+              const style = window.getComputedStyle(el);
+              if (style.opacity === '0' && style.pointerEvents !== 'none') {
+                (el as HTMLElement).style.pointerEvents = 'none';
+              }
+            });
+          }
+          
+          // Also check the title area for any invisible text
+          const titleArea = modalElement.querySelector('.swal2-title-container') as HTMLElement;
+          if (titleArea) {
+            const allTitleElements = titleArea.querySelectorAll('*');
+            allTitleElements.forEach((el) => {
+              const style = window.getComputedStyle(el);
+              if (style.opacity === '0' && style.pointerEvents !== 'none') {
+                (el as HTMLElement).style.pointerEvents = 'none';
+              }
+            });
+          }
+          
+          // Generate and display LRN when modal opens
+          try {
+            // Get school code from teacher profile, default to '1023' if not set
+            const schoolCode = (userProfile as any)?.schoolCode || '1023';
+            if (!schoolCode || schoolCode.length !== 4) {
+              console.warn('School code not set or invalid. Using default: 1023');
+            }
+            const lrn = await studentService.generateUniqueLRN(schoolCode);
+            const lrnInput = document.getElementById('student-lrn') as HTMLInputElement;
+            if (lrnInput) {
+              lrnInput.value = lrn;
+            }
+          } catch (error) {
+            console.error('Error generating LRN on modal open:', error);
           }
         },
         preConfirm: () => {
@@ -1680,9 +1815,15 @@ const ClassList: React.FC = () => {
           const parentId = (document.getElementById('student-parent-id') as HTMLSelectElement).value;
           const parent = parents.find(p => p.id === parentId);
 
-          if (!name || !lrn) {
-            Swal.showValidationMessage('Please fill in all required fields (Name and LRN)');
+          if (!name) {
+            Swal.showValidationMessage('Please fill in the student name');
             setIsAddingStudentToGrade(false); // Reset if validation fails
+            return false;
+          }
+
+          if (!lrn || lrn.length !== 12) {
+            Swal.showValidationMessage('LRN is required and must be 12 digits. Please refresh and try again.');
+            setIsAddingStudentToGrade(false);
             return false;
           }
 
@@ -1691,6 +1832,13 @@ const ClassList: React.FC = () => {
       });
 
       if (formValues) {
+        // Double-check LRN doesn't already exist (safety check)
+        const lrnExists = await studentService.lrnExists(formValues.lrn);
+        if (lrnExists) {
+          showError('Duplicate LRN', 'This LRN already exists. Please try adding the student again.');
+          return;
+        }
+
         // Logic to add the student
         const newStudent = {
           name: formValues.name,
@@ -1708,7 +1856,7 @@ const ClassList: React.FC = () => {
         };
         const studentId = await studentService.addStudent(newStudent);
         await gradeService.addStudentToGrade(gradeId, { studentId, name: formValues.name });
-        showSuccess('Student Added', `${formValues.name} has been added to ${gradeName}.`);
+        showSuccess('Student Added', `${formValues.name} has been added to ${gradeName} with LRN: ${formValues.lrn}`);
         await loadStudents();
         await loadGrades();
         await loadClassStatistics();
@@ -1767,19 +1915,19 @@ const ClassList: React.FC = () => {
   }
 
   return (
-    <div className="h-screen bg-gray-100 overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 overflow-y-auto lg:overflow-hidden lg:h-screen">
       {/* Profile Completion Warning */}
       {!isProfileComplete && (
-        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
-          <div className="flex">
+        <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border-l-4 border-amber-400 shadow-sm p-4 mb-4">
+          <div className="flex items-center">
             <div className="flex-shrink-0">
-              <i className="fas fa-exclamation-triangle text-yellow-400"></i>
+              <i className="fas fa-exclamation-triangle text-amber-500 text-lg"></i>
             </div>
-            <div className="ml-3">
-              <p className="text-sm text-yellow-700">
-                <strong>Profile Incomplete:</strong> Please complete your profile information to access all features.
+            <div className="ml-3 flex-1">
+              <p className="text-sm text-amber-800">
+                <strong className="font-semibold">Profile Incomplete:</strong> Please complete your profile information to access all features.
                 Missing fields: {userRole === 'teacher' ? 'Phone Number, School' : userRole === 'parent' ? 'Phone Number' : 'Phone Number, School'}.
-                <a href="/teacher/profile" className="font-medium underline hover:text-yellow-600 ml-1">
+                <a href="/teacher/profile" className="font-semibold text-amber-700 hover:text-amber-900 underline ml-1 transition-colors">
                   Update Profile
                 </a>
               </p>
@@ -1789,86 +1937,98 @@ const ClassList: React.FC = () => {
       )}
 
       {/* Main Content */}
-      <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
         {/* Refresh Button - Top Right */}
 
         <div className="grid grid-cols-12 gap-6">
           {/* Class Grades Section */}
           <div className="col-span-12 lg:col-span-3">
-            <div className="bg-white rounded-2xl shadow-lg h-[calc(100vh-8rem)] flex flex-col border border-gray-200">
-              <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between rounded-t-2xl bg-white">
-                <h3 className="text-lg font-bold text-gray-900 tracking-tight flex items-center gap-2">
-                  <i className="fas fa-layer-group text-blue-600"></i> Class Grades
+            <div className="bg-white rounded-2xl shadow-xl max-h-[calc(100vh-8rem)] lg:h-[calc(100vh-8rem)] flex flex-col border border-gray-200 overflow-hidden">
+              <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between rounded-t-2xl bg-gradient-to-r from-blue-50 to-indigo-50">
+                <h3 className="text-xl font-bold text-gray-900 tracking-tight flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center shadow-md">
+                    <i className="fas fa-layer-group text-white text-sm"></i>
+                  </div>
+                  <span>Class Grades</span>
                 </h3>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setShowArchived(v => !v)}
-                    className={`inline-flex items-center justify-center h-10 rounded-full px-3 ${showArchived ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'} hover:bg-amber-100 hover:text-amber-700 shadow focus:outline-none focus:ring-2 focus:ring-amber-400 transition`}
+                    className={`inline-flex items-center justify-center h-9 rounded-lg px-3 ${showArchived ? 'bg-amber-500 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-300'} hover:bg-amber-500 hover:text-white hover:shadow-md focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 transition-all duration-200`}
                     title={showArchived ? 'Showing Archived' : 'Show Archived'}
                   >
-                    <i className="fas fa-archive mr-1"></i>
-                    <span className="text-xs">{showArchived ? 'Archived' : 'Active'}</span>
+                    <i className={`fas fa-archive text-xs ${showArchived ? 'mr-1.5' : 'mr-1.5'}`}></i>
+                    <span className="text-xs font-medium">{showArchived ? 'Archived' : 'Active'}</span>
                   </button>
                   {selectedGrades.length > 0 && (
                     <button
                       onClick={handleDeleteSelectedGrades}
-                      className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-red-100 hover:bg-red-200 text-red-600 hover:text-red-700 shadow focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-2 transition"
+                      className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-red-500 hover:bg-red-600 text-white shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-1 transition-all duration-200"
                       title={`Delete ${selectedGrades.length} selected grade(s)`}
                       disabled={!canManage}
                     >
-                      <i className="fas fa-trash text-lg"></i>
+                      <i className="fas fa-trash text-xs"></i>
                     </button>
                   )}
                   <button
                     onClick={handleAddGrade}
-                    className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-blue-100 hover:bg-blue-200 text-blue-600 hover:text-blue-800 shadow focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 transition"
+                    className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 transition-all duration-200"
                     disabled={!canManage}
                     title="Add Grade"
                   >
-                    <i className="fas fa-plus text-lg"></i>
+                    <i className="fas fa-plus text-sm"></i>
                   </button>
                 </div>
               </div>
               {/* Improved Grade Cards Container */}
-              <div className="flex-1 p-2">
-                <div className="flex flex-col gap-4 min-w-0 max-w-full lg:flex-col lg:flex-wrap">
+              <div className="flex-1 p-4 overflow-y-auto">
+                <div className="flex flex-col gap-3 min-w-0 max-w-full">
                   {grades.length === 0 ? (
-                    <div className="text-center text-gray-400 py-8 italic w-full">No grades found. Click + to add a grade.</div>
+                    <div className="text-center text-gray-400 py-12">
+                      <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">
+                        <i className="fas fa-layer-group text-gray-400 text-2xl"></i>
+                      </div>
+                      <p className="text-sm font-medium text-gray-500">No classes found</p>
+                      <p className="text-xs text-gray-400 mt-1">Click + to add a new class</p>
+                    </div>
                   ) : (
                     grades
                       .filter(g => showArchived ? g.isActive === false : g.isActive !== false)
                       .map((grade) => (
                         <div
                           key={grade.id}
-                          className={`flex flex-col w-full max-w-full rounded-2xl cursor-pointer transition-all duration-200 bg-white/90 shadow-sm ${selectedGrade === grade.id ? 'border-4 border-solid border-blue-600' : 'border border-blue-100 hover:border-blue-400'} ${selectedGrades.includes(grade.id || '') ? 'bg-red-50' : ''} ${getGradeColorClasses(grade.color)}`}
+                          className={`flex flex-col w-full max-w-full rounded-xl cursor-pointer transition-all duration-300 bg-white shadow-md hover:shadow-lg ${selectedGrade === grade.id ? 'ring-2 ring-blue-500 ring-offset-2 border-2 border-blue-500' : 'border border-gray-200 hover:border-gray-300'} ${selectedGrades.includes(grade.id || '') ? 'bg-red-50 border-red-200' : ''} ${getGradeColorClasses(grade.color)}`}
                           style={{ minWidth: 0 }}
                           onClick={() => grade.id && handleGradeSelect(grade.id)}
                         >
-                          <div className="flex items-center gap-3 p-4 pb-2 min-w-0">
-                            <span className={`w-10 h-10 flex items-center justify-center rounded-full text-lg font-bold ${getBadgeColorClasses(grade.color)}`}>{grade.name[0]}</span>
-                            <div className="flex flex-col min-w-0">
-                              <span className="text-base font-semibold truncate max-w-[120px]">{grade.name}</span>
-                              <span className="text-xs text-gray-500 truncate max-w-[120px]">{grade.description || 'No description'}</span>
+                          <div className="flex items-center gap-3 p-4 pb-3 min-w-0">
+                            <div className={`w-12 h-12 flex items-center justify-center rounded-xl text-lg font-bold shadow-sm ${getBadgeColorClasses(grade.color)}`}>
+                              {grade.name[0]}
+                            </div>
+                            <div className="flex flex-col min-w-0 flex-1">
+                              <span className="text-base font-bold text-gray-900 truncate">{grade.name}</span>
+                              <span className="text-xs text-gray-500 truncate mt-0.5">{grade.description || 'No description'}</span>
                             </div>
                           </div>
-                          <div className="flex items-center justify-between px-4 pb-4 pt-2 min-w-0">
-                            <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${getBadgeColorClasses(grade.color)}`} title="Student count">
+                          <div className="flex items-center justify-between px-4 pb-4 pt-2 min-w-0 border-t border-gray-100">
+                            <span className={`px-3 py-1 text-xs font-semibold rounded-lg ${getBadgeColorClasses(grade.color)} shadow-sm`} title="Student count">
+                              <i className="fas fa-users mr-1.5"></i>
                               {selectedGrade === grade.id
                                 ? filteredStudents.length
                                 : ((showArchived ? archivedCountsByGrade[grade.id || ''] : countsByGrade[grade.id || '']) ?? 0)
                               } students
                             </span>
-                            <div className="flex flex-row flex-nowrap items-center gap-2 min-w-0">
+                            <div className="flex flex-row flex-nowrap items-center gap-1.5 min-w-0">
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   grade.id && handleAddStudentsToGrade(grade.id, grade.name);
                                 }}
-                                className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-green-50 hover:bg-green-100 text-green-600 hover:text-green-800 shadow focus:outline-none focus:ring-2 focus:ring-green-300 transition"
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-green-500 hover:bg-green-600 text-white shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-green-300 focus:ring-offset-1 transition-all duration-200"
                                 title="Add Students"
                                 disabled={loadingAddStudentToGradeId === grade.id || !canManage}
                               >
-                                <i className="fas fa-user-plus"></i>
+                                <i className="fas fa-user-plus text-xs"></i>
                               </button>
                               <button
                                 onClick={async (e) => {
@@ -1888,12 +2048,12 @@ const ClassList: React.FC = () => {
                                     setDeletingGradeId(null);
                                   }
                                 }}
-                                className={`inline-flex items-center justify-center w-9 h-9 rounded-full ${grade.isActive === false ? 'bg-green-50 hover:bg-green-100 text-green-600 hover:text-green-800 focus:ring-green-300' : 'bg-amber-50 hover:bg-amber-100 text-amber-600 hover:text-amber-800 focus:ring-amber-300'} shadow focus:outline-none focus:ring-2 transition ${deletingGradeId === grade.id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg ${grade.isActive === false ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-amber-500 hover:bg-amber-600 text-white'} shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-offset-1 transition-all duration-200 ${deletingGradeId === grade.id ? 'opacity-50 cursor-not-allowed' : ''}`}
                                 title={`${grade.isActive === false ? 'Restore' : 'Archive'} ${grade.name}`}
                                 aria-label={`${grade.isActive === false ? 'Restore' : 'Archive'} ${grade.name}`}
                                 disabled={deletingGradeId === grade.id}
                               >
-                                <i className={`fas ${grade.isActive === false ? 'fa-undo' : 'fa-archive'}`}></i>
+                                <i className={`fas ${grade.isActive === false ? 'fa-undo' : 'fa-archive'} text-xs`}></i>
                               </button>
                               {grade.isActive === false && (
                                 <button
@@ -1902,11 +2062,11 @@ const ClassList: React.FC = () => {
                                     if (!grade.id) return;
                                     await handleDeleteArchivedGrade(grade.id, grade.name);
                                   }}
-                                  className={`inline-flex items-center justify-center w-9 h-9 rounded-full bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-800 shadow focus:outline-none focus:ring-2 focus:ring-red-300 transition`}
+                                  className={`inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-500 hover:bg-red-600 text-white shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-red-300 focus:ring-offset-1 transition-all duration-200`}
                                   title={`Delete ${grade.name}`}
                                   aria-label={`Delete ${grade.name}`}
                                 >
-                                  <i className="fas fa-trash"></i>
+                                  <i className="fas fa-trash text-xs"></i>
                                 </button>
                               )}
                               <button
@@ -1917,31 +2077,36 @@ const ClassList: React.FC = () => {
                                     const { value: formValues } = await Swal.fire({
                                       title: 'Edit Class Grade',
                                       customClass: {
-                                        popup: 'rounded-xl',
-                                        title: 'text-white text-xl font-semibold',
-                                        confirmButton: 'px-4 py-2 text-sm font-medium bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
-                                        cancelButton: 'px-4 py-2 text-sm font-medium bg-white text-gray-700 rounded-lg shadow-md hover:bg-gray-100 transition-all duration-200',
+                                        popup: 'rounded-2xl shadow-2xl border border-gray-200',
+                                        title: 'text-white text-xl font-bold',
+                                        confirmButton: 'px-5 py-2.5 text-sm font-semibold bg-white text-indigo-600 rounded-lg shadow-md hover:bg-white/90 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
+                                        cancelButton: 'px-5 py-2.5 text-sm font-semibold bg-gray-100 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-200 transition-all duration-200',
+                                        closeButton: 'text-white hover:text-white/80',
                                       },
                                       backdrop: 'rgba(0,0,0,0.6)',
                                       background: '#fff',
                                       showCloseButton: true,
                                       html: `
-                                      <div class="text-left p-4 bg-white rounded-b-xl -mt-4">
-                                      <div class="mb-6">
-                                      <label class="block text-sm font-medium text-gray-700 mb-2">Grade Level</label>
-                                      <input class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm bg-gray-100 text-gray-600" value="${grade.name.split(' - ')[0] || 'Grade 4'}" readonly />
+                                      <div class="text-left p-6 bg-white rounded-b-2xl -mt-4">
+                                      <div class="mb-5">
+                                      <label class="block text-sm font-semibold text-gray-700 mb-2">Grade Level</label>
+                                      <input class="w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm bg-gray-100 text-gray-600 cursor-not-allowed" value="${grade.name.split(' - ')[0] || 'Grade 4'}" readonly />
                                       </div>
-                                      <div class="mb-6">
-                                      <label class="block text-sm font-medium text-gray-700 mb-2">Section Name</label>
-                                      <input id="edit-grade-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" value="${grade.name.split(' - ')[1] || ''}" placeholder="e.g., Mango" />
+                                      <div class="mb-5">
+                                      <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                        Section Name <span class="text-red-500">*</span>
+                                      </label>
+                                      <input id="edit-grade-name" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all" value="${grade.name.split(' - ')[1] || ''}" placeholder="e.g., Mango" />
                                       </div>
-                                      <div class="mb-6">
-                                          <label class="block text-sm font-medium text-gray-700 mb-2">Description</label>
-                                          <textarea id="edit-grade-description" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" rows="2">${grade.description || ''}</textarea>
+                                      <div class="mb-5">
+                                          <label class="block text-sm font-semibold text-gray-700 mb-2">Description</label>
+                                          <textarea id="edit-grade-description" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all resize-none" rows="3">${grade.description || ''}</textarea>
                                           </div>
-                                          <div class="mb-6">
-                                          <label class="block text-sm font-medium text-gray-700 mb-2">Color</label>
-                                          <select id="edit-grade-color" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                          <div class="mb-5">
+                                          <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                            Color <span class="text-red-500">*</span>
+                                          </label>
+                                          <select id="edit-grade-color" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all bg-white">
                                           <option value="blue" ${grade.color === 'blue' ? 'selected' : ''}>Blue</option>
                                           <option value="green" ${grade.color === 'green' ? 'selected' : ''}>Green</option>
                                             <option value="yellow" ${grade.color === 'yellow' ? 'selected' : ''}>Yellow</option>
@@ -1953,9 +2118,29 @@ const ClassList: React.FC = () => {
                                       </div>
                                       `,
                                       showCancelButton: true,
-                                      confirmButtonText: 'Save',
+                                      confirmButtonText: '<i class="fas fa-save mr-2"></i>Save',
                                       cancelButtonText: 'Cancel',
                                       focusConfirm: false,
+                                      didOpen: (modalElement) => {
+                                        const title = modalElement.querySelector('.swal2-title') as HTMLElement;
+                                        if (title) {
+                                          title.style.background = 'linear-gradient(to right, #4f46e5, #7c3aed)';
+                                          title.style.padding = '1.25rem 1.5rem';
+                                          title.style.borderRadius = '0.875rem 0.875rem 0 0';
+                                          title.style.display = 'flex';
+                                          title.style.alignItems = 'center';
+                                          title.style.gap = '0.75rem';
+                                          title.innerHTML = `
+                                            <div class="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center backdrop-blur-sm">
+                                              <i class="fas fa-edit text-white text-lg"></i>
+                                            </div>
+                                            <div>
+                                              <div class="text-xl font-bold">Edit Class Grade</div>
+                                              <div class="text-xs text-indigo-100 mt-0.5 font-normal">Update class information</div>
+                                            </div>
+                                          `;
+                                        }
+                                      },
                                       preConfirm: () => {
                                         const sectionName = (document.getElementById('edit-grade-name') as HTMLInputElement).value.trim();
                                         const description = (document.getElementById('edit-grade-description') as HTMLTextAreaElement).value.trim();
@@ -1989,11 +2174,11 @@ const ClassList: React.FC = () => {
                                     setLoadingEditGradeId(null);
                                   }
                                 }}
-                                className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-yellow-50 hover:bg-yellow-100 text-yellow-600 hover:text-yellow-800 shadow focus:outline-none focus:ring-2 focus:ring-yellow-300 transition"
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-500 hover:bg-blue-600 text-white shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 transition-all duration-200"
                                 title="Edit Grade"
                                 disabled={loadingEditGradeId === grade.id || !canManage}
                               >
-                                <i className="fas fa-edit"></i>
+                                <i className="fas fa-edit text-xs"></i>
                               </button>
                             </div>
                           </div>
@@ -2007,27 +2192,33 @@ const ClassList: React.FC = () => {
 
           {/* Students Section */}
           <div className="col-span-12 lg:col-span-9">
-            <div className="bg-white rounded-2xl shadow-lg h-[calc(100vh-8rem)] flex flex-col border border-gray-200">
-              <div className="px-6 py-6 border-b border-gray-200 bg-white">
-                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+            <div className="bg-white rounded-2xl shadow-xl max-h-[calc(100vh-8rem)] lg:h-[calc(100vh-8rem)] flex flex-col border border-gray-200 overflow-hidden">
+              <div className="px-6 py-5 border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-purple-50">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                   {/* Left side - Title */}
-                  <div className="flex items-center space-x-4">
-                    <h3 className="text-lg font-semibold text-gray-900">Students</h3>
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 rounded-lg bg-indigo-600 flex items-center justify-center shadow-md">
+                      <i className="fas fa-user-graduate text-white text-sm"></i>
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold text-gray-900">Students</h3>
+                      <span className="text-xs text-gray-600 font-medium">
+                        {(selectedGrade && selectedGrade !== 'all') ? filteredStudents.length : 0} {showArchived ? 'archived' : 'active'} students
+                      </span>
+                    </div>
                   </div>
 
                   {/* Right side - Sort Selector */}
-                  <div className="flex items-center space-x-4">
-                    <div className="mb-4 flex justify-end">
-                      <button
-                        onClick={handleRefresh}
-                        disabled={isRefreshing}
-                        className="inline-flex items-center gap-2  text-blue-700 font-medium rounded-lg shadow-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Refresh all data"
-                      >
-                        <i className={`fas fa-sync-alt ${isRefreshing ? 'animate-spin' : ''}`}></i>
-                        <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
-                      </button>
-                    </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleRefresh}
+                      disabled={isRefreshing}
+                      className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-indigo-700 bg-white border border-indigo-200 rounded-lg shadow-sm hover:bg-indigo-50 hover:border-indigo-300 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Refresh all data"
+                    >
+                      <i className={`fas fa-sync-alt ${isRefreshing ? 'animate-spin' : ''}`}></i>
+                      <span className="hidden sm:inline">{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+                    </button>
                     <PillSelect
                       value={sortBy}
                       onChange={setSortBy}
@@ -2043,19 +2234,12 @@ const ClassList: React.FC = () => {
                     />
                   </div>
                 </div>
-
-                {/* Student count badge */}
-                <div className="mt-4 flex items-center justify-between">
-                  <span className="px-3 py-1 text-sm font-medium text-gray-600 bg-gray-100 rounded-full">
-                    {(selectedGrade && selectedGrade !== 'all') ? filteredStudents.length : 0} {showArchived ? 'archived' : 'active'} students
-                  </span>
-                </div>
               </div>
-              <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+              <div className="px-6 py-4 border-b border-gray-200 bg-white">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                  <div className="flex-1 flex items-center space-x-4">
-                    <div className="relative flex-1 max-w-md">
-                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <div className="flex-1 flex items-center">
+                    <div className="relative flex-1 max-w-2xl">
+                      <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                         <i className="fas fa-search text-gray-400"></i>
                       </div>
                       <input
@@ -2063,16 +2247,16 @@ const ClassList: React.FC = () => {
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         placeholder="Search by name, LRN, parent name, grade, age..."
-                        className="block w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-full leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm shadow-sm"
+                        className="block w-full pl-11 pr-4 py-2.5 border border-gray-300 rounded-lg leading-5 bg-white placeholder-gray-400 focus:outline-none focus:placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm shadow-sm transition-all"
                       />
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-3">
+                  <div className="flex items-center gap-2 flex-shrink-0">
                     {!showArchived && filteredStudents.length > 0 && (
                       <button
                         onClick={handleArchiveAllStudents}
-                        className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-full shadow-sm transition-all duration-200"
+                        className="inline-flex items-center px-4 py-2 text-sm font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 disabled:opacity-50"
                         disabled={deletingAllStudents || !canManage}
                         title="Archive hides students from the roster without erasing their data"
                       >
@@ -2081,275 +2265,281 @@ const ClassList: React.FC = () => {
                         ) : (
                           <i className="fas fa-archive mr-2"></i>
                         )}
-                        Archive All Students
+                        <span className="hidden sm:inline">Archive All</span>
                       </button>
                     )}
 
-                    <div className="flex items-center space-x-2">
-                      {!showArchived && (
-                        <>
-                          <button
-                            onClick={() => fileInputRef.current?.click()}
-                            className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-full shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200"
-                            disabled={!canManage}
-                          >
-                            <i className="fas fa-file-import mr-2"></i>
-                            Import
-                          </button>
-                          <input
-                            type="file"
-                            ref={fileInputRef}
-                            onChange={handleFileUpload}
-                            accept=".xlsx,.xls,.csv"
-                            className="hidden"
-                          />
-                        </>
-                      )}
-                      {showArchived && (
+                    {!showArchived && (
+                      <>
                         <button
-                          onClick={async () => {
-                            const result = await showConfirmation(
-                              'Restore All Students',
-                              'Restore all archived students back to this class roster?',
-                              'Restore',
-                              'Cancel',
-                              'question'
-                            );
-                            if (!result.isConfirmed) return;
-                            try {
-                              const gradeObj = grades.find(g => g.id === selectedGrade);
-                              const ids = students
-                                .filter((s: any) => s.archived && s.grade === (gradeObj?.name || '') && !(s as any).archivedByAdmin)
-                                .map(s => s.id)
-                                .filter((id): id is string => Boolean(id));
-                              if (ids.length > 0) {
-                                await studentService.batchSetArchived(ids, false);
-                                // Re-link to grade roster if needed
-                                if (gradeObj) {
-                                  for (const sid of ids) {
-                                    await gradeService.addStudentToGrade(selectedGrade, sid);
-                                  }
-                                  const updated = await gradeService.getStudentsInGrade(selectedGrade);
-                                  await gradeService.updateStudentCount(selectedGrade, updated.length);
-                                }
-                              }
-                              showSuccess('Restored', 'All teacher-archived students were restored. Students archived by administrators were not affected.');
-                              await loadStudents();
-                              await loadGrades();
-                            } catch (e) {
-                              showError('Failed to Restore', 'Could not restore archived students.');
-                            }
-                          }}
-                          className="inline-flex items-center px-4 py-2 text-sm font-medium rounded-full shadow-sm text-green-700 bg-green-100 hover:bg-green-200 transition-all duration-200"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-semibold rounded-lg shadow-sm text-gray-700 bg-white hover:bg-gray-50 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500 transition-all duration-200 disabled:opacity-50"
                           disabled={!canManage}
                         >
-                          <i className="fas fa-undo mr-2"></i>
-                          Restore All
+                          <i className="fas fa-file-import mr-2"></i>
+                          <span className="hidden sm:inline">Import</span>
                         </button>
-                      )}
-                    </div>
+                        <input
+                          type="file"
+                          ref={fileInputRef}
+                          onChange={handleFileUpload}
+                          accept=".xlsx,.xls,.csv"
+                          className="hidden"
+                        />
+                      </>
+                    )}
+                    {showArchived && (
+                      <button
+                        onClick={async () => {
+                          const result = await showConfirmation(
+                            'Restore All Students',
+                            'Restore all archived students back to this class roster?',
+                            'Restore',
+                            'Cancel',
+                            'question'
+                          );
+                          if (!result.isConfirmed) return;
+                          try {
+                            const gradeObj = grades.find(g => g.id === selectedGrade);
+                            const ids = students
+                              .filter((s: any) => s.archived && s.grade === (gradeObj?.name || '') && !(s as any).archivedByAdmin)
+                              .map(s => s.id)
+                              .filter((id): id is string => Boolean(id));
+                            if (ids.length > 0) {
+                              await studentService.batchSetArchived(ids, false);
+                              // Re-link to grade roster if needed
+                              if (gradeObj) {
+                                for (const sid of ids) {
+                                  await gradeService.addStudentToGrade(selectedGrade, sid);
+                                }
+                                const updated = await gradeService.getStudentsInGrade(selectedGrade);
+                                await gradeService.updateStudentCount(selectedGrade, updated.length);
+                              }
+                            }
+                            showSuccess('Restored', 'All teacher-archived students were restored. Students archived by administrators were not affected.');
+                            await loadStudents();
+                            await loadGrades();
+                          } catch (e) {
+                            showError('Failed to Restore', 'Could not restore archived students.');
+                          }
+                        }}
+                        className="inline-flex items-center px-4 py-2 text-sm font-semibold rounded-lg shadow-sm text-white bg-green-600 hover:bg-green-700 transition-all duration-200 disabled:opacity-50"
+                        disabled={!canManage}
+                      >
+                        <i className="fas fa-undo mr-2"></i>
+                        <span className="hidden sm:inline">Restore All</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
               {/* Students List */}
-              <div className="flex-1 overflow-auto">
+              <div className="flex-1 overflow-auto bg-gray-50">
                 {isFilteringStudents || isLoading ? (
                   <div className="flex flex-col items-center justify-center h-full bg-white/50">
                     <TeacherLoader label="Fetching students..." />
                   </div>
                 ) : filteredStudents.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full bg-gray-50">
-                    <div className="text-center p-8">
-                      <i className="fas fa-search text-4xl text-gray-400 mb-4"></i>
+                  <div className="flex flex-col items-center justify-center h-full bg-white">
+                    <div className="text-center p-12">
+                      <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">
+                        <i className="fas fa-user-graduate text-gray-400 text-3xl"></i>
+                      </div>
+                      <p className="text-base font-semibold text-gray-700 mb-1">
+                        {searchQuery ? `No results found` : 'No students found'}
+                      </p>
                       <p className="text-sm text-gray-500">
-                        {searchQuery ? `No results for "${searchQuery}"` : 'No students found'}
+                        {searchQuery ? `Try adjusting your search for "${searchQuery}"` : 'Select a class to view students or add new students'}
                       </p>
                     </div>
                   </div>
                 ) : (
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50 sticky top-0 z-10">
-                      <tr>
-                        <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
-                        <th scope="col" className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">LRN</th>
-                        <th scope="col" className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Form</th>
-                        <th scope="col" className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Parent</th>
-
-                        <th scope="col" className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {filteredStudents.map((student) => {
-                        // Find the grade object for this student
-                        const gradeObj = grades.find(g => g.name === student.grade);
-                        const badgeColor = gradeObj ? getBadgeColorClasses(gradeObj.color) : getBadgeColorClasses('blue');
-                        // Map badge color to a light hover background
-                        const hoverBgMap: Record<string, string> = {
-                          'bg-blue-100 text-blue-800': 'hover:bg-blue-50',
-                          'bg-green-100 text-green-800': 'hover:bg-green-50',
-                          'bg-yellow-100 text-yellow-800': 'hover:bg-yellow-50',
-                          'bg-purple-100 text-purple-800': 'hover:bg-purple-50',
-                          'bg-red-100 text-red-800': 'hover:bg-red-50',
-                          'bg-gray-100 text-gray-800': 'hover:bg-gray-50',
-                        };
-                        const hoverBg = hoverBgMap[badgeColor] || 'hover:bg-blue-50';
-                        return (
-                          <tr key={student.id} className={`transition-colors ${hoverBg}`}>
-                            <td className="px-3 py-2 whitespace-nowrap">
-                              <div className="flex items-center">
-                                <div className="flex-shrink-0 h-7 w-7">
-                                  <div className={`h-7 w-7 rounded-full flex items-center justify-center ${badgeColor}`}>
-                                    <span className="font-medium text-xs">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200 bg-white">
+                      <thead className="bg-gradient-to-r from-gray-50 to-gray-100 sticky top-0 z-10 shadow-sm">
+                        <tr>
+                          <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Student</th>
+                          <th scope="col" className="px-4 py-3 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">LRN</th>
+                          <th scope="col" className="px-4 py-3 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">Form</th>
+                          <th scope="col" className="px-4 py-3 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">Parent</th>
+                          <th scope="col" className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {filteredStudents.map((student) => {
+                          // Find the grade object for this student
+                          const gradeObj = grades.find(g => g.name === student.grade);
+                          const badgeColor = gradeObj ? getBadgeColorClasses(gradeObj.color) : getBadgeColorClasses('blue');
+                          // Map badge color to a light hover background
+                          const hoverBgMap: Record<string, string> = {
+                            'bg-blue-100 text-blue-800': 'hover:bg-blue-50',
+                            'bg-green-100 text-green-800': 'hover:bg-green-50',
+                            'bg-yellow-100 text-yellow-800': 'hover:bg-yellow-50',
+                            'bg-purple-100 text-purple-800': 'hover:bg-purple-50',
+                            'bg-red-100 text-red-800': 'hover:bg-red-50',
+                            'bg-gray-100 text-gray-800': 'hover:bg-gray-50',
+                          };
+                          const hoverBg = hoverBgMap[badgeColor] || 'hover:bg-blue-50';
+                          return (
+                            <tr key={student.id} className={`transition-all duration-150 ${hoverBg} hover:shadow-sm`}>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <div className="flex items-center">
+                                  <div className="flex-shrink-0 h-9 w-9">
+                                    <div className={`h-9 w-9 rounded-lg flex items-center justify-center shadow-sm ${badgeColor}`}>
+                                      <span className="font-bold text-sm">
+                                        {(() => {
+                                          const studentFullName = student.name || '';
+                                          let initial = '';
+                                          if (studentFullName.includes(' ')) {
+                                            const parts = studentFullName.split(' ');
+                                            if (parts[0]) initial = parts[0][0];
+                                          } else {
+                                            const parts = studentFullName.trim().split(' ');
+                                            if (parts.length > 0) initial = parts[parts.length - 1][0];
+                                          }
+                                          return initial.toUpperCase();
+                                        })()}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="ml-3">
+                                    <div className="text-sm font-semibold text-gray-900 select-none">
                                       {(() => {
                                         const studentFullName = student.name || '';
-                                        let initial = '';
                                         if (studentFullName.includes(' ')) {
-                                          const parts = studentFullName.split(' ');
-                                          if (parts[0]) initial = parts[0][0];
-                                        } else {
-                                          const parts = studentFullName.trim().split(' ');
-                                          if (parts.length > 0) initial = parts[parts.length - 1][0];
+                                          return studentFullName.replace(/\|/g, ' ');
                                         }
-                                        return initial.toUpperCase();
+                                        return studentFullName;
                                       })()}
-                                    </span>
+                                    </div>
                                   </div>
                                 </div>
-                                <div className="ml-3">
-                                  <div className="text-sm font-medium text-gray-900 select-none">
-                                    {(() => {
-                                      const studentFullName = student.name || '';
-                                      if (studentFullName.includes(' ')) {
-                                        return studentFullName.replace(/\|/g, ' ');
-                                      }
-                                      return studentFullName;
-                                    })()}
-                                  </div>
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-center">
+                                <div className="text-sm font-medium text-gray-700 select-none">{student.lrn || <span className="text-gray-400">-</span>}</div>
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-center">
+                                <div className="flex justify-center items-center gap-2">
+                                  {loadingISRStatus ? (
+                                    <div className="w-4 h-4 border-2 border-gray-300 border-t-indigo-600 rounded-full animate-spin" title="Checking for completed sessions..."></div>
+                                  ) : (
+                                    student.id && studentsWithCompletedSessions.has(student.id) && (
+                                      <span
+                                        className="px-2 py-0.5 text-xs font-semibold text-green-700 bg-green-100 rounded-lg shadow-sm"
+                                        title="Has completed reading session(s)"
+                                      >
+                                        <i className="fas fa-check-circle mr-1"></i>
+                                        Completed
+                                      </span>
+                                    )
+                                  )}
+                                  <button
+                                    onClick={() => handleGenerateForm(student)}
+                                    disabled={loadingStudentId === student.id || loadingISRStatus}
+                                    className={`font-semibold px-3 py-1.5 rounded-lg text-xs transition-all flex items-center gap-1.5 shadow-sm ${loadingStudentId === student.id || loadingISRStatus
+                                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                      : student.id && studentsWithCompletedSessions.has(student.id)
+                                        ? 'bg-green-500 hover:bg-green-600 text-white'
+                                        : 'bg-indigo-100 hover:bg-indigo-200 text-indigo-700'
+                                      }`}
+                                    title={loadingISRStatus
+                                      ? 'Checking for completed sessions...'
+                                      : student.id && studentsWithCompletedSessions.has(student.id)
+                                        ? `View Phil-IRI Form 3A for ${student.name} (has completed session data)`
+                                        : `Generate Phil-IRI Form 3A for ${student.name} (no completed sessions yet)`
+                                    }
+                                  >
+                                    {loadingStudentId === student.id ? (
+                                      <>
+                                        <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                        Loading...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <i className="fas fa-file-alt"></i>
+                                        Form 3A
+                                      </>
+                                    )}
+                                  </button>
                                 </div>
-                              </div>
-                            </td>
-                            <td className="px-3 py-2 whitespace-nowrap text-center">
-                              <div className="text-sm text-gray-900 select-none">{student.lrn || '-'}</div>
-                            </td>
-                            <td className="px-3 py-2 whitespace-nowrap text-center">
-                              <div className="flex justify-center items-center gap-2">
-                                {loadingISRStatus ? (
-                                  <div className="w-3 h-3 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin" title="Checking for completed sessions..."></div>
-                                ) : (
-                                  student.id && studentsWithCompletedSessions.has(student.id) && (
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-center align-middle">
+                                <div className="flex justify-center items-center">
+                                  {student.parentId ? (
                                     <span
-                                      className="px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 bg-blue-100 rounded-full"
-                                      title="Has completed reading session(s)"
+                                      className="px-2.5 py-1 text-xs font-semibold text-green-700 bg-green-100 rounded-lg cursor-default select-none shadow-sm"
+                                      title={student.parentName || "Parent linked"}
                                     >
-                                      <i className="fas fa-check-circle mr-0.5"></i>
-                                      Completed
-                                    </span>
-                                  )
-                                )}
-                                <button
-                                  onClick={() => handleGenerateForm(student)}
-                                  disabled={loadingStudentId === student.id || loadingISRStatus}
-                                  className={`font-semibold px-2 py-1 rounded text-xs transition-colors flex items-center gap-1 ${loadingStudentId === student.id || loadingISRStatus
-                                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                    : student.id && studentsWithCompletedSessions.has(student.id)
-                                      ? 'bg-green-100 hover:bg-green-200 text-green-700'
-                                      : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
-                                    }`}
-                                  title={loadingISRStatus
-                                    ? 'Checking for completed sessions...'
-                                    : student.id && studentsWithCompletedSessions.has(student.id)
-                                      ? `View Phil-IRI Form 3A for ${student.name} (has completed session data)`
-                                      : `Generate Phil-IRI Form 3A for ${student.name} (no completed sessions yet)`
-                                  }
-                                >
-                                  {loadingStudentId === student.id ? (
-                                    <>
-                                      <div className="w-3 h-3 border-2 border-gray-300 border-t-green-600 rounded-full animate-spin"></div>
-                                      Loading...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <i className="fas fa-file-alt"></i>
-                                      Form 3A
-                                    </>
-                                  )}
-                                </button>
-                              </div>
-                            </td>
-                            <td className="px-3 py-2 whitespace-nowrap text-center align-middle">
-                              <div className="flex justify-center items-center h-6">
-                                {student.parentId ? (
-                                  <span
-                                    className="px-2 py-0.5 text-xs font-medium text-green-700 bg-green-100 rounded-full cursor-default select-none"
-                                    title={student.parentName || "Parent linked"}
-                                  >
-                                    Linked
-                                  </span>
-                                ) : (
-                                  <button
-                                    onClick={() => student.id && handleLinkParent(student.id)}
-                                    className="inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 cursor-pointer select-none"
-                                  >
-                                    <><i className="fas fa-link mr-1"></i>Link Parent</>
-                                  </button>
-                                )}
-                              </div>
-                            </td>
-
-                            <td className="px-3 py-2 whitespace-nowrap text-right text-sm font-medium">
-                              <div className="flex justify-end space-x-1">
-                                <button
-                                  onClick={() => student.id && handleViewProfile(student.id)}
-                                  className="text-blue-600 hover:text-blue-900 select-none"
-                                  title="View Profile"
-                                  disabled={loadingStudentId === student.id || !canManage}
-                                >
-                                  {loadingStudentId === student.id ? (
-                                    <span className="loader-spinner" style={{ display: 'inline-block', width: 16, height: 16, border: '2px solid #f3f3f3', borderTop: '2px solid #3498db', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                                  ) : (
-                                    <i className="fas fa-eye"></i>
-                                  )}
-                                </button>
-                                <button
-                                  onClick={() => student.id && handleEditStudent(student.id)}
-                                  className="text-indigo-600 hover:text-indigo-900 select-none"
-                                  title="Edit Student"
-                                  disabled={!canManage}
-                                >
-                                  <i className="fas fa-edit"></i>
-                                </button>
-                                {(!showArchived) ? (
-                                  <button
-                                    onClick={() => student.id && handleArchiveStudent(student.id, student.name)}
-                                    className="text-amber-600 hover:text-amber-800 select-none"
-                                    title="Archive Student"
-                                    disabled={!canManage}
-                                  >
-                                    <i className="fas fa-archive"></i>
-                                  </button>
-                                ) : (
-                                  (student as any).archivedByAdmin ? (
-                                    <span className="text-gray-500 text-xs italic select-none" title="This student was archived by an administrator">
-                                      archived by admin
+                                      <i className="fas fa-check-circle mr-1"></i>
+                                      Linked
                                     </span>
                                   ) : (
                                     <button
-                                      onClick={() => student.id && handleRestoreStudent(student.id, student.name)}
-                                      className="text-green-600 hover:text-green-800 select-none"
-                                      title="Restore Student"
+                                      onClick={() => student.id && handleLinkParent(student.id)}
+                                      className="inline-flex items-center px-2.5 py-1 border border-indigo-200 text-xs font-semibold rounded-lg text-indigo-700 bg-indigo-50 hover:bg-indigo-100 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500 cursor-pointer select-none shadow-sm transition-all"
+                                    >
+                                      <i className="fas fa-link mr-1.5"></i>
+                                      Link
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+
+                              <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
+                                <div className="flex justify-end gap-2">
+                                  <button
+                                    onClick={() => student.id && handleViewProfile(student.id)}
+                                    className="w-8 h-8 flex items-center justify-center rounded-lg text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 transition-all select-none"
+                                    title="View Profile"
+                                    disabled={loadingStudentId === student.id || !canManage}
+                                  >
+                                    {loadingStudentId === student.id ? (
+                                      <span className="loader-spinner" style={{ display: 'inline-block', width: 16, height: 16, border: '2px solid #f3f3f3', borderTop: '2px solid #4f46e5', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                                    ) : (
+                                      <i className="fas fa-eye"></i>
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={() => student.id && handleEditStudent(student.id)}
+                                    className="w-8 h-8 flex items-center justify-center rounded-lg text-blue-600 hover:text-blue-700 hover:bg-blue-50 transition-all select-none"
+                                    title="Edit Student"
+                                    disabled={!canManage}
+                                  >
+                                    <i className="fas fa-edit"></i>
+                                  </button>
+                                  {(!showArchived) ? (
+                                    <button
+                                      onClick={() => student.id && handleArchiveStudent(student.id, student.name)}
+                                      className="w-8 h-8 flex items-center justify-center rounded-lg text-amber-600 hover:text-amber-700 hover:bg-amber-50 transition-all select-none"
+                                      title="Archive Student"
                                       disabled={!canManage}
                                     >
-                                      <i className="fas fa-undo"></i>
+                                      <i className="fas fa-archive"></i>
                                     </button>
-                                  )
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                                  ) : (
+                                    (student as any).archivedByAdmin ? (
+                                      <span className="text-gray-500 text-xs italic select-none px-2" title="This student was archived by an administrator">
+                                        Admin
+                                      </span>
+                                    ) : (
+                                      <button
+                                        onClick={() => student.id && handleRestoreStudent(student.id, student.name)}
+                                        className="w-8 h-8 flex items-center justify-center rounded-lg text-green-600 hover:text-green-700 hover:bg-green-50 transition-all select-none"
+                                        title="Restore Student"
+                                        disabled={!canManage}
+                                      >
+                                        <i className="fas fa-undo"></i>
+                                      </button>
+                                    )
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
             </div>
@@ -2359,14 +2549,22 @@ const ClassList: React.FC = () => {
 
       {/* Import Preview Modal */}
       {showImportPreview && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black bg-opacity-40">
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col pointer-events-auto overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between bg-[#34495E] rounded-t-xl">
-              <h3 className="text-lg font-semibold text-white">Import Preview</h3>
-              <div className="flex items-center space-x-2">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[90vh] flex flex-col pointer-events-auto overflow-hidden border border-gray-200">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-indigo-600 to-purple-600 rounded-t-2xl">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center backdrop-blur-sm">
+                  <i className="fas fa-file-import text-white text-lg"></i>
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-white">Import Preview</h3>
+                  <p className="text-xs text-indigo-100 mt-0.5">Review students before importing</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
                 <button
                   onClick={handleCancelImport}
-                  className="px-4 py-2 text-sm font-medium text-white bg-transparent border border-white rounded-lg hover:bg-white hover:text-blue-600 transition-all duration-200"
+                  className="px-4 py-2 text-sm font-semibold text-indigo-700 bg-white hover:bg-indigo-50 border border-white/30 rounded-lg transition-all duration-200"
                 >
                   Cancel
                 </button>
@@ -2378,41 +2576,52 @@ const ClassList: React.FC = () => {
                         setImportedStudents(duplicateDetails.unique);
                         setDuplicateStats({ within: 0, existing: 0 });
                       }}
-                      className="inline-flex items-center px-3 py-2 text-xs font-medium text-amber-700 bg-amber-100 rounded-lg hover:bg-amber-200 transition"
+                      className="inline-flex items-center px-3 py-2 text-xs font-semibold text-amber-800 bg-amber-100 rounded-lg hover:bg-amber-200 shadow-sm transition-all"
                       title="Remove duplicates from this file and keep unique students"
                     >
-                      <i className="fas fa-broom mr-2"></i>Remove Duplicates
+                      <i className="fas fa-broom mr-1.5"></i>Remove Duplicates
                     </button>
                   )}
                   <button
                     onClick={handleImportStudents}
                     disabled={isImporting || duplicateStats.within > 0 || duplicateStats.existing > 0}
-                    className="inline-flex items-center px-4 py-2 text-sm font-medium text-blue-600 bg-white rounded-lg shadow-md hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+                    className="inline-flex items-center px-5 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 disabled:hover:shadow-lg"
                     title={duplicateStats.within > 0 || duplicateStats.existing > 0 ? 'Resolve duplicate entries before importing' : undefined}
                   >
                     {isImporting ? (
-                      <span className="inline-flex items-center"><span className="loader-spinner mr-2 w-4 h-4 border-t-2 border-r-2 border-blue-600 border-solid rounded-full animate-spin"></span> Importing...</span>
+                      <span className="inline-flex items-center">
+                        <span className="loader-spinner mr-2 w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                        Importing...
+                      </span>
                     ) : (
-                      'Import Students'
+                      <>
+                        <i className="fas fa-check-circle mr-2"></i>
+                        Import Students
+                      </>
                     )}
                   </button>
                 </div>
               </div>
             </div>
-            <div className="p-4 bg-gray-50 border-b border-gray-200 space-y-2">
-              <div className="flex items-center">
-                <i className="fas fa-info-circle text-blue-500 mr-3 text-lg"></i>
-                <p className="text-sm text-gray-700">
-                  Found {importedStudents.length} students to import. Please review the data below.
-                </p>
-              </div>
-              <div className={`flex items-start text-xs sm:text-sm rounded-md p-2 ${duplicateStats.within > 0 || duplicateStats.existing > 0 ? 'text-amber-800 bg-amber-50 border border-amber-200' : 'text-blue-800 bg-blue-50 border border-blue-200'}`}>
-                <i className={`fas ${duplicateStats.within > 0 || duplicateStats.existing > 0 ? 'fa-exclamation-triangle' : 'fa-info-circle'} mt-0.5 mr-2`}></i>
+            <div className="p-5 bg-gradient-to-r from-gray-50 to-blue-50 border-b border-gray-200 space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center">
+                  <i className="fas fa-info-circle text-indigo-600 text-lg"></i>
+                </div>
                 <div>
+                  <p className="text-sm font-semibold text-gray-900">
+                    Found <span className="text-indigo-600">{importedStudents.length}</span> students to import
+                  </p>
+                  <p className="text-xs text-gray-600 mt-0.5">Please review the data below before importing</p>
+                </div>
+              </div>
+              <div className={`flex items-start gap-3 text-xs sm:text-sm rounded-lg p-3 shadow-sm ${duplicateStats.within > 0 || duplicateStats.existing > 0 ? 'text-amber-800 bg-amber-50 border border-amber-200' : 'text-indigo-800 bg-indigo-50 border border-indigo-200'}`}>
+                <i className={`fas ${duplicateStats.within > 0 || duplicateStats.existing > 0 ? 'fa-exclamation-triangle' : 'fa-check-circle'} mt-0.5 text-base`}></i>
+                <div className="flex-1">
                   {duplicateStats.within > 0 || duplicateStats.existing > 0 ? (
                     <>
-                      <p className="font-semibold">We'll keep your list tidy</p>
-                      <ul className="list-disc ml-5">
+                      <p className="font-bold mb-1">We'll keep your list tidy</p>
+                      <ul className="list-disc ml-5 space-y-0.5">
                         {duplicateStats.within > 0 && (
                           <li>{duplicateStats.within} repeated name/LRN entries in this file will be skipped automatically.</li>
                         )}
@@ -2421,28 +2630,28 @@ const ClassList: React.FC = () => {
                         )}
                       </ul>
                       {(duplicateDetails.within.length > 0 || duplicateDetails.existing.length > 0) && (
-                        <details className="mt-1">
-                          <summary className="cursor-pointer select-none underline">View duplicates</summary>
-                          <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <details className="mt-2">
+                          <summary className="cursor-pointer select-none font-semibold hover:text-amber-900 transition-colors">View duplicates</summary>
+                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
                             {duplicateDetails.within.length > 0 && (
-                              <div>
-                                <div className="font-medium">In this file</div>
-                                <ul className="list-disc ml-5">
+                              <div className="bg-white rounded p-2 border border-amber-200">
+                                <div className="font-semibold text-amber-900 mb-1">In this file</div>
+                                <ul className="list-disc ml-5 text-xs space-y-0.5">
                                   {duplicateDetails.within.slice(0, 5).map((s, i) => (
                                     <li key={`w-${i}`}>{(s.firstName || '').trim()} {(s.lastName || '').trim()} {s.lrn ? `(${s.lrn})` : ''}</li>
                                   ))}
-                                  {duplicateDetails.within.length > 5 && <li>+{duplicateDetails.within.length - 5} more…</li>}
+                                  {duplicateDetails.within.length > 5 && <li className="text-amber-600">+{duplicateDetails.within.length - 5} more…</li>}
                                 </ul>
                               </div>
                             )}
                             {duplicateDetails.existing.length > 0 && (
-                              <div>
-                                <div className="font-medium">Already in your class</div>
-                                <ul className="list-disc ml-5">
+                              <div className="bg-white rounded p-2 border border-amber-200">
+                                <div className="font-semibold text-amber-900 mb-1">Already in your class</div>
+                                <ul className="list-disc ml-5 text-xs space-y-0.5">
                                   {duplicateDetails.existing.slice(0, 5).map((s, i) => (
                                     <li key={`e-${i}`}>{(s.firstName || '').trim()} {(s.lastName || '').trim()} {s.lrn ? `(${s.lrn})` : ''}</li>
                                   ))}
-                                  {duplicateDetails.existing.length > 5 && <li>+{duplicateDetails.existing.length - 5} more…</li>}
+                                  {duplicateDetails.existing.length > 5 && <li className="text-amber-600">+{duplicateDetails.existing.length - 5} more…</li>}
                                 </ul>
                               </div>
                             )}
@@ -2451,38 +2660,40 @@ const ClassList: React.FC = () => {
                       )}
                     </>
                   ) : (
-                    <p>Looks good! We didn't find any duplicates in this file.</p>
+                    <p className="font-semibold">Looks good! We didn't find any duplicates in this file.</p>
                   )}
                 </div>
               </div>
             </div>
-            <div className="overflow-x-auto flex-1">
+            <div className="overflow-x-auto flex-1 bg-white">
               <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50 sticky top-0">
+                <thead className="bg-gradient-to-r from-gray-50 to-gray-100 sticky top-0 shadow-sm">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">First Name</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Last Name</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">LRN</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Age</th>
+                    <th className="px-5 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">First Name</th>
+                    <th className="px-5 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Last Name</th>
+                    <th className="px-5 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">LRN</th>
+                    <th className="px-5 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Age</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-100">
                   {importedStudents.map((student, index) => (
-                    <tr key={index} className="hover:bg-blue-50 transition-colors duration-150">
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{student.firstName || '-'}</td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{student.lastName || '-'}</td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{student.lrn || '-'}</td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{student.age || 10}</td>
+                    <tr key={index} className="hover:bg-indigo-50 transition-colors duration-150">
+                      <td className="px-5 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{student.firstName || '-'}</td>
+                      <td className="px-5 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{student.lastName || '-'}</td>
+                      <td className="px-5 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{student.lrn || '-'}</td>
+                      <td className="px-5 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{student.age || 10}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
             {importedStudents.length === 0 && (
-              <div className="p-6 text-center text-gray-500 italic bg-white">
-                <i className="fas fa-file-excel text-4xl mb-4 text-gray-300"></i>
-                <p>No student data to preview.</p>
-                <p className="text-xs mt-2">Please upload a valid .xlsx, .xls, or .csv file.</p>
+              <div className="p-12 text-center bg-white">
+                <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">
+                  <i className="fas fa-file-excel text-gray-400 text-3xl"></i>
+                </div>
+                <p className="text-base font-semibold text-gray-700 mb-1">No student data to preview</p>
+                <p className="text-sm text-gray-500">Please upload a valid .xlsx, .xls, or .csv file</p>
               </div>
             )}
           </div>
@@ -2491,55 +2702,65 @@ const ClassList: React.FC = () => {
 
       {/* Edit Student Modal */}
       {editingStudent && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
-            <div className="p-6 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">Edit Student</h3>
-              <p className="text-sm text-gray-600 mt-1">Update student name and LRN only</p>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-gray-200">
+            <div className="px-6 py-5 border-b border-gray-200 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-t-2xl">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center backdrop-blur-sm">
+                  <i className="fas fa-user-edit text-white text-lg"></i>
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-white">Edit Student</h3>
+                  <p className="text-xs text-blue-100 mt-0.5">Update student name and LRN only</p>
+                </div>
+              </div>
             </div>
 
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Student Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={editForm.name}
                   onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm transition-all"
                   placeholder="Enter student name"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  LRN (Learner Reference Number)
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  LRN (Learner Reference Number) <span className="text-gray-500 text-xs">(Cannot be changed)</span>
                 </label>
                 <input
                   type="text"
                   value={editForm.lrn}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, lrn: e.target.value }))}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter LRN (optional)"
+                  readOnly
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 bg-gray-50 text-gray-600 cursor-not-allowed shadow-sm"
+                  placeholder="LRN (read-only)"
                 />
+                <p className="text-xs text-gray-500 mt-1">LRN is the unique identifier and cannot be modified</p>
               </div>
 
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                <div className="flex items-start">
-                  <i className="fas fa-info-circle text-yellow-600 mt-0.5 mr-2"></i>
-                  <div className="text-sm text-yellow-800">
-                    <p className="font-medium">Note:</p>
-                    <p>Only the student's name and LRN can be modified. Other information like grade, reading level, and age cannot be changed here.</p>
+              <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-lg p-4 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                    <i className="fas fa-info-circle text-amber-600"></i>
+                  </div>
+                  <div className="text-sm text-amber-900">
+                    <p className="font-semibold mb-1">Note:</p>
+                    <p className="text-amber-800">Only the student's name can be modified. LRN is the unique identifier and cannot be changed. Other information like grade, reading level, and age cannot be changed here.</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="p-6 border-t border-gray-200 flex justify-end space-x-3">
+            <div className="px-6 py-5 border-t border-gray-200 bg-gray-50 rounded-b-2xl flex justify-end gap-3">
               <button
                 onClick={handleCancelEdit}
-                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                className="px-5 py-2.5 text-sm font-semibold text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg shadow-sm transition-all duration-200"
                 disabled={loadingStudentId === editingStudent.id}
               >
                 Cancel
@@ -2547,9 +2768,9 @@ const ClassList: React.FC = () => {
               <button
                 onClick={handleSaveEdit}
                 disabled={loadingStudentId === editingStudent.id || !editForm.name.trim()}
-                className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${loadingStudentId === editingStudent.id || !editForm.name.trim()
+                className={`px-5 py-2.5 rounded-lg transition-all duration-200 flex items-center gap-2 shadow-md hover:shadow-lg ${loadingStudentId === editingStudent.id || !editForm.name.trim()
                   ? 'bg-gray-400 text-white cursor-not-allowed'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'
+                  : 'bg-indigo-600 text-white hover:bg-indigo-700'
                   }`}
               >
                 {loadingStudentId === editingStudent.id ? (
@@ -2572,7 +2793,7 @@ const ClassList: React.FC = () => {
       {/* Phil-IRI Form 3A Modal */}
       {formModalOpen && selectedFormStudent && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
           onClick={(e) => e.target === e.currentTarget && handleCloseForm()}
           onKeyDown={(e) => {
             if (e.key === 'Escape') handleCloseForm();
@@ -2583,55 +2804,61 @@ const ClassList: React.FC = () => {
           }}
           tabIndex={-1}
         >
-          <div className="bg-white rounded-2xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-              <div>
-                <h3 className="text-xl font-semibold text-gray-900">
-                  Phil-IRI Form 3A - {selectedFormStudent.name}
-                </h3>
-                {formData && (
-                  <div className="text-sm text-gray-600 mt-1 space-y-1">
-                    {hasISRData ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-green-600">
-                          <i className="fas fa-check-circle mr-1"></i>
-                          Displaying data from completed reading session
+          <div className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-y-auto border border-gray-200 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+            <div className="px-6 py-5 border-b border-gray-200 flex justify-between items-center bg-gradient-to-r from-green-600 to-emerald-600 rounded-t-2xl">
+              <div className="flex items-center gap-3 flex-1">
+                <div className="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center backdrop-blur-sm">
+                  <i className="fas fa-file-alt text-white text-lg"></i>
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-xl font-bold text-white">
+                    Phil-IRI Form 3A - {selectedFormStudent.name}
+                  </h3>
+                  {formData && (
+                    <div className="text-xs text-green-100 mt-1.5 flex items-center gap-2 flex-wrap">
+                      {hasISRData ? (
+                        <>
+                          <span className="inline-flex items-center gap-1 bg-white/20 px-2 py-0.5 rounded">
+                            <i className="fas fa-check-circle"></i>
+                            Data from completed session
+                          </span>
+                          {formData.sessionTitle && (
+                            <span className="text-green-50">
+                              {formData.sessionTitle}
+                            </span>
+                          )}
+                          {formData.assessmentDate && (
+                            <span className="text-green-50">
+                              {new Date(formData.assessmentDate).toLocaleDateString()}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 bg-amber-500/30 px-2 py-0.5 rounded">
+                          <i className="fas fa-info-circle"></i>
+                          Template form (no session data)
                         </span>
-                        {formData.sessionTitle && (
-                          <span className="text-xs text-gray-500">
-                            ({formData.sessionTitle})
-                          </span>
-                        )}
-                        {formData.assessmentDate && (
-                          <span className="text-xs text-gray-500">
-                            - {new Date(formData.assessmentDate).toLocaleDateString()}
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-amber-600">
-                        <i className="fas fa-info-circle mr-1"></i>
-                        No completed reading session data found - showing template form
-                      </span>
-                    )}
-                  </div>
-                )}
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
               <button
                 onClick={handleCloseForm}
-                className="text-gray-400 hover:text-gray-600 text-2xl font-bold"
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-white hover:bg-white/20 transition-all duration-200 ml-3"
+                title="Close"
               >
-                ×
+                <i className="fas fa-times text-lg"></i>
               </button>
             </div>
 
-            <div className="p-6">
+            <div className="p-6 bg-gray-50">
               {!formData ? (
                 /* Loading State */
-                <div className="flex items-center justify-center py-12">
+                <div className="flex items-center justify-center py-16">
                   <div className="text-center">
-                    <div className="w-12 h-12 border-4 border-green-200 border-t-green-600 rounded-full animate-spin mx-auto mb-4"></div>
-                    <p className="text-gray-600">Generating Phil-IRI Form 3A...</p>
+                    <div className="w-16 h-16 border-4 border-green-200 border-t-green-600 rounded-full animate-spin mx-auto mb-4 shadow-lg"></div>
+                    <p className="text-base font-semibold text-gray-700">Generating Phil-IRI Form 3A...</p>
                     <p className="text-sm text-gray-500 mt-2">Please wait while we process the student's reading data.</p>
                   </div>
                 </div>
@@ -2798,17 +3025,17 @@ const ClassList: React.FC = () => {
                 </div>
               )}
 
-              <div className="mt-6 flex justify-end space-x-3 no-print">
+              <div className="mt-6 pt-5 border-t border-gray-200 flex justify-end gap-3 no-print bg-white rounded-b-2xl px-6 pb-6 -mx-6 -mb-6">
                 <button
                   onClick={handleCloseForm}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                  className="px-5 py-2.5 text-sm font-semibold text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg shadow-sm transition-all duration-200"
                 >
                   Close
                 </button>
                 <button
                   onClick={handlePrintForm}
                   disabled={!formData}
-                  className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${!formData
+                  className={`px-5 py-2.5 rounded-lg transition-all duration-200 flex items-center gap-2 shadow-md hover:shadow-lg ${!formData
                     ? 'bg-gray-400 text-white cursor-not-allowed'
                     : 'bg-green-600 text-white hover:bg-green-700'
                     }`}
