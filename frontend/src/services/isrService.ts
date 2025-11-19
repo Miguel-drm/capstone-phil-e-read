@@ -36,6 +36,7 @@ export interface ISRStudentData {
   school: string;
   teacher: string;
   language: 'English' | 'Filipino';
+  levelStarted?: string;
   readingData: {
     level: string;
     levelStarted?: boolean; // true if this is the starting level (shows *)
@@ -550,16 +551,51 @@ class ISRService {
             console.log(`[getISRSubmissions] Parsed ${students.length} students using parseStudentData fallback`);
           }
           
+          // Extract className first for better parsing
+          const extractedClassName = submissionData.className || data.data?.className || data.message?.split('for ')?.[1]?.split(' (')?.[0] || 'Unknown Class';
+          
+          // Better section extraction - try multiple patterns
+          let extractedSection = submissionData.section || data.data?.section || '';
+          
+          // If section is empty or 'N/A', try to extract from className
+          if (!extractedSection || extractedSection === 'N/A' || extractedSection.trim() === '') {
+            // Try pattern: "Grade 4 - Narra" or "Grade 4-Narra"
+            const sectionMatch1 = extractedClassName.match(/(?:Grade\s*\w+\s*[-–]?\s*)([A-Za-z]+(?:\s+[A-Za-z]+)*)/i);
+            if (sectionMatch1 && sectionMatch1[1] && sectionMatch1[1].trim() !== '') {
+              extractedSection = sectionMatch1[1].trim();
+            } else {
+              // Try pattern: "Section X" or "Section-X"
+              const sectionMatch2 = extractedClassName.match(/Section\s*[-–]?\s*([A-Za-z0-9]+)/i);
+              if (sectionMatch2 && sectionMatch2[1]) {
+                extractedSection = sectionMatch2[1].trim();
+              } else {
+                // Try to extract anything after the dash in className
+                const dashMatch = extractedClassName.split(/[-–]/);
+                if (dashMatch.length > 1) {
+                  const afterDash = dashMatch[1].trim();
+                  if (afterDash && !afterDash.match(/^\d+$/)) { // Make sure it's not just a number
+                    extractedSection = afterDash;
+                  }
+                }
+              }
+            }
+          }
+          
+          // Default to empty string instead of 'N/A' if still not found
+          if (!extractedSection || extractedSection === 'N/A' || extractedSection.trim() === '') {
+            extractedSection = '';
+          }
+          
           const submission: ISRSubmissionData = {
             id: docSnap.id,
             teacherId: data.senderId || submissionData.teacherId || data.data?.teacherId || 'unknown',
             teacherName: data.senderName || submissionData.teacherName || data.data?.teacherName || 'Unknown Teacher',
-            className: submissionData.className || data.data?.className || data.message?.split('for ')?.[1]?.split(' (')?.[0] || 'Unknown Class',
-            grade: submissionData.grade || data.data?.grade || submissionData.className?.match(/Grade\s*(\w+)/i)?.[1] || 'N/A',
-            section: submissionData.section || data.data?.section || submissionData.className?.match(/Section\s*(\w+)/i)?.[1] || 'N/A',
+            className: extractedClassName,
+            grade: submissionData.grade || data.data?.grade || extractedClassName.match(/Grade\s*(\w+)/i)?.[1] || 'N/A',
+            section: extractedSection,
             studentCount: submissionData.studentCount || data.data?.studentCount || students.length || data.data?.students?.length || 1,
             submissionDate: data.createdAt?.toDate() || new Date(),
-            status: submissionData.status || data.data?.status || 'pending',
+            status: data.data?.status || submissionData.status || 'pending',
             students: students,
             adminComments: submissionData.adminComments || data.data?.adminComments,
             reviewedBy: submissionData.reviewedBy || data.data?.reviewedBy,
@@ -633,16 +669,51 @@ class ISRService {
         console.log(`[getISRSubmission] Parsed ${students.length} students using parseStudentData fallback`);
       }
       
+      // Extract className first for better parsing
+      const extractedClassName = submissionData.className || data.data?.className || data.message?.split('for ')?.[1]?.split(' (')?.[0] || 'Unknown Class';
+      
+      // Better section extraction - try multiple patterns
+      let extractedSection = submissionData.section || data.data?.section || '';
+      
+      // If section is empty or 'N/A', try to extract from className
+      if (!extractedSection || extractedSection === 'N/A' || extractedSection.trim() === '') {
+        // Try pattern: "Grade 4 - Narra" or "Grade 4-Narra"
+        const sectionMatch1 = extractedClassName.match(/(?:Grade\s*\w+\s*[-–]?\s*)([A-Za-z]+(?:\s+[A-Za-z]+)*)/i);
+        if (sectionMatch1 && sectionMatch1[1] && sectionMatch1[1].trim() !== '') {
+          extractedSection = sectionMatch1[1].trim();
+        } else {
+          // Try pattern: "Section X" or "Section-X"
+          const sectionMatch2 = extractedClassName.match(/Section\s*[-–]?\s*([A-Za-z0-9]+)/i);
+          if (sectionMatch2 && sectionMatch2[1]) {
+            extractedSection = sectionMatch2[1].trim();
+          } else {
+            // Try to extract anything after the dash in className
+            const dashMatch = extractedClassName.split(/[-–]/);
+            if (dashMatch.length > 1) {
+              const afterDash = dashMatch[1].trim();
+              if (afterDash && !afterDash.match(/^\d+$/)) { // Make sure it's not just a number
+                extractedSection = afterDash;
+              }
+            }
+          }
+        }
+      }
+      
+      // Default to empty string instead of 'N/A' if still not found
+      if (!extractedSection || extractedSection === 'N/A' || extractedSection.trim() === '') {
+        extractedSection = '';
+      }
+      
       return {
         id: docSnap.id,
         teacherId: data.senderId || submissionData.teacherId || data.data?.teacherId || 'unknown',
         teacherName: data.senderName || submissionData.teacherName || data.data?.teacherName || 'Unknown Teacher',
-        className: submissionData.className || data.data?.className || data.message?.split('for ')?.[1]?.split(' (')?.[0] || 'Unknown Class',
-        grade: submissionData.grade || data.data?.grade || submissionData.className?.match(/Grade\s*(\w+)/i)?.[1] || 'N/A',
-        section: submissionData.section || data.data?.section || submissionData.className?.match(/Section\s*(\w+)/i)?.[1] || 'N/A',
+        className: extractedClassName,
+        grade: submissionData.grade || data.data?.grade || extractedClassName.match(/Grade\s*(\w+)/i)?.[1] || 'N/A',
+        section: extractedSection,
         studentCount: submissionData.studentCount || data.data?.studentCount || students.length || data.data?.students?.length || 1,
         submissionDate: data.createdAt?.toDate() || new Date(),
-        status: submissionData.status || data.data?.status || 'pending',
+        status: data.data?.status || submissionData.status || 'pending',
         students: students,
         adminComments: submissionData.adminComments || data.data?.adminComments,
         reviewedBy: submissionData.reviewedBy || data.data?.reviewedBy,
@@ -906,6 +977,7 @@ class ISRService {
       // Ensure reading data is in correct format with all fields
       readingData = readingData.map((rd: any) => ({
         level: rd.level || 'Current',
+        levelStarted: Boolean(rd.levelStarted || rd.isLevelStarted || rd.level_started),
         wordReading: {
           ind: rd.wordReading?.ind || false,
           ins: rd.wordReading?.ins || false,
@@ -920,6 +992,8 @@ class ISRService {
         set: rd.set || ''
       }));
     }
+    
+    const startedLevel = readingData.find((rd: any) => rd.levelStarted)?.level || '';
     
     // Extract observations - preserve exactly as submitted
     const observations = studentData.observations || {
@@ -940,6 +1014,7 @@ class ISRService {
       school: school,
       teacher: teacher,
       language: language as 'English' | 'Filipino',
+      levelStarted: startedLevel,
       readingData: readingData,
       observations: {
         wordByWord: observations.wordByWord || false,
@@ -960,6 +1035,7 @@ class ISRService {
     
     return [{
       level: 'Current',
+      levelStarted: true,
       wordReading: {
         ind: readingLevel === 'Ind' || readingLevel === 'Independent',
         ins: readingLevel === 'Ins' || readingLevel === 'Instructional', 
