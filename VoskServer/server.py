@@ -15,6 +15,9 @@ async def recognize(websocket, path, model):
     recognizer = KaldiRecognizer(model, sample_rate)
     recognizer.SetWords(True)  # Enable word-level timestamps (can help with accuracy)
     
+    # Track if grammar has been set
+    grammar_set = False
+    
     try:
         async for message in websocket:
             # message is bytes (PCM16 LE)
@@ -32,8 +35,37 @@ async def recognize(websocket, path, model):
                     partial = pres.get("partial", "").strip()
                     if partial:
                         await websocket.send(json.dumps({"partial": partial}))
+            elif isinstance(message, str):
+                # Handle JSON configuration messages
+                try:
+                    config_msg = json.loads(message)
+                    if "config" in config_msg:
+                        config = config_msg["config"]
+                        
+                        # Check for grammar or word_list constraint
+                        grammar = config.get("grammar") or config.get("word_list")
+                        
+                        if grammar and isinstance(grammar, list) and len(grammar) > 0:
+                            # Recreate recognizer with grammar constraint
+                            # This limits recognition to only the specified words
+                            grammar_json = json.dumps(grammar)
+                            recognizer = KaldiRecognizer(model, sample_rate, grammar_json)
+                            recognizer.SetWords(True)
+                            grammar_set = True
+                            print(f"✓ Grammar constraint applied: {len(grammar)} words")
+                            await websocket.send(json.dumps({
+                                "status": "grammar_applied",
+                                "word_count": len(grammar)
+                            }))
+                        else:
+                            print("⚠ Received config but no valid grammar/word_list")
+                except json.JSONDecodeError:
+                    # Not JSON, might be heartbeat - ignore
+                    pass
+                except Exception as e:
+                    print(f"Error processing config: {e}")
             else:
-                # ignore non-binary messages (like heartbeat pings)
+                # ignore other message types (like heartbeat pings)
                 pass
     finally:
         # send final result on close - important for accuracy
