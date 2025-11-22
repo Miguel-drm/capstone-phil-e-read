@@ -1,10 +1,9 @@
 services:
-  # English-only Vosk WebSocket Server
-  # NOTE: Requires uploading small model OR using paid tier for full model
+  # English-only Vosk WebSocket Server (Memory Optimized with LGraph)
   - type: web
     name: phil-e-read-vosk-english
     runtime: python
-    plan: starter  # Full model requires 2GB RAM (paid tier)
+    plan: free  # LGraph model is memory-efficient enough for free tier
     buildCommand: bash build.sh
     startCommand: python server.py
     envVars:
@@ -27,13 +26,10 @@ services:
         value: ./model-tagalog
       - key: VOSK_ENGLISH_MODEL_PATH
         value: ./model-english
-      # Model repositories
-      # Option 1: Upload small model to YOUR HuggingFace account first
-      # HUGGINGFACE_ENGLISH_MODEL_REPO=Migueldrm/vosk-model-small-en-us-0.15
-      # Option 2: Use full model (requires starter plan or higher)
+      # Model repositories - using LGraph model for memory efficiency
       - key: HUGGINGFACE_ENGLISH_MODEL_REPO
-        value: Migueldrm/vosk-model-en-us-0.22  # Full model (works now, needs paid tier)
-      # Use small models for memory efficiency (if uploaded)
+        value: Migueldrm/vosk-model-en-us-0.22-lgraph  # LGraph model - fits in 512MB
+      # Use small models for memory efficiency
       - key: USE_SMALL_MODELS
-        value: "false"  # Set to true if using small model
+        value: "false"
 

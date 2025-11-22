@@ -1,8 +1,25 @@
-# How to Upload Small English Model to Hugging Face
+# ⚠️ THIS FILE IS NO LONGER NEEDED
 
-The small English Vosk model isn't available on Hugging Face yet. You need to upload it to your account.
+**Update**: We now use `Migueldrm/vosk-model-en-us-0.22-lgraph` which is already available!
 
-## Option 1: Quick Fix - Deploy Tagalog Only (Recommended for Now)
+The LGraph model is memory-efficient and works perfectly on Render's free tier (512 MB).
+
+---
+
+## ✅ Current Solution (Use This Instead)
+
+Deploy with both languages using:
+```
+HUGGINGFACE_ENGLISH_MODEL_REPO=Migueldrm/vosk-model-en-us-0.22-lgraph
+```
+
+See `START_HERE.md` for complete deployment instructions.
+
+---
+
+## Legacy Information (For Reference Only)
+
+## Option 1: Quick Fix - Deploy Tagalog Only
 
 Use the Tagalog-only configuration which already works:
 

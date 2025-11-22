@@ -5,11 +5,15 @@
 The repository `alphacep/vosk-model-small-en-us-0.15` doesn't exist on Hugging Face.
 That's why you got the "Repository Not Found" error.
 
-## ✅ WORKING SOLUTION (Deploy Now!)
+## ✅ WORKING SOLUTIONS (Choose One)
 
-**Deploy Tagalog-only server** - This works immediately on free tier!
+### Solution A: Both Languages (Recommended! 🌟)
+Deploy one server with both Tagalog AND English using the LGraph model!
 
-### Quick Deploy Steps:
+### Solution B: Tagalog-Only
+Start with Tagalog, add English later
+
+### Solution A: Both Languages (Quick Deploy)
 
 #### 1. Go to Render Dashboard
 https://dashboard.render.com/
@@ -23,7 +27,7 @@ https://dashboard.render.com/
 
 **Basic Settings**:
 ```
-Name: phil-e-read-tagalog-vosk
+Name: phil-e-read-vosk-bilingual
 Root Directory: VoskServer
 Runtime: Python 3
 Build Command: bash build.sh
@@ -35,58 +39,92 @@ Plan: Free
 ```
 VOSK_LAZY_LOAD=true
 DOWNLOAD_TAGALOG=true
-DOWNLOAD_ENGLISH=false
+DOWNLOAD_ENGLISH=true
 USE_SMALL_MODELS=false
 MAX_CONNECTIONS=5
 HUGGINGFACE_TAGALOG_MODEL_REPO=Migueldrm/vosk-model-tl-ph-generic-0.6
+HUGGINGFACE_ENGLISH_MODEL_REPO=Migueldrm/vosk-model-en-us-0.22-lgraph
 ```
 
 #### 4. Deploy
 - Click **"Create Web Service"**
-- Wait 5-10 minutes (watch logs)
+- Wait 10-15 minutes (downloading both models)
 
 #### 5. Success! 🎉
 
 You should see in logs:
 ```
 ✓ Tagalog model downloaded successfully
+✓ English model downloaded successfully
 ✓ Build completed successfully!
 ✓ Tagalog model path registered
+✓ English model path registered
+🔧 Lazy loading enabled - models will be loaded on first use
 Starting WebSocket server on port 10000
+Available languages: ['tagalog', 'english']
 ```
 
-Your WebSocket URL: `wss://phil-e-read-tagalog-vosk.onrender.com`
+Your WebSocket URL: `wss://phil-e-read-vosk-bilingual.onrender.com`
 
 #### 6. Update Frontend
 
 Create `frontend/.env`:
 ```env
-VITE_VOSK_WS_URL=wss://phil-e-read-tagalog-vosk.onrender.com
+VITE_VOSK_WS_URL=wss://phil-e-read-vosk-bilingual.onrender.com
 ```
 
-**Expected RAM Usage**: ~200-250 MB ✅ Safe for free tier!
+**Expected RAM Usage**: 
+- First Tagalog user: ~250 MB ✅
+- First English user: ~350 MB ✅
+- Both loaded: ~500 MB ✅ (with lazy loading, only one active at a time)
+
+---
+
+### Solution B: Tagalog-Only (If You Want to Start Simple)
+
+Use the same steps but with these environment variables:
+```
+VOSK_LAZY_LOAD=true
+DOWNLOAD_TAGALOG=true
+DOWNLOAD_ENGLISH=false
+USE_SMALL_MODELS=false
+MAX_CONNECTIONS=5
+HUGGINGFACE_TAGALOG_MODEL_REPO=Migueldrm/vosk-model-tl-ph-generic-0.6
+```
+
+**RAM**: ~200-250 MB ✅ Very safe
 
 ---
 
 ## 📊 What About English?
 
-You have **3 options**:
+**Good news!** English now works on free tier too! 🎉
 
-### Option 1: Upload Small English Model (Best for Free Tier)
-- Download: https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
-- Upload to your Hugging Face account
-- See: `UPLOAD_SMALL_ENGLISH_MODEL.md`
-- **RAM**: ~200 MB ✅
+We're using the **LGraph model** (`vosk-model-en-us-0.22-lgraph`) which is memory-efficient.
 
-### Option 2: Use Full English Model (Requires Paid Tier)
-- Already on your HuggingFace: `Migueldrm/vosk-model-en-us-0.22`
-- **RAM**: ~2 GB ❌ Needs Starter plan ($7/month)
-- Better accuracy
+### Option 1: Deploy Both Languages (Single Service)
+```
+DOWNLOAD_TAGALOG=true
+DOWNLOAD_ENGLISH=true
+HUGGINGFACE_ENGLISH_MODEL_REPO=Migueldrm/vosk-model-en-us-0.22-lgraph
+VOSK_LAZY_LOAD=true
+```
+- **RAM**: ~250-350 MB per model (lazy loaded) ✅
+- Works on free tier!
 
-### Option 3: Use Both (Separate Services)
+### Option 2: Deploy English-Only Service
+```
+DOWNLOAD_TAGALOG=false
+DOWNLOAD_ENGLISH=true
+HUGGINGFACE_ENGLISH_MODEL_REPO=Migueldrm/vosk-model-en-us-0.22-lgraph
+```
+- **RAM**: ~300-350 MB ✅
+- Very safe for free tier
+
+### Option 3: Separate Services (Most Reliable)
 - Deploy Tagalog service (free tier)
-- Deploy English service (free tier with small model OR paid tier with full model)
-- Most reliable approach
+- Deploy English service (free tier)
+- Best isolation and reliability
 
 ---
 
@@ -142,8 +180,12 @@ You have **3 options**:
 
 ## 💡 Pro Tip
 
-Deploy **Tagalog now**, use it for testing.
-Later, when you have time, upload the small English model for English support.
+**Recommended**: Deploy **both languages** using Solution A!
 
-**Total time**: 10 minutes to get Tagalog working! 🚀
+The LGraph English model is memory-efficient enough for free tier.
+With lazy loading, only one model is in memory at a time.
+
+**Total time**: 15 minutes to get both languages working! 🚀
+
+**Alternative**: Start with Tagalog-only (Solution B) if you want the safest option.
 

@@ -22,13 +22,13 @@ USE_SMALL_MODELS = os.getenv("USE_SMALL_MODELS", "true").lower() == "true"
 if USE_SMALL_MODELS:
     # Small models - optimized for low memory usage
     TAGALOG_MODEL_REPO = os.getenv("HUGGINGFACE_TAGALOG_MODEL_REPO", "Migueldrm/vosk-model-tl-ph-generic-0.6")
-    ENGLISH_MODEL_REPO = os.getenv("HUGGINGFACE_ENGLISH_MODEL_REPO", "alphacep/vosk-model-small-en-us-0.15")
-    print("🔧 Using small models for low-memory deployment")
+    ENGLISH_MODEL_REPO = os.getenv("HUGGINGFACE_ENGLISH_MODEL_REPO", "Migueldrm/vosk-model-en-us-0.22-lgraph")
+    print("🔧 Using small/optimized models for low-memory deployment")
 else:
-    # Full models - better accuracy but more memory
+    # Full/LGraph models - good accuracy with reasonable memory
     TAGALOG_MODEL_REPO = os.getenv("HUGGINGFACE_TAGALOG_MODEL_REPO", "Migueldrm/vosk-model-tl-ph-generic-0.6")
-    ENGLISH_MODEL_REPO = os.getenv("HUGGINGFACE_ENGLISH_MODEL_REPO", "Migueldrm/vosk-model-en-us-0.22")
-    print("Using full models for better accuracy")
+    ENGLISH_MODEL_REPO = os.getenv("HUGGINGFACE_ENGLISH_MODEL_REPO", "Migueldrm/vosk-model-en-us-0.22-lgraph")
+    print("Using LGraph model for balanced accuracy and memory")
 
 TAGALOG_MODEL_DIR = os.getenv("VOSK_TAGALOG_MODEL_PATH", "./model-tagalog")
 ENGLISH_MODEL_DIR = os.getenv("VOSK_ENGLISH_MODEL_PATH", "./model-english")
