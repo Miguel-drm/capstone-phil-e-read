@@ -43,6 +43,7 @@ import ISRManagement from './pages/admin/ISRManagement';
 import TeacherReports from './pages/teacher/Reports';
 import AdminProfile from './pages/admin/Profile';
 import AdminResourcesPage from './pages/admin/Resources';
+import VoskMonitor from './pages/admin/VoskMonitor';
 
 
 
@@ -75,6 +76,7 @@ const App: React.FC = () => {
 
                     <Route path="reports" element={<AdminReports />} />
                     <Route path="isr" element={<ISRManagement />} />
+                    <Route path="vosk-monitor" element={<VoskMonitor />} />
 
                     <Route path="profile/*" element={<AdminProfile />} />
                     {/* Add more admin routes here */}
