@@ -4,9 +4,11 @@ import json
 import os
 import urllib.parse
 import websockets
+import gc
 from vosk import Model, KaldiRecognizer
 
 # This server expects raw PCM16 mono at 16kHz frames (Int16) from the client
+# Optimized for low memory usage (<512MB RAM)
 
 async def recognize(websocket, path, model):
     sample_rate = 16000
@@ -81,24 +83,37 @@ async def handler(ws, path):
     """
     WebSocket handler that selects the appropriate model based on language query parameter.
     Expected URL format: ws://host:port/?lang=tagalog or ws://host:port/?lang=english
+    Supports lazy loading of models to optimize memory usage.
     """
     # Parse query parameters from path
     parsed = urllib.parse.urlparse(path)
     query_params = urllib.parse.parse_qs(parsed.query)
     language = query_params.get("lang", ["tagalog"])[0].lower()  # Default to tagalog
     
-    # Select model based on language
-    if language == "english" or language == "en":
-        model = models.get("english")
-        if not model:
-            await ws.close(code=1008, reason="English model not loaded")
-            return
-    else:  # Default to tagalog
-        model = models.get("tagalog")
-        if not model:
-            await ws.close(code=1008, reason="Tagalog model not loaded")
+    # Normalize language parameter
+    if language == "en":
+        language = "english"
+    elif language == "tl":
+        language = "tagalog"
+    
+    # Check if model path exists
+    if language not in model_paths:
+        await ws.close(code=1008, reason=f"{language.capitalize()} model not available")
+        return
+    
+    # Lazy load model if not already loaded
+    if language not in models:
+        print(f"⏳ Lazy loading {language} model from: {model_paths[language]}")
+        try:
+            models[language] = Model(model_paths[language])
+            print(f"✓ {language.capitalize()} model loaded successfully")
+            gc.collect()  # Free up memory after loading
+        except Exception as e:
+            print(f"❌ Error loading {language} model: {e}")
+            await ws.close(code=1011, reason=f"Failed to load {language} model")
             return
     
+    model = models[language]
     await recognize(ws, path, model)
 
 async def main():
@@ -106,36 +121,47 @@ async def main():
     parser.add_argument("--tagalog-model", default=os.getenv("VOSK_TAGALOG_MODEL_PATH", "./model-tagalog"), help="Path to Tagalog Vosk model directory")
     parser.add_argument("--english-model", default=os.getenv("VOSK_ENGLISH_MODEL_PATH", "./model-english"), help="Path to English Vosk model directory")
     parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "2700")))
+    parser.add_argument("--lazy-load", action="store_true", default=os.getenv("VOSK_LAZY_LOAD", "true").lower() == "true", 
+                       help="Load models on-demand to save memory (default: true)")
     args = parser.parse_args()
 
-    global models
+    global models, model_paths
     models = {}
+    model_paths = {}
     
-    # Load Tagalog model
+    # Store model paths for lazy loading
     if os.path.isdir(args.tagalog_model):
-        print("Loading Tagalog model from:", args.tagalog_model)
-        models["tagalog"] = Model(args.tagalog_model)
-        print("✓ Tagalog model loaded")
+        model_paths["tagalog"] = args.tagalog_model
+        print(f"✓ Tagalog model path registered: {args.tagalog_model}")
     else:
         print("⚠ Warning: Tagalog model path does not exist:", args.tagalog_model)
-        print("  Tagalog recognition will not be available")
     
-    # Load English model
     if os.path.isdir(args.english_model):
-        print("Loading English model from:", args.english_model)
-        models["english"] = Model(args.english_model)
-        print("✓ English model loaded")
+        model_paths["english"] = args.english_model
+        print(f"✓ English model path registered: {args.english_model}")
     else:
         print("⚠ Warning: English model path does not exist:", args.english_model)
-        print("  English recognition will not be available")
     
-    if not models:
-        print("❌ Error: No models loaded. Please ensure at least one model directory exists.")
+    if not model_paths:
+        print("❌ Error: No model paths found. Please ensure at least one model directory exists.")
         return
     
+    # Memory optimization: Load only one model at startup (or none if lazy loading)
+    if not args.lazy_load:
+        # Load the first available model to ensure at least one is ready
+        first_lang = list(model_paths.keys())[0]
+        print(f"Loading {first_lang} model from: {model_paths[first_lang]}")
+        models[first_lang] = Model(model_paths[first_lang])
+        print(f"✓ {first_lang.capitalize()} model loaded")
+        gc.collect()  # Force garbage collection to free memory
+    else:
+        print("🔧 Lazy loading enabled - models will be loaded on first use")
+    
     print(f"Starting WebSocket server on port {args.port}")
-    print("Supported languages:", list(models.keys()))
+    print("Available languages:", list(model_paths.keys()))
+    print("Loaded models:", list(models.keys()) if models else "None (lazy loading)")
     print("Usage: ws://host:port/?lang=tagalog or ws://host:port/?lang=english")
+    print(f"Memory optimization: {'Enabled' if args.lazy_load else 'Disabled'}")
 
     # Create a wrapper to handle both old and new websockets API
     async def wrapped_handler(ws, path=None):
@@ -144,7 +170,17 @@ async def main():
             path = getattr(ws, 'path', '/')
         return await handler(ws, path)
     
-    async with websockets.serve(wrapped_handler, "0.0.0.0", args.port, max_size=None):
+    # Limit concurrent connections to reduce memory usage
+    max_connections = int(os.getenv("MAX_CONNECTIONS", "10"))
+    async with websockets.serve(
+        wrapped_handler, 
+        "0.0.0.0", 
+        args.port, 
+        max_size=None,
+        max_queue=max_connections,
+        ping_interval=20,
+        ping_timeout=20
+    ):
         await asyncio.Future()  # run forever
 
 if __name__ == "__main__":

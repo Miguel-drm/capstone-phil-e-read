@@ -16,10 +16,26 @@ except ImportError:
     from huggingface_hub import snapshot_download
 
 # Model repositories
-TAGALOG_MODEL_REPO = os.getenv("HUGGINGFACE_TAGALOG_MODEL_REPO", "Migueldrm/vosk-model-tl-ph-generic-0.6")
-ENGLISH_MODEL_REPO = os.getenv("HUGGINGFACE_ENGLISH_MODEL_REPO", "Migueldrm/vosk-model-en-us-0.22")
+# For low-memory deployments (< 512MB RAM), use small models
+USE_SMALL_MODELS = os.getenv("USE_SMALL_MODELS", "true").lower() == "true"
+
+if USE_SMALL_MODELS:
+    # Small models - optimized for low memory usage
+    TAGALOG_MODEL_REPO = os.getenv("HUGGINGFACE_TAGALOG_MODEL_REPO", "Migueldrm/vosk-model-tl-ph-generic-0.6")
+    ENGLISH_MODEL_REPO = os.getenv("HUGGINGFACE_ENGLISH_MODEL_REPO", "alphacep/vosk-model-small-en-us-0.15")
+    print("🔧 Using small models for low-memory deployment")
+else:
+    # Full models - better accuracy but more memory
+    TAGALOG_MODEL_REPO = os.getenv("HUGGINGFACE_TAGALOG_MODEL_REPO", "Migueldrm/vosk-model-tl-ph-generic-0.6")
+    ENGLISH_MODEL_REPO = os.getenv("HUGGINGFACE_ENGLISH_MODEL_REPO", "Migueldrm/vosk-model-en-us-0.22")
+    print("Using full models for better accuracy")
+
 TAGALOG_MODEL_DIR = os.getenv("VOSK_TAGALOG_MODEL_PATH", "./model-tagalog")
 ENGLISH_MODEL_DIR = os.getenv("VOSK_ENGLISH_MODEL_PATH", "./model-english")
+
+# Download only specific models if specified
+DOWNLOAD_TAGALOG = os.getenv("DOWNLOAD_TAGALOG", "true").lower() == "true"
+DOWNLOAD_ENGLISH = os.getenv("DOWNLOAD_ENGLISH", "true").lower() == "true"
 
 # Legacy support: if VOSK_MODEL_PATH is set, use it for Tagalog
 if os.getenv("VOSK_MODEL_PATH") and not os.getenv("VOSK_TAGALOG_MODEL_PATH"):
@@ -84,34 +100,47 @@ def download_model(repo_id, model_dir, model_name):
         return False
 
 def main():
-    """Download both Tagalog and English models."""
+    """Download Tagalog and/or English models based on configuration."""
     print("=" * 60)
     print("Vosk Model Downloader")
     print("=" * 60)
     print()
     
-    tagalog_success = download_model(
-        TAGALOG_MODEL_REPO,
-        TAGALOG_MODEL_DIR,
-        "Tagalog"
-    )
-    print()
+    tagalog_success = True
+    english_success = True
     
-    english_success = download_model(
-        ENGLISH_MODEL_REPO,
-        ENGLISH_MODEL_DIR,
-        "English"
-    )
-    print()
+    if DOWNLOAD_TAGALOG:
+        tagalog_success = download_model(
+            TAGALOG_MODEL_REPO,
+            TAGALOG_MODEL_DIR,
+            "Tagalog"
+        )
+        print()
+    else:
+        print("⏭️  Skipping Tagalog model download (DOWNLOAD_TAGALOG=false)")
+        print()
+    
+    if DOWNLOAD_ENGLISH:
+        english_success = download_model(
+            ENGLISH_MODEL_REPO,
+            ENGLISH_MODEL_DIR,
+            "English"
+        )
+        print()
+    else:
+        print("⏭️  Skipping English model download (DOWNLOAD_ENGLISH=false)")
+        print()
     
     print("=" * 60)
-    if tagalog_success and english_success:
-        print("✓ All models downloaded successfully!")
+    downloaded_count = sum([DOWNLOAD_TAGALOG and tagalog_success, DOWNLOAD_ENGLISH and english_success])
+    
+    if downloaded_count >= 1:
+        print(f"✓ Downloaded {downloaded_count} model(s) successfully!")
         return True
-    elif tagalog_success or english_success:
-        print("⚠ Some models downloaded successfully, but some failed.")
-        print("  The server will work with available models only.")
-        return True
+    elif not DOWNLOAD_TAGALOG and not DOWNLOAD_ENGLISH:
+        print("⚠ No models configured for download.")
+        print("  Set DOWNLOAD_TAGALOG=true or DOWNLOAD_ENGLISH=true")
+        return False
     else:
         print("✗ Failed to download models.")
         return False

@@ -1,0 +1,35 @@
+services:
+  # English-only Vosk WebSocket Server (Memory Optimized for Free Tier)
+  - type: web
+    name: phil-e-read-vosk-english
+    runtime: python
+    plan: free
+    buildCommand: bash build.sh
+    startCommand: python server.py
+    envVars:
+      - key: PORT
+        generateValue: true
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      # Memory optimization settings
+      - key: VOSK_LAZY_LOAD
+        value: "true"
+      - key: MAX_CONNECTIONS
+        value: "5"
+      # Download only English model
+      - key: DOWNLOAD_TAGALOG
+        value: "false"
+      - key: DOWNLOAD_ENGLISH
+        value: "true"
+      # Model paths
+      - key: VOSK_TAGALOG_MODEL_PATH
+        value: ./model-tagalog
+      - key: VOSK_ENGLISH_MODEL_PATH
+        value: ./model-english
+      # Model repositories - using SMALL English model for free tier
+      - key: HUGGINGFACE_ENGLISH_MODEL_REPO
+        value: alphacep/vosk-model-small-en-us-0.15
+      # Use small models for memory efficiency
+      - key: USE_SMALL_MODELS
+        value: "true"
+
