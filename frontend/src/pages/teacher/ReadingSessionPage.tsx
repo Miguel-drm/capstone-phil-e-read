@@ -1631,12 +1631,12 @@ const ReadingSessionPage: React.FC = () => {
     const useVosk = storyLanguage === "tagalog" || storyLanguage === "english";
     if (useVosk) {
       try {
-        // Railway WebSocket URL: wss://philiready-websocket-production.up.railway.app
+        // Render WebSocket URL: wss://phil-e-read-websocket.onrender.com
         // Can be overridden with VITE_VOSK_WS_URL environment variable
         // Add language parameter to WebSocket URL
         const baseWsUrl =
           (import.meta as any)?.env?.VITE_VOSK_WS_URL ||
-          "wss://philiready-websocket-production.up.railway.app";
+          "wss://phil-e-read-websocket.onrender.com";
         const wsUrl = `${baseWsUrl}?lang=${storyLanguage}`;
         const startVosk = async (isReconnect: boolean = false) => {
           if (!isReconnect) {
@@ -1888,7 +1888,7 @@ const ReadingSessionPage: React.FC = () => {
         if (isRecording && !isPaused) {
           const baseWsUrl =
             (import.meta as any)?.env?.VITE_VOSK_WS_URL ||
-            "wss://philiready-websocket-production.up.railway.app";
+            "wss://phil-e-read-websocket.onrender.com";
           const wsUrl = `${baseWsUrl}?lang=${storyLanguage}`;
 
           // Restart Vosk with new language (using improved audio settings)
