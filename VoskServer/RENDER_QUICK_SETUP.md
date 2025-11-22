@@ -46,49 +46,44 @@ VITE_VOSK_WS_URL=wss://phil-e-read-tagalog-vosk.onrender.com
 
 ---
 
-## 🇺🇸 English-Only Server (Requires Setup First)
+## 🇺🇸 English-Only Server (Works on Free Tier!)
 
-**Note**: The small English model needs to be uploaded to Hugging Face first.
-See `UPLOAD_SMALL_ENGLISH_MODEL.md` for instructions.
+**Good news!** The LGraph English model works on free tier (512 MB).
 
-**After uploading the model**, use these environment variables:
-```
-VOSK_LAZY_LOAD=true
-DOWNLOAD_TAGALOG=false
-DOWNLOAD_ENGLISH=true
-USE_SMALL_MODELS=true
-MAX_CONNECTIONS=5
-HUGGINGFACE_ENGLISH_MODEL_REPO=Migueldrm/vosk-model-small-en-us-0.15
-```
-
-**OR use the full English model** (requires paid tier - 2GB RAM):
+**Environment Variables**:
 ```
 VOSK_LAZY_LOAD=true
 DOWNLOAD_TAGALOG=false
 DOWNLOAD_ENGLISH=true
 USE_SMALL_MODELS=false
-MAX_CONNECTIONS=10
-HUGGINGFACE_ENGLISH_MODEL_REPO=Migueldrm/vosk-model-en-us-0.22
+MAX_CONNECTIONS=5
+HUGGINGFACE_ENGLISH_MODEL_REPO=Migueldrm/vosk-model-en-us-0.22-lgraph
 ```
+
+**Expected RAM**: ~300-350 MB ✅ Fits in free tier!
 
 ---
 
-## 🌍 Both Languages (Requires Paid Tier)
+## 🌍 Both Languages (Possible with Lazy Loading!)
 
-⚠️ **Warning**: Both models together exceed 512 MB free tier limit.
+With lazy loading + LGraph model, both languages can work on free tier!
 
-**Option 1**: Deploy separate Tagalog and English services (recommended)
-
-**Option 2**: Use Render Starter plan ($7/month) with these variables:
+**Environment Variables**:
 ```
 VOSK_LAZY_LOAD=true
 DOWNLOAD_TAGALOG=true
 DOWNLOAD_ENGLISH=true
 USE_SMALL_MODELS=false
-MAX_CONNECTIONS=10
+MAX_CONNECTIONS=5
 HUGGINGFACE_TAGALOG_MODEL_REPO=Migueldrm/vosk-model-tl-ph-generic-0.6
-HUGGINGFACE_ENGLISH_MODEL_REPO=Migueldrm/vosk-model-en-us-0.22
+HUGGINGFACE_ENGLISH_MODEL_REPO=Migueldrm/vosk-model-en-us-0.22-lgraph
 ```
+
+**Expected RAM**: 
+- With lazy loading: One model loaded at a time (~250-350 MB) ✅
+- Both loaded: ~500-550 MB ⚠️ Tight but possible
+
+**Recommendation**: Deploy separate services for better reliability, or upgrade to Starter plan for guaranteed performance.
 
 ---
 
@@ -122,7 +117,7 @@ Available languages: ['tagalog']
 **Fix**: You're out of memory. Use Tagalog-only deployment on free tier.
 
 ### ❌ "Repository Not Found" for English model
-**Fix**: Small English model not on Hugging Face yet. See `UPLOAD_SMALL_ENGLISH_MODEL.md` or use Tagalog-only for now.
+**Fix**: Make sure you're using `Migueldrm/vosk-model-en-us-0.22-lgraph` (with -lgraph suffix)
 
 ### ⚠️ Slow cold start (30-60 seconds)
 **Fix**: Normal for free tier. Upgrade to Starter plan ($7/month) for always-on service.
@@ -131,14 +126,14 @@ Available languages: ['tagalog']
 
 ## 💡 Recommended: Separate Services
 
-**Best reliability on free tier**:
+**Option 1: Single Service (Both Languages)**:
+- Use lazy loading + LGraph model
+- Both languages work on free tier! ✅
+- One model loads at a time (~250-350 MB)
 
-1. Deploy Tagalog-only service → `wss://your-tagalog-server.onrender.com` ✅ Works now
-2. Later: Upload small English model and deploy English service
-
-**If you need both languages now**:
-- Option A: Upload small English model to Hugging Face (see `UPLOAD_SMALL_ENGLISH_MODEL.md`)
-- Option B: Upgrade to Render Starter plan ($7/month) and use full models
+**Option 2: Separate Services (Best Reliability)**:
+1. Deploy Tagalog-only service → `wss://your-tagalog-server.onrender.com`
+2. Deploy English-only service → `wss://your-english-server.onrender.com`
 
 Update frontend to select URL based on story language:
 ```typescript
