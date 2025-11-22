@@ -409,20 +409,8 @@ const ReadingSessionPage: React.FC = () => {
   }> => {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
 
-    // OPTIMIZED: Ensure audio context is active before processing
     if (ctx.state === 'suspended') {
       await ctx.resume();
-    }
-    
-    // Double-check state after resume attempt
-    if (ctx.state === 'suspended') {
-      console.warn('Audio context still suspended after resume attempt');
-      // Try user interaction to resume (some browsers require this)
-      try {
-        await ctx.resume();
-      } catch (e) {
-        console.warn('Failed to resume audio context:', e);
-      }
     }
 
     const src = ctx.createMediaStreamSource(stream);
@@ -544,53 +532,18 @@ const ReadingSessionPage: React.FC = () => {
     isReconnect: boolean,
     startVoskFn: (isReconnect: boolean) => Promise<void>
   ) => {
-    // Helper function for close code descriptions
-    const getCloseCodeDescription = (code: number): string => {
-      const descriptions: { [key: number]: string } = {
-        1000: "Normal closure",
-        1001: "Going away",
-        1002: "Protocol error",
-        1003: "Unsupported data",
-        1006: "Abnormal closure (no close frame received)",
-        1007: "Invalid frame payload data",
-        1008: "Policy violation",
-        1009: "Message too big",
-        1010: "Mandatory extension",
-        1011: "Internal server error",
-        1012: "Service restart",
-        1013: "Try again later",
-        1014: "Bad gateway",
-        1015: "TLS handshake failure"
-      };
-      return descriptions[code] || `Unknown close code: ${code}`;
-    };
     ws.onerror = (error) => {
-      const wsUrl = ws.url || "unknown";
-      console.error("❌ Speech recognition connection error:", error);
-      console.error(`   WebSocket URL: ${wsUrl}`);
-      console.error(`   ReadyState: ${ws.readyState} (0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED)`);
-      
-      // Provide more specific error information
-      let errorMessage = "Unable to connect to speech recognition service.";
-      if (wsUrl.includes("onrender.com")) {
-        errorMessage += "\n\nPossible causes:\n" +
-          "• Render service may be sleeping (free tier)\n" +
-          "• Service may be starting up (wait 30-60 seconds)\n" +
-          "• Check Render dashboard for service status";
-      }
+      console.error("Speech recognition connection error:", error);
 
       if (voskReconnectAttemptsRef.current < 3) {
-        console.log(`🔄 Attempting to reconnect (attempt ${voskReconnectAttemptsRef.current + 1}/3)...`);
+        console.log("Attempting to reconnect to speech recognition service...");
         attemptVoskReconnect(startVoskFn);
       } else {
-        console.error("❌ Unable to connect after 3 attempts");
+        console.error("Unable to connect to speech recognition service after multiple attempts");
         cleanupVosk();
         setVoskStatus("disconnected");
         if (!isReconnect) {
-          alert(errorMessage + "\n\nPlease check:\n" +
-            "1. Your internet connection\n" +
-            "2. The WebSocket service status\n" +
-            "3. Try refreshing the page");
+          alert("Unable to connect to speech recognition service. Please check your internet connection and try again.");
           setIsRecording(false);
         }
       }
@@ -598,57 +551,25 @@ const ReadingSessionPage: React.FC = () => {
 
     ws.onclose = (event) => {
       setVoskStatus("disconnected");
-      const wsUrl = ws.url || "unknown";
 
       if (voskHeartbeatIntervalRef.current) {
         clearInterval(voskHeartbeatIntervalRef.current);
         voskHeartbeatIntervalRef.current = null;
       }
 
-      // Log close event details for debugging
-      console.warn(`🔌 WebSocket closed:`, {
-        code: event.code,
-        reason: event.reason || "No reason provided",
-        wasClean: event.wasClean,
-        url: wsUrl
-      });
-
-      // WebSocket close codes reference:
-      // 1000 = Normal closure
-      // 1001 = Going away
-      // 1006 = Abnormal closure (no close frame)
-      // 1008 = Policy violation
-      // 1011 = Server error
-      // 1012 = Service restart
-      // 1013 = Try again later
-      // 1014 = Bad gateway
-      // 1015 = TLS handshake failure
-
       // Only attempt reconnect if recording is active and it wasn't a clean close
       if (isRecording && !isPaused && event.code !== 1000) {
-        const closeReason = event.reason || getCloseCodeDescription(event.code);
-        console.warn(`⚠️ Speech recognition connection closed: ${closeReason} (code: ${event.code})`);
-
-        // For Render free tier, code 1006 (abnormal closure) is common when service is sleeping
-        if (event.code === 1006 && wsUrl.includes("onrender.com")) {
-          console.warn("💤 Render service may be sleeping (free tier). First connection takes 30-60 seconds to wake up.");
-        }
+        const closeReason = event.reason || "Connection closed unexpectedly";
+        console.warn(`Speech recognition connection closed: ${closeReason} (code: ${event.code})`);
 
         if (voskReconnectAttemptsRef.current < 3) {
-          console.log(`🔄 Attempting to reconnect (attempt ${voskReconnectAttemptsRef.current + 1}/3)...`);
+          console.log("Attempting to reconnect...");
           attemptVoskReconnect(startVoskFn);
         } else {
-          console.error("❌ Connection lost after multiple reconnection attempts");
+          console.error("Connection lost after multiple reconnection attempts");
           cleanupVosk();
           if (!isReconnect) {
-            let userMessage = "Connection to speech recognition service was lost.\n\n";
-            if (event.code === 1006 && wsUrl.includes("onrender.com")) {
-              userMessage += "The Render service may be sleeping (free tier).\n" +
-                "Please wait 30-60 seconds and try again, or check the Render dashboard.";
-            } else {
-              userMessage += "Please check your internet connection and try again.";
-            }
-            alert(userMessage);
+            alert("Connection to speech recognition service was lost. Please check your internet connection and try again.");
             setIsRecording(false);
           }
         }
@@ -1710,20 +1631,13 @@ const ReadingSessionPage: React.FC = () => {
     const useVosk = storyLanguage === "tagalog" || storyLanguage === "english";
     if (useVosk) {
       try {
-        // Railway WebSocket URLs
-        // Tagalog: wss://philiready-websocket-production.up.railway.app
-        // English: Falls back to Tagalog service with lang=english (English service may not be publicly accessible)
+        // Railway WebSocket URL: wss://philiready-websocket-production.up.railway.app
         // Can be overridden with VITE_VOSK_WS_URL environment variable
-        const getRailwayWsUrl = (lang: string) => {
-          const envUrl = (import.meta as any)?.env?.VITE_VOSK_WS_URL;
-          if (envUrl) {
-            return `${envUrl}?lang=${lang}`;
-          }
-          // Use Tagalog service for both languages (it supports both via lang parameter)
-          // The English-specific service (philiready-websocket-english) may not be publicly accessible
-          return "wss://philiready-websocket-production.up.railway.app?lang=" + lang;
-        };
-        const wsUrl = getRailwayWsUrl(storyLanguage);
+        // Add language parameter to WebSocket URL
+        const baseWsUrl =
+          (import.meta as any)?.env?.VITE_VOSK_WS_URL ||
+          "wss://philiready-websocket-production.up.railway.app";
+        const wsUrl = `${baseWsUrl}?lang=${storyLanguage}`;
         const startVosk = async (isReconnect: boolean = false) => {
           if (!isReconnect) {
             voskReconnectAttemptsRef.current = 0;
@@ -1741,43 +1655,17 @@ const ReadingSessionPage: React.FC = () => {
             scriptNodeRef.current = script;
 
             setVoskStatus("connecting");
-            
-            // Show helpful message for Render free tier
-            if (wsUrl.includes("onrender.com")) {
-              console.log("💤 Connecting to Render service (free tier may take 30-60 seconds to wake up)...");
-              console.log(`   URL: ${wsUrl}`);
-            }
 
-            // OPTIMIZED: Longer connection timeout for Render free tier (can take 30-60s to wake up)
-            const connectionTimeout = wsUrl.includes("onrender.com") ? 60000 : 5000; // 60s for Render, 5s for others
-            console.log(`⏱️ Connection timeout set to ${connectionTimeout / 1000}s`);
-            
+            // Connection timeout
             voskConnectionTimeoutRef.current = setTimeout(() => {
               if (voskSocketRef.current?.readyState !== WebSocket.OPEN) {
-                const currentState = voskSocketRef.current?.readyState;
-                const stateNames: { [key: number]: string } = { 0: "CONNECTING", 1: "OPEN", 2: "CLOSING", 3: "CLOSED" };
-                const stateName = currentState !== undefined ? (stateNames[currentState] || `UNKNOWN(${currentState})`) : "UNKNOWN";
-                console.warn(`⏱️ Vosk connection timeout after ${connectionTimeout / 1000}s (state: ${stateName})`);
-                
-                if (wsUrl.includes("onrender.com") && voskReconnectAttemptsRef.current === 0) {
-                  // First attempt on Render - give it more time (service might be waking up)
-                  console.log("💤 Render service may be waking up. Waiting longer before reconnect...");
-                  voskConnectionTimeoutRef.current = setTimeout(() => {
-                    if (voskSocketRef.current?.readyState !== WebSocket.OPEN) {
-                      console.warn("⏱️ Still not connected after extended wait. Attempting reconnect...");
-                      voskSocketRef.current?.close();
-                      attemptVoskReconnect(startVosk);
-                    }
-                  }, 30000); // Additional 30 seconds
-                } else {
-                  voskSocketRef.current?.close();
-                  attemptVoskReconnect(startVosk);
-                }
+                console.warn("Vosk connection timeout, attempting reconnect...");
+                voskSocketRef.current?.close();
+                attemptVoskReconnect(startVosk);
               }
-            }, connectionTimeout);
+            }, 5000);
 
-            // OPTIMIZED: Create WebSocket connection with better error handling
-            console.log(`🔌 Attempting to connect to: ${wsUrl}`);
+            // Create WebSocket connection
             const ws = new WebSocket(wsUrl);
             voskSocketRef.current = ws;
             ws.binaryType = "arraybuffer";
@@ -1790,7 +1678,6 @@ const ReadingSessionPage: React.FC = () => {
 
               voskReconnectAttemptsRef.current = 0;
               setVoskStatus("connected");
-              console.log(`✅ WebSocket connected successfully to ${wsUrl}`);
 
               // Send vocabulary constraint to Vosk for 100% accurate word recognition
               if (storyVocabulary.size > 0) {
@@ -1823,22 +1710,13 @@ const ReadingSessionPage: React.FC = () => {
                 }
               }
 
-              // OPTIMIZED: Start heartbeat to keep connection alive
+              // Start heartbeat
               voskHeartbeatIntervalRef.current = setInterval(() => {
                 if (ws.readyState === WebSocket.OPEN) {
                   try {
                     ws.send(new ArrayBuffer(0));
                   } catch (e) {
                     console.warn("Heartbeat send failed:", e);
-                    // Only attempt reconnect if recording is still active
-                    if (isRecording && !isPaused) {
-                      attemptVoskReconnect(startVosk);
-                    }
-                  }
-                } else if (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
-                  // Connection lost, attempt reconnect if still recording
-                  if (isRecording && !isPaused) {
-                    console.log('🔄 WebSocket closed during heartbeat, attempting reconnect...');
                     attemptVoskReconnect(startVosk);
                   }
                 }
@@ -1850,10 +1728,8 @@ const ReadingSessionPage: React.FC = () => {
               let speechStartDetected = false;
               let consecutiveSpeechFrames = 0;
               let consecutiveSilenceFrames = 0;
-              let lastEofTime = 0;
-              let audioChunksSent = 0;
 
-              // Setup audio processing - OPTIMIZED for continuous recognition
+              // Setup audio processing
               script.onaudioprocess = (e: AudioProcessingEvent) => {
                 try {
                   const channel = e.inputBuffer.getChannelData(0);
@@ -1868,15 +1744,15 @@ const ReadingSessionPage: React.FC = () => {
                   }
                   const rms = Math.sqrt(sum / channel.length);
 
-                  // OPTIMIZED AUDIO DETECTION - Balanced sensitivity
-                  const SILENCE_THRESHOLD = 0.005;  // 0.5% - sensitive for quiet voices
-                  const PEAK_THRESHOLD = 0.02;      // 2% - catches soft speech
+                  // ULTRA-SENSITIVE AUDIO DETECTION - Optimized for catching first word
+                  const SILENCE_THRESHOLD = 0.005;  // 0.5% - extremely sensitive
+                  const PEAK_THRESHOLD = 0.02;      // 2% - catches very soft speech
                   const MIN_DYNAMIC_RANGE = 0.003;  // Very low - accepts all speech patterns
 
                   // Calculate dynamic range (difference between peak and RMS)
                   const dynamicRange = peak - rms;
 
-                  // Speech detection for visual feedback
+                  // Speech detection with relaxed criteria to catch first word
                   const isSpeechDetected =
                     rms > SILENCE_THRESHOLD &&
                     peak > PEAK_THRESHOLD &&
@@ -1893,10 +1769,10 @@ const ReadingSessionPage: React.FC = () => {
 
                   setIsDetectingSpeech(isSpeechDetected);
 
-                  // Convert audio to PCM16 using optimized downsampling
+                  // Convert audio to PCM16
                   const pcm16 = downsampleTo16k(channel, ctx.sampleRate || 48000);
 
-                  // Always buffer recent audio (circular buffer) for speech start detection
+                  // Always buffer recent audio (circular buffer)
                   audioBuffer.push(pcm16);
                   if (audioBuffer.length > MAX_BUFFER_SIZE) {
                     audioBuffer.shift();
@@ -1909,54 +1785,37 @@ const ReadingSessionPage: React.FC = () => {
                     return;
                   }
 
-                  // OPTIMIZED: Send audio continuously when WebSocket is open and recording
-                  // This ensures Vosk receives all audio data for better recognition
-                  if (ws.readyState === WebSocket.OPEN && isRecording && !isPaused) {
-                    // Detect speech start (2 consecutive frames = ~40ms) for buffered audio
-                    if (!speechStartDetected && consecutiveSpeechFrames >= 2) {
-                      speechStartDetected = true;
+                  // Detect speech start (2 consecutive frames = ~40ms)
+                  if (!speechStartDetected && consecutiveSpeechFrames >= 2) {
+                    speechStartDetected = true;
+
+                    // Send buffered audio first to capture the beginning
+                    if (ws.readyState === WebSocket.OPEN) {
                       console.log('🎤 Speech start detected - sending buffered audio');
-                      
-                      // Send buffered audio first to capture the beginning
                       for (const bufferedChunk of audioBuffer) {
-                        try {
-                          ws.send(bufferedChunk.buffer);
-                          audioChunksSent++;
-                        } catch (e) {
-                          console.warn('Failed to send buffered audio:', e);
-                        }
+                        ws.send(bufferedChunk.buffer);
                       }
                       audioBuffer.length = 0; // Clear buffer after sending
                     }
+                  }
 
-                    // OPTIMIZED: Send audio continuously (not just when speech detected)
-                    // This improves recognition accuracy by ensuring Vosk gets all audio
-                    try {
+                  // Send current audio if speech is active
+                  if (speechStartDetected && isSpeechDetected) {
+                    if (ws.readyState === WebSocket.OPEN) {
                       ws.send(pcm16.buffer);
-                      audioChunksSent++;
-                      
-                      // Log every 100th chunk to avoid console spam
-                      if (audioChunksSent % 100 === 0) {
-                        console.log(`🎤 Sent ${audioChunksSent} audio chunks, speech: ${isSpeechDetected ? 'detected' : 'silence'}`);
-                      }
-                    } catch (e) {
-                      console.error('Failed to send audio:', e);
-                      // Check if WebSocket is closing or closed
-                      if (ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING) {
-                        attemptVoskReconnect(startVosk);
-                      }
+                    } else if (ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
+                      attemptVoskReconnect(startVosk);
                     }
                   }
 
-                  // OPTIMIZED: Send EOF after silence to force Vosk to finalize
-                  // Only send EOF if we detected speech and now have silence
-                  const now = Date.now();
-                  if (speechStartDetected && consecutiveSilenceFrames >= 5 && (now - lastEofTime) > 200) {
+                  // REAL-TIME FIX: Send EOF after silence to force Vosk to finalize
+                  // Reduced from 10 frames (200ms) to 5 frames (100ms) for faster response
+                  if (speechStartDetected && consecutiveSilenceFrames >= 5) {
+                    // Send EOF to Vosk to finalize recognition
                     if (ws.readyState === WebSocket.OPEN) {
                       try {
                         ws.send(JSON.stringify({ eof: 1 }));
                         console.log('🔚 Sent EOF to Vosk after 100ms silence - forcing finalization');
-                        lastEofTime = now;
                       } catch (e) {
                         console.warn('Failed to send EOF:', e);
                       }
@@ -2027,16 +1886,10 @@ const ReadingSessionPage: React.FC = () => {
       // Small delay before reconnecting to ensure cleanup completes
       setTimeout(() => {
         if (isRecording && !isPaused) {
-          // Use same Railway URL logic as main Vosk initialization
-          const getRailwayWsUrl = (lang: string) => {
-            const envUrl = (import.meta as any)?.env?.VITE_VOSK_WS_URL;
-            if (envUrl) {
-              return `${envUrl}?lang=${lang}`;
-            }
-            // Use Tagalog service for both languages
-            return "wss://philiready-websocket-production.up.railway.app?lang=" + lang;
-          };
-          const wsUrl = getRailwayWsUrl(storyLanguage);
+          const baseWsUrl =
+            (import.meta as any)?.env?.VITE_VOSK_WS_URL ||
+            "wss://philiready-websocket-production.up.railway.app";
+          const wsUrl = `${baseWsUrl}?lang=${storyLanguage}`;
 
           // Restart Vosk with new language (using improved audio settings)
           const startVosk = async () => {
@@ -2172,14 +2025,6 @@ const ReadingSessionPage: React.FC = () => {
                   }
                 }, 30000);
 
-                // OPTIMIZED: Audio buffer and speech detection for language switching
-                const audioBuffer: Int16Array[] = [];
-                const MAX_BUFFER_SIZE = 5;
-                let speechStartDetected = false;
-                let consecutiveSpeechFrames = 0;
-                let consecutiveSilenceFrames = 0;
-                let lastEofTime = 0;
-
                 script.onaudioprocess = (e: AudioProcessingEvent) => {
                   try {
                     const channel = e.inputBuffer.getChannelData(0);
@@ -2194,88 +2039,39 @@ const ReadingSessionPage: React.FC = () => {
                     }
                     const rms = Math.sqrt(sum / channel.length);
 
-                    // OPTIMIZED AUDIO DETECTION - Balanced sensitivity
-                    const SILENCE_THRESHOLD = 0.005;  // 0.5% - sensitive for quiet voices
-                    const PEAK_THRESHOLD = 0.02;     // 2% - catches soft speech
-                    const MIN_DYNAMIC_RANGE = 0.003;  // Very low - accepts all speech patterns
+                    // ULTRA-SENSITIVE AUDIO DETECTION - Optimized for 100% word capture
+                    const SILENCE_THRESHOLD = 0.01;  // 1% - ultra-low for very quiet voices
+                    const PEAK_THRESHOLD = 0.05;     // 5% - catches even whispers
+                    const MIN_DYNAMIC_RANGE = 0.01;  // Very low - accepts all speech patterns
 
                     // Calculate dynamic range (difference between peak and RMS)
                     const dynamicRange = peak - rms;
 
-                    // Speech detection for visual feedback
+                    // Speech detection requires ALL conditions:
+                    // 1. RMS above threshold (not too quiet)
+                    // 2. Peak above threshold (has clear sound peaks)
+                    // 3. Dynamic range sufficient (not constant noise)
                     const isSpeechDetected =
                       rms > SILENCE_THRESHOLD &&
                       peak > PEAK_THRESHOLD &&
                       dynamicRange > MIN_DYNAMIC_RANGE;
 
-                    // Track consecutive frames for stability
-                    if (isSpeechDetected) {
-                      consecutiveSpeechFrames++;
-                      consecutiveSilenceFrames = 0;
-                    } else {
-                      consecutiveSilenceFrames++;
-                      consecutiveSpeechFrames = 0;
-                    }
-
                     setIsDetectingSpeech(isSpeechDetected);
-
-                    // Convert audio to PCM16 using optimized downsampling
-                    const pcm16 = downsampleTo16k(channel);
-
-                    // Buffer audio for speech start detection
-                    audioBuffer.push(pcm16);
-                    if (audioBuffer.length > MAX_BUFFER_SIZE) {
-                      audioBuffer.shift();
-                    }
 
                     // Check cooldown - don't send audio during cooldown period
                     if (audioCooldownRef.current) {
-                      speechStartDetected = false;
-                      consecutiveSpeechFrames = 0;
-                      return;
+                      return; // Skip sending audio during cooldown
                     }
 
-                    // OPTIMIZED: Send audio continuously when WebSocket is open and recording
-                    if (ws.readyState === WebSocket.OPEN && isRecording && !isPaused) {
-                      // Detect speech start for buffered audio
-                      if (!speechStartDetected && consecutiveSpeechFrames >= 2) {
-                        speechStartDetected = true;
-                        console.log('🎤 Speech start detected (language switch) - sending buffered audio');
-                        
-                        // Send buffered audio first
-                        for (const bufferedChunk of audioBuffer) {
-                          try {
-                            ws.send(bufferedChunk.buffer);
-                          } catch (e) {
-                            console.warn('Failed to send buffered audio:', e);
-                          }
-                        }
-                        audioBuffer.length = 0;
-                      }
-
-                      // Send audio continuously for better recognition
-                      try {
-                        ws.send(pcm16.buffer);
-                      } catch (e) {
-                        console.error('Failed to send audio:', e);
-                      }
-                    }
-
-                    // Send EOF after silence to force finalization
-                    const now = Date.now();
-                    if (speechStartDetected && consecutiveSilenceFrames >= 5 && (now - lastEofTime) > 200) {
+                    // Only send audio data if ALL speech detection criteria are met
+                    if (isSpeechDetected) {
+                      const pcm16 = downsampleTo16k(channel);
                       if (ws.readyState === WebSocket.OPEN) {
-                        try {
-                          ws.send(JSON.stringify({ eof: 1 }));
-                          console.log('🔚 Sent EOF to Vosk after silence (language switch)');
-                          lastEofTime = now;
-                        } catch (e) {
-                          console.warn('Failed to send EOF:', e);
-                        }
+                        ws.send(pcm16.buffer);
                       }
-                      speechStartDetected = false;
-                      audioBuffer.length = 0;
                     }
+                    // If below threshold, don't send anything (silence/noise)
+                    // This aggressively filters: background noise, crowd, wind, constant sounds
                   } catch (error) {
                     console.warn("Error processing audio:", error);
                   }
@@ -4981,15 +4777,15 @@ const ReadingSessionPage: React.FC = () => {
                       {voskStatus === "connected"
                         ? `Vosk ${storyLanguage === "tagalog" ? "Tagalog" : "English"} Model: Connected`
                         : voskStatus === "connecting"
-                          ? `Vosk ${storyLanguage === "tagalog" ? "Tagalog" : "English"} Model: Connecting… (may take 30-60s on free tier)`
+                          ? `Vosk ${storyLanguage === "tagalog" ? "Tagalog" : "English"} Model: Connecting…`
                           : `Vosk ${storyLanguage === "tagalog" ? "Tagalog" : "English"} Model: Disconnected`}
                     </span>
                     <span className="sm:hidden">
                       {voskStatus === "connected"
-                        ? `Vosk ${storyLanguage === "tagalog" ? "TL" : "EN"} ✓`
+                        ? `Vosk ${storyLanguage === "tagalog" ? "TL" : "EN"}`
                         : voskStatus === "connecting"
                           ? `Vosk ${storyLanguage === "tagalog" ? "TL" : "EN"}...`
-                          : `Vosk ${storyLanguage === "tagalog" ? "TL" : "EN"} ✗`}
+                          : `Vosk ${storyLanguage === "tagalog" ? "TL" : "EN"}`}
                     </span>
                   </span>
                 )}
