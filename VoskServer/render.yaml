@@ -1,0 +1,22 @@
+services:
+  # Tagalog & English Vosk WebSocket Server
+  - type: web
+    name: phil-e-read-vosk-server
+    runtime: python
+    plan: free  # Change to 'starter' or higher for production
+    buildCommand: bash build.sh
+    startCommand: python server.py
+    envVars:
+      - key: PORT
+        generateValue: true  # Render will assign the port
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: VOSK_TAGALOG_MODEL_PATH
+        value: ./model-tagalog
+      - key: VOSK_ENGLISH_MODEL_PATH
+        value: ./model-english
+      - key: HUGGINGFACE_TAGALOG_MODEL_REPO
+        value: Migueldrm/vosk-model-tl-ph-generic-0.6
+      - key: HUGGINGFACE_ENGLISH_MODEL_REPO
+        value: Migueldrm/vosk-model-en-us-0.22
+
