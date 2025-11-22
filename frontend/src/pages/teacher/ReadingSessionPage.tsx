@@ -551,25 +551,81 @@ const ReadingSessionPage: React.FC = () => {
 
     ws.onclose = (event) => {
       setVoskStatus("disconnected");
+      const wsUrl = ws.url || "unknown";
 
       if (voskHeartbeatIntervalRef.current) {
         clearInterval(voskHeartbeatIntervalRef.current);
         voskHeartbeatIntervalRef.current = null;
       }
 
+      // Detailed close code analysis
+      const closeCodeMessages: { [key: number]: string } = {
+        1000: "Normal closure",
+        1001: "Going away (server restarting)",
+        1002: "Protocol error",
+        1003: "Unsupported data type",
+        1006: "Abnormal closure (connection refused/unreachable)",
+        1007: "Invalid data",
+        1008: "Policy violation",
+        1009: "Message too large",
+        1011: "Internal server error",
+        1012: "Service restart",
+        1013: "Try again later",
+        1014: "Bad gateway",
+        1015: "TLS handshake failure"
+      };
+
+      const closeMessage = closeCodeMessages[event.code] || `Unknown code: ${event.code}`;
+      const closeReason = event.reason || closeMessage;
+      
+      console.warn(`🔴 WebSocket closed:`);
+      console.warn(`   URL: ${wsUrl}`);
+      console.warn(`   Code: ${event.code} (${closeMessage})`);
+      console.warn(`   Reason: ${closeReason}`);
+      console.warn(`   Was clean: ${event.wasClean}`);
+
+      // Provide specific guidance based on close code
+      if (event.code === 1006) {
+        console.error(`❌ Abnormal closure (1006) - Common causes:`);
+        console.error(`   1. Railway service is not running or crashed`);
+        console.error(`   2. Service is sleeping (free tier) - wait 30-60 seconds`);
+        console.error(`   3. Wrong URL or service name`);
+        console.error(`   4. Network/firewall blocking WebSocket connections`);
+        console.error(`   5. Railway proxy not configured for WebSocket`);
+      } else if (event.code === 1008) {
+        console.error(`❌ Policy violation (1008) - Service rejected connection`);
+        console.error(`   Check Railway logs for specific error message`);
+      } else if (event.code === 1011) {
+        console.error(`❌ Internal server error (1011) - Service crashed`);
+        console.error(`   Check Railway logs for crash details`);
+      }
+
       // Only attempt reconnect if recording is active and it wasn't a clean close
       if (isRecording && !isPaused && event.code !== 1000) {
-        const closeReason = event.reason || "Connection closed unexpectedly";
-        console.warn(`Speech recognition connection closed: ${closeReason} (code: ${event.code})`);
-
         if (voskReconnectAttemptsRef.current < 3) {
-          console.log("Attempting to reconnect...");
+          console.log(`🔄 Attempting to reconnect (attempt ${voskReconnectAttemptsRef.current + 1}/3)...`);
           attemptVoskReconnect(startVoskFn);
         } else {
-          console.error("Connection lost after multiple reconnection attempts");
+          console.error("❌ Connection lost after multiple reconnection attempts");
           cleanupVosk();
           if (!isReconnect) {
-            alert("Connection to speech recognition service was lost. Please check your internet connection and try again.");
+            let errorMsg = `Connection to speech recognition service was lost.\n\n`;
+            errorMsg += `Close code: ${event.code} (${closeMessage})\n`;
+            errorMsg += `Reason: ${closeReason}\n\n`;
+            
+            if (event.code === 1006) {
+              errorMsg += `Possible causes:\n`;
+              errorMsg += `• Railway service may be sleeping or crashed\n`;
+              errorMsg += `• Check Railway dashboard and service logs\n`;
+              errorMsg += `• Wait 30-60 seconds if service is on free tier\n`;
+            }
+            
+            Swal.fire({
+              icon: 'error',
+              title: 'Connection Lost',
+              text: errorMsg,
+              confirmButtonText: 'OK'
+            });
             setIsRecording(false);
           }
         }
@@ -1638,28 +1694,35 @@ const ReadingSessionPage: React.FC = () => {
         const getRailwayWsUrl = (lang: string) => {
           const env = (import.meta as any)?.env || {};
           
+          // Helper to ensure URL has proper format (with / before query params)
+          const formatWsUrl = (baseUrl: string, language: string) => {
+            // Remove trailing slash if present, then add /?lang=...
+            const cleanUrl = baseUrl.replace(/\/$/, '');
+            return `${cleanUrl}/?lang=${language}`;
+          };
+          
           // Use language-specific environment variables if available
           if (lang === "tagalog" || lang === "tl") {
             const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
             if (tagalogUrl) {
-              return `${tagalogUrl}?lang=tagalog`;
+              return formatWsUrl(tagalogUrl, "tagalog");
             }
             // Default fallback
-            return "wss://vigilant-celebration.up.railway.app?lang=tagalog";
+            return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
           } else if (lang === "english" || lang === "en") {
             const englishUrl = env.VITE_VOSK_WS_URL_ENGLISH;
             if (englishUrl) {
-              return `${englishUrl}?lang=english`;
+              return formatWsUrl(englishUrl, "english");
             }
             // Default fallback
-            return "wss://philiready-websocket-english.up.railway.app?lang=english";
+            return formatWsUrl("wss://philiready-websocket-english.up.railway.app", "english");
           }
           // Fallback to Tagalog service
           const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
           if (tagalogUrl) {
-            return `${tagalogUrl}?lang=tagalog`;
+            return formatWsUrl(tagalogUrl, "tagalog");
           }
-          return "wss://vigilant-celebration.up.railway.app?lang=tagalog";
+          return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
         };
         const wsUrl = getRailwayWsUrl(storyLanguage);
         const startVosk = async (isReconnect: boolean = false) => {
@@ -1680,28 +1743,105 @@ const ReadingSessionPage: React.FC = () => {
 
             setVoskStatus("connecting");
 
-            // Connection timeout
-            voskConnectionTimeoutRef.current = setTimeout(() => {
-              if (voskSocketRef.current?.readyState !== WebSocket.OPEN) {
-                console.warn("Vosk connection timeout, attempting reconnect...");
-                voskSocketRef.current?.close();
-                attemptVoskReconnect(startVosk);
+            // Connection timeout - longer for Railway services (may need time to wake up)
+            const connectionTimeout = 20000; // 20 seconds for Railway (may be sleeping on free tier)
+            const connectionStartTime = Date.now();
+            
+            console.log(`🔌 Connecting to: ${wsUrl}`);
+            console.log(`⏱️ Connection timeout: ${connectionTimeout / 1000}s`);
+            console.log(`🌐 Service: ${storyLanguage === "english" ? "English" : "Tagalog"} Vosk WebSocket`);
+            
+            // Pre-connection diagnostic
+            const urlObj = new URL(wsUrl);
+            console.log(`📋 Diagnostic Info:`);
+            console.log(`   - Host: ${urlObj.hostname}`);
+            console.log(`   - Protocol: ${urlObj.protocol}`);
+            console.log(`   - Language: ${urlObj.searchParams.get("lang") || "not specified"}`);
+            
+            // Monitor connection state periodically
+            const stateCheckInterval = setInterval(() => {
+              if (voskSocketRef.current) {
+                const state = voskSocketRef.current.readyState;
+                const elapsed = ((Date.now() - connectionStartTime) / 1000).toFixed(1);
+                const stateNames: { [key: number]: string } = { 0: "CONNECTING", 1: "OPEN", 2: "CLOSING", 3: "CLOSED" };
+                const stateName = stateNames[state] || `UNKNOWN(${state})`;
+                
+                if (state === 0) { // Still connecting
+                  console.log(`⏳ Still connecting... (${elapsed}s) - State: ${stateName}`);
+                } else if (state === 1) { // Open
+                  clearInterval(stateCheckInterval);
+                  console.log(`✅ Connection opened in ${elapsed}s`);
+                } else if (state === 3) { // Closed
+                  clearInterval(stateCheckInterval);
+                  console.warn(`❌ Connection closed before timeout (${elapsed}s) - State: ${stateName}`);
+                }
               }
-            }, 5000);
+            }, 2000); // Check every 2 seconds
 
-            // Create WebSocket connection
-            const ws = new WebSocket(wsUrl);
-            voskSocketRef.current = ws;
-            ws.binaryType = "arraybuffer";
+            // Create WebSocket connection with error handling
+            let ws: WebSocket;
+            try {
+              ws = new WebSocket(wsUrl);
+              voskSocketRef.current = ws;
+              ws.binaryType = "arraybuffer";
+            } catch (error) {
+              clearInterval(stateCheckInterval);
+              console.error("❌ Failed to create WebSocket:", error);
+              setVoskStatus("disconnected");
+              throw error;
+            }
+            
+            // Connection timeout handler
+            voskConnectionTimeoutRef.current = setTimeout(() => {
+              clearInterval(stateCheckInterval);
+              
+              if (voskSocketRef.current?.readyState !== WebSocket.OPEN) {
+                const state = voskSocketRef.current?.readyState;
+                const elapsed = ((Date.now() - connectionStartTime) / 1000).toFixed(1);
+                const stateNames: { [key: number]: string } = { 0: "CONNECTING", 1: "OPEN", 2: "CLOSING", 3: "CLOSED" };
+                const stateName = state !== undefined ? (stateNames[state] || `UNKNOWN(${state})`) : "UNKNOWN";
+                
+                console.error(`⏱️ Vosk connection timeout after ${elapsed}s (state: ${stateName})`);
+                console.error(`   URL: ${wsUrl}`);
+                
+                // Provide specific troubleshooting based on state
+                if (state === 0) { // Still CONNECTING
+                  console.error(`❌ Connection timed out while still connecting. Possible causes:`);
+                  console.error(`   1. Railway service is sleeping (free tier) - first connection takes 30-60s`);
+                  console.error(`   2. Service is not responding - check Railway dashboard`);
+                  console.error(`   3. Network/firewall blocking WebSocket connections`);
+                  console.error(`   4. Railway proxy issue - service may need restart`);
+                } else if (state === 3) { // CLOSED
+                  console.error(`❌ Connection closed before timeout. Possible causes:`);
+                  console.error(`   1. Railway service is not running - check Railway dashboard`);
+                  console.error(`   2. Service crashed - check Railway logs for errors`);
+                  console.error(`   3. Environment variables not set - verify SERVICE_LANGUAGE=${storyLanguage}`);
+                  console.error(`   4. Wrong URL - verify service name in Railway`);
+                }
+                
+                if (voskSocketRef.current) {
+                  voskSocketRef.current.close();
+                }
+                setVoskStatus("disconnected");
+                attemptVoskReconnect(startVosk);
+              } else {
+                clearInterval(stateCheckInterval);
+              }
+            }, connectionTimeout);
 
             ws.onopen = () => {
               if (voskConnectionTimeoutRef.current) {
                 clearTimeout(voskConnectionTimeoutRef.current);
                 voskConnectionTimeoutRef.current = null;
               }
+              
+              // Clear state check interval
+              clearInterval(stateCheckInterval);
 
               voskReconnectAttemptsRef.current = 0;
               setVoskStatus("connected");
+              const connectionTime = ((Date.now() - connectionStartTime) / 1000).toFixed(2);
+              console.log(`✅ WebSocket connected successfully to ${wsUrl} (took ${connectionTime}s)`);
 
               // Send vocabulary constraint to Vosk for 100% accurate word recognition
               if (storyVocabulary.size > 0) {
