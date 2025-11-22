@@ -362,19 +362,13 @@ const ReadingSessionPage: React.FC = () => {
     const useVosk = storyLanguage === 'tagalog' || storyLanguage === 'english';
     if (useVosk) {
       try {
-        // Railway WebSocket URLs
-        // Tagalog: wss://philiready-websocket-production.up.railway.app
-        // English: Uses Tagalog service with lang=english (English service may not be publicly accessible)
+        // Railway WebSocket URL: wss://philiready-websocket-production.up.railway.app
         // Can be overridden with VITE_VOSK_WS_URL environment variable
-        const getRailwayWsUrl = (lang: string) => {
-          const envUrl = (import.meta as any)?.env?.VITE_VOSK_WS_URL;
-          if (envUrl) {
-            return `${envUrl}?lang=${lang}`;
-          }
-          // Use Tagalog service for both languages (it supports both via lang parameter)
-          return "wss://philiready-websocket-production.up.railway.app?lang=" + lang;
-        };
-        const wsUrl = getRailwayWsUrl(storyLanguage);
+        // Add language parameter to WebSocket URL
+        const baseWsUrl = 
+          (import.meta as any)?.env?.VITE_VOSK_WS_URL || 
+          'wss://philiready-websocket-production.up.railway.app';
+        const wsUrl = `${baseWsUrl}?lang=${storyLanguage}`;
         const startVosk = async () => {
           const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 48000 } });
           const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
@@ -1339,4 +1333,3 @@ const ReadingSessionPage: React.FC = () => {
 };
 
 export default ReadingSessionPage;
-
