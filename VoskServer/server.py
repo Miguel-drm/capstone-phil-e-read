@@ -106,28 +106,52 @@ async def main():
     parser.add_argument("--tagalog-model", default=os.getenv("VOSK_TAGALOG_MODEL_PATH", "./model-tagalog"), help="Path to Tagalog Vosk model directory")
     parser.add_argument("--english-model", default=os.getenv("VOSK_ENGLISH_MODEL_PATH", "./model-english"), help="Path to English Vosk model directory")
     parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "2700")))
+    parser.add_argument("--service-language", default=os.getenv("SERVICE_LANGUAGE", ""), help="Service language: 'tagalog' or 'english' (loads only that model)")
     args = parser.parse_args()
 
     global models
     models = {}
     
-    # Load Tagalog model
-    if os.path.isdir(args.tagalog_model):
-        print("Loading Tagalog model from:", args.tagalog_model)
-        models["tagalog"] = Model(args.tagalog_model)
-        print("✓ Tagalog model loaded")
-    else:
-        print("⚠ Warning: Tagalog model path does not exist:", args.tagalog_model)
-        print("  Tagalog recognition will not be available")
+    # MEMORY OPTIMIZATION: Only load the model for the service's designated language
+    # This prevents loading both models when only one is needed (saves ~200-250MB RAM)
+    service_language = args.service_language.lower() if args.service_language else ""
     
-    # Load English model
-    if os.path.isdir(args.english_model):
-        print("Loading English model from:", args.english_model)
-        models["english"] = Model(args.english_model)
-        print("✓ English model loaded")
+    if service_language == "tagalog" or service_language == "tl":
+        # Tagalog-only service - only load Tagalog model
+        if os.path.isdir(args.tagalog_model):
+            print(f"Loading Tagalog model from: {args.tagalog_model}")
+            models["tagalog"] = Model(args.tagalog_model)
+            print("✓ Tagalog model loaded")
+        else:
+            print(f"❌ Error: Tagalog model path does not exist: {args.tagalog_model}")
+            print("  Tagalog recognition will not be available")
+    elif service_language == "english" or service_language == "en":
+        # English-only service - only load English model
+        if os.path.isdir(args.english_model):
+            print(f"Loading English model from: {args.english_model}")
+            models["english"] = Model(args.english_model)
+            print("✓ English model loaded")
+        else:
+            print(f"❌ Error: English model path does not exist: {args.english_model}")
+            print("  English recognition will not be available")
     else:
-        print("⚠ Warning: English model path does not exist:", args.english_model)
-        print("  English recognition will not be available")
+        # Dual-language service (or no SERVICE_LANGUAGE set) - load both if available
+        # This is for backward compatibility or services that need both languages
+        if os.path.isdir(args.tagalog_model):
+            print(f"Loading Tagalog model from: {args.tagalog_model}")
+            models["tagalog"] = Model(args.tagalog_model)
+            print("✓ Tagalog model loaded")
+        else:
+            print(f"⚠ Warning: Tagalog model path does not exist: {args.tagalog_model}")
+            print("  Tagalog recognition will not be available")
+        
+        if os.path.isdir(args.english_model):
+            print(f"Loading English model from: {args.english_model}")
+            models["english"] = Model(args.english_model)
+            print("✓ English model loaded")
+        else:
+            print(f"⚠ Warning: English model path does not exist: {args.english_model}")
+            print("  English recognition will not be available")
     
     if not models:
         print("❌ Error: No models loaded. Please ensure at least one model directory exists.")

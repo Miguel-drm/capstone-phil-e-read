@@ -44,7 +44,10 @@ const VoskMonitor: React.FC = () => {
   const isRecordingRef = useRef<boolean>(false);
 
   // Railway WebSocket URLs - default to Tagalog service
-  const WS_URL = 'wss://philiready-websocket-production.up.railway.app';
+  // Can be configured via VITE_VOSK_WS_URL_TAGALOG or VITE_VOSK_WS_URL
+  const env = (import.meta as any)?.env || {};
+  const WS_URL = env.VITE_VOSK_WS_URL_TAGALOG || env.VITE_VOSK_WS_URL || 
+                 'wss://vigilant-celebration.up.railway.app';
 
   // Connect to WebSocket
   const connectWebSocket = () => {
