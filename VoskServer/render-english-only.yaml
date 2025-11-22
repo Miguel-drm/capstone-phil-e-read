@@ -1,9 +1,10 @@
 services:
-  # English-only Vosk WebSocket Server (Memory Optimized for Free Tier)
+  # English-only Vosk WebSocket Server
+  # NOTE: Requires uploading small model OR using paid tier for full model
   - type: web
     name: phil-e-read-vosk-english
     runtime: python
-    plan: free
+    plan: starter  # Full model requires 2GB RAM (paid tier)
     buildCommand: bash build.sh
     startCommand: python server.py
     envVars:
@@ -26,10 +27,13 @@ services:
         value: ./model-tagalog
       - key: VOSK_ENGLISH_MODEL_PATH
         value: ./model-english
-      # Model repositories - using SMALL English model for free tier
+      # Model repositories
+      # Option 1: Upload small model to YOUR HuggingFace account first
+      # HUGGINGFACE_ENGLISH_MODEL_REPO=Migueldrm/vosk-model-small-en-us-0.15
+      # Option 2: Use full model (requires starter plan or higher)
       - key: HUGGINGFACE_ENGLISH_MODEL_REPO
-        value: alphacep/vosk-model-small-en-us-0.15
-      # Use small models for memory efficiency
+        value: Migueldrm/vosk-model-en-us-0.22  # Full model (works now, needs paid tier)
+      # Use small models for memory efficiency (if uploaded)
       - key: USE_SMALL_MODELS
-        value: "true"
+        value: "false"  # Set to true if using small model
 

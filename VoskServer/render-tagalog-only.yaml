@@ -31,5 +31,5 @@ services:
         value: Migueldrm/vosk-model-tl-ph-generic-0.6
       # Use small models for memory efficiency
       - key: USE_SMALL_MODELS
-        value: "true"
+        value: "false"
 

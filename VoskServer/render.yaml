@@ -17,20 +17,20 @@ services:
       - key: MAX_CONNECTIONS
         value: "5"  # Limit concurrent connections
       - key: USE_SMALL_MODELS
-        value: "true"  # Use smaller models to fit in 512MB RAM
-      # Download both models
+        value: "false"  # Set to true if you have small models uploaded
+      # Download Tagalog only by default (English requires small model upload)
       - key: DOWNLOAD_TAGALOG
         value: "true"
       - key: DOWNLOAD_ENGLISH
-        value: "true"
+        value: "false"  # Set to true after uploading small model to HuggingFace
       # Model paths
       - key: VOSK_TAGALOG_MODEL_PATH
         value: ./model-tagalog
       - key: VOSK_ENGLISH_MODEL_PATH
         value: ./model-english
-      # Model repositories (using small English model for memory efficiency)
+      # Model repositories
       - key: HUGGINGFACE_TAGALOG_MODEL_REPO
         value: Migueldrm/vosk-model-tl-ph-generic-0.6
       - key: HUGGINGFACE_ENGLISH_MODEL_REPO
-        value: alphacep/vosk-model-small-en-us-0.15
+        value: Migueldrm/vosk-model-en-us-0.22  # Full model (2GB RAM) or upload small model
 
