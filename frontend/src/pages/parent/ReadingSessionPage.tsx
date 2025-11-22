@@ -362,13 +362,37 @@ const ReadingSessionPage: React.FC = () => {
     const useVosk = storyLanguage === 'tagalog' || storyLanguage === 'english';
     if (useVosk) {
       try {
-        // Railway WebSocket URL: wss://philiready-websocket-production.up.railway.app
-        // Can be overridden with VITE_VOSK_WS_URL environment variable
-        // Add language parameter to WebSocket URL
-        const baseWsUrl = 
-          (import.meta as any)?.env?.VITE_VOSK_WS_URL || 
-          'wss://philiready-websocket-production.up.railway.app';
-        const wsUrl = `${baseWsUrl}?lang=${storyLanguage}`;
+        // Railway WebSocket URLs (separate services for each language)
+        // Can be configured via environment variables:
+        // - VITE_VOSK_WS_URL_TAGALOG: Tagalog WebSocket URL
+        // - VITE_VOSK_WS_URL_ENGLISH: English WebSocket URL
+        const getRailwayWsUrl = (lang: string) => {
+          const env = (import.meta as any)?.env || {};
+          
+          // Use language-specific environment variables if available
+          if (lang === "tagalog" || lang === "tl") {
+            const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
+            if (tagalogUrl) {
+              return `${tagalogUrl}?lang=tagalog`;
+            }
+            // Default fallback
+            return "wss://vigilant-celebration.up.railway.app?lang=tagalog";
+          } else if (lang === "english" || lang === "en") {
+            const englishUrl = env.VITE_VOSK_WS_URL_ENGLISH;
+            if (englishUrl) {
+              return `${englishUrl}?lang=english`;
+            }
+            // Default fallback
+            return "wss://philiready-websocket-english.up.railway.app?lang=english";
+          }
+          // Fallback to Tagalog service
+          const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
+          if (tagalogUrl) {
+            return `${tagalogUrl}?lang=tagalog`;
+          }
+          return "wss://vigilant-celebration.up.railway.app?lang=tagalog";
+        };
+        const wsUrl = getRailwayWsUrl(storyLanguage);
         const startVosk = async () => {
           const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 48000 } });
           const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });

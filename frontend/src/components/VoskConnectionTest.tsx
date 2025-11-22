@@ -90,13 +90,15 @@ const VoskConnectionTest: React.FC = () => {
     setIsTesting(true);
     setResults([]);
 
-    // Railway service - uses same service for both languages with lang parameter
-    const envUrl = (import.meta as any)?.env?.VITE_VOSK_WS_URL;
-    const baseUrl = envUrl || "wss://philiready-websocket-production.up.railway.app";
+    // Railway has separate services for Tagalog and English
+    // Use language-specific environment variables if available
+    const env = (import.meta as any)?.env || {};
+    const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG || env.VITE_VOSK_WS_URL || "wss://vigilant-celebration.up.railway.app";
+    const englishUrl = env.VITE_VOSK_WS_URL_ENGLISH || env.VITE_VOSK_WS_URL || "wss://philiready-websocket-english.up.railway.app";
 
     const testUrls = [
-      { url: baseUrl, lang: 'tagalog' as const },
-      { url: baseUrl, lang: 'english' as const }
+      { url: tagalogUrl, lang: 'tagalog' as const },
+      { url: englishUrl, lang: 'english' as const }
     ];
 
     for (const test of testUrls) {

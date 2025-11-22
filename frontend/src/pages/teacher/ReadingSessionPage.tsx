@@ -1631,13 +1631,37 @@ const ReadingSessionPage: React.FC = () => {
     const useVosk = storyLanguage === "tagalog" || storyLanguage === "english";
     if (useVosk) {
       try {
-        // Railway WebSocket URL: wss://philiready-websocket-production.up.railway.app
-        // Can be overridden with VITE_VOSK_WS_URL environment variable
-        // Add language parameter to WebSocket URL
-        const baseWsUrl =
-          (import.meta as any)?.env?.VITE_VOSK_WS_URL ||
-          "wss://philiready-websocket-production.up.railway.app";
-        const wsUrl = `${baseWsUrl}?lang=${storyLanguage}`;
+        // Railway WebSocket URLs (separate services for each language)
+        // Can be configured via environment variables:
+        // - VITE_VOSK_WS_URL_TAGALOG: Tagalog WebSocket URL
+        // - VITE_VOSK_WS_URL_ENGLISH: English WebSocket URL
+        const getRailwayWsUrl = (lang: string) => {
+          const env = (import.meta as any)?.env || {};
+          
+          // Use language-specific environment variables if available
+          if (lang === "tagalog" || lang === "tl") {
+            const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
+            if (tagalogUrl) {
+              return `${tagalogUrl}?lang=tagalog`;
+            }
+            // Default fallback
+            return "wss://vigilant-celebration.up.railway.app?lang=tagalog";
+          } else if (lang === "english" || lang === "en") {
+            const englishUrl = env.VITE_VOSK_WS_URL_ENGLISH;
+            if (englishUrl) {
+              return `${englishUrl}?lang=english`;
+            }
+            // Default fallback
+            return "wss://philiready-websocket-english.up.railway.app?lang=english";
+          }
+          // Fallback to Tagalog service
+          const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
+          if (tagalogUrl) {
+            return `${tagalogUrl}?lang=tagalog`;
+          }
+          return "wss://vigilant-celebration.up.railway.app?lang=tagalog";
+        };
+        const wsUrl = getRailwayWsUrl(storyLanguage);
         const startVosk = async (isReconnect: boolean = false) => {
           if (!isReconnect) {
             voskReconnectAttemptsRef.current = 0;
@@ -1886,10 +1910,30 @@ const ReadingSessionPage: React.FC = () => {
       // Small delay before reconnecting to ensure cleanup completes
       setTimeout(() => {
         if (isRecording && !isPaused) {
-          const baseWsUrl =
-            (import.meta as any)?.env?.VITE_VOSK_WS_URL ||
-            "wss://philiready-websocket-production.up.railway.app";
-          const wsUrl = `${baseWsUrl}?lang=${storyLanguage}`;
+          // Use same Railway URL logic as main Vosk initialization
+          const getRailwayWsUrl = (lang: string) => {
+            const env = (import.meta as any)?.env || {};
+            
+            if (lang === "tagalog" || lang === "tl") {
+              const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
+              if (tagalogUrl) {
+                return `${tagalogUrl}?lang=tagalog`;
+              }
+              return "wss://vigilant-celebration.up.railway.app?lang=tagalog";
+            } else if (lang === "english" || lang === "en") {
+              const englishUrl = env.VITE_VOSK_WS_URL_ENGLISH;
+              if (englishUrl) {
+                return `${englishUrl}?lang=english`;
+              }
+              return "wss://philiready-websocket-english.up.railway.app?lang=english";
+            }
+            const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
+            if (tagalogUrl) {
+              return `${tagalogUrl}?lang=tagalog`;
+            }
+            return "wss://vigilant-celebration.up.railway.app?lang=tagalog";
+          };
+          const wsUrl = getRailwayWsUrl(storyLanguage);
 
           // Restart Vosk with new language (using improved audio settings)
           const startVosk = async () => {

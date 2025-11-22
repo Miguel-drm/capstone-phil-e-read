@@ -10,10 +10,23 @@ echo "Starting VoskServer..."
 echo "Checking for models..."
 python download_huggingface_model.py
 
-# Start the server with both models
+# Determine service language from environment variable
+SERVICE_LANGUAGE=${SERVICE_LANGUAGE:-""}
+
+# Start the server
 echo "Starting WebSocket server..."
-python server.py \
-  --tagalog-model ${VOSK_TAGALOG_MODEL_PATH:-${VOSK_MODEL_PATH:-./model-tagalog}} \
-  --english-model ${VOSK_ENGLISH_MODEL_PATH:-./model-english} \
-  --port ${PORT:-2700}
+if [ -n "$SERVICE_LANGUAGE" ]; then
+  echo "🔧 Service language set to: $SERVICE_LANGUAGE (loading only that model)"
+  python server.py \
+    --tagalog-model ${VOSK_TAGALOG_MODEL_PATH:-${VOSK_MODEL_PATH:-./model-tagalog}} \
+    --english-model ${VOSK_ENGLISH_MODEL_PATH:-./model-english} \
+    --port ${PORT:-2700} \
+    --service-language ${SERVICE_LANGUAGE}
+else
+  echo "🔧 No SERVICE_LANGUAGE set - loading both models (if available)"
+  python server.py \
+    --tagalog-model ${VOSK_TAGALOG_MODEL_PATH:-${VOSK_MODEL_PATH:-./model-tagalog}} \
+    --english-model ${VOSK_ENGLISH_MODEL_PATH:-./model-english} \
+    --port ${PORT:-2700}
+fi
 
