@@ -11,6 +11,8 @@ import NotificationsIcon from '@mui/icons-material/Notifications';
 
 import SchoolIcon from '@mui/icons-material/School';
 import PersonIcon from '@mui/icons-material/Person';
+import MicIcon from '@mui/icons-material/Mic';
+import MonitorIcon from '@mui/icons-material/Monitor';
 import Tooltip from '@mui/material/Tooltip';
 
 interface SidebarProps {
@@ -38,7 +40,8 @@ const iconMap: Record<string, React.ReactNode> = {
   stories: <MenuBookIcon fontSize="medium" />,
   resources: <MenuBookIcon fontSize="medium" />,
   notifications: <NotificationsIcon fontSize="medium" />,
-  children: <GroupIcon fontSize="medium" /> // Added for My Children
+  children: <GroupIcon fontSize="medium" />, // Added for My Children
+  'vosk-monitor': <MonitorIcon fontSize="medium" />
 };
 
 const Sidebar: React.FC<SidebarProps> = ({ 
@@ -66,6 +69,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           { path: '/admin/isr', label: 'ISR Records', icon: 'isr' },
           { path: '/admin/reports', label: 'Reports', icon: 'reports' },
           { path: '/admin/resources', label: 'Resources', icon: 'resources' },
+          { path: '/admin/vosk-monitor', label: 'Vosk Monitor', icon: 'vosk-monitor' },
           { path: '/admin/profile', label: 'Profile', icon: 'profile' }
         ];
       case 'teacher':
