@@ -105,7 +105,9 @@ async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--tagalog-model", default=os.getenv("VOSK_TAGALOG_MODEL_PATH", "./model-tagalog"), help="Path to Tagalog Vosk model directory")
     parser.add_argument("--english-model", default=os.getenv("VOSK_ENGLISH_MODEL_PATH", "./model-english"), help="Path to English Vosk model directory")
-    parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "2700")))
+    # Railway automatically assigns PORT - use it if available, otherwise default to 2700
+    port = int(os.getenv("PORT", "2700"))
+    parser.add_argument("--port", type=int, default=port)
     parser.add_argument("--service-language", default=os.getenv("SERVICE_LANGUAGE", ""), help="Service language: 'tagalog' or 'english' (loads only that model)")
     args = parser.parse_args()
 
@@ -157,9 +159,12 @@ async def main():
         print("❌ Error: No models loaded. Please ensure at least one model directory exists.")
         return
     
-    print(f"Starting WebSocket server on port {args.port}")
+    print(f"✓ Models loaded successfully: {list(models.keys())}")
+    print(f"🚀 Starting WebSocket server on port {args.port}...")
     print("Supported languages:", list(models.keys()))
     print("Usage: ws://host:port/?lang=tagalog or ws://host:port/?lang=english")
+    import sys
+    sys.stdout.flush()  # Ensure messages are printed immediately
 
     # Create a wrapper to handle both old and new websockets API
     async def wrapped_handler(ws, path=None):
@@ -168,8 +173,38 @@ async def main():
             path = getattr(ws, 'path', '/')
         return await handler(ws, path)
     
-    async with websockets.serve(wrapped_handler, "0.0.0.0", args.port, max_size=None):
-        await asyncio.Future()  # run forever
+    try:
+        print(f"🔧 Attempting to bind to 0.0.0.0:{args.port}...")
+        sys.stdout.flush()
+        
+        async with websockets.serve(wrapped_handler, "0.0.0.0", args.port, max_size=None):
+            print(f"✅ WebSocket server started successfully on port {args.port}")
+            print(f"🌐 Listening on 0.0.0.0:{args.port}")
+            print("📡 Ready to accept connections")
+            print(f"🔗 Connect using: wss://your-service.up.railway.app/?lang={list(models.keys())[0]}")
+            sys.stdout.flush()
+            await asyncio.Future()  # run forever
+    except OSError as e:
+        if e.errno == 98:  # Address already in use
+            print(f"❌ Error: Port {args.port} is already in use")
+            print("   Another process may be using this port, or Railway assigned a different port")
+            print(f"   Check the PORT environment variable (current: {args.port})")
+        else:
+            print(f"❌ Error starting WebSocket server: {e}")
+        raise
+    except Exception as e:
+        print(f"❌ Fatal error starting server: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n🛑 Server stopped by user")
+    except Exception as e:
+        print(f"\n❌ Fatal error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
