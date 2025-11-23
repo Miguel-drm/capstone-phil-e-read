@@ -11,6 +11,8 @@ env/
 
 # Model files (large, don't commit)
 model/
+model-tagalog/
+model-english/
 *.zip
 
 # Environment variables (local only)
