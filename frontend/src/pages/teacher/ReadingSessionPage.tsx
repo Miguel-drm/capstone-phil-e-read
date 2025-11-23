@@ -29,7 +29,7 @@ import { studentService } from "@/services/studentService";
 import Swal from "sweetalert2";
 import { db } from "@/config/firebase";
 import { collection, getDocs } from "firebase/firestore";
-import { doubleMetaphone } from "double-metaphone";
+// import { doubleMetaphone } from "double-metaphone"; // Disabled - server handles pronunciation matching
 import { isrResultService } from "@/services/ISRresultService";
 import { useAuth } from "@/contexts/AuthContext";
 import { getUserProfile } from "@/services/authService";
@@ -82,9 +82,7 @@ const ReadingSessionPage: React.FC = () => {
     "english"
   );
   const [storyVocabulary, setStoryVocabulary] = useState<Set<string>>(new Set());
-  const [isDetectingSpeech, setIsDetectingSpeech] = useState(false); // Visual indicator for when speech is detected
-  const audioCooldownRef = useRef<boolean>(false); // Block audio sending during cooldown period
-  const [storyPronunciationMap, setStoryPronunciationMap] = useState<{ [key: string]: string[] }>({});
+  // Audio processing, speech detection, and pronunciation matching now handled server-side
 
   // Track which words have been correctly recognized (for green highlighting)
   const [recognizedWords, setRecognizedWords] = useState<Set<number>>(new Set());
@@ -95,198 +93,14 @@ const ReadingSessionPage: React.FC = () => {
   // Derived metrics are calculated from elapsed time and transcript
 
   // ============================================================================
-  // TAGALOG PRONUNCIATION DICTIONARY - Comprehensive Categories
+  // PRONUNCIATION MATCHING REMOVED - Now handled by server
+  // The server's word recognition enhancer handles all pronunciation matching
+  // Frontend focuses on displaying server results and basic vocabulary filtering
   // ============================================================================
 
-  const TAGALOG_PRONUNCIATION_DICTIONARY: { [key: string]: string[] } = {
-    // Pronouns and particles
-    'ako': ['aku', 'ako'], 'ikaw': ['ikao', 'ka', 'ikaw'], 'siya': ['sya', 'siya'],
-    'kami': ['kame', 'kami'], 'tayo': ['tayu', 'tayo'], 'kayo': ['kayu', 'kayo'],
-    'sila': ['sela', 'sila'], 'ko': ['ku', 'ko'], 'mo': ['mu', 'mo'],
-    'niya': ['nya', 'niya'], 'namin': ['namen', 'namin'], 'natin': ['naten', 'natin'],
-    'ninyo': ['ninyu', 'ninyo'], 'nila': ['nela', 'nila'],
-    'ang': ['an', 'ang'], 'ng': ['nang', 'ng'], 'sa': ['sang', 'sa'],
-    'mga': ['manga', 'mga'], 'ay': ['ai', 'ay'], 'na': ['nang', 'na'],
-    'pa': ['pang', 'pa'], 'ba': ['bang', 'ba'], 'po': ['pu', 'po'], 'opo': ['opu', 'opo'],
-
-    // People and Family
-    'tao': ['tau', 'tawo', 'tao'], 'bata': ['bat', 'batang', 'bata'],
-    'nanay': ['nay', 'inay', 'nana', 'nanay'], 'tatay': ['tay', 'itay', 'tata', 'tatay'],
-    'ina': ['inang', 'nay', 'ina'], 'ama': ['amang', 'tay', 'ama'],
-    'kapatid': ['patid', 'kapatit', 'kapatid'], 'ate': ['at', 'ateng', 'ate'],
-    'kuya': ['koya', 'kuyang', 'kuya'], 'lolo': ['lol', 'lulo', 'lolo'],
-    'lola': ['lol', 'lula', 'lola'], 'pamilya': ['pamilia', 'familia', 'pamilya'],
-    'kaibigan': ['kaybigan', 'kibigan', 'kaibigan'], 'kapitbahay': ['kapitbay', 'kapibahay', 'kapitbahay'],
-    'guro': ['guru', 'goro', 'guro'], 'estudyante': ['istudyante', 'estudyanti', 'estudyante'],
-
-    // Animals
-    'aso': ['asong', 'asu', 'aso'], 'pusa': ['pusang', 'posa', 'pusa'],
-    'ibon': ['ibong', 'ebon', 'ibon'], 'isda': ['isdang', 'esda', 'isda'],
-    'manok': ['manuk', 'manok'], 'baboy': ['babuy', 'baboi', 'baboy'],
-    'baka': ['bakang', 'bak', 'baka'], 'kabayo': ['kabayu', 'kabayo'],
-    'kambing': ['kambin', 'kambing'], 'kalabaw': ['kalabao', 'kalabaw'],
-    'daga': ['dagat', 'dag', 'daga'], 'paruparo': ['paro-paro', 'paruparu', 'paruparo'],
-    'langgam': ['langam', 'langgam'], 'bubuyog': ['bubuyug', 'bubuyok', 'bubuyog'],
-    'gagamba': ['gagamb', 'gagamba'], 'palaka': ['palak', 'palaka'],
-    'ahas': ['ahas'], 'pagong': ['pagung', 'pagong'], 'unggoy': ['ungoy', 'ungguy', 'unggoy'],
-
-    // Body Parts
-    'ulo': ['ulu', 'olo', 'ulo'], 'mata': ['mat', 'matang', 'mata'],
-    'ilong': ['ilung', 'elong', 'ilong'], 'tenga': ['tinga', 'tengga', 'tenga'],
-    'bibig': ['bibik', 'bebig', 'bibig'], 'ngipin': ['ngepin', 'nipin', 'ngipin'],
-    'dila': ['dil', 'dela', 'dila'], 'leeg': ['lig', 'leeg'],
-    'balikat': ['balekat', 'balikat'], 'braso': ['brasu', 'baraso', 'braso'],
-    'kamay': ['kamey', 'kamay'], 'daliri': ['dalere', 'daliri'],
-    'kuko': ['kuku', 'koko', 'kuko'], 'tiyan': ['tyan', 'tiyan'],
-    'likod': ['likud', 'lekod', 'likod'], 'paa': ['pa', 'paang', 'paa'],
-    'tuhod': ['tuhud', 'tohod', 'tuhod'], 'binti': ['bente', 'binti'],
-    'puso': ['pusu', 'poso', 'puso'], 'baga': ['bag', 'baga'],
-
-    // Food and Drinks
-    'pagkain': ['pagkaen', 'pakain', 'pagkain'], 'kanin': ['kanen', 'kaning', 'kanin'],
-    'tinapay': ['tinapey', 'tinapai', 'tinapay'], 'ulam': ['olam', 'ulam'],
-    'gulay': ['golay', 'gulai', 'gulay'], 'prutas': ['protas', 'frutas', 'prutas'],
-    'saging': ['sagin', 'saging'], 'mansanas': ['manzanas', 'mansanas'],
-    'mangga': ['manga', 'mangga'], 'ubas': ['obas', 'ubas'],
-    'pakwan': ['pakoan', 'pakwan'], 'karne': ['karni', 'carne', 'karne'],
-    'itlog': ['etlog', 'itlug', 'itlog'], 'gatas': ['gatas'],
-    'tubig': ['tobig', 'tubeg', 'tubig'], 'kape': ['kapi', 'coffee', 'kape'],
-    'tsaa': ['tsa', 'tea', 'tsaa'], 'sopas': ['sopa', 'sopas'], 'adobo': ['adobu', 'adobo'],
-
-    // Places and Objects
-    'bahay': ['bahey', 'bahai', 'bahay'], 'paaralan': ['paralan', 'eskwela', 'paaralan'],
-    'silid': ['seled', 'selid', 'silid'], 'kusina': ['kosina', 'kusena', 'kusina'],
-    'banyo': ['banyu', 'banio', 'banyo'], 'sala': ['sal', 'salang', 'sala'],
-    'kwarto': ['kuarto', 'kwarto'], 'pinto': ['pentu', 'pinto'],
-    'bintana': ['bentana', 'bintana'], 'hagdan': ['hagdang', 'agdan', 'hagdan'],
-    'bubong': ['bubung', 'bobong', 'bubong'], 'sahig': ['saheg', 'saig', 'sahig'],
-    'dingding': ['dengding', 'dinding', 'dingding'], 'mesa': ['misa', 'mesa'],
-    'silya': ['silyang', 'silia', 'silya'], 'kama': ['kamang', 'kama'],
-    'unan': ['onan', 'unang', 'unan'], 'kumot': ['kumut', 'komot', 'kumot'],
-    'libro': ['lebro', 'libro'], 'lapis': ['lapes', 'lapis'],
-    'papel': ['papil', 'paper', 'papel'], 'bag': ['beg', 'bag'],
-    'sapatos': ['sapatus', 'sapatos'], 'damit': ['damet', 'damit'],
-    'sombrero': ['sumbrero', 'sombrero'],
-
-    // Verbs - Common Actions
-    'kumain': ['kumaen', 'kain', 'kumain'], 'uminom': ['uminum', 'inom', 'uminom'],
-    'maglaro': ['maglaru', 'laro', 'maglaro'], 'matulog': ['matolog', 'tulog', 'matulog'],
-    'gumising': ['gumesing', 'gising', 'gumising'], 'maligo': ['malegu', 'ligo', 'maligo'],
-    'magsipilyo': ['magsepilyo', 'sipilyo', 'magsipilyo'], 'maglinis': ['maglenes', 'linis', 'maglinis'],
-    'maglaba': ['maglabang', 'laba', 'maglaba'], 'magluto': ['magloto', 'luto', 'magluto'],
-    'kumanta': ['kumantang', 'kanta', 'kumanta'], 'sumayaw': ['sumayao', 'sayaw', 'sumayaw'],
-    'tumakbo': ['tumakbu', 'takbo', 'tumakbo'], 'lumakad': ['lakad', 'lumakad'],
-    'tumalon': ['tumalun', 'talon', 'tumalon'], 'umupo': ['umupu', 'upo', 'umupo'],
-    'tumayo': ['tumayu', 'tayo', 'tumayo'], 'humiga': ['humega', 'higa', 'humiga'],
-    'magsulat': ['magsolat', 'sulat', 'magsulat'], 'magbasa': ['magbas', 'basa', 'magbasa'],
-    'pumunta': ['pomunta', 'punta', 'pumunta'], 'umuwi': ['umuwe', 'uwi', 'umuwi'],
-    'dumating': ['domating', 'dating', 'dumating'], 'umalis': ['omalis', 'alis', 'umalis'],
-    'bumalik': ['bomalik', 'balik', 'bumalik'], 'tumingin': ['tomengin', 'tingin', 'tumingin'],
-    'makinig': ['makenig', 'kinig', 'makinig'], 'magsalita': ['magsalit', 'salita', 'magsalita'],
-    'tumawa': ['tomawa', 'tawa', 'tumawa'], 'umiyak': ['umeyak', 'iyak', 'umiyak'],
-    'ngumiti': ['ngomiti', 'ngiti', 'ngumiti'], 'sumigaw': ['somigaw', 'sigaw', 'sumigaw'],
-    'bumukas': ['bomukas', 'bukas', 'bumukas'], 'magsara': ['magsarang', 'sara', 'magsara'],
-    'kumuha': ['komuha', 'kuha', 'kumuha'], 'magbigay': ['magbegay', 'bigay', 'magbigay'],
-    'tumanggap': ['tomanggap', 'tanggap', 'tumanggap'], 'magtanong': ['tanong', 'magtanong'],
-    'sumagot': ['somagot', 'sagot', 'sumagot'], 'mag-aral': ['magaral', 'aral', 'mag-aral'],
-
-    // Adjectives
-    'maganda': ['magand', 'magandang', 'maganda'], 'pangit': ['panget', 'pangit'],
-    'mabuti': ['mabote', 'buti', 'mabuti'], 'masama': ['masam', 'sama', 'masama'],
-    'malaki': ['malake', 'laki', 'malaki'], 'maliit': ['malet', 'liit', 'maliit'],
-    'mataba': ['matab', 'taba', 'mataba'], 'payat': ['payat'],
-    'mataas': ['matas', 'taas', 'mataas'], 'mababa': ['mabab', 'baba', 'mababa'],
-    'mahaba': ['mahab', 'haba', 'mahaba'], 'maikli': ['maikle', 'ikli', 'maikli'],
-    'mainit': ['mainet', 'init', 'mainit'], 'malamig': ['malameg', 'lamig', 'malamig'],
-    'masaya': ['masay', 'saya', 'masaya'], 'malungkot': ['malongkot', 'lungkot', 'malungkot'],
-    'galit': ['galet', 'galit'], 'takot': ['takut', 'takot'],
-    'matapang': ['tapang', 'matapang'], 'mahiyain': ['mahiyaen', 'hiyain', 'mahiyain'],
-    'matalino': ['matalenu', 'talino', 'matalino'], 'bobo': ['bubu', 'bobo'],
-    'mabait': ['mabaet', 'bait', 'mabait'], 'masungit': ['masunget', 'sungit', 'masungit'],
-    'maingay': ['maengay', 'ingay', 'maingay'],
-
-    // Colors
-    'puti': ['pote', 'puti'], 'itim': ['etem', 'itim'], 'pula': ['pol', 'pula'],
-    'asul': ['asol', 'blue', 'asul'], 'dilaw': ['delao', 'yellow', 'dilaw'],
-    'berde': ['birdi', 'green', 'berde'], 'kahel': ['kael', 'orange', 'kahel'],
-    'lila': ['lela', 'purple', 'lila'], 'rosas': ['rusas', 'pink', 'rosas'],
-    'kulay': ['kolay', 'kulai', 'kulay'], 'abo': ['abu', 'gray', 'abo'],
-    'kayumanggi': ['kayomangi', 'brown', 'kayumanggi'],
-
-    // Numbers
-    'isa': ['es', 'isang', 'isa'], 'dalawa': ['dalawang', 'dalwa', 'dalawa'],
-    'tatlo': ['tatlu', 'tatlong', 'tatlo'], 'apat': ['apat'],
-    'lima': ['lem', 'limang', 'lima'], 'anim': ['anem', 'anim'],
-    'pito': ['petu', 'pitong', 'pito'], 'walo': ['walu', 'walong', 'walo'],
-    'siyam': ['siyam'], 'sampu': ['sampo', 'sampung', 'sampu'],
-    'labingisa': ['labing-isa', 'labingesa', 'labingisa'],
-    'dalawampu': ['dalawampo', 'dalawampu'], 'tatlumpu': ['tatlompo', 'tatlumpu'],
-    'apatnapu': ['apatnapo', 'apatnapu'], 'limampu': ['limampo', 'limampu'],
-    'animnapu': ['animnapo', 'animnapu'], 'pitumpu': ['pitompo', 'pitumpu'],
-    'walumpu': ['walompo', 'walumpu'], 'siyamnapu': ['siyamnapo', 'siyamnapu'],
-    'daan': ['dan', 'daang', 'daan'], 'libo': ['lebu', 'libong', 'libo'],
-
-    // Time Words
-    'araw': ['arao', 'araw'], 'gabi': ['gabe', 'gabi'], 'umaga': ['omaga', 'umaga'],
-    'hapon': ['hapun', 'hapon'], 'tanghali': ['tanggali', 'tanghali'],
-    'buwan': ['buan', 'buwan'], 'taon': ['taun', 'taon'], 'linggo': ['lingo', 'linggo'],
-    'oras': ['uras', 'oras'], 'minuto': ['minoto', 'minuto'], 'segundo': ['sigundo', 'segundo'],
-    'ngayon': ['ngayun', 'ngayon'], 'bukas': ['bokas', 'bukas'],
-    'kahapon': ['kahapun', 'kahapon'], 'mamaya': ['mamay', 'mamaya'],
-    'kanina': ['kanena', 'kanina'], 'mamayangabi': ['mamayang-gabi', 'mamayangabe', 'mamayangabi'],
-
-    // Demonstratives
-    'ito': ['etu', 'itong', 'ito'], 'iyan': ['yan', 'iyang', 'iyan'],
-    'iyon': ['yun', 'iyong', 'iyon'], 'dito': ['detu', 'ditong', 'dito'],
-    'diyan': ['dyan', 'diyang', 'diyan'], 'doon': ['dun', 'doong', 'doon'],
-    'nandito': ['nandetu', 'nandito'], 'nandiyan': ['nandyan', 'nandiyan'],
-    'nandoon': ['nandun', 'nandoon'], 'heto': ['eto', 'hetu', 'heto'],
-    'hayan': ['ayan', 'hayan'], 'hayun': ['ayun', 'hayun'],
-
-    // Question Words
-    'ano': ['anu', 'ano'], 'sino': ['sinu', 'sino'], 'saan': ['san', 'saan'],
-    'kailan': ['kelan', 'kailan'], 'bakit': ['baket', 'bakit'],
-    'paano': ['pano', 'paanu', 'paano'], 'ilan': ['elan', 'ilang', 'ilan'],
-    'alin': ['alen', 'aling', 'alin'], 'kanino': ['kanenu', 'kanino'],
-    'magkano': ['magkanu', 'magkano'],
-
-    // Conjunctions and Connectors
-    'at': ['at'], 'o': ['u', 'o'], 'pero': ['peru', 'pero'],
-    'ngunit': ['ngonet', 'ngunit'], 'kaya': ['kay', 'kaya'],
-    'dahil': ['dahel', 'dahil'], 'kung': ['kong', 'kung'],
-    'kapag': ['pag', 'kapag'], 'habang': ['habang'],
-    'para': ['par', 'para'], 'upang': ['opang', 'upang'],
-    'nang': ['ng', 'nang'], 'noong': ['nung', 'noong'],
-    'sapagkat': ['sapagkat'], 'subalit': ['sobalit', 'subalit'],
-    'kahit': ['kahet', 'kahit'], 'bagaman': ['bagaman'],
-
-    // Common Adverbs
-    'mabilis': ['mabeles', 'bilis', 'mabilis'], 'mabagal': ['bagal', 'mabagal'],
-    'palagi': ['palage', 'lagi', 'palagi'], 'minsan': ['mensan', 'minsan'],
-    'kadalasan': ['dalasan', 'kadalasan'], 'bihira': ['behera', 'bihira'],
-    'lagi': ['lage', 'lagi'], 'hindi': ['hende', 'di', 'hindi'],
-    'oo': ['o', 'oo'], 'wala': ['wal', 'wala'],
-    'mayroon': ['mayron', 'meron', 'mayroon'], 'meron': ['miron', 'meron'],
-
-    // More common words
-    'naman': ['naman'], 'lang': ['lang'], 'din': ['rin', 'din'], 'rin': ['din', 'rin'],
-    'kasi': ['kase', 'kasi'], 'talaga': ['talag', 'talaga'], 'sobra': ['sobrang', 'sobra'],
-    'lahat': ['lahat'], 'bawat': ['bawat'], 'ibang': ['iba', 'ibang'],
-    'sarili': ['sarele', 'sarili'], 'mundo': ['mondo', 'mundo'],
-    'buhay': ['buhey', 'buhay'],
-
-    // Additional common words
-    'may': ['mey', 'may'],
-    'walang': ['walang', 'wala'], 'marami': ['marame', 'marami'],
-    'konti': ['konte', 'konti'],
-    'ibig': ['ebig', 'ibig'], 'gusto': ['gosto', 'gusto'],
-    'ayaw': ['ayao', 'ayaw'], 'kailangan': ['kelangan', 'kailangan'],
-    'pwede': ['puwede', 'pwedi', 'pwede'], 'dapat': ['dapot', 'dapat'],
-    'maaari': ['maare', 'maaari'], 'sana': ['san', 'sana'],
-    'lungga': ['longga', 'lunga', 'lungga'], 'gutom': ['gotom', 'gutum', 'gutom'],
-    'naglalakad': ['naglalakad', 'naglakad', 'lakad'],
-    'nakita': ['naketa', 'nakita'], 'sinabi': ['sinabe', 'sinabi']
-  };
+  // REMOVED: TAGALOG_PRONUNCIATION_DICTIONARY - Server handles pronunciation matching
+  // REMOVED: buildStoryPronunciationMap - Server handles pronunciation variants
+  // Frontend now only does basic vocabulary validation (word in story or not)
 
   // ============================================================================
   // VOSK CONNECTION MANAGEMENT
@@ -353,6 +167,24 @@ const ReadingSessionPage: React.FC = () => {
    * Implements retry logic with increasing delays between attempts.
    */
   const attemptVoskReconnect = (startVoskFn: (isReconnect: boolean) => Promise<void>) => {
+    // Maximum reconnection attempts to prevent infinite loops
+    const MAX_RECONNECT_ATTEMPTS = 5;
+    
+    if (voskReconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+      console.error(`❌ Maximum reconnection attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Stopping reconnection.`);
+      setVoskStatus("disconnected");
+      cleanupVosk();
+      setIsRecording(false);
+      alert(
+        `Unable to connect to speech recognition service after ${MAX_RECONNECT_ATTEMPTS} attempts.\n\n` +
+        `Please check:\n` +
+        `1. Is the Vosk server running? (Local: ws://localhost:2700 or Railway)\n` +
+        `2. Is your internet connection working?\n` +
+        `3. Try refreshing the page and starting again.`
+      );
+      return;
+    }
+
     if (voskReconnectTimeoutRef.current) {
       clearTimeout(voskReconnectTimeoutRef.current);
     }
@@ -360,11 +192,11 @@ const ReadingSessionPage: React.FC = () => {
     voskReconnectAttemptsRef.current += 1;
     const delay = Math.min(1000 * Math.pow(2, voskReconnectAttemptsRef.current - 1), 10000);
 
-    console.log(`🔄 Attempting Vosk reconnect (attempt ${voskReconnectAttemptsRef.current}) in ${delay}ms...`);
+    console.log(`🔄 Attempting Vosk reconnect (attempt ${voskReconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS}) in ${delay}ms...`);
     setVoskStatus("connecting");
 
     voskReconnectTimeoutRef.current = setTimeout(() => {
-      if (isRecording && !isPaused) {
+      if (isRecording && !isPaused && voskReconnectAttemptsRef.current <= MAX_RECONNECT_ATTEMPTS) {
         cleanupVosk();
         startVoskFn(true);
       }
@@ -420,47 +252,8 @@ const ReadingSessionPage: React.FC = () => {
     return { context: ctx, source: src, processor: script };
   };
 
-  /**
-   * High-quality downsampling algorithm for converting 48kHz audio to 16kHz.
-   * Uses sinc-based resampling with anti-aliasing filter for better accuracy.
-   */
-  const downsampleTo16k = (input: Float32Array, sampleRate: number): Int16Array => {
-    const targetRate = 16000;
-    const ratio = sampleRate / targetRate;
-    const newLength = Math.floor(input.length / ratio);
-    const result = new Int16Array(newLength);
-    const filterLength = Math.min(32, Math.floor(input.length / 2));
-
-    for (let i = 0; i < newLength; i++) {
-      const srcIndex = i * ratio;
-      const srcStart = Math.max(0, Math.floor(srcIndex - filterLength));
-      const srcEnd = Math.min(input.length, Math.ceil(srcIndex + filterLength));
-
-      let sum = 0;
-      let weightSum = 0;
-
-      for (let j = srcStart; j < srcEnd; j++) {
-        const offset = j - srcIndex;
-        if (Math.abs(offset) < 0.5) {
-          const weight = 1 - Math.abs(offset);
-          sum += input[j] * weight;
-          weightSum += weight;
-        } else {
-          const sinc = Math.sin(Math.PI * offset) / (Math.PI * offset);
-          const window = 0.5 * (1 + Math.cos(Math.PI * offset / filterLength));
-          const weight = sinc * window;
-          sum += input[j] * weight;
-          weightSum += Math.abs(weight);
-        }
-      }
-
-      const sample = weightSum > 0 ? sum / weightSum : 0;
-      const clamped = Math.max(-1, Math.min(1, sample));
-      result[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
-    }
-
-    return result;
-  };
+  // Audio processing is now handled server-side
+  // Frontend just sends raw Float32 audio data
 
   /**
    * Set up WebSocket message handlers for Vosk recognition results.
@@ -470,6 +263,31 @@ const ReadingSessionPage: React.FC = () => {
     ws.onmessage = (evt) => {
       try {
         const msg = JSON.parse(evt.data);
+
+        // Handle server error messages (e.g., model not available)
+        if (msg.error) {
+          console.error(`❌ Server error: ${msg.error}`);
+          if (msg.available_models) {
+            console.error(`   Available models: ${msg.available_models.join(", ")}`);
+            console.error(`   Requested language: ${msg.requested_language}`);
+            
+            // Show user-friendly error
+            const availableModels = msg.available_models.join(" or ");
+            const requestedLang = msg.requested_language === "english" ? "English" : "Tagalog";
+            alert(
+              `${requestedLang} model is not available on the server.\n\n` +
+              `Available models: ${availableModels}\n\n` +
+              `Please:\n` +
+              `1. Use a story in ${availableModels} language, or\n` +
+              `2. Start the server with the ${requestedLang.toLowerCase()} model loaded.\n\n` +
+              `To load both models, run: cd VoskServer && python download_huggingface_model.py`
+            );
+          }
+          cleanupVosk();
+          setVoskStatus("disconnected");
+          setIsRecording(false);
+          return;
+        }
 
         // Handle grammar constraint confirmation from server
         if (msg.status === "grammar_applied") {
@@ -489,7 +307,49 @@ const ReadingSessionPage: React.FC = () => {
         if (msg.text && msg.text.trim()) {
           const originalText = msg.text.trim();
           console.log(`🎯 Vosk recognized (final): "${originalText}"`);
+          
+          // ACCURACY: Use server-side filtered result (already filtered by server)
+          // Server sends back pre-filtered words, but we can do additional client-side validation
           const filteredText = filterThroughVocabulary(originalText, storyVocabulary);
+
+          // ACCURACY: Update metrics from server (backend calculates all metrics)
+          if (msg.metrics) {
+            const metrics = msg.metrics;
+            console.log(`📊 Server metrics: WPM=${metrics.wpm}, Accuracy=${metrics.accuracy}%, Words Read=${metrics.words_read}, Miscues=${metrics.total_miscues}, Oral Score=${metrics.oral_reading_score}%`);
+            
+            // Store server metrics (backend is source of truth)
+            setServerMetrics({
+              wpm: metrics.wpm,
+              accuracy: metrics.accuracy,
+              oralReadingScore: metrics.oral_reading_score,
+              wordsRead: metrics.words_read,
+              totalMiscues: metrics.total_miscues
+            });
+            
+            // Update all metrics from server (backend is source of truth)
+            if (metrics.words_read !== undefined) {
+              setWordsRead(metrics.words_read);
+            }
+            
+            if (metrics.total_miscues !== undefined) {
+              setMiscues(metrics.total_miscues);
+            }
+            
+            if (metrics.miscue_types) {
+              setMiscueTypes(prev => ({
+                ...prev,
+                mispronunciation: metrics.miscue_types.mispronunciation || 0,
+                substitution: metrics.miscue_types.substitution || 0,
+                omission: metrics.miscue_types.omission || 0,
+                insertion: metrics.miscue_types.insertion || 0,
+                repetition: metrics.miscue_types.repetition || 0,
+                transposition: metrics.miscue_types.transposition || 0,
+                reversal: metrics.miscue_types.reversal || 0
+              }));
+            }
+            
+            // Server metrics override client calculations for accuracy
+          }
 
           // Log vocabulary validation results
           if (originalText !== filteredText) {
@@ -535,18 +395,8 @@ const ReadingSessionPage: React.FC = () => {
     ws.onerror = (error) => {
       console.error("Speech recognition connection error:", error);
 
-      if (voskReconnectAttemptsRef.current < 3) {
-        console.log("Attempting to reconnect to speech recognition service...");
-        attemptVoskReconnect(startVoskFn);
-      } else {
-        console.error("Unable to connect to speech recognition service after multiple attempts");
-        cleanupVosk();
-        setVoskStatus("disconnected");
-        if (!isReconnect) {
-          alert("Unable to connect to speech recognition service. Please check your internet connection and try again.");
-          setIsRecording(false);
-        }
-      }
+      // attemptVoskReconnect now handles the max attempts check internally
+      attemptVoskReconnect(startVoskFn);
     };
 
     ws.onclose = (event) => {
@@ -594,7 +444,26 @@ const ReadingSessionPage: React.FC = () => {
         console.error(`   5. Railway proxy not configured for WebSocket`);
       } else if (event.code === 1008) {
         console.error(`❌ Policy violation (1008) - Service rejected connection`);
-        console.error(`   Check Railway logs for specific error message`);
+        if (closeReason && closeReason.includes("model not loaded")) {
+          console.error(`   💡 The requested language model is not available on the server.`);
+          console.error(`   💡 Available models: Check server logs or use a different language.`);
+          console.error(`   💡 To fix: Download the model or start server with both models loaded.`);
+          
+          // Show user-friendly alert if not a reconnect attempt
+          if (!isReconnect && isRecording) {
+            const requestedLang = storyLanguage === "english" ? "English" : "Tagalog";
+            alert(
+              `The ${requestedLang} speech recognition model is not available on the server.\n\n` +
+              `Please:\n` +
+              `1. Switch to a story in the available language, or\n` +
+              `2. Start the server with the ${requestedLang.toLowerCase()} model loaded.\n\n` +
+              `To load models: cd VoskServer && python download_huggingface_model.py`
+            );
+            setIsRecording(false);
+          }
+        } else {
+          console.error(`   Check Railway logs for specific error message`);
+        }
       } else if (event.code === 1011) {
         console.error(`❌ Internal server error (1011) - Service crashed`);
         console.error(`   Check Railway logs for crash details`);
@@ -602,33 +471,18 @@ const ReadingSessionPage: React.FC = () => {
 
       // Only attempt reconnect if recording is active and it wasn't a clean close
       if (isRecording && !isPaused && event.code !== 1000) {
-        if (voskReconnectAttemptsRef.current < 3) {
-          console.log(`🔄 Attempting to reconnect (attempt ${voskReconnectAttemptsRef.current + 1}/3)...`);
-          attemptVoskReconnect(startVoskFn);
-        } else {
-          console.error("❌ Connection lost after multiple reconnection attempts");
-          cleanupVosk();
-          if (!isReconnect) {
-            let errorMsg = `Connection to speech recognition service was lost.\n\n`;
-            errorMsg += `Close code: ${event.code} (${closeMessage})\n`;
-            errorMsg += `Reason: ${closeReason}\n\n`;
-            
-            if (event.code === 1006) {
-              errorMsg += `Possible causes:\n`;
-              errorMsg += `• Railway service may be sleeping or crashed\n`;
-              errorMsg += `• Check Railway dashboard and service logs\n`;
-              errorMsg += `• Wait 30-60 seconds if service is on free tier\n`;
-            }
-            
-            Swal.fire({
-              icon: 'error',
-              title: 'Connection Lost',
-              text: errorMsg,
-              confirmButtonText: 'OK'
-            });
-            setIsRecording(false);
-          }
-        }
+        // attemptVoskReconnect now handles the max attempts check internally
+        attemptVoskReconnect(startVoskFn);
+      } else if (event.code === 1000) {
+        // Clean close - don't reconnect
+        console.log("✅ Connection closed cleanly (code 1000)");
+        cleanupVosk();
+        setVoskStatus("disconnected");
+      } else if (!isRecording || isPaused) {
+        // Not recording or paused - don't reconnect
+        console.log("⏸️ Not reconnecting: recording stopped or paused");
+        cleanupVosk();
+        setVoskStatus("disconnected");
       }
     };
   };
@@ -665,18 +519,38 @@ const ReadingSessionPage: React.FC = () => {
   // Track inserted words (extra words child said) with their position
   const [insertedWords, setInsertedWords] = useState<Map<number, string[]>>(new Map());
 
-  // Real-time Oral Reading Score (Accuracy) using useMemo
+  // Server-calculated metrics (backend is source of truth)
+  const [serverMetrics, setServerMetrics] = useState<{
+    wpm?: number;
+    accuracy?: number;
+    oralReadingScore?: number;
+    wordsRead?: number;
+    totalMiscues?: number;
+  }>({});
+
+  // Real-time Oral Reading Score (Accuracy) - use server value if available
   const oralReadingScore = useMemo(() => {
+    // Prefer server-calculated score (more accurate)
+    if (serverMetrics.oralReadingScore !== undefined) {
+      return serverMetrics.oralReadingScore.toFixed(1);
+    }
+    // Fallback to client calculation
     if (words.length === 0) return "0.0";
     const score = calculateOralReadingScore(wordsRead, miscues, words.length);
     return score.toFixed(1);
-  }, [wordsRead, miscues, words.length]);
+  }, [serverMetrics.oralReadingScore, wordsRead, miscues, words.length]);
 
-  // Real-time Reading Speed (WPM)
-  const readingSpeedWPM =
-    elapsedTime > 0
+  // Real-time Reading Speed (WPM) - use server value if available
+  const readingSpeedWPM = useMemo(() => {
+    // Prefer server-calculated WPM (more accurate)
+    if (serverMetrics.wpm !== undefined && serverMetrics.wpm > 0) {
+      return serverMetrics.wpm.toString();
+    }
+    // Fallback to client calculation
+    return elapsedTime > 0
       ? calculateReadingSpeedWPM(wordsRead, elapsedTime).toString()
       : "0";
+  }, [serverMetrics.wpm, wordsRead, elapsedTime]);
 
   // Helper: Convert numbers to words (0-100)
   const numberToWord = (num: string): string => {
@@ -886,471 +760,14 @@ const ReadingSessionPage: React.FC = () => {
       }
     }
 
-    // Use story-specific pronunciation map if available, otherwise fall back to comprehensive map
-    const accentMap: { [key: string]: string[] } = Object.keys(storyPronunciationMap).length > 0
-      ? storyPronunciationMap
-      : {
-        // Fallback: Common word form variations (WORKAROUND: specific -ing variations)
-        'shiny': ['shining', 'shin'],
+    // REMOVED: Pronunciation map - Server handles all pronunciation matching
+    // Frontend now only does basic similarity matching for word highlighting
+    // The server's word recognition enhancer handles pronunciation variants and prevents jumping
 
-        // Filipino accent variations - TH sounds (very common in Philippines)
-        'the': ['da', 'de', 'duh', 'di', 'za', 'ze'],
-        'this': ['dis', 'dees', 'tis', 'zis'],
-        'that': ['dat', 'det', 'tat', 'zat'],
-        'three': ['tree', 'tri'],
-        'think': ['tink', 'tingk'],
-        'thing': ['ting'],
-        'with': ['wit', 'wid'],
-        'they': ['dey', 'day'],
-        'them': ['dem'],
-        'there': ['der', 'dere'],
-        'their': ['der', 'deir'],
-        'then': ['den'],
-        'than': ['dan'],
-        'through': ['tru', 'troo'],
-        'thought': ['tot', 'taught'],
-        'though': ['do', 'dough'],
-        'these': ['dis', 'dees'],
-        'those': ['dos', 'dose'],
-        'other': ['oder', 'udder'],
-        'another': ['anoder', 'anudder'],
-        'brother': ['broder', 'brudder'],
-        'mother': ['moder', 'mudder'],
-        'father': ['fader', 'fadder'],
-        'weather': ['weder', 'wedder'],
-        'whether': ['weder', 'wedder'],
-        'together': ['togeder', 'togedder'],
-        'nothing': ['noting', 'nutting'],
-        'something': ['someting', 'sumting'],
-        'anything': ['anyting', 'eniting'],
-        'everything': ['everyting', 'evriting'],
-        'birthday': ['birtday', 'burtday'],
-        'bathroom': ['batroom', 'batrum'],
-        'math': ['mat', 'mats'],
-        'path': ['pat', 'pats'],
-        'both': ['bot', 'bots'],
-        'mouth': ['mout', 'mowt'],
-        'south': ['sout', 'sowt'],
-        'north': ['nort', 'norts'],
-
-        // Common sight words and function words
-        'about': ['abowt', 'bout'],
-        'after': ['after', 'apter'],
-        'again': ['agen', 'agin'],
-        'always': ['allways', 'alwys'],
-        'around': ['aroun', 'round'],
-        'because': ['becuz', 'cuz', 'coz'],
-        'before': ['befor', 'bfor'],
-        'between': ['betwee', 'btween'],
-        'could': ['cud', 'kud'],
-        'should': ['shud', 'shoud'],
-        'would': ['wud', 'wood'],
-        'does': ['dus', 'duz'],
-        'done': ['dun', 'don'],
-        'every': ['evry', 'everi'],
-        'first': ['furst', 'firs'],
-        'friend': ['frend', 'fren'],
-        'from': ['frum', 'form'],
-        'have': ['hav', 'hab'],
-        'here': ['hir', 'hear'],
-        'into': ['intu', 'ento'],
-        'just': ['jus', 'jast'],
-        'know': ['no', 'now'],
-        'like': ['lik', 'lyke'],
-        'little': ['litle', 'litl'],
-        'long': ['lang', 'lon'],
-        'many': ['meny', 'mani'],
-        'more': ['mor', 'moar'],
-        'most': ['mos', 'moast'],
-        'much': ['mach', 'mutch'],
-        'never': ['neber', 'nevr'],
-        'only': ['onli', 'ownly'],
-        'over': ['ober', 'ovr'],
-        'people': ['pipol', 'peepol', 'peeple'],
-        'please': ['pls', 'pleas', 'plz'],
-        'pretty': ['prety', 'pritty'],
-        'really': ['realy', 'relly', 'rily'],
-        'right': ['rite', 'ryt'],
-        'some': ['sum', 'som'],
-        'time': ['tym', 'tyme'],
-        'today': ['tuday', 'todey'],
-        'very': ['bery', 'veri'],
-        'want': ['wanna', 'wan'],
-        'water': ['wader', 'watur'],
-        'were': ['wer', 'where'],
-        'what': ['wat', 'wut'],
-        'when': ['wen', 'win'],
-        'where': ['wer', 'were'],
-        'which': ['wich', 'witch'],
-        'who': ['hoo', 'hu'],
-        'why': ['y', 'wi'],
-        'will': ['wil', 'wel'],
-        'your': ['yur', 'yor', 'ur'],
-
-        // Children's speech: past tense -ed endings (often dropped or mispronounced)
-        'looked': ['look', 'looke', 'lookt'],
-        'walked': ['walk', 'walke', 'walkt'],
-        'talked': ['talk', 'talke', 'talkt'],
-        'picked': ['pick', 'picke', 'pickt'],
-        'noticed': ['notice', 'notic', 'notis'],
-        'wanted': ['want', 'wante', 'wantid'],
-        'needed': ['need', 'neede', 'needid'],
-        'started': ['start', 'starte', 'startid'],
-        'ended': ['end', 'ende', 'endid'],
-        'asked': ['ask', 'aske', 'askt'],
-        'helped': ['help', 'helpe', 'helpt'],
-        'jumped': ['jump', 'jumpe', 'jumpt'],
-        'played': ['play', 'playe', 'playd'],
-        'stayed': ['stay', 'staye', 'stayd'],
-        'tried': ['try', 'trie', 'tryd'],
-        'turned': ['turn', 'turne', 'turnd'],
-        'learned': ['learn', 'learne', 'learnd'],
-        'opened': ['open', 'opene', 'opend'],
-        'closed': ['close', 'clos', 'closd'],
-        'lived': ['live', 'liv', 'livd'],
-        'loved': ['love', 'lov', 'lovd'],
-        'moved': ['move', 'mov', 'movd'],
-        'used': ['use', 'us', 'usd'],
-        'called': ['call', 'calle', 'calld'],
-        'worked': ['work', 'worke', 'workt'],
-        'seemed': ['seem', 'seeme', 'seemd'],
-        'showed': ['show', 'showe', 'showd'],
-        'followed': ['follow', 'followe', 'followd'],
-        'happened': ['happen', 'happene', 'happend'],
-        'appeared': ['appear', 'appeare', 'appeard'],
-        'believed': ['believe', 'believ', 'believd'],
-        'received': ['receive', 'receiv', 'receivd'],
-        'watched': ['watch', 'watche', 'watcht'],
-        'listened': ['listen', 'listene', 'listend'],
-        'laughed': ['laugh', 'laughe', 'laught'],
-        'smiled': ['smile', 'smil', 'smild'],
-        'cried': ['cry', 'crie', 'cryd'],
-        'stopped': ['stop', 'stoppe', 'stopt'],
-        'dropped': ['drop', 'droppe', 'dropt'],
-        'hopped': ['hop', 'hoppe', 'hopt'],
-        'skipped': ['skip', 'skippe', 'skipt'],
-        'clapped': ['clap', 'clappe', 'clapt'],
-        'grabbed': ['grab', 'grabbe', 'grabt'],
-        'hugged': ['hug', 'hugge', 'hugt'],
-        'kissed': ['kiss', 'kisse', 'kist'],
-        'missed': ['miss', 'misse', 'mist'],
-        'passed': ['pass', 'passe', 'past'],
-        'pushed': ['push', 'pushe', 'pusht'],
-        'pulled': ['pull', 'pulle', 'pulld'],
-        'reached': ['reach', 'reache', 'reacht'],
-        'touched': ['touch', 'touche', 'toucht'],
-        'washed': ['wash', 'washe', 'washt'],
-        'wished': ['wish', 'wishe', 'wisht'],
-        'yelled': ['yell', 'yelle', 'yelld'],
-        'answered': ['answer', 'answere', 'answerd'],
-        'climbed': ['climb', 'climbe', 'climbd'],
-        'cooked': ['cook', 'cooke', 'cookt'],
-        'danced': ['dance', 'danc', 'danst'],
-        'finished': ['finish', 'finishe', 'finisht'],
-        'painted': ['paint', 'painte', 'paintid'],
-        'planted': ['plant', 'plante', 'plantid'],
-        'pointed': ['point', 'pointe', 'pointid'],
-        'remembered': ['remember', 'remembere', 'rememberd'],
-        'visited': ['visit', 'visite', 'visitid'],
-        'waited': ['wait', 'waite', 'waitid'],
-        'wondered': ['wonder', 'wondere', 'wonderd'],
-
-        // Common irregular verbs children struggle with
-        'saw': ['see', 'sow', 'so'],
-        'said': ['say', 'sed', 'sayed'],
-        'went': ['go', 'goed', 'wented'],
-        'came': ['come', 'comed', 'camed'],
-        'took': ['take', 'taked', 'tooked'],
-        'gave': ['give', 'gived', 'gaved'],
-        'made': ['make', 'maked', 'maded'],
-        'got': ['get', 'getted', 'goted'],
-        'found': ['find', 'finded', 'founded'],
-        'told': ['tell', 'telled', 'tolded'],
-        'knew': ['know', 'knowed', 'knewed'],
-        'felt': ['feel', 'feeled', 'felted'],
-        'left': ['leave', 'leaved', 'lefted'],
-        'kept': ['keep', 'keeped', 'kepted'],
-        'held': ['hold', 'holded', 'helded'],
-        'brought': ['bring', 'bringed', 'broughted'],
-        'began': ['begin', 'begined', 'beganed'],
-        'ran': ['run', 'runned', 'raned'],
-        'stood': ['stand', 'standed', 'stooded'],
-        'heard': ['hear', 'heared', 'herd'],
-        'became': ['become', 'becomed', 'becamed'],
-        'put': ['put', 'putted', 'puted'],
-        'let': ['let', 'letted', 'leted'],
-        'read': ['read', 'readed', 'red'],
-        'met': ['meet', 'meeted', 'meted'],
-        'sat': ['sit', 'sitted', 'sated'],
-        'spoke': ['speak', 'speaked', 'spoked'],
-        'wrote': ['write', 'writed', 'wroted'],
-        'ate': ['eat', 'eated', 'ated'],
-        'drank': ['drink', 'drinked', 'dranked'],
-        'sang': ['sing', 'singed', 'sanged'],
-        'swam': ['swim', 'swimmed', 'swamed'],
-        'flew': ['fly', 'flyed', 'flewed'],
-        'drew': ['draw', 'drawed', 'drewed'],
-        'grew': ['grow', 'growed', 'grewed'],
-        'threw': ['throw', 'throwed', 'threwed'],
-        'wore': ['wear', 'weared', 'wored'],
-        'broke': ['break', 'breaked', 'broked'],
-        'chose': ['choose', 'choosed', 'chosed'],
-        'drove': ['drive', 'drived', 'droved'],
-        'rode': ['ride', 'rided', 'roded'],
-        'woke': ['wake', 'waked', 'woked'],
-        'froze': ['freeze', 'freezed', 'frosed'],
-        'stole': ['steal', 'stealed', 'stoled'],
-        'built': ['build', 'builded', 'bilt'],
-        'bought': ['buy', 'buyed', 'boughted'],
-        'caught': ['catch', 'catched', 'caughted'],
-        'cut': ['cut', 'cutted', 'cuted'],
-        'did': ['do', 'doed', 'dided'],
-        'fell': ['fall', 'falled', 'felled'],
-        'fought': ['fight', 'fighted', 'foughted'],
-        'forgot': ['forget', 'forgeted', 'forgotted'],
-        'hid': ['hide', 'hided', 'hidded'],
-        'hit': ['hit', 'hitted', 'hited'],
-        'hurt': ['hurt', 'hurted', 'herted'],
-        'lay': ['lie', 'lied', 'layed'],
-        'led': ['lead', 'leaded', 'ledded'],
-        'lost': ['lose', 'losed', 'losted'],
-        'paid': ['pay', 'payed', 'paided'],
-        'rang': ['ring', 'ringed', 'rung'],
-        'rose': ['rise', 'rised', 'rosed'],
-        'sent': ['send', 'sended', 'sented'],
-        'shook': ['shake', 'shaked', 'shooked'],
-        'shot': ['shoot', 'shooted', 'shoted'],
-        'shut': ['shut', 'shutted', 'shuted'],
-        'slept': ['sleep', 'sleeped', 'slepted'],
-        'spent': ['spend', 'spended', 'spented'],
-        'taught': ['teach', 'teached', 'taughted'],
-        'understood': ['understand', 'understanded', 'understooded'],
-        'won': ['win', 'winned', 'woned'],
-
-        // Common nouns and story words
-        'animal': ['animel', 'anmal'],
-        'bedroom': ['bedrum', 'bed room'],
-        'breakfast': ['brekfast', 'brekfest'],
-        'children': ['chilren', 'childs'],
-        'chocolate': ['choklate', 'choclate', 'choco'],
-        'christmas': ['krismas', 'xmas'],
-        'different': ['diferent', 'diffrent'],
-        'finally': ['finaly', 'finely'],
-        'garden': ['gardin', 'garding'],
-        'happy': ['hapi', 'hapy'],
-        'important': ['importan', 'importent'],
-        'kitchen': ['kitchin', 'kichen'],
-        'library': ['libary', 'liberry'],
-        'morning': ['mornin', 'morming'],
-        'mountain': ['mountin', 'mowntain'],
-        'neighbor': ['nabor', 'naybor', 'neybor'],
-        'picture': ['pikture', 'pitcher', 'pictur'],
-        'probably': ['probly', 'prolly'],
-        'remember': ['rember', 'remembr'],
-        'restaurant': ['restarant', 'resturant'],
-        'school': ['skool', 'scool'],
-        'special': ['speshal', 'speshul'],
-        'surprise': ['suprise', 'surprize'],
-        'tomorrow': ['tomoro', 'tommorow', 'tomorow'],
-        'tonight': ['tonite', 'to night'],
-        'vegetable': ['vegtable', 'vegitable'],
-        'yesterday': ['yesturday', 'yesterdey'],
-
-        // Adjectives and descriptive words
-        'angry': ['angri', 'angery'],
-        'busy': ['bisy', 'bizzy'],
-        'careful': ['carful', 'carefull'],
-        'comfortable': ['comftable', 'comfterble'],
-        'dangerous': ['dangeros', 'dangerus'],
-        'delicious': ['delishus', 'delisious'],
-        'difficult': ['dificult', 'difficalt'],
-        'excited': ['exited', 'exsited'],
-        'expensive': ['expensiv', 'exspensive'],
-        'famous': ['famos', 'famus'],
-        'frightened': ['fritened', 'frightend'],
-        'hungry': ['hongry', 'hungri'],
-        'interesting': ['intresting', 'intersting'],
-        'jealous': ['jelous', 'jealos'],
-        'lonely': ['lonley', 'loneli'],
-        'nervous': ['nervos', 'nervus'],
-        'perfect': ['perfec', 'perfict'],
-        'popular': ['populer', 'poplar'],
-        'quiet': ['quite', 'kwiet'],
-        'scared': ['skared', 'scaired'],
-        'terrible': ['terible', 'terrable'],
-        'tired': ['tyred', 'tierd'],
-        'wonderful': ['wonderfull', 'wunderful'],
-
-        // ========================================================================
-        // TAGALOG PRONUNCIATION VARIANTS FOR CHILDREN
-        // ========================================================================
-        // Common Tagalog words with child mispronunciations
-
-        // Pronouns and particles
-        'ako': ['aku', 'ako'],
-        'ikaw': ['ikao', 'ka', 'ikaw'],
-        'siya': ['sya', 'siya'],
-        'kami': ['kame', 'kami'],
-        'tayo': ['tayu', 'tayo'],
-        'kayo': ['kayu', 'kayo'],
-        'sila': ['sela', 'sila'],
-        'ang': ['an', 'ang'],
-        'nga': ['ng', 'nga'],
-        'mga': ['manga', 'mga'],
-        'ay': ['ai', 'ay'],
-        'na': ['nang', 'na'],
-        'pa': ['pang', 'pa'],
-        'ba': ['bang', 'ba'],
-        'po': ['pu', 'po'],
-        'opo': ['opu', 'opo'],
-
-        // Common nouns - People
-        'tao': ['tau', 'tawo', 'tao'],
-        'bata': ['bat', 'batang', 'bata'],
-        'nanay': ['nay', 'inay', 'nana', 'nanay'],
-        'tatay': ['tay', 'itay', 'tata', 'tatay'],
-        'kapatid': ['patid', 'kapatit', 'kapatid'],
-        'pamilya': ['pamilia', 'familia', 'pamilya'],
-
-        // Common nouns - Animals
-        'aso': ['asong', 'asu', 'aso'],
-        'pusa': ['pusang', 'posa', 'pusa'],
-        'ibon': ['ibong', 'ebon', 'ibon'],
-        'isda': ['isdang', 'esda', 'isda'],
-        'manok': ['manuk', 'manok'],
-
-        // Common nouns - Body parts
-        'ulo': ['ulu', 'olo', 'ulo'],
-        'mata': ['mat', 'matang', 'mata'],
-        'kamay': ['kamay', 'kamey'],
-        'paa': ['pa', 'paang', 'paa'],
-
-        // Common nouns - Food
-        'pagkain': ['pagkaen', 'pakain', 'pagkain'],
-        'kanin': ['kanen', 'kaning', 'kanin'],
-        'tubig': ['tobig', 'tubeg', 'tubig'],
-        'saging': ['sagin', 'saging'],
-
-        // Common nouns - Places
-        'bahay': ['bahey', 'bahai', 'bahay'],
-        'paaralan': ['paralan', 'eskwela', 'paaralan'],
-        'silid': ['seled', 'selid', 'silid'],
-
-        // Common verbs
-        'kumain': ['kumaen', 'kain', 'kumain'],
-        'uminom': ['uminum', 'inom', 'uminom'],
-        'maglaro': ['maglaru', 'laro', 'maglaro'],
-        'matulog': ['matolog', 'tulog', 'matulog'],
-        'gumising': ['gumesing', 'gising', 'gumising'],
-        'pumunta': ['pomunta', 'punta', 'pumunta'],
-        'umuwi': ['umuwe', 'uwi', 'umuwi'],
-        'tumakbo': ['tumakbu', 'takbo', 'tumakbo'],
-        'lumakad': ['lumakad', 'lakad'],
-
-        // Common adjectives
-        'maganda': ['magand', 'magandang', 'maganda'],
-        'pangit': ['panget', 'pangit'],
-        'mabuti': ['mabote', 'buti', 'mabuti'],
-        'masama': ['masam', 'sama', 'masama'],
-        'malaki': ['malake', 'laki', 'malaki'],
-        'maliit': ['malet', 'liit', 'maliit'],
-        'masaya': ['masay', 'saya', 'masaya'],
-        'malungkot': ['malongkot', 'lungkot', 'malungkot'],
-
-        // Colors
-        'puti': ['pote', 'puti'],
-        'itim': ['etem', 'itim'],
-        'pula': ['pol', 'pula'],
-        'asul': ['asol', 'blue', 'asul'],
-        'dilaw': ['delao', 'yellow', 'dilaw'],
-        'berde': ['birdi', 'green', 'berde'],
-
-        // Numbers
-        'isa': ['es', 'isang', 'isa'],
-        'dalawa': ['dalawang', 'dalwa', 'dalawa'],
-        'tatlo': ['tatlu', 'tatlong', 'tatlo'],
-        'apat': ['apat'],
-        'lima': ['lem', 'limang', 'lima'],
-        'anim': ['anem', 'anim'],
-        'pito': ['petu', 'pitong', 'pito'],
-        'walo': ['walu', 'walong', 'walo'],
-        'siyam': ['siyam'],
-        'sampu': ['sampo', 'sampung', 'sampu'],
-
-        // Time words
-        'araw': ['arao', 'araw'],
-        'gabi': ['gabe', 'gabi'],
-        'umaga': ['omaga', 'umaga'],
-        'hapon': ['hapun', 'hapon'],
-        'ngayon': ['ngayun', 'ngayon'],
-        'bukas': ['bokas', 'bukas'],
-        'kahapon': ['kahapun', 'kahapon'],
-
-        // Demonstratives
-        'ito': ['etu', 'itong', 'ito'],
-        'iyan': ['yan', 'iyang', 'iyan'],
-        'iyon': ['yun', 'iyong', 'iyon'],
-        'dito': ['detu', 'ditong', 'dito'],
-        'diyan': ['dyan', 'diyang', 'diyan'],
-        'doon': ['dun', 'doong', 'doon'],
-
-        // Question words
-        'ano': ['anu', 'ano'],
-        'sino': ['sinu', 'sino'],
-        'saan': ['san', 'saan'],
-        'kailan': ['kelan', 'kailan'],
-        'bakit': ['baket', 'bakit'],
-        'paano': ['pano', 'paanu', 'paano'],
-
-        // Common connectors
-        'at': ['at'],
-        'o': ['u', 'o'],
-        'pero': ['peru', 'pero'],
-        'kaya': ['kay', 'kaya'],
-        'dahil': ['dahel', 'dahil'],
-        'kung': ['kong', 'kung'],
-        'para': ['par', 'para'],
-
-        // Adverbs
-        'hindi': ['hende', 'di', 'hindi'],
-        'oo': ['o', 'oo'],
-        'wala': ['wal', 'wala'],
-        'meron': ['miron', 'mayron', 'meron'],
-        'lagi': ['lage', 'lagi'],
-        'minsan': ['mensan', 'minsan'],
-
-        // More common words
-        'naman': ['naman'],
-        'lang': ['lang'],
-        'din': ['rin', 'din'],
-        'rin': ['din', 'rin'],
-        'kasi': ['kase', 'kasi'],
-        'talaga': ['talag', 'talaga'],
-        'sobra': ['sobrang', 'sobra'],
-        'lahat': ['lahat'],
-        'bawat': ['bawat'],
-        'ibang': ['iba', 'ibang'],
-        'sarili': ['sarele', 'sarili'],
-        'mundo': ['mondo', 'mundo'],
-        'buhay': ['buhey', 'buhay'],
-        'taon': ['taun', 'taon'],
-        'buwan': ['buan', 'buwan'],
-        'linggo': ['lingo', 'linggo'],
-        'oras': ['uras', 'oras']
-      };
-
-    // Check if expected word has accent variations
-    if (accentMap[normExpected]) {
-      if (accentMap[normExpected].includes(normSpoken)) {
-        return true;
-      }
-    }
-
-    // Also check reverse - if spoken word is in the map
-    for (const [standard, variations] of Object.entries(accentMap)) {
-      if (variations.includes(normSpoken) && standard === normExpected) {
-        return true;
-      }
+    // CRITICAL: Prevent false matches between completely different words
+    // Check first letter - must match to prevent false positives like "kalsada" vs "kailangan"
+    if (normSpoken[0] !== normExpected[0]) {
+      return false;
     }
 
     // Calculate similarity metrics
@@ -1362,6 +779,12 @@ const ReadingSessionPage: React.FC = () => {
     // Length difference check - words should be similar length
     const lengthDiff = Math.abs(normSpoken.length - normExpected.length);
     const lengthRatio = minLength / maxLength;
+    
+    // STRICT: Reject words that differ by more than 2 characters in length
+    // This prevents "kalsada" (8 chars) from matching "kailangan" (9 chars)
+    if (lengthDiff > 2) {
+      return false;
+    }
 
     // For very short words (3 chars or less), be strict
     if (normExpected.length <= 3) {
@@ -1393,9 +816,17 @@ const ReadingSessionPage: React.FC = () => {
       }
     }
 
-    // For 6-7 char words, require 90%+ similarity AND length ratio > 0.85
-    if (normExpected.length >= 6 && normExpected.length <= 7) {
-      if (lengthRatio >= 0.85 && similarity >= 0.90) {
+    // For 6-8 char words, require 95%+ similarity AND length ratio > 0.90
+    // This prevents false matches like "kalsada" (8) vs "kailangan" (9)
+    if (normExpected.length >= 6 && normExpected.length <= 8) {
+      if (lengthRatio >= 0.90 && similarity >= 0.95 && lengthDiff <= 1) {
+        return true;
+      }
+    }
+    
+    // For 9+ char words, require 95%+ similarity AND same length or 1 char difference
+    if (normExpected.length >= 9) {
+      if (lengthDiff <= 1 && similarity >= 0.95) {
         return true;
       }
     }
@@ -1403,32 +834,39 @@ const ReadingSessionPage: React.FC = () => {
     // Double Metaphone phonetic match for longer words
     // BUT: Require minimum word length to avoid false positives with short words
     // "in" should NOT match "when" even if phonetically similar
-    if (normSpoken.length >= 5 && normExpected.length >= 5) {
-      const [primary1, secondary1] = doubleMetaphone(normSpoken);
-      const [primary2, secondary2] = doubleMetaphone(normExpected);
+    // DISABLED: Phonetic matching can cause false positives like "kalsada" vs "kailangan"
+    // Server handles pronunciation matching, frontend should only do exact/strict similarity
+    // if (normSpoken.length >= 5 && normExpected.length >= 5) {
+    //   const [primary1, secondary1] = doubleMetaphone(normSpoken);
+    //   const [primary2, secondary2] = doubleMetaphone(normExpected);
+    //
+    //   // Check if any phonetic codes match
+    //   if (primary1 === primary2 ||
+    //     (secondary1 && secondary1 === secondary2) ||
+    //     (secondary1 && secondary1 === primary2) ||
+    //     (primary1 === secondary2)) {
+    //     // Additional validation: words should be similar length (within 1 character)
+    //     // This prevents "isang" from matching "asong"
+    //     if (Math.abs(normSpoken.length - normExpected.length) <= 1) {
+    //       return true;
+    //     }
+    //   }
+    // }
 
-      // Check if any phonetic codes match
-      if (primary1 === primary2 ||
-        (secondary1 && secondary1 === secondary2) ||
-        (secondary1 && secondary1 === primary2) ||
-        (primary1 === secondary2)) {
-        // Additional validation: words should be similar length (within 1 character)
-        // This prevents "isang" from matching "asong"
-        if (Math.abs(normSpoken.length - normExpected.length) <= 1) {
-          return true;
-        }
+    // For longer words (8+ chars), require exact match or very high similarity
+    // STRICT: Only allow 1 character difference with 95%+ similarity
+    // This prevents "kalsada" (8) from matching "kailangan" (9) - they're completely different
+    if (maxLength >= 8) {
+      if (distance <= 1 && similarity >= 0.95 && lengthDiff <= 1) {
+        return true;
       }
+      // Reject if similarity is too low or length difference is too large
+      return false;
     }
 
-    // For longer words (8+ chars), allow up to 1 character difference
-    // More strict to prevent false matches
-    if (maxLength >= 8 && distance <= 1) {
-      return true;
-    }
-
-    // For medium words (5-7 chars), only allow exact match or known variants
+    // For medium words (5-7 chars), only allow exact match or very high similarity
     // No fuzzy matching to prevent false positives like "isang" vs "asong"
-    // (These should be caught by the accentMap or exact match above)
+    // Server handles pronunciation matching, frontend should be strict
 
     if ((normSpoken === 'in' && normExpected === 'when') || (normSpoken === 'when' && normExpected === 'in')) {
       console.log(`   ✗ No match found - returning false`);
@@ -1503,47 +941,8 @@ const ReadingSessionPage: React.FC = () => {
     return 'english';
   };
 
-  /**
-   * Build a story-specific pronunciation map from the vocabulary.
-   * Only includes words that are actually in the story.
-   * This makes the mic smarter - it only listens for words from the current story.
-   * 
-   * @param vocabulary - Set of normalized words from the story
-   * @returns Object mapping story words to their pronunciation variants
-   */
-  const buildStoryPronunciationMap = (vocabulary: Set<string>): { [key: string]: string[] } => {
-    const storyMap: { [key: string]: string[] } = {};
-
-    // For each word in the story vocabulary
-    for (const word of vocabulary) {
-      const normalized = normalize(word);
-
-      // Check if this word exists in the comprehensive Tagalog dictionary
-      if (TAGALOG_PRONUNCIATION_DICTIONARY[normalized]) {
-        storyMap[normalized] = TAGALOG_PRONUNCIATION_DICTIONARY[normalized];
-      }
-
-      // Also check for morphological variants (with/without suffixes)
-      // e.g., "asong" in story should match "aso" in dictionary
-      const suffixes = ['ng', 'an', 'in', 'ang'];
-      for (const suffix of suffixes) {
-        if (normalized.endsWith(suffix) && normalized.length > suffix.length + 2) {
-          const root = normalized.slice(0, -suffix.length);
-          if (TAGALOG_PRONUNCIATION_DICTIONARY[root]) {
-            // Add the root word's variants plus the suffixed form
-            if (!storyMap[normalized]) {
-              storyMap[normalized] = [];
-            }
-            storyMap[normalized].push(...TAGALOG_PRONUNCIATION_DICTIONARY[root]);
-            storyMap[normalized].push(root + suffix);
-            storyMap[normalized].push(root); // Also accept root form
-          }
-        }
-      }
-    }
-
-    return storyMap;
-  };
+  // REMOVED: buildStoryPronunciationMap - Server handles pronunciation matching
+  // The server's word recognition enhancer handles all pronunciation variants
 
   /**
    * Filter recognized text through vocabulary validation.
@@ -1687,11 +1086,13 @@ const ReadingSessionPage: React.FC = () => {
     const useVosk = storyLanguage === "tagalog" || storyLanguage === "english";
     if (useVosk) {
       try {
-        // Railway WebSocket URLs (separate services for each language)
+        // WebSocket URL selection with local server fallback
+        // Priority: 1. Local server (ws://localhost:2700) 2. Railway (deployed)
         // Can be configured via environment variables:
         // - VITE_VOSK_WS_URL_TAGALOG: Tagalog WebSocket URL
         // - VITE_VOSK_WS_URL_ENGLISH: English WebSocket URL
-        const getRailwayWsUrl = (lang: string) => {
+        // - VITE_VOSK_LOCAL_PORT: Local server port (default: 2700)
+        const getVoskWsUrl = async (lang: string): Promise<string> => {
           const env = (import.meta as any)?.env || {};
           
           // Helper to ensure URL has proper format (with / before query params)
@@ -1701,31 +1102,84 @@ const ReadingSessionPage: React.FC = () => {
             return `${cleanUrl}/?lang=${language}`;
           };
           
-          // Use language-specific environment variables if available
-          if (lang === "tagalog" || lang === "tl") {
+          // Get local server port (default: 2700)
+          const localPort = env.VITE_VOSK_LOCAL_PORT || "2700";
+          const localUrl = `ws://localhost:${localPort}`;
+          
+          // Get Railway URLs
+          const getRailwayUrl = (language: string) => {
+            if (language === "tagalog" || language === "tl") {
+              const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
+              if (tagalogUrl) {
+                return formatWsUrl(tagalogUrl, "tagalog");
+              }
+              return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
+            } else if (language === "english" || language === "en") {
+              const englishUrl = env.VITE_VOSK_WS_URL_ENGLISH;
+              if (englishUrl) {
+                return formatWsUrl(englishUrl, "english");
+              }
+              return formatWsUrl("wss://philiready-websocket-english.up.railway.app", "english");
+            }
+            // Default to Tagalog
             const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
             if (tagalogUrl) {
               return formatWsUrl(tagalogUrl, "tagalog");
             }
-            // Default fallback
             return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
-          } else if (lang === "english" || lang === "en") {
-            const englishUrl = env.VITE_VOSK_WS_URL_ENGLISH;
-            if (englishUrl) {
-              return formatWsUrl(englishUrl, "english");
-            }
-            // Default fallback
-            return formatWsUrl("wss://philiready-websocket-english.up.railway.app", "english");
+          };
+          
+          // Try local server first (quick test with 2 second timeout)
+          const testLocalConnection = (): Promise<boolean> => {
+            return new Promise((resolve) => {
+              const testWs = new WebSocket(formatWsUrl(localUrl, lang));
+              const timeout = setTimeout(() => {
+                testWs.close();
+                resolve(false);
+              }, 2000); // 2 second timeout for local server
+              
+              testWs.onopen = () => {
+                clearTimeout(timeout);
+                testWs.close();
+                resolve(true);
+              };
+              
+              testWs.onerror = () => {
+                clearTimeout(timeout);
+                resolve(false);
+              };
+            });
+          };
+          
+          // Test local server first (priority: local > Railway)
+          console.log(`🔍 Testing local Vosk server at ${localUrl}...`);
+          const isLocalAvailable = await testLocalConnection();
+          
+          if (isLocalAvailable) {
+            const localWsUrl = formatWsUrl(localUrl, lang);
+            console.log(`✅ Local Vosk server is running and ready!`);
+            console.log(`   Using: ${localWsUrl}`);
+            console.log(`   Status: Connected to local server (port ${localPort})`);
+            return localWsUrl;
+          } else {
+            const railwayUrl = getRailwayUrl(lang);
+            console.log(`⚠️ Local Vosk server not available at ${localUrl}`);
+            console.log(`   Falling back to Railway deployment: ${railwayUrl}`);
+            console.log(`   💡 To use local server, start it with: cd VoskServer && python server.py`);
+            return railwayUrl;
           }
-          // Fallback to Tagalog service
-          const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
-          if (tagalogUrl) {
-            return formatWsUrl(tagalogUrl, "tagalog");
-          }
-          return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
         };
-        const wsUrl = getRailwayWsUrl(storyLanguage);
+        
         const startVosk = async (isReconnect: boolean = false) => {
+          const wsUrl = await getVoskWsUrl(storyLanguage);
+          const isLocal = wsUrl.startsWith('ws://localhost:');
+          
+          if (isLocal) {
+            console.log(`🎯 Using LOCAL Vosk server for ${storyLanguage} recognition`);
+          } else {
+            console.log(`🌐 Using RAILWAY Vosk server for ${storyLanguage} recognition`);
+          }
+          
           if (!isReconnect) {
             voskReconnectAttemptsRef.current = 0;
             voskFinalTranscriptRef.current = "";
@@ -1743,12 +1197,17 @@ const ReadingSessionPage: React.FC = () => {
 
             setVoskStatus("connecting");
 
-            // Connection timeout - longer for Railway services (may need time to wake up)
-            const connectionTimeout = 20000; // 20 seconds for Railway (may be sleeping on free tier)
+            // Connection timeout - shorter for local, longer for Railway (may need time to wake up)
+            const connectionTimeout = isLocal ? 5000 : 20000; // 5s for local, 20s for Railway
             const connectionStartTime = Date.now();
             
-            console.log(`🔌 Connecting to: ${wsUrl}`);
-            console.log(`⏱️ Connection timeout: ${connectionTimeout / 1000}s`);
+            if (isLocal) {
+              console.log(`🔌 Connecting to LOCAL server: ${wsUrl}`);
+              console.log(`   Timeout: ${connectionTimeout}ms (local connection should be fast)`);
+            } else {
+              console.log(`🔌 Connecting to RAILWAY server: ${wsUrl}`);
+              console.log(`   Timeout: ${connectionTimeout}ms (Railway may need time to wake up)`);
+            }
             console.log(`🌐 Service: ${storyLanguage === "english" ? "English" : "Tagalog"} Vosk WebSocket`);
             
             // Pre-connection diagnostic
@@ -1782,8 +1241,8 @@ const ReadingSessionPage: React.FC = () => {
             let ws: WebSocket;
             try {
               ws = new WebSocket(wsUrl);
-              voskSocketRef.current = ws;
-              ws.binaryType = "arraybuffer";
+            voskSocketRef.current = ws;
+            ws.binaryType = "arraybuffer";
             } catch (error) {
               clearInterval(stateCheckInterval);
               console.error("❌ Failed to create WebSocket:", error);
@@ -1843,35 +1302,49 @@ const ReadingSessionPage: React.FC = () => {
               const connectionTime = ((Date.now() - connectionStartTime) / 1000).toFixed(2);
               console.log(`✅ WebSocket connected successfully to ${wsUrl} (took ${connectionTime}s)`);
 
-              // Send vocabulary constraint to Vosk for 100% accurate word recognition
+              // ACCURACY: Send vocabulary and expected words to server for accurate filtering and metrics
               if (storyVocabulary.size > 0) {
                 const vocabularyList = Array.from(storyVocabulary);
+                const expectedWordsList = realWords.map(w => normalize(w));
 
-                // DISABLED GRAMMAR CONSTRAINT: Too strict, causes <unk> for valid words
-                // Previous issue: Child says "gutom" but Vosk returns <unk> because grammar
-                // constraint is too strict. Better to let Vosk recognize naturally and filter
-                // on frontend where we have more control and can be more lenient for children.
-                //
-                // Grammar constraint mode - force Vosk to only recognize story words
+                // Enhanced config with vocabulary and expected words for server-side accuracy
                 const config1 = JSON.stringify({
                   config: {
                     words: true,
                     max_alternatives: 0,
-                    grammar: vocabularyList  // Send story vocabulary to Vosk
+                    grammar: vocabularyList,  // Send story vocabulary to Vosk (if supported)
+                    vocabulary: vocabularyList,  // For server-side filtering
+                    expected_words: expectedWordsList  // For accuracy calculation
                   }
                 });
 
-                console.log(`🎯 Vosk configured with GRAMMAR CONSTRAINT`);
+                console.log(`🎯 Vosk configured with GRAMMAR CONSTRAINT + SERVER-SIDE FILTERING`);
                 console.log(`📝 Sending ${vocabularyList.length} story words to Vosk`);
+                console.log(`📝 Sending ${expectedWordsList.length} expected words for accuracy calculation`);
                 console.log(`📝 Vocabulary sample (first 20):`, vocabularyList.slice(0, 20).join(', '));
 
                 // Send config
                 try {
                   ws.send(config1);
-                  console.log('✓ Sent Vosk config with grammar constraint');
+                  console.log('✓ Sent Vosk config with grammar constraint + server-side filtering');
                 } catch (e) {
                   console.warn('Failed to send config:', e);
                 }
+              }
+
+              // Send audio format configuration to server
+              try {
+                const audioConfig = JSON.stringify({
+                  audio_format: {
+                    format: "Float32",
+                    sample_rate: ctx.sampleRate || 48000,
+                    channels: 1
+                  }
+                });
+                ws.send(audioConfig);
+                console.log(`✓ Sent audio format: Float32 @ ${ctx.sampleRate}Hz`);
+              } catch (e) {
+                console.warn('Failed to send audio format config:', e);
               }
 
               // Start heartbeat
@@ -1886,110 +1359,19 @@ const ReadingSessionPage: React.FC = () => {
                 }
               }, 30000);
 
-              // Audio buffer for capturing the beginning of speech
-              const audioBuffer: Int16Array[] = [];
-              const MAX_BUFFER_SIZE = 5; // Keep last 5 chunks (~100ms) to catch speech start
-              let speechStartDetected = false;
-              let consecutiveSpeechFrames = 0;
-              let consecutiveSilenceFrames = 0;
-
-              // Setup audio processing
+              // Simplified audio processing - just send raw Float32 audio to server
+              // Server handles downsampling, format conversion, and speech detection
               script.onaudioprocess = (e: AudioProcessingEvent) => {
                 try {
-                  const channel = e.inputBuffer.getChannelData(0);
-
-                  // Calculate RMS (Root Mean Square) volume to detect silence
-                  let sum = 0;
-                  let peak = 0;
-                  for (let i = 0; i < channel.length; i++) {
-                    const abs = Math.abs(channel[i]);
-                    sum += channel[i] * channel[i];
-                    if (abs > peak) peak = abs;
-                  }
-                  const rms = Math.sqrt(sum / channel.length);
-
-                  // ULTRA-SENSITIVE AUDIO DETECTION - Optimized for catching first word
-                  const SILENCE_THRESHOLD = 0.005;  // 0.5% - extremely sensitive
-                  const PEAK_THRESHOLD = 0.02;      // 2% - catches very soft speech
-                  const MIN_DYNAMIC_RANGE = 0.003;  // Very low - accepts all speech patterns
-
-                  // Calculate dynamic range (difference between peak and RMS)
-                  const dynamicRange = peak - rms;
-
-                  // Speech detection with relaxed criteria to catch first word
-                  const isSpeechDetected =
-                    rms > SILENCE_THRESHOLD &&
-                    peak > PEAK_THRESHOLD &&
-                    dynamicRange > MIN_DYNAMIC_RANGE;
-
-                  // Track consecutive frames for stability
-                  if (isSpeechDetected) {
-                    consecutiveSpeechFrames++;
-                    consecutiveSilenceFrames = 0;
-                  } else {
-                    consecutiveSilenceFrames++;
-                    consecutiveSpeechFrames = 0;
-                  }
-
-                  setIsDetectingSpeech(isSpeechDetected);
-
-                  // Convert audio to PCM16
-                  const pcm16 = downsampleTo16k(channel, ctx.sampleRate || 48000);
-
-                  // Always buffer recent audio (circular buffer)
-                  audioBuffer.push(pcm16);
-                  if (audioBuffer.length > MAX_BUFFER_SIZE) {
-                    audioBuffer.shift();
-                  }
-
-                  // Check cooldown - don't send audio during cooldown period
-                  if (audioCooldownRef.current) {
-                    speechStartDetected = false;
-                    consecutiveSpeechFrames = 0;
-                    return;
-                  }
-
-                  // Detect speech start (2 consecutive frames = ~40ms)
-                  if (!speechStartDetected && consecutiveSpeechFrames >= 2) {
-                    speechStartDetected = true;
-
-                    // Send buffered audio first to capture the beginning
                     if (ws.readyState === WebSocket.OPEN) {
-                      console.log('🎤 Speech start detected - sending buffered audio');
-                      for (const bufferedChunk of audioBuffer) {
-                        ws.send(bufferedChunk.buffer);
-                      }
-                      audioBuffer.length = 0; // Clear buffer after sending
-                    }
-                  }
-
-                  // Send current audio if speech is active
-                  if (speechStartDetected && isSpeechDetected) {
-                    if (ws.readyState === WebSocket.OPEN) {
-                      ws.send(pcm16.buffer);
+                    const channel = e.inputBuffer.getChannelData(0);
+                    // Send raw Float32 audio - server will handle processing
+                    ws.send(channel.buffer);
                     } else if (ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
                       attemptVoskReconnect(startVosk);
-                    }
-                  }
-
-                  // REAL-TIME FIX: Send EOF after silence to force Vosk to finalize
-                  // Reduced from 10 frames (200ms) to 5 frames (100ms) for faster response
-                  if (speechStartDetected && consecutiveSilenceFrames >= 5) {
-                    // Send EOF to Vosk to finalize recognition
-                    if (ws.readyState === WebSocket.OPEN) {
-                      try {
-                        ws.send(JSON.stringify({ eof: 1 }));
-                        console.log('🔚 Sent EOF to Vosk after 100ms silence - forcing finalization');
-                      } catch (e) {
-                        console.warn('Failed to send EOF:', e);
-                      }
-                    }
-                    
-                    speechStartDetected = false;
-                    audioBuffer.length = 0;
                   }
                 } catch (error) {
-                  console.warn("Error processing audio:", error);
+                  console.warn("Error sending audio:", error);
                 }
               };
               src.connect(script);
@@ -2048,32 +1430,89 @@ const ReadingSessionPage: React.FC = () => {
       voskReconnectAttemptsRef.current = 0;
 
       // Small delay before reconnecting to ensure cleanup completes
-      setTimeout(() => {
+      setTimeout(async () => {
         if (isRecording && !isPaused) {
-          // Use same Railway URL logic as main Vosk initialization
-          const getRailwayWsUrl = (lang: string) => {
+          // Use same fallback logic as main Vosk initialization
+          const getVoskWsUrl = async (lang: string): Promise<string> => {
             const env = (import.meta as any)?.env || {};
             
-            if (lang === "tagalog" || lang === "tl") {
+            const formatWsUrl = (baseUrl: string, language: string) => {
+              const cleanUrl = baseUrl.replace(/\/$/, '');
+              return `${cleanUrl}/?lang=${language}`;
+            };
+            
+            const localPort = env.VITE_VOSK_LOCAL_PORT || "2700";
+            const localUrl = `ws://localhost:${localPort}`;
+            
+            const getRailwayUrl = (language: string) => {
+              if (language === "tagalog" || language === "tl") {
+                const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
+                if (tagalogUrl) {
+                  return formatWsUrl(tagalogUrl, "tagalog");
+                }
+                return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
+              } else if (language === "english" || language === "en") {
+                const englishUrl = env.VITE_VOSK_WS_URL_ENGLISH;
+                if (englishUrl) {
+                  return formatWsUrl(englishUrl, "english");
+                }
+                return formatWsUrl("wss://philiready-websocket-english.up.railway.app", "english");
+              }
               const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
               if (tagalogUrl) {
-                return `${tagalogUrl}?lang=tagalog`;
+                return formatWsUrl(tagalogUrl, "tagalog");
               }
-              return "wss://vigilant-celebration.up.railway.app?lang=tagalog";
-            } else if (lang === "english" || lang === "en") {
-              const englishUrl = env.VITE_VOSK_WS_URL_ENGLISH;
-              if (englishUrl) {
-                return `${englishUrl}?lang=english`;
-              }
-              return "wss://philiready-websocket-english.up.railway.app?lang=english";
+              return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
+            };
+            
+            const testLocalConnection = (): Promise<boolean> => {
+              return new Promise((resolve) => {
+                const testWs = new WebSocket(formatWsUrl(localUrl, lang));
+                const timeout = setTimeout(() => {
+                  testWs.close();
+                  resolve(false);
+                }, 2000);
+                
+                testWs.onopen = () => {
+                  clearTimeout(timeout);
+                  testWs.close();
+                  resolve(true);
+                };
+                
+                testWs.onerror = () => {
+                  clearTimeout(timeout);
+                  resolve(false);
+                };
+              });
+            };
+            
+            // Test local server first (priority: local > Railway)
+            console.log(`🔍 Testing local Vosk server at ${localUrl}...`);
+            const isLocalAvailable = await testLocalConnection();
+            
+            if (isLocalAvailable) {
+              const localWsUrl = formatWsUrl(localUrl, lang);
+              console.log(`✅ Local Vosk server is running and ready!`);
+              console.log(`   Using: ${localWsUrl}`);
+              console.log(`   Status: Connected to local server (port ${localPort})`);
+              return localWsUrl;
+            } else {
+              const railwayUrl = getRailwayUrl(lang);
+              console.log(`⚠️ Local Vosk server not available at ${localUrl}`);
+              console.log(`   Falling back to Railway deployment: ${railwayUrl}`);
+              console.log(`   💡 To use local server, start it with: cd VoskServer && python server.py`);
+              return railwayUrl;
             }
-            const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
-            if (tagalogUrl) {
-              return `${tagalogUrl}?lang=tagalog`;
-            }
-            return "wss://vigilant-celebration.up.railway.app?lang=tagalog";
           };
-          const wsUrl = getRailwayWsUrl(storyLanguage);
+          
+          const wsUrl = await getVoskWsUrl(storyLanguage);
+          const isLocal = wsUrl.startsWith('ws://localhost:');
+          
+          if (isLocal) {
+            console.log(`🎯 Reconnecting to LOCAL Vosk server for ${storyLanguage} recognition`);
+          } else {
+            console.log(`🌐 Reconnecting to RAILWAY Vosk server for ${storyLanguage} recognition`);
+          }
 
           // Restart Vosk with new language (using improved audio settings)
           const startVosk = async () => {
@@ -2111,44 +1550,7 @@ const ReadingSessionPage: React.FC = () => {
               const script = ctx.createScriptProcessor(2048, 1, 1);
               scriptNodeRef.current = script;
 
-              // Use same improved downsampling algorithm
-              const downsampleTo16k = (input: Float32Array): Int16Array => {
-                const sampleRate = ctx.sampleRate || 48000;
-                const targetRate = 16000;
-                const ratio = sampleRate / targetRate;
-                const newLength = Math.floor(input.length / ratio);
-                const result = new Int16Array(newLength);
-                const filterLength = Math.min(32, Math.floor(input.length / 2));
-
-                for (let i = 0; i < newLength; i++) {
-                  const srcIndex = i * ratio;
-                  const srcStart = Math.max(0, Math.floor(srcIndex - filterLength));
-                  const srcEnd = Math.min(input.length, Math.ceil(srcIndex + filterLength));
-
-                  let sum = 0;
-                  let weightSum = 0;
-
-                  for (let j = srcStart; j < srcEnd; j++) {
-                    const offset = j - srcIndex;
-                    if (Math.abs(offset) < 0.5) {
-                      const weight = 1 - Math.abs(offset);
-                      sum += input[j] * weight;
-                      weightSum += weight;
-                    } else {
-                      const sinc = Math.sin(Math.PI * offset) / (Math.PI * offset);
-                      const window = 0.5 * (1 + Math.cos(Math.PI * offset / filterLength));
-                      const weight = sinc * window;
-                      sum += input[j] * weight;
-                      weightSum += Math.abs(weight);
-                    }
-                  }
-
-                  const sample = weightSum > 0 ? sum / weightSum : 0;
-                  const clamped = Math.max(-1, Math.min(1, sample));
-                  result[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
-                }
-                return result;
-              };
+              // Audio processing now handled server-side
 
               setVoskStatus("connecting");
               const ws = new WebSocket(wsUrl);
@@ -2209,55 +1611,32 @@ const ReadingSessionPage: React.FC = () => {
                   }
                 }, 30000);
 
+                // Send audio format configuration to server
+                  try {
+                  const audioConfig = JSON.stringify({
+                    audio_format: {
+                      format: "Float32",
+                      sample_rate: ctx.sampleRate || 48000,
+                      channels: 1
+                    }
+                  });
+                  ws.send(audioConfig);
+                  console.log(`✓ Sent audio format: Float32 @ ${ctx.sampleRate}Hz`);
+                } catch (e) {
+                  console.warn('Failed to send audio format config:', e);
+                }
+
+                // Simplified audio processing - just send raw Float32 audio to server
+                // Server handles downsampling, format conversion, and speech detection
                 script.onaudioprocess = (e: AudioProcessingEvent) => {
                   try {
-                    const channel = e.inputBuffer.getChannelData(0);
-
-                    // Calculate RMS (Root Mean Square) volume to detect silence
-                    let sum = 0;
-                    let peak = 0;
-                    for (let i = 0; i < channel.length; i++) {
-                      const abs = Math.abs(channel[i]);
-                      sum += channel[i] * channel[i];
-                      if (abs > peak) peak = abs;
-                    }
-                    const rms = Math.sqrt(sum / channel.length);
-
-                    // ULTRA-SENSITIVE AUDIO DETECTION - Optimized for 100% word capture
-                    const SILENCE_THRESHOLD = 0.01;  // 1% - ultra-low for very quiet voices
-                    const PEAK_THRESHOLD = 0.05;     // 5% - catches even whispers
-                    const MIN_DYNAMIC_RANGE = 0.01;  // Very low - accepts all speech patterns
-
-                    // Calculate dynamic range (difference between peak and RMS)
-                    const dynamicRange = peak - rms;
-
-                    // Speech detection requires ALL conditions:
-                    // 1. RMS above threshold (not too quiet)
-                    // 2. Peak above threshold (has clear sound peaks)
-                    // 3. Dynamic range sufficient (not constant noise)
-                    const isSpeechDetected =
-                      rms > SILENCE_THRESHOLD &&
-                      peak > PEAK_THRESHOLD &&
-                      dynamicRange > MIN_DYNAMIC_RANGE;
-
-                    setIsDetectingSpeech(isSpeechDetected);
-
-                    // Check cooldown - don't send audio during cooldown period
-                    if (audioCooldownRef.current) {
-                      return; // Skip sending audio during cooldown
-                    }
-
-                    // Only send audio data if ALL speech detection criteria are met
-                    if (isSpeechDetected) {
-                      const pcm16 = downsampleTo16k(channel);
                       if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(pcm16.buffer);
+                      const channel = e.inputBuffer.getChannelData(0);
+                      // Send raw Float32 audio - server will handle processing
+                      ws.send(channel.buffer);
                       }
-                    }
-                    // If below threshold, don't send anything (silence/noise)
-                    // This aggressively filters: background noise, crowd, wind, constant sounds
                   } catch (error) {
-                    console.warn("Error processing audio:", error);
+                    console.warn("Error sending audio:", error);
                   }
                 };
                 src.connect(script);
@@ -2318,7 +1697,6 @@ const ReadingSessionPage: React.FC = () => {
     try {
       setIsRecording(false);
       setIsPaused(false);
-      setIsDetectingSpeech(false); // Reset speech detection indicator
 
       // Stop MediaRecorder
       if (mediaRecorderRef.current) {
@@ -2570,10 +1948,8 @@ const ReadingSessionPage: React.FC = () => {
             const vocabulary = extractVocabulary(trimmedText);
             setStoryVocabulary(vocabulary);
 
-            // Build story-specific pronunciation map from vocabulary
-            const pronunciationMap = buildStoryPronunciationMap(vocabulary);
-            setStoryPronunciationMap(pronunciationMap);
-            console.log(`📚 Story loaded: ${vocabulary.size} vocabulary words, ${Object.keys(pronunciationMap).length} with pronunciation variants, language: ${fullStory.language || 'auto-detect'}`);
+            // Pronunciation matching now handled by server
+            console.log(`📚 Story loaded: ${vocabulary.size} vocabulary words, language: ${fullStory.language || 'auto-detect'}`);
 
             // Detect story language based on vocabulary
             const detectedLanguage = detectStoryLanguage(vocabulary);
@@ -2820,7 +2196,10 @@ const ReadingSessionPage: React.FC = () => {
 
         // CHILD-FRIENDLY: Check if expected word starts with last word (e.g., "aso" for "asong")
         // This catches cases where child drops the ending - lowered to 60% for children
-        if (normExpected.startsWith(normLastWord) && normLastWord.length >= 2) {
+        // CRITICAL: Only match if this is the FIRST word in transcript (most recent)
+        // This prevents false matches from older words
+        const isFirstWord = transcriptWords.indexOf(lastWord) === 0;
+        if (isFirstWord && normExpected.startsWith(normLastWord) && normLastWord.length >= 2) {
           const similarity = normLastWord.length / normExpected.length;
           if (similarity >= 0.60) {  // CHILD-FRIENDLY: 60% of the word (was 75%)
             console.log(`⚡ NEAR-COMPLETE MATCH: "${lastWord}" is 60%+ of "${expectedWord}" - accepting!`);
@@ -2828,13 +2207,17 @@ const ReadingSessionPage: React.FC = () => {
             // Mark this word as recognized (for green highlighting)
             setRecognizedWords(prev => new Set(prev).add(currentWordIndex));
 
-            // Move yellow highlight to next word (but don't increment wordsRead counter)
+            // Increment wordsRead since word was recognized
+            setWordsRead(prev => Math.min(prev + 1, words.length));
+            console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)}`);
+
+            // Move yellow highlight to next word
             const newIndex = currentWordIndex + 1;
             setCurrentWordIndex(newIndex);
             console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex}`);
 
-            // Remove the last word (matched) and keep remaining words
-            const remainingWords = transcriptWords.slice(0, -1); // Remove last word
+            // Remove the first word (matched) and keep remaining words
+            const remainingWords = transcriptWords.slice(1); // Remove first word
             voskFinalTranscriptRef.current = remainingWords.join(' ');
             setTranscript(remainingWords.join(' '));
             processedTranscriptWordsRef.current = 0;
@@ -2845,77 +2228,41 @@ const ReadingSessionPage: React.FC = () => {
         }
       }
 
-      // Check RECENT words (last 3 words) to catch fast reading
-      // This handles cases where speech recognition splits compound words
-      // CRITICAL FIX: First check if current word is ANYWHERE in the full transcript
-      // This prevents getting stuck when reading fast
-      // BUT: Use STRICT matching to avoid false positives (e.g., "in" matching "when")
-      console.log(`🔎 Searching for "${expectedWord}" in full transcript: [${transcriptWords.join(', ')}]`);
-      const currentWordInFullTranscript = transcriptWords.some(w => {
-        // CHILD-FRIENDLY: More lenient matching for children (75%+ similarity)
-        const normSpoken = normalize(w);
-        const normExpected = normalize(expectedWord);
+      // REMOVED: Full transcript search - was causing false matches and jumping
+      // Now we only match the FIRST word in transcript (most recent word from server)
+      // The server's word recognition enhancer ensures only confirmed words are sent
+      console.log(`🔎 Checking FIRST word in transcript: [${transcriptWords.join(', ')}]`);
 
-        // Exact match
-        if (normSpoken === normExpected) {
-          console.log(`   ✓ Found exact match: "${w}" matches "${expectedWord}"`);
-          return true;
-        }
-
-        // CHILD-FRIENDLY: Allow more variations for children's pronunciation
-        // Lowered from 85% to 75% to accept more natural child speech
-        const distance = levenshtein(normSpoken, normExpected);
-        const maxLength = Math.max(normSpoken.length, normExpected.length);
-        const similarity = 1 - (distance / maxLength);
-
-        // CHILD-FRIENDLY: 75%+ similarity (was 85%)
-        if (similarity >= 0.75) {
-          console.log(`   ✓ Found close match: "${w}" matches "${expectedWord}" (${Math.round(similarity * 100)}% similar)`);
-          return true;
-        }
-
-        return false;
-      });
-
-      if (currentWordInFullTranscript) {
-        console.log(`✅ FOUND "${expectedWord}" in full transcript! Match detected - moving yellow highlight to next word.`);
+      // CRITICAL FIX: Only match words in the FIRST position of transcript (most recent word)
+      // This prevents false matches from words that appear later in the transcript
+      // The server's word recognition enhancer ensures only confirmed words are sent
+      const firstWordInTranscript = transcriptWords.length > 0 ? transcriptWords[0] : null;
+      const isFirstWordMatch = firstWordInTranscript && isWordMatch(firstWordInTranscript, expectedWord, true);
+      
+      if (isFirstWordMatch) {
+        console.log(`✅ FOUND "${expectedWord}" as FIRST word in transcript! Match detected - moving yellow highlight to next word.`);
 
         // Mark this word as recognized (for green highlighting)
         setRecognizedWords(prev => new Set(prev).add(currentWordIndex));
 
-        // Move yellow highlight to next word (but don't increment wordsRead counter)
+        // Increment wordsRead since word was recognized (even if there was a miscue)
+        setWordsRead(prev => Math.min(prev + 1, words.length));
+
+        // Move yellow highlight to next word
         const newIndex = currentWordIndex + 1;
         setCurrentWordIndex(newIndex);
         console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex}`);
+        console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)}`);
 
         // Reset and mark as processed
         lastMiscueWordRef.current = "";
 
-        // Find the position of the matched word in the transcript
-        const matchedWordIndex = transcriptWords.findIndex(w => {
-          const normSpoken = normalize(w);
-          const normExpected = normalize(expectedWord);
-          if (normSpoken === normExpected) return true;
-          const distance = levenshtein(normSpoken, normExpected);
-          const maxLength = Math.max(normSpoken.length, normExpected.length);
-          const similarity = 1 - (distance / maxLength);
-          return similarity >= 0.85;
-        });
-
-        // Remove matched word and all words before it from transcript
-        if (matchedWordIndex >= 0) {
-          const remainingWords = transcriptWords.slice(matchedWordIndex + 1);
-          voskFinalTranscriptRef.current = remainingWords.join(' ');
-          setTranscript(remainingWords.join(' '));
-          processedTranscriptWordsRef.current = 0; // Reset since we have new transcript
-          console.log(`🧹 Removed matched word and kept ${remainingWords.length} remaining words: [${remainingWords.join(', ')}]`);
-        } else {
-          // If we can't find the exact position, clear everything
-          voskFinalTranscriptRef.current = "";
-          setTranscript("");
-          processedTranscriptWordsRef.current = 0;
-          console.log("🧹 Cleared entire transcript");
-        }
+        // Remove the first word (matched) and keep remaining words
+        const remainingWords = transcriptWords.slice(1);
+        voskFinalTranscriptRef.current = remainingWords.join(' ');
+        setTranscript(remainingWords.join(' '));
+        processedTranscriptWordsRef.current = 0; // Reset since we have new transcript
+        console.log(`🧹 Removed matched word "${firstWordInTranscript}", kept ${remainingWords.length} remaining words: [${remainingWords.join(', ')}]`);
 
         // NO cooldown - allow continuous processing for fast readers
         console.log("✅ Match detected, keeping audio processing active");
@@ -3011,6 +2358,10 @@ const ReadingSessionPage: React.FC = () => {
                 correctWord: expectedWord
               }));
 
+              // Increment wordsRead for the omitted word (child skipped it, but it counts as attempted)
+              setWordsRead(prev => Math.min(prev + 1, words.length));
+              console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)} (omission counted)`);
+
               // AUTO-ADVANCE: Move yellow highlight forward when omission is detected
               // The child has already moved ahead, so we must advance to let them continue
               const newIndex = currentWordIndex + 1;
@@ -3056,12 +2407,35 @@ const ReadingSessionPage: React.FC = () => {
         const normalizedExpected = normalize(expectedWord);
 
         // First check: exact word match (with language validation)
-        if (isWordMatch(spokenWord, expectedWord, true)) {
-          console.log(`✅ MATCH! "${spokenWord}" = "${expectedWord}" - but not auto-advancing`);
-          // AUTO-ADVANCE REMOVED: Teacher must manually advance
-          // wordsAdvanced = 1;
-          // matched = true;
-          break;
+        // CRITICAL: Only match if this is the FIRST word in recent words (most recent)
+        // This prevents false matches from older words in the transcript
+        const isFirstRecentWord = wordsToCheck.indexOf(spokenWord) === 0;
+        if (isFirstRecentWord && isWordMatch(spokenWord, expectedWord, true)) {
+          console.log(`✅ MATCH! "${spokenWord}" = "${expectedWord}" - recognized as first word`);
+          
+          // Mark this word as recognized
+          setRecognizedWords(prev => new Set(prev).add(currentWordIndex));
+          
+          // Increment wordsRead since word was recognized
+          setWordsRead(prev => Math.min(prev + 1, words.length));
+          
+          // Move highlight to next word
+          const newIndex = currentWordIndex + 1;
+          setCurrentWordIndex(newIndex);
+          console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex}`);
+          console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)}`);
+          
+          // Remove matched word from transcript
+          const wordIndex = transcriptWords.indexOf(spokenWord);
+          if (wordIndex >= 0) {
+            const remainingWords = transcriptWords.slice(wordIndex + 1);
+            voskFinalTranscriptRef.current = remainingWords.join(' ');
+            setTranscript(remainingWords.join(' '));
+            processedTranscriptWordsRef.current = 0;
+            console.log(`🧹 Removed matched word "${spokenWord}", kept ${remainingWords.length} remaining words`);
+          }
+          
+          return; // Exit early to prevent further processing
         }
 
         // Check if multiple spoken words combine to form the expected word
@@ -3098,7 +2472,10 @@ const ReadingSessionPage: React.FC = () => {
                 }));
               }
 
-              // CHILD-FRIENDLY: Auto-advance after split-word match
+              // Increment wordsRead - child read the word (split into parts)
+              setWordsRead(prev => Math.min(prev + 1, words.length));
+              console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)} (split-word match)`);
+
               // Mark this word as recognized (for green highlighting)
               setRecognizedWords(prev => new Set(prev).add(currentWordIndex));
 
@@ -3197,11 +2574,7 @@ const ReadingSessionPage: React.FC = () => {
             // wordsAdvanced = 3;
             // matched = true;
 
-            // Clear transcript and reset with faster cooldown (10ms for ZERO DELAY)
-            audioCooldownRef.current = true;
-            setTimeout(() => {
-              audioCooldownRef.current = false;
-            }, 10); // Reduced to 10ms for ZERO DELAY instant recognition
+            // Clear transcript and reset Vosk
 
             if (voskSocketRef.current && voskSocketRef.current.readyState === WebSocket.OPEN) {
               try {
@@ -3672,11 +3045,19 @@ const ReadingSessionPage: React.FC = () => {
               correctWord: expectedWord
             }));
 
-            // AUTO-ADVANCE REMOVED: Teacher must manually advance
-            // const newIndex = currentWordIndex + 1;
-            // setCurrentWordIndex(newIndex);
-            // setWordsRead(newIndex);
-            console.log(`⚠️ Mispronunciation (dropped ending) detected but not auto-advancing`);
+            // Increment wordsRead - child read the word (with mispronunciation)
+            setWordsRead(prev => Math.min(prev + 1, words.length));
+            console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)} (mispronunciation counted)`);
+            
+            // Clear transcript to prevent false matches
+            const isFirstWord = transcriptWords.indexOf(lastWord) === 0;
+            if (isFirstWord) {
+              voskFinalTranscriptRef.current = "";
+              setTranscript("");
+              processedTranscriptWordsRef.current = 0;
+              console.log(`🧹 Cleared transcript after mispronunciation`);
+            }
+            
             processedTranscriptWordsRef.current = transcriptWords.length;
           } else if (similarity >= 0.75) {
             // Very similar (75%+) - MISPRONUNCIATION
@@ -3693,11 +3074,18 @@ const ReadingSessionPage: React.FC = () => {
               correctWord: expectedWord
             }));
 
-            // AUTO-ADVANCE REMOVED: Teacher must manually advance
-            // const newIndex = currentWordIndex + 1;
-            // setCurrentWordIndex(newIndex);
-            // setWordsRead(newIndex);
-            console.log(`⚠️ Mispronunciation detected but not auto-advancing`);
+            // Increment wordsRead - child read the word (with mispronunciation)
+            setWordsRead(prev => Math.min(prev + 1, words.length));
+            console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)} (mispronunciation counted)`);
+            
+            // Clear transcript to prevent false matches (only if first word)
+            const isFirstWord = transcriptWords.indexOf(lastWord) === 0;
+            if (isFirstWord) {
+              voskFinalTranscriptRef.current = "";
+              setTranscript("");
+              processedTranscriptWordsRef.current = 0;
+              console.log(`🧹 Cleared transcript after mispronunciation`);
+            }
 
             // Mark this word as processed so it won't be reused for next expected word
             processedTranscriptWordsRef.current = transcriptWords.length;
@@ -3733,22 +3121,29 @@ const ReadingSessionPage: React.FC = () => {
               correctWord: expectedWord
             }));
 
-            // DISABLED AUTO-ADVANCE: Causes too many false positives
-            // The child might self-correct or the teacher should manually advance
-            // Previous issue: Child says "kalsada" while expected word is "May" (reading from wrong position)
-            // System incorrectly marks as substitution and auto-advances, creating cascade of errors
-            //
-            // Better approach: Mark the substitution but DON'T auto-advance
-            // Let the teacher decide when to move forward or let child self-correct
-            console.log(`⚠️ Substitution marked, waiting for teacher intervention or self-correction`);
+            // CRITICAL: Increment wordsRead even for substitutions
+            // The child DID read a word (just the wrong one), so it counts toward words read
+            // The miscue is tracked separately
+            setWordsRead(prev => Math.min(prev + 1, words.length));
+            console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)} (substitution counted)`);
 
             // CRITICAL FIX: Clear the transcript after substitution to prevent continued matching
             // Without this, the transcript keeps accumulating and matching subsequent words
             // causing the yellow highlight to advance even though child hasn't read them
-            voskFinalTranscriptRef.current = "";
-            setTranscript("");
-            processedTranscriptWordsRef.current = 0;
-            console.log(`🧹 Cleared transcript after substitution to prevent false matches`);
+            // BUT: Only clear if this is the FIRST word in transcript (most recent)
+            // This prevents clearing when an old word matches incorrectly
+            const isFirstWord = transcriptWords.indexOf(lastWord) === 0;
+            if (isFirstWord) {
+              voskFinalTranscriptRef.current = "";
+              setTranscript("");
+              processedTranscriptWordsRef.current = 0;
+              console.log(`🧹 Cleared transcript after substitution to prevent false matches`);
+            } else {
+              console.log(`⚠️ Substitution detected but word is not first in transcript - not clearing to prevent jumping`);
+            }
+            
+            // DON'T auto-advance - let teacher decide or wait for self-correction
+            console.log(`⚠️ Substitution marked, waiting for teacher intervention or self-correction`);
             
             return; // Exit early to prevent further processing
           }
@@ -4269,23 +3664,13 @@ const ReadingSessionPage: React.FC = () => {
       {/* Real-time Mic Heard Indicator */}
       {isRecording && (
         <div className="w-full flex justify-center mb-4">
-          <div className={`border-2 rounded-xl px-6 py-3 flex items-center gap-3 shadow-lg text-lg transition-all duration-200 ${isDetectingSpeech
-            ? 'bg-green-50 border-green-500 scale-105'
-            : 'bg-gray-50 border-gray-300'
-            }`}>
-            <span className={`font-semibold ${isDetectingSpeech ? 'text-green-700' : 'text-gray-600'}`}>
+          <div className="border-2 rounded-xl px-6 py-3 flex items-center gap-3 shadow-lg text-lg transition-all duration-200 bg-gray-50 border-gray-300">
+            <span className="font-semibold text-gray-600">
               mic heard:
             </span>
-            <span className={`font-mono text-xl font-bold ${isDetectingSpeech ? 'text-green-900' : 'text-gray-400'
-              }`}>
+            <span className="font-mono text-xl font-bold text-gray-400">
               {transcript.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || '-'}
             </span>
-            {isDetectingSpeech && (
-              <span className="flex items-center gap-1 text-green-600 text-sm animate-pulse">
-                <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                listening
-              </span>
-            )}
           </div>
         </div>
       )}
