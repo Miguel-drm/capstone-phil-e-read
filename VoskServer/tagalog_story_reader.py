@@ -16,10 +16,14 @@ Features:
 - Aggressive filtering of non-story words
 
 Usage:
+    # Pass story content directly (RECOMMENDED)
+    python tagalog_story_reader.py --story-content "Ang Aso sa Lungga..."
+    
+    # Or load from file
     python tagalog_story_reader.py --story "path/to/story.txt"
     
-    Or use the example story:
-    python tagalog_story_reader.py
+    # Or fetch from session
+    python tagalog_story_reader.py --session-id "session123"
 """
 
 import asyncio
@@ -40,16 +44,7 @@ VOSK_SERVER = "wss://philiready-websocket-production.up.railway.app"
 SAMPLE_RATE = 16000
 CHUNK_SIZE = 4096
 
-# Example Tagalog story (can be replaced with actual story file)
-DEFAULT_STORY = """
-Ang Aso sa Lungga
-
-May isang aso na kumain ng karne. Pumunta siya sa ilog upang uminom ng tubig.
-Habang naglalakad, nakita niya ang kanyang sarili sa tubig. Akala niya ay 
-isa pang aso na may karne. Gusto niyang kunin ang karne ng ibang aso.
-Nang buksan niya ang kanyang bibig, nahulog ang kanyang karne sa tubig.
-Nawala ang kanyang pagkain dahil sa kanyang kasakiman.
-"""
+# No default story - user must provide a story file
 
 # ============================================================================
 # STORY VOCABULARY EXTRACTION
@@ -363,43 +358,150 @@ def load_story_from_file(filepath: str) -> str:
     """
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
-            return f.read()
+            content = f.read().strip()
+            if not content:
+                print(f"❌ Error: Story file is empty: {filepath}")
+                exit(1)
+            return content
     except FileNotFoundError:
         print(f"❌ Error: Story file not found: {filepath}")
-        print("   Using default example story instead.")
-        return DEFAULT_STORY
+        exit(1)
     except Exception as e:
         print(f"❌ Error reading story file: {e}")
-        print("   Using default example story instead.")
-        return DEFAULT_STORY
+        exit(1)
+
+
+def fetch_story_from_session(session_id: str) -> str:
+    """
+    Fetch story content from backend using session ID.
+    
+    This connects to your backend API to retrieve the story associated
+    with a reading session from your database.
+    
+    Args:
+        session_id: The reading session ID
+        
+    Returns:
+        Story text content
+    """
+    try:
+        import requests
+        
+        # Configure your backend API endpoint here
+        # Default: localhost:3000 (adjust if your backend runs on different port)
+        API_BASE_URL = "http://localhost:3000"
+        
+        print(f"📡 Connecting to backend API...")
+        response = requests.get(
+            f"{API_BASE_URL}/api/sessions/{session_id}/story",
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            story_content = data.get('storyContent', '')
+            
+            if not story_content:
+                print(f"❌ Error: No story content found for session {session_id}")
+                exit(1)
+            
+            return story_content
+        elif response.status_code == 404:
+            print(f"❌ Error: Session {session_id} not found")
+            exit(1)
+        else:
+            print(f"❌ Error: Failed to fetch story (Status: {response.status_code})")
+            exit(1)
+            
+    except ImportError:
+        print("❌ Error: 'requests' library not installed")
+        print("   Install it with: pip install requests")
+        exit(1)
+    except requests.exceptions.ConnectionError:
+        print(f"❌ Error: Cannot connect to backend API")
+        print(f"   Make sure your backend server is running")
+        exit(1)
+    except requests.exceptions.Timeout:
+        print(f"❌ Error: Request timeout - backend took too long to respond")
+        exit(1)
+    except Exception as e:
+        print(f"❌ Error fetching story from session: {e}")
+        exit(1)
 
 
 def main():
     """Entry point for the story reading system."""
     parser = argparse.ArgumentParser(
-        description='Tagalog Story Reading Session with Speech Recognition'
+        description='Tagalog Story Reading Session with Speech Recognition',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Pass story directly (RECOMMENDED for integration)
+  python tagalog_story_reader.py --story-content "Ang Aso sa Lungga..."
+  
+  # Load from file
+  python tagalog_story_reader.py --story "stories/story1.txt"
+  
+  # Fetch from backend API
+  python tagalog_story_reader.py --session-id "abc123"
+        """
     )
-    parser.add_argument(
+    
+    # Create mutually exclusive group for story sources
+    story_group = parser.add_mutually_exclusive_group(required=True)
+    story_group.add_argument(
+        '--story-content',
+        type=str,
+        help='Story content passed directly as a string (RECOMMENDED)'
+    )
+    story_group.add_argument(
         '--story',
         type=str,
-        help='Path to story text file (default: use example story)'
+        help='Path to story text file'
     )
+    story_group.add_argument(
+        '--session-id',
+        type=str,
+        help='Session ID to fetch story from backend API'
+    )
+    
     parser.add_argument(
         '--show-story',
         action='store_true',
-        help='Display the story text before starting'
+        help='Display the story text before starting recognition'
     )
     
     args = parser.parse_args()
     
-    # Load story
-    if args.story:
+    # Load story from the specified source
+    print("=" * 70)
+    print("  TAGALOG STORY READING SESSION")
+    print("  Story-Constrained Speech Recognition System")
+    print("=" * 70)
+    print()
+    
+    if args.story_content:
+        # Story content passed directly (RECOMMENDED)
+        story_text = args.story_content.strip()
+        if not story_text:
+            print("❌ Error: Story content is empty")
+            exit(1)
+        print("✅ Story loaded from direct content")
+        print(f"   Length: {len(story_text)} characters")
+        
+    elif args.story:
+        # Story from file path
         story_text = load_story_from_file(args.story)
-    else:
-        story_text = DEFAULT_STORY
-        print("ℹ️  Using default example story")
-        print("   (Use --story <file> to load your own story)")
-        print()
+        print(f"✅ Story loaded from file: {args.story}")
+        print(f"   Length: {len(story_text)} characters")
+        
+    elif args.session_id:
+        # Story from session ID (fetched from backend API)
+        story_text = fetch_story_from_session(args.session_id)
+        print(f"✅ Story loaded for session: {args.session_id}")
+        print(f"   Length: {len(story_text)} characters")
+    
+    print()
     
     # Display story if requested
     if args.show_story:
@@ -428,5 +530,6 @@ def main():
         print("3. Ensure Vosk server is accessible")
 
 
-if __name__ == "__main__":
+if
+ __name__ == "__main__":
     main()

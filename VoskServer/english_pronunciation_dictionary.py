@@ -1,427 +1,624 @@
 #!/usr/bin/env python3
 """
-English Pronunciation Dictionary
-=================================
+English Pronunciation Dictionary for Children's Speech Recognition
+===================================================================
 
-Comprehensive dictionary of English words with common pronunciation variants.
-Used by the server to match spoken words to expected words, handling:
+Comprehensive dictionary of English words with common pronunciation variants
+for children learning to read. Handles:
 - Child mispronunciations
-- Filipino accent variations (TH sounds, etc.)
 - Common speech patterns
-- Single letters (A, I, etc.)
+- Phonetic variations
+- Regional accents
 
 Usage:
-    from english_pronunciation_dictionary import ENGLISH_PRONUNCIATION_DICT
+    from english_pronunciation_dictionary import match_word, PRONUNCIATION_DICT
     
-    variants = ENGLISH_PRONUNCIATION_DICT.get('the', [])
-    # Returns: ['da', 'de', 'duh', 'di', 'za', 'ze']
+    canonical = match_word('da')  # Returns 'the'
+    variants = PRONUNCIATION_DICT.get('dog', [])
 """
 
+import re
+from typing import List, Optional, Dict
+from difflib import get_close_matches
+
 # ============================================================================
-# ENGLISH PRONUNCIATION DICTIONARY
+# PRONUNCIATION DICTIONARY
 # ============================================================================
 
-ENGLISH_PRONUNCIATION_DICT: dict[str, list[str]] = {
-    # Single letters - CRITICAL for recognition
-    'a': ['a', 'ah', 'ay', 'eh', 'uh'],
-    'i': ['i', 'e', 'ee', 'eye', 'ay'],
-    'o': ['o', 'oh', 'owe', 'uh'],
-    'u': ['u', 'you', 'yoo', 'oo'],
-    'e': ['e', 'ee', 'eh', 'i'],
-    'b': ['b', 'be', 'bee'],
-    'c': ['c', 'see', 'sea'],
-    'd': ['d', 'dee', 'the'],
-    'f': ['f', 'ef', 'eff'],
-    'g': ['g', 'gee', 'jee'],
-    'h': ['h', 'aitch', 'haitch'],
-    'j': ['j', 'jay', 'jey'],
-    'k': ['k', 'kay', 'key'],
-    'l': ['l', 'el', 'ell'],
-    'm': ['m', 'em', 'emm'],
-    'n': ['n', 'en', 'enn'],
-    'p': ['p', 'pee', 'pi'],
-    'q': ['q', 'cue', 'queue'],
-    'r': ['r', 'ar', 'are'],
-    's': ['s', 'es', 'ess'],
-    't': ['t', 'tee', 'tea'],
-    'v': ['v', 'vee', 'vi'],
-    'w': ['w', 'double-u', 'double you'],
-    'x': ['x', 'ex', 'eks'],
-    'y': ['y', 'why', 'wye'],
-    'z': ['z', 'zed', 'zee'],
-    
-    # Filipino accent variations - TH sounds (very common in Philippines)
-    'the': ['da', 'de', 'duh', 'di', 'za', 'ze', 'the'],
-    'this': ['dis', 'dees', 'tis', 'zis', 'this'],
-    'that': ['dat', 'det', 'tat', 'zat', 'that'],
-    'three': ['tree', 'tri', 'three'],
-    'think': ['tink', 'tingk', 'think'],
-    'thing': ['ting', 'thing'],
-    'with': ['wit', 'wid', 'with'],
-    'they': ['dey', 'day', 'they'],
-    'them': ['dem', 'them'],
-    'there': ['der', 'dere', 'there'],
-    'their': ['der', 'deir', 'their'],
-    'then': ['den', 'then'],
-    'than': ['dan', 'than'],
-    'through': ['tru', 'troo', 'through'],
-    'thought': ['tot', 'taught', 'thought'],
-    'though': ['do', 'dough', 'though'],
-    'these': ['dis', 'dees', 'these'],
-    'those': ['dos', 'dose', 'those'],
-    'other': ['oder', 'udder', 'other'],
-    'another': ['anoder', 'anudder', 'another'],
-    'brother': ['broder', 'brudder', 'brother'],
-    'mother': ['moder', 'mudder', 'mother'],
-    'father': ['fader', 'fadder', 'father'],
-    'weather': ['weder', 'wedder', 'weather'],
-    'whether': ['weder', 'wedder', 'whether'],
-    'together': ['togeder', 'togedder', 'together'],
-    'nothing': ['noting', 'nutting', 'nothing'],
-    'something': ['someting', 'sumting', 'something'],
-    'anything': ['anyting', 'eniting', 'anything'],
-    'everything': ['everyting', 'evriting', 'everything'],
-    'birthday': ['birtday', 'burtday', 'birthday'],
-    'bathroom': ['batroom', 'batrum', 'bathroom'],
-    'math': ['mat', 'mats', 'math'],
-    'path': ['pat', 'pats', 'path'],
-    'both': ['bot', 'bots', 'both'],
-    'mouth': ['mout', 'mowt', 'mouth'],
-    'south': ['sout', 'sowt', 'south'],
-    'north': ['nort', 'norts', 'north'],
-    
-    # Common sight words and function words
-    'about': ['abowt', 'bout', 'about'],
-    'after': ['after', 'apter', 'after'],
-    'again': ['agen', 'agin', 'again'],
-    'always': ['allways', 'alwys', 'always'],
-    'around': ['aroun', 'round', 'around'],
-    'because': ['becuz', 'cuz', 'coz', 'because'],
-    'before': ['befor', 'bfor', 'before'],
-    'between': ['betwee', 'btween', 'between'],
-    'could': ['cud', 'kud', 'could'],
-    'should': ['shud', 'shoud', 'should'],
-    'would': ['wud', 'wood', 'would'],
-    'does': ['dus', 'duz', 'does'],
-    'done': ['dun', 'don', 'done'],
-    'every': ['evry', 'everi', 'every'],
-    'first': ['furst', 'firs', 'first'],
-    'friend': ['frend', 'fren', 'friend'],
-    'from': ['frum', 'form', 'from'],
-    'have': ['hav', 'hab', 'have'],
-    'here': ['hir', 'hear', 'here'],
-    'into': ['intu', 'ento', 'into'],
-    'just': ['jus', 'jast', 'just'],
-    'know': ['no', 'now', 'know'],
-    'like': ['lik', 'lyke', 'like'],
-    'little': ['litle', 'litl', 'little'],
-    'long': ['lang', 'lon', 'long'],
-    'many': ['meny', 'mani', 'many'],
-    'more': ['mor', 'moar', 'more'],
-    'most': ['mos', 'moast', 'most'],
-    'much': ['mach', 'mutch', 'much'],
-    'never': ['neber', 'nevr', 'never'],
-    'only': ['onli', 'ownly', 'only'],
-    'over': ['ober', 'ovr', 'over'],
-    'people': ['pipol', 'peepol', 'peeple', 'people'],
-    'please': ['pls', 'pleas', 'plz', 'please'],
-    'pretty': ['prety', 'pritty', 'pretty'],
-    'really': ['realy', 'relly', 'rily', 'really'],
-    'right': ['rite', 'ryt', 'right'],
-    'some': ['sum', 'som', 'some'],
-    'time': ['tym', 'tyme', 'time'],
-    'today': ['tuday', 'todey', 'today'],
-    'very': ['bery', 'veri', 'very'],
-    'want': ['wanna', 'wan', 'want'],
-    'water': ['wader', 'watur', 'water'],
-    'were': ['wer', 'where', 'were'],
-    'what': ['wat', 'wut', 'what'],
-    'when': ['wen', 'win', 'when'],
-    'where': ['wer', 'were', 'where'],
-    'which': ['wich', 'witch', 'which'],
-    'who': ['hoo', 'hu', 'who'],
-    'why': ['y', 'wi', 'why'],
-    'will': ['wil', 'wel', 'will'],
-    'your': ['yur', 'yor', 'ur', 'your'],
-    
-    # Children's speech: past tense -ed endings (often dropped or mispronounced)
-    'looked': ['look', 'looke', 'lookt', 'looked'],
-    'walked': ['walk', 'walke', 'walkt', 'walked'],
-    'talked': ['talk', 'talke', 'talkt', 'talked'],
-    'picked': ['pick', 'picke', 'pickt', 'picked'],
-    'noticed': ['notice', 'notic', 'notis', 'noticed'],
-    'wanted': ['want', 'wante', 'wantid', 'wanted'],
-    'needed': ['need', 'neede', 'needid', 'needed'],
-    'started': ['start', 'starte', 'startid', 'started'],
-    'ended': ['end', 'ende', 'endid', 'ended'],
-    'asked': ['ask', 'aske', 'askt', 'asked'],
-    'helped': ['help', 'helpe', 'helpt', 'helped'],
-    'jumped': ['jump', 'jumpe', 'jumpt', 'jumped'],
-    'played': ['play', 'playe', 'playd', 'played'],
-    'stayed': ['stay', 'staye', 'stayd', 'stayed'],
-    'tried': ['try', 'trie', 'tryd', 'tried'],
-    'turned': ['turn', 'turne', 'turnd', 'turned'],
-    'learned': ['learn', 'learne', 'learnd', 'learned'],
-    'opened': ['open', 'opene', 'opend', 'opened'],
-    'closed': ['close', 'clos', 'closd', 'closed'],
-    'lived': ['live', 'liv', 'livd', 'lived'],
-    'loved': ['love', 'lov', 'lovd', 'loved'],
-    'moved': ['move', 'mov', 'movd', 'moved'],
-    'used': ['use', 'us', 'usd', 'used'],
-    'called': ['call', 'calle', 'calld', 'called'],
-    'worked': ['work', 'worke', 'workt', 'worked'],
-    'seemed': ['seem', 'seeme', 'seemd', 'seemed'],
-    'showed': ['show', 'showe', 'showd', 'showed'],
-    'followed': ['follow', 'followe', 'followd', 'followed'],
-    'happened': ['happen', 'happene', 'happend', 'happened'],
-    'appeared': ['appear', 'appeare', 'appeard', 'appeared'],
-    'believed': ['believe', 'believ', 'believd', 'believed'],
-    'received': ['receive', 'receiv', 'receivd', 'received'],
-    'watched': ['watch', 'watche', 'watcht', 'watched'],
-    'listened': ['listen', 'listene', 'listend', 'listened'],
-    'laughed': ['laugh', 'laughe', 'laught', 'laughed'],
-    'smiled': ['smile', 'smil', 'smild', 'smiled'],
-    'cried': ['cry', 'crie', 'cryd', 'cried'],
-    'stopped': ['stop', 'stoppe', 'stopt', 'stopped'],
-    'dropped': ['drop', 'droppe', 'dropt', 'dropped'],
-    'hopped': ['hop', 'hoppe', 'hopt', 'hopped'],
-    'skipped': ['skip', 'skippe', 'skipt', 'skipped'],
-    'clapped': ['clap', 'clappe', 'clapt', 'clapped'],
-    'grabbed': ['grab', 'grabbe', 'grabt', 'grabbed'],
-    'hugged': ['hug', 'hugge', 'hugt', 'hugged'],
-    'kissed': ['kiss', 'kisse', 'kist', 'kissed'],
-    'missed': ['miss', 'misse', 'mist', 'missed'],
-    'passed': ['pass', 'passe', 'past', 'passed'],
-    'pushed': ['push', 'pushe', 'pusht', 'pushed'],
-    'pulled': ['pull', 'pulle', 'pulld', 'pulled'],
-    'reached': ['reach', 'reache', 'reacht', 'reached'],
-    'touched': ['touch', 'touche', 'toucht', 'touched'],
-    'washed': ['wash', 'washe', 'washt', 'washed'],
-    'wished': ['wish', 'wishe', 'wisht', 'wished'],
-    'yelled': ['yell', 'yelle', 'yelld', 'yelled'],
-    'answered': ['answer', 'answere', 'answerd', 'answered'],
-    'climbed': ['climb', 'climbe', 'climbd', 'climbed'],
-    'cooked': ['cook', 'cooke', 'cookt', 'cooked'],
-    'danced': ['dance', 'danc', 'danst', 'danced'],
-    'finished': ['finish', 'finishe', 'finisht', 'finished'],
-    'painted': ['paint', 'painte', 'paintid', 'painted'],
-    'planted': ['plant', 'plante', 'plantid', 'planted'],
-    'pointed': ['point', 'pointe', 'pointid', 'pointed'],
-    'remembered': ['remember', 'remembere', 'rememberd', 'remembered'],
-    'visited': ['visit', 'visite', 'visitid', 'visited'],
-    'waited': ['wait', 'waite', 'waitid', 'waited'],
-    'wondered': ['wonder', 'wondere', 'wonderd', 'wondered'],
-    
-    # Common irregular verbs children struggle with
-    'saw': ['see', 'sow', 'so', 'saw'],
-    'said': ['say', 'sed', 'sayed', 'said'],
-    'went': ['go', 'goed', 'wented', 'went'],
-    'came': ['come', 'comed', 'camed', 'came'],
-    'took': ['take', 'taked', 'tooked', 'took'],
-    'gave': ['give', 'gived', 'gaved', 'gave'],
-    'made': ['make', 'maked', 'maded', 'made'],
-    'got': ['get', 'getted', 'goted', 'got'],
-    'found': ['find', 'finded', 'founded', 'found'],
-    'told': ['tell', 'telled', 'tolded', 'told'],
-    'knew': ['know', 'knowed', 'knewed', 'knew'],
-    'felt': ['feel', 'feeled', 'felted', 'felt'],
-    'left': ['leave', 'leaved', 'lefted', 'left'],
-    'kept': ['keep', 'keeped', 'kepted', 'kept'],
-    'held': ['hold', 'holded', 'helded', 'held'],
-    'brought': ['bring', 'bringed', 'broughted', 'brought'],
-    'began': ['begin', 'begined', 'beganed', 'began'],
-    'ran': ['run', 'runned', 'raned', 'ran'],
-    'stood': ['stand', 'standed', 'stooded', 'stood'],
-    'heard': ['hear', 'heared', 'herd', 'heard'],
-    'became': ['become', 'becomed', 'becamed', 'became'],
-    'put': ['put', 'putted', 'puted'],
-    'let': ['let', 'letted', 'leted'],
-    'read': ['read', 'readed', 'red'],
-    'met': ['meet', 'meeted', 'meted', 'met'],
-    'sat': ['sit', 'sitted', 'sated', 'sat'],
-    'spoke': ['speak', 'speaked', 'spoked', 'spoke'],
-    'wrote': ['write', 'writed', 'wroted', 'wrote'],
-    'ate': ['eat', 'eated', 'ated', 'ate'],
-    'drank': ['drink', 'drinked', 'dranked', 'drank'],
-    'sang': ['sing', 'singed', 'sanged', 'sang'],
-    'swam': ['swim', 'swimmed', 'swamed', 'swam'],
-    'flew': ['fly', 'flyed', 'flewed', 'flew'],
-    'drew': ['draw', 'drawed', 'drewed', 'drew'],
-    'grew': ['grow', 'growed', 'grewed', 'grew'],
-    'threw': ['throw', 'throwed', 'threwed', 'threw'],
-    'wore': ['wear', 'weared', 'wored', 'wore'],
-    'broke': ['break', 'breaked', 'broked', 'broke'],
-    'chose': ['choose', 'choosed', 'chosed', 'chose'],
-    'drove': ['drive', 'drived', 'droved', 'drove'],
-    'rode': ['ride', 'rided', 'roded', 'rode'],
-    'woke': ['wake', 'waked', 'woked', 'woke'],
-    'froze': ['freeze', 'freezed', 'frosed', 'froze'],
-    'stole': ['steal', 'stealed', 'stoled', 'stole'],
-    'built': ['build', 'builded', 'bilt', 'built'],
-    'bought': ['buy', 'buyed', 'boughted', 'bought'],
-    'caught': ['catch', 'catched', 'caughted', 'caught'],
-    'cut': ['cut', 'cutted', 'cuted'],
-    'did': ['do', 'doed', 'dided', 'did'],
-    'fell': ['fall', 'falled', 'felled', 'fell'],
-    'fought': ['fight', 'fighted', 'foughted', 'fought'],
-    'forgot': ['forget', 'forgeted', 'forgotted', 'forgot'],
-    'hid': ['hide', 'hided', 'hidded', 'hid'],
-    'hit': ['hit', 'hitted', 'hited'],
-    'hurt': ['hurt', 'hurted', 'herted'],
-    'lay': ['lie', 'lied', 'layed', 'lay'],
-    'led': ['lead', 'leaded', 'ledded', 'led'],
-    'lost': ['lose', 'losed', 'losted', 'lost'],
-    'paid': ['pay', 'payed', 'paided', 'paid'],
-    'rang': ['ring', 'ringed', 'rung', 'rang'],
-    'rose': ['rise', 'rised', 'rosed', 'rose'],
-    'sent': ['send', 'sended', 'sented', 'sent'],
-    'shook': ['shake', 'shaked', 'shooked', 'shook'],
-    'shot': ['shoot', 'shooted', 'shoted', 'shot'],
-    'shut': ['shut', 'shutted', 'shuted'],
-    'slept': ['sleep', 'sleeped', 'slepted', 'slept'],
-    'spent': ['spend', 'spended', 'spented', 'spent'],
-    'taught': ['teach', 'teached', 'taughted', 'taught'],
-    'understood': ['understand', 'understanded', 'understooded', 'understood'],
-    'won': ['win', 'winned', 'woned', 'won'],
-    
-    # Common nouns and story words
-    'animal': ['animel', 'anmal', 'animal'],
-    'bedroom': ['bedrum', 'bed room', 'bedroom'],
-    'breakfast': ['brekfast', 'brekfest', 'breakfast'],
-    'children': ['chilren', 'childs', 'children'],
-    'chocolate': ['choklate', 'choclate', 'choco', 'chocolate'],
-    'christmas': ['krismas', 'xmas', 'christmas'],
-    'different': ['diferent', 'diffrent', 'different'],
-    'finally': ['finaly', 'finely', 'finally'],
-    'garden': ['gardin', 'garding', 'garden'],
-    'happy': ['hapi', 'hapy', 'happy'],
-    'important': ['importan', 'importent', 'important'],
-    'kitchen': ['kitchin', 'kichen', 'kitchen'],
-    'library': ['libary', 'liberry', 'library'],
-    'morning': ['mornin', 'morming', 'morning'],
-    'mountain': ['mountin', 'mowntain', 'mountain'],
-    'neighbor': ['nabor', 'naybor', 'neybor', 'neighbor'],
-    'picture': ['pikture', 'pitcher', 'pictur', 'picture'],
-    'probably': ['probly', 'prolly', 'probably'],
-    'remember': ['rember', 'remembr', 'remember'],
-    'restaurant': ['restarant', 'resturant', 'restaurant'],
-    'school': ['skool', 'scool', 'school'],
-    'special': ['speshal', 'speshul', 'special'],
-    'surprise': ['suprise', 'surprize', 'surprise'],
-    'tomorrow': ['tomoro', 'tommorow', 'tomorow', 'tomorrow'],
-    'tonight': ['tonite', 'to night', 'tonight'],
-    'vegetable': ['vegtable', 'vegitable', 'vegetable'],
-    'yesterday': ['yesturday', 'yesterdey', 'yesterday'],
-    
-    # Adjectives and descriptive words
-    'angry': ['angri', 'angery', 'angry'],
-    'busy': ['bisy', 'bizzy', 'busy'],
-    'careful': ['carful', 'carefull', 'careful'],
-    'comfortable': ['comftable', 'comfterble', 'comfortable'],
-    'dangerous': ['dangeros', 'dangerus', 'dangerous'],
-    'delicious': ['delishus', 'delisious', 'delicious'],
-    'difficult': ['dificult', 'difficalt', 'difficult'],
-    'excited': ['exited', 'exsited', 'excited'],
-    'expensive': ['expensiv', 'exspensive', 'expensive'],
-    'famous': ['famos', 'famus', 'famous'],
-    'frightened': ['fritened', 'frightend', 'frightened'],
-    'hungry': ['hongry', 'hungri', 'hungry'],
-    'interesting': ['intresting', 'intersting', 'interesting'],
-    'jealous': ['jelous', 'jealos', 'jealous'],
-    'lonely': ['lonley', 'loneli', 'lonely'],
-    'nervous': ['nervos', 'nervus', 'nervous'],
-    'perfect': ['perfec', 'perfict', 'perfect'],
-    'popular': ['populer', 'poplar', 'popular'],
-    'quiet': ['quite', 'kwiet', 'quiet'],
-    'scared': ['skared', 'scaired', 'scared'],
-    'terrible': ['terible', 'terrable', 'terrible'],
-    'tired': ['tyred', 'tierd', 'tired'],
-    'wonderful': ['wonderfull', 'wunderful', 'wonderful'],
-    
-    # Common word form variations
-    'shiny': ['shining', 'shin', 'shiny'],
+# Category: Common Articles and Determiners
+ARTICLES = {
+    'the': ['the', 'da', 'de', 'thee', 'thuh'],
+    'a': ['a', 'uh', 'ay'],
+    'an': ['an', 'un'],
+    'this': ['this', 'dis', 'thiss'],
+    'that': ['that', 'dat', 'thatt'],
+    'these': ['these', 'deez', 'theez'],
+    'those': ['those', 'doze', 'thoze'],
+    'my': ['my', 'mai', 'mah'],
+    'your': ['your', 'yor', 'yur'],
+    'his': ['his', 'hiz', 'hiss'],
+    'her': ['her', 'hur', 'herr'],
+    'its': ['its', 'itz'],
+    'our': ['our', 'are', 'ow-er'],
+    'their': ['their', 'there', 'thair', 'der'],
+}
+
+# Category: Common Pronouns
+PRONOUNS = {
+    'i': ['i', 'ai', 'eye'],
+    'you': ['you', 'yu', 'yoo'],
+    'he': ['he', 'hee'],
+    'she': ['she', 'shee'],
+    'it': ['it', 'itt'],
+    'we': ['we', 'wee'],
+    'they': ['they', 'thay', 'dey'],
+    'me': ['me', 'mee'],
+    'him': ['him', 'hymn'],
+    'them': ['them', 'dem', 'thum'],
+    'us': ['us', 'uss'],
 }
 
 
-def get_pronunciation_variants(word: str) -> list[str]:
-    """
-    Get pronunciation variants for an English word.
-    
-    Args:
-        word: The word to get variants for (normalized, lowercase)
-        
-    Returns:
-        List of pronunciation variants including the original word
-    """
-    normalized = word.lower().strip()
-    variants = ENGLISH_PRONUNCIATION_DICT.get(normalized, [])
-    
-    # Always include the original word if not already in variants
-    if normalized not in variants:
-        return [normalized] + variants
-    
-    return variants
+# Category: Common Verbs - Present Tense
+VERBS_PRESENT = {
+    'is': ['is', 'iz', 'iss'],
+    'are': ['are', 'ar', 'arr'],
+    'am': ['am', 'um'],
+    'was': ['was', 'wuz', 'woz'],
+    'were': ['were', 'wer', 'wurr'],
+    'have': ['have', 'hav', 'haff'],
+    'has': ['has', 'haz', 'hass'],
+    'had': ['had', 'hadd'],
+    'do': ['do', 'doo'],
+    'does': ['does', 'duz', 'doze'],
+    'did': ['did', 'didd'],
+    'go': ['go', 'goh'],
+    'goes': ['goes', 'goze', 'goz'],
+    'went': ['went', 'wint'],
+    'come': ['come', 'cum', 'kum'],
+    'came': ['came', 'kaym'],
+    'see': ['see', 'sea', 'si'],
+    'saw': ['saw', 'sah', 'sore'],
+    'look': ['look', 'luk', 'lookk'],
+    'run': ['run', 'runn'],
+    'walk': ['walk', 'wok', 'wawk'],
+    'eat': ['eat', 'eet', 'ate'],
+    'drink': ['drink', 'dink', 'drinkk'],
+    'sleep': ['sleep', 'sleap', 'slep'],
+    'play': ['play', 'plai', 'pley'],
+    'read': ['read', 'reed', 'red'],
+    'write': ['write', 'rite', 'writ'],
+    'say': ['say', 'sey', 'sai'],
+    'tell': ['tell', 'tel'],
+    'give': ['give', 'giv', 'giff'],
+    'take': ['take', 'tayk', 'tak'],
+    'make': ['make', 'mayk', 'mak'],
+    'get': ['get', 'git', 'gett'],
+    'put': ['put', 'putt'],
+    'sit': ['sit', 'sitt'],
+    'stand': ['stand', 'stann'],
+    'jump': ['jump', 'jum', 'jumpp'],
+    'fly': ['fly', 'flai', 'fli'],
+    'swim': ['swim', 'swimm'],
+    'sing': ['sing', 'singg'],
+    'dance': ['dance', 'dans', 'danse'],
+    'help': ['help', 'hellp'],
+    'work': ['work', 'wurk', 'werk'],
+    'stop': ['stop', 'stopp'],
+    'start': ['start', 'starrt'],
+    'open': ['open', 'opin', 'opun'],
+    'close': ['close', 'cloze', 'cloz'],
+    'like': ['like', 'lik', 'lyke'],
+    'love': ['love', 'luv', 'luff'],
+    'want': ['want', 'wont', 'wannt'],
+    'need': ['need', 'nead', 'needd'],
+    'know': ['know', 'no', 'noh'],
+    'think': ['think', 'tink', 'thinkk'],
+}
 
 
-def is_pronunciation_match(spoken: str, expected: str) -> bool:
+# Category: Common Nouns - Animals
+ANIMALS = {
+    'dog': ['dog', 'dawg', 'dogg'],
+    'cat': ['cat', 'kat', 'catt'],
+    'bird': ['bird', 'burd', 'birrd'],
+    'fish': ['fish', 'fiss', 'phish'],
+    'cow': ['cow', 'kow', 'caw'],
+    'pig': ['pig', 'pigg'],
+    'horse': ['horse', 'hors', 'horss'],
+    'sheep': ['sheep', 'shep', 'sheap'],
+    'goat': ['goat', 'gote', 'goht'],
+    'chicken': ['chicken', 'chiken', 'chickin'],
+    'duck': ['duck', 'duk', 'dukk'],
+    'rabbit': ['rabbit', 'rabit', 'rabbitt'],
+    'mouse': ['mouse', 'mous', 'mowse'],
+    'rat': ['rat', 'ratt'],
+    'lion': ['lion', 'lyon', 'lyin'],
+    'tiger': ['tiger', 'tyger', 'tigger'],
+    'bear': ['bear', 'bare', 'bair'],
+    'elephant': ['elephant', 'elefant', 'ellephant'],
+    'monkey': ['monkey', 'munkey', 'monkee'],
+    'snake': ['snake', 'snayk', 'snak'],
+    'frog': ['frog', 'frawg', 'frogg'],
+    'turtle': ['turtle', 'turdle', 'turtul'],
+    'butterfly': ['butterfly', 'butterflai', 'buterfly'],
+    'bee': ['bee', 'be', 'bea'],
+    'ant': ['ant', 'antt'],
+    'spider': ['spider', 'spyder', 'spida'],
+}
+
+# Category: Common Nouns - Body Parts
+BODY_PARTS = {
+    'head': ['head', 'hed', 'hedd'],
+    'face': ['face', 'fays', 'fase'],
+    'eye': ['eye', 'i', 'ai'],
+    'ear': ['ear', 'eer', 'ere'],
+    'nose': ['nose', 'noze', 'noz'],
+    'mouth': ['mouth', 'mowth', 'mout'],
+    'tooth': ['tooth', 'toof', 'tuth'],
+    'teeth': ['teeth', 'teef', 'teath'],
+    'tongue': ['tongue', 'tung', 'tong'],
+    'neck': ['neck', 'nek', 'nekk'],
+    'shoulder': ['shoulder', 'sholder', 'sholda'],
+    'arm': ['arm', 'arrm'],
+    'hand': ['hand', 'hann'],
+    'finger': ['finger', 'finga', 'fingger'],
+    'thumb': ['thumb', 'thum', 'tumb'],
+    'leg': ['leg', 'legg'],
+    'knee': ['knee', 'nee', 'ni'],
+    'foot': ['foot', 'fut', 'foott'],
+    'feet': ['feet', 'feat', 'fete'],
+    'toe': ['toe', 'tow', 'toh'],
+    'back': ['back', 'bak', 'bakk'],
+    'chest': ['chest', 'chist', 'chesst'],
+    'stomach': ['stomach', 'stumak', 'stomak'],
+    'heart': ['heart', 'hart', 'hearrt'],
+    'skin': ['skin', 'skinn'],
+    'hair': ['hair', 'hare', 'hayr'],
+}
+
+
+# Category: Common Nouns - Food and Drinks
+FOOD_DRINKS = {
+    'food': ['food', 'fud', 'fuud'],
+    'water': ['water', 'wata', 'watter'],
+    'milk': ['milk', 'melk', 'milkk'],
+    'juice': ['juice', 'joos', 'juce'],
+    'bread': ['bread', 'bred', 'bredd'],
+    'rice': ['rice', 'rys', 'ryce'],
+    'meat': ['meat', 'meet', 'mete'],
+    'chicken': ['chicken', 'chiken', 'chickin'],
+    'fish': ['fish', 'fiss', 'phish'],
+    'egg': ['egg', 'eg', 'eggz'],
+    'cheese': ['cheese', 'cheez', 'chees'],
+    'butter': ['butter', 'butta', 'buttur'],
+    'apple': ['apple', 'apel', 'appul'],
+    'banana': ['banana', 'bananna', 'banan'],
+    'orange': ['orange', 'oranj', 'orang'],
+    'grape': ['grape', 'grayp', 'grap'],
+    'strawberry': ['strawberry', 'strawbery', 'strawberri'],
+    'carrot': ['carrot', 'karot', 'carott'],
+    'potato': ['potato', 'potayto', 'potaito'],
+    'tomato': ['tomato', 'tomayto', 'tomaito'],
+    'cake': ['cake', 'kayk', 'cak'],
+    'cookie': ['cookie', 'cooky', 'cuki'],
+    'candy': ['candy', 'kandi', 'candee'],
+    'ice cream': ['ice cream', 'icecream', 'iscream'],
+    'pizza': ['pizza', 'pitza', 'piza'],
+    'sandwich': ['sandwich', 'sandwitch', 'sanwich'],
+    'soup': ['soup', 'soop', 'sup'],
+    'salad': ['salad', 'sallad', 'salid'],
+    'tea': ['tea', 'tee', 'ti'],
+    'coffee': ['coffee', 'coffy', 'cofee'],
+}
+
+# Category: Common Nouns - Colors
+COLORS = {
+    'red': ['red', 'redd'],
+    'blue': ['blue', 'bloo', 'blu'],
+    'green': ['green', 'grean', 'gren'],
+    'yellow': ['yellow', 'yello', 'yelow'],
+    'orange': ['orange', 'oranj', 'orang'],
+    'purple': ['purple', 'purpul', 'perpul'],
+    'pink': ['pink', 'pinkk'],
+    'brown': ['brown', 'broun', 'brownn'],
+    'black': ['black', 'blak', 'blakk'],
+    'white': ['white', 'wite', 'whyt'],
+    'gray': ['gray', 'grey', 'gra'],
+    'gold': ['gold', 'gol', 'goldd'],
+    'silver': ['silver', 'silvar', 'silvur'],
+}
+
+# Category: Common Nouns - Numbers
+NUMBERS = {
+    'one': ['one', 'won', 'wun'],
+    'two': ['two', 'too', 'tu'],
+    'three': ['three', 'tree', 'thre'],
+    'four': ['four', 'for', 'fore'],
+    'five': ['five', 'fiv', 'fyve'],
+    'six': ['six', 'siks', 'sikks'],
+    'seven': ['seven', 'sevin', 'sevun'],
+    'eight': ['eight', 'ate', 'ait'],
+    'nine': ['nine', 'nyn', 'nien'],
+    'ten': ['ten', 'tenn'],
+    'eleven': ['eleven', 'elevin', 'elevun'],
+    'twelve': ['twelve', 'twelv', 'twelff'],
+    'thirteen': ['thirteen', 'therteen', 'thirten'],
+    'fourteen': ['fourteen', 'forteen', 'fourten'],
+    'fifteen': ['fifteen', 'fiften', 'fivteen'],
+    'sixteen': ['sixteen', 'sikteen', 'sixten'],
+    'seventeen': ['seventeen', 'seventen', 'seventean'],
+    'eighteen': ['eighteen', 'eiteen', 'eightean'],
+    'nineteen': ['nineteen', 'ninteen', 'nynteen'],
+    'twenty': ['twenty', 'twenny', 'twentee'],
+    'thirty': ['thirty', 'therty', 'thirtee'],
+    'forty': ['forty', 'fortee', 'fourty'],
+    'fifty': ['fifty', 'fiftee', 'fivty'],
+    'hundred': ['hundred', 'hunderd', 'hundrid'],
+    'thousand': ['thousand', 'thowsand', 'thousan'],
+}
+
+
+# Category: Common Adjectives
+ADJECTIVES = {
+    'big': ['big', 'bigg'],
+    'small': ['small', 'smol', 'smal'],
+    'tall': ['tall', 'tal', 'tawl'],
+    'short': ['short', 'shurt', 'shorrt'],
+    'long': ['long', 'lawng', 'longg'],
+    'fat': ['fat', 'fatt'],
+    'thin': ['thin', 'thinn'],
+    'hot': ['hot', 'hott'],
+    'cold': ['cold', 'kold', 'coldd'],
+    'warm': ['warm', 'worm', 'warrm'],
+    'cool': ['cool', 'kool', 'cul'],
+    'good': ['good', 'gud', 'guud'],
+    'bad': ['bad', 'badd'],
+    'happy': ['happy', 'hapi', 'happee'],
+    'sad': ['sad', 'sadd'],
+    'angry': ['angry', 'angree', 'angri'],
+    'scared': ['scared', 'skared', 'scaired'],
+    'brave': ['brave', 'brayv', 'brav'],
+    'strong': ['strong', 'strawng', 'stron'],
+    'weak': ['weak', 'week', 'wek'],
+    'fast': ['fast', 'fasst', 'fahst'],
+    'slow': ['slow', 'sloh', 'slowe'],
+    'loud': ['loud', 'lowd', 'lowdd'],
+    'quiet': ['quiet', 'kwiet', 'quyet'],
+    'clean': ['clean', 'kleen', 'cleen'],
+    'dirty': ['dirty', 'derty', 'dirtee'],
+    'new': ['new', 'nu', 'noo'],
+    'old': ['old', 'oldd'],
+    'young': ['young', 'yung', 'youngg'],
+    'pretty': ['pretty', 'pritty', 'prety'],
+    'ugly': ['ugly', 'uglee', 'ugli'],
+    'nice': ['nice', 'nys', 'nyce'],
+    'mean': ['mean', 'meen', 'mene'],
+    'kind': ['kind', 'kynd', 'kindd'],
+    'smart': ['smart', 'smarrt', 'smaart'],
+    'silly': ['silly', 'sily', 'sillee'],
+    'funny': ['funny', 'funee', 'funi'],
+    'easy': ['easy', 'eazy', 'eesy'],
+    'hard': ['hard', 'harrd', 'hardd'],
+    'soft': ['soft', 'sawft', 'sofft'],
+    'rough': ['rough', 'ruff', 'ruf'],
+    'smooth': ['smooth', 'smuth', 'smoothe'],
+    'wet': ['wet', 'wett'],
+    'dry': ['dry', 'dri', 'drye'],
+    'full': ['full', 'ful', 'foll'],
+    'empty': ['empty', 'emptee', 'empti'],
+    'heavy': ['heavy', 'hevvy', 'hevi'],
+    'light': ['light', 'lite', 'lyt'],
+}
+
+
+# Category: Common Nouns - Places and Objects
+PLACES_OBJECTS = {
+    'house': ['house', 'hows', 'howse'],
+    'home': ['home', 'hohm', 'hoam'],
+    'school': ['school', 'skool', 'scool'],
+    'room': ['room', 'rum', 'rooom'],
+    'door': ['door', 'dor', 'doore'],
+    'window': ['window', 'windo', 'windoh'],
+    'wall': ['wall', 'wol', 'wawl'],
+    'floor': ['floor', 'flor', 'floore'],
+    'ceiling': ['ceiling', 'seeling', 'ceeling'],
+    'table': ['table', 'tayble', 'tabel'],
+    'chair': ['chair', 'chare', 'chayr'],
+    'bed': ['bed', 'bedd'],
+    'desk': ['desk', 'deskk'],
+    'book': ['book', 'buk', 'bookk'],
+    'pen': ['pen', 'penn'],
+    'pencil': ['pencil', 'pensil', 'pencill'],
+    'paper': ['paper', 'payper', 'papur'],
+    'bag': ['bag', 'bagg'],
+    'box': ['box', 'boks', 'bokks'],
+    'toy': ['toy', 'toi', 'toye'],
+    'ball': ['ball', 'bawl', 'bal'],
+    'car': ['car', 'karr', 'carr'],
+    'bus': ['bus', 'buss'],
+    'train': ['train', 'trayn', 'trane'],
+    'plane': ['plane', 'playn', 'plaine'],
+    'boat': ['boat', 'bote', 'boht'],
+    'bike': ['bike', 'byk', 'byke'],
+    'tree': ['tree', 'tre', 'trea'],
+    'flower': ['flower', 'flowr', 'flowur'],
+    'grass': ['grass', 'gras', 'grasse'],
+    'sun': ['sun', 'sunn'],
+    'moon': ['moon', 'mune', 'mun'],
+    'star': ['star', 'starr'],
+    'sky': ['sky', 'ski', 'skye'],
+    'cloud': ['cloud', 'clowd', 'clowdd'],
+    'rain': ['rain', 'rayn', 'rane'],
+    'snow': ['snow', 'snoh', 'snowe'],
+    'wind': ['wind', 'winn', 'wynde'],
+}
+
+# Category: Common Prepositions
+PREPOSITIONS = {
+    'in': ['in', 'inn'],
+    'on': ['on', 'onn'],
+    'at': ['at', 'att'],
+    'to': ['to', 'too', 'tu'],
+    'from': ['from', 'frum', 'fromm'],
+    'with': ['with', 'wif', 'wiff'],
+    'by': ['by', 'bi', 'bye'],
+    'for': ['for', 'four', 'fore'],
+    'of': ['of', 'ov', 'off'],
+    'up': ['up', 'upp'],
+    'down': ['down', 'doun', 'downn'],
+    'over': ['over', 'ovar', 'ovur'],
+    'under': ['under', 'undar', 'undur'],
+    'above': ['above', 'abuv', 'abov'],
+    'below': ['below', 'belo', 'beloh'],
+    'between': ['between', 'betwean', 'betwen'],
+    'behind': ['behind', 'behynd', 'behinde'],
+    'in front of': ['in front of', 'infront', 'infrontof'],
+    'next to': ['next to', 'nextto', 'nekst to'],
+    'near': ['near', 'neer', 'nere'],
+    'far': ['far', 'farr'],
+    'inside': ['inside', 'insyd', 'insyde'],
+    'outside': ['outside', 'owtsyde', 'outsyd'],
+    'through': ['through', 'thru', 'threw'],
+    'across': ['across', 'akross', 'acros'],
+    'around': ['around', 'aroun', 'arownd'],
+}
+
+
+# Category: Common Conjunctions and Connectors
+CONJUNCTIONS = {
+    'and': ['and', 'an', 'annd'],
+    'or': ['or', 'orr'],
+    'but': ['but', 'butt'],
+    'so': ['so', 'soh', 'sew'],
+    'because': ['because', 'becuz', 'becaus'],
+    'if': ['if', 'iff'],
+    'when': ['when', 'wen', 'whenn'],
+    'then': ['then', 'den', 'thenn'],
+    'than': ['than', 'then', 'thann'],
+    'while': ['while', 'wile', 'whyle'],
+    'until': ['until', 'untill', 'untul'],
+    'before': ['before', 'befor', 'befour'],
+    'after': ['after', 'aftur', 'affter'],
+    'since': ['since', 'sinse', 'sins'],
+    'although': ['although', 'altho', 'althoh'],
+}
+
+# Category: Question Words
+QUESTION_WORDS = {
+    'what': ['what', 'wat', 'whatt'],
+    'who': ['who', 'hoo', 'whoo'],
+    'where': ['where', 'were', 'whare'],
+    'when': ['when', 'wen', 'whenn'],
+    'why': ['why', 'wi', 'wye'],
+    'how': ['how', 'hau', 'howe'],
+    'which': ['which', 'wich', 'whitch'],
+    'whose': ['whose', 'hooz', 'whoze'],
+}
+
+# Category: Common Adverbs
+ADVERBS = {
+    'very': ['very', 'verry', 'veri'],
+    'too': ['too', 'to', 'tu'],
+    'also': ['also', 'allso', 'awlso'],
+    'always': ['always', 'allways', 'alwayz'],
+    'never': ['never', 'nevur', 'nevver'],
+    'sometimes': ['sometimes', 'sumtimes', 'sometymes'],
+    'often': ['often', 'offen', 'offten'],
+    'usually': ['usually', 'usally', 'usualy'],
+    'now': ['now', 'nau', 'nowe'],
+    'then': ['then', 'den', 'thenn'],
+    'here': ['here', 'heer', 'hear'],
+    'there': ['there', 'thare', 'ther'],
+    'everywhere': ['everywhere', 'evrywhere', 'evreewhere'],
+    'nowhere': ['nowhere', 'nowere', 'nowhare'],
+    'today': ['today', 'tuday', 'todai'],
+    'yesterday': ['yesterday', 'yesturday', 'yesterdai'],
+    'tomorrow': ['tomorrow', 'tomorro', 'tomorow'],
+    'again': ['again', 'agen', 'agane'],
+    'already': ['already', 'allready', 'alredy'],
+    'still': ['still', 'stil', 'styll'],
+    'yet': ['yet', 'yett'],
+    'just': ['just', 'juss', 'jusst'],
+    'only': ['only', 'onlee', 'onli'],
+    'even': ['even', 'evin', 'evun'],
+    'almost': ['almost', 'allmost', 'awlmost'],
+    'quite': ['quite', 'kwite', 'quyte'],
+    'really': ['really', 'realy', 'relly'],
+    'maybe': ['maybe', 'mayb', 'maybee'],
+    'perhaps': ['perhaps', 'perhap', 'perhapps'],
+}
+
+# Category: Common Interjections
+INTERJECTIONS = {
+    'yes': ['yes', 'yess', 'yeh'],
+    'no': ['no', 'noh', 'nope'],
+    'okay': ['okay', 'ok', 'okey'],
+    'hello': ['hello', 'helo', 'hellow'],
+    'hi': ['hi', 'hai', 'hye'],
+    'bye': ['bye', 'by', 'bai'],
+    'goodbye': ['goodbye', 'goodby', 'gudbye'],
+    'please': ['please', 'pleez', 'pleas'],
+    'thank you': ['thank you', 'thankyou', 'thanks'],
+    'sorry': ['sorry', 'sory', 'sorri'],
+    'excuse me': ['excuse me', 'excuseme', 'scuse me'],
+    'wow': ['wow', 'wau', 'woww'],
+    'oh': ['oh', 'o', 'ohh'],
+    'ah': ['ah', 'ahh', 'aah'],
+    'ouch': ['ouch', 'owch', 'owtch'],
+    'yay': ['yay', 'yey', 'yaay'],
+    'hooray': ['hooray', 'horay', 'hurray'],
+}
+
+# ============================================================================
+# COMBINE ALL CATEGORIES INTO MAIN DICTIONARY
+# ============================================================================
+
+PRONUNCIATION_DICT: Dict[str, List[str]] = {}
+
+# Merge all category dictionaries
+for category_dict in [
+    ARTICLES, PRONOUNS, VERBS_PRESENT, ANIMALS, BODY_PARTS,
+    FOOD_DRINKS, COLORS, NUMBERS, ADJECTIVES, PLACES_OBJECTS,
+    PREPOSITIONS, CONJUNCTIONS, QUESTION_WORDS, ADVERBS, INTERJECTIONS
+]:
+    PRONUNCIATION_DICT.update(category_dict)
+
+# ============================================================================
+# REVERSE LOOKUP: Variant -> Canonical Word
+# ============================================================================
+
+VARIANT_TO_CANONICAL: Dict[str, str] = {}
+
+for canonical, variants in PRONUNCIATION_DICT.items():
+    for variant in variants:
+        VARIANT_TO_CANONICAL[variant.lower()] = canonical
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def normalize_word(word: str) -> str:
+    """Normalize a word for matching."""
+    return re.sub(r'[^\w]', '', word.lower()).strip()
+
+
+def match_word(heard_word: str, threshold: float = 0.8) -> Optional[str]:
     """
-    Check if spoken word matches expected word considering pronunciation variants.
+    Match a heard word to its canonical form.
     
     Args:
-        spoken: The word that was spoken (normalized, lowercase)
-        expected: The expected word (normalized, lowercase)
+        heard_word: Word heard from microphone
+        threshold: Similarity threshold for fuzzy matching (0.0-1.0)
         
     Returns:
-        True if spoken word matches expected word or any of its variants
+        Canonical word if match found, None otherwise
     """
-    if not spoken or not expected:
-        return False
+    normalized = normalize_word(heard_word)
     
-    spoken_norm = spoken.lower().strip()
-    expected_norm = expected.lower().strip()
+    if not normalized:
+        return None
     
-    # Exact match
-    if spoken_norm == expected_norm:
-        return True
+    # Direct lookup
+    if normalized in VARIANT_TO_CANONICAL:
+        return VARIANT_TO_CANONICAL[normalized]
     
-    # Check if spoken word is a variant of expected word
-    expected_variants = get_pronunciation_variants(expected_norm)
-    if spoken_norm in expected_variants:
-        return True
+    # Fuzzy matching
+    all_variants = list(VARIANT_TO_CANONICAL.keys())
+    matches = get_close_matches(normalized, all_variants, n=1, cutoff=threshold)
     
-    # Check reverse - if expected word is a variant of spoken word
-    spoken_variants = get_pronunciation_variants(spoken_norm)
-    if expected_norm in spoken_variants:
-        return True
+    if matches:
+        return VARIANT_TO_CANONICAL[matches[0]]
     
-    return False
+    # Check if already canonical
+    if normalized in PRONUNCIATION_DICT:
+        return normalized
+    
+    return None
+
+
+def get_variants(canonical_word: str) -> List[str]:
+    """Get all pronunciation variants for a canonical word."""
+    normalized = normalize_word(canonical_word)
+    return PRONUNCIATION_DICT.get(normalized, [])
+
+
+def get_all_canonical_words() -> List[str]:
+    """Get list of all canonical words in the dictionary."""
+    return sorted(PRONUNCIATION_DICT.keys())
+
+
+def get_dictionary_stats() -> Dict[str, int]:
+    """Get statistics about the pronunciation dictionary."""
+    total_canonical = len(PRONUNCIATION_DICT)
+    total_variants = sum(len(variants) for variants in PRONUNCIATION_DICT.values())
+    
+    return {
+        'total_canonical_words': total_canonical,
+        'total_variants': total_variants,
+        'average_variants_per_word': round(total_variants / total_canonical, 2)
+    }
+
+
+def search_words(pattern: str) -> List[str]:
+    """Search for words matching a pattern."""
+    regex = re.compile(pattern, re.IGNORECASE)
+    return [word for word in PRONUNCIATION_DICT.keys() if regex.search(word)]
+
+
+# ============================================================================
+# MAIN FUNCTION
+# ============================================================================
+
+def main():
+    """Demonstrate the English pronunciation dictionary."""
+    print("=" * 70)
+    print("  ENGLISH PRONUNCIATION DICTIONARY FOR CHILDREN'S SPEECH RECOGNITION")
+    print("=" * 70)
+    print()
+    
+    # Print statistics
+    stats = get_dictionary_stats()
+    print("📊 Dictionary Statistics:")
+    print(f"   Total Canonical Words: {stats['total_canonical_words']}")
+    print(f"   Total Variants: {stats['total_variants']}")
+    print(f"   Average Variants per Word: {stats['average_variants_per_word']}")
+    print()
+    
+    # Print sample entries
+    print("📖 Sample Dictionary Entries:")
+    print("-" * 70)
+    
+    sample_words = list(PRONUNCIATION_DICT.items())[:20]
+    for i, (canonical, variants) in enumerate(sample_words, 1):
+        variants_str = ", ".join(variants)
+        print(f"{i:4d}. {canonical:20s} → [{variants_str}]")
+    
+    print(f"   ... and {len(PRONUNCIATION_DICT) - 20} more words")
+    print("-" * 70)
+    print()
+    
+    # Demonstrate word matching
+    print("🔍 Word Matching Examples:")
+    print("-" * 70)
+    
+    test_words = [
+        'da', 'dawg', 'kat', 'bloo', 'tree', 
+        'wun', 'tu', 'bigg', 'smol', 'hapi'
+    ]
+    
+    for test_word in test_words:
+        canonical = match_word(test_word)
+        if canonical:
+            print(f"   mic heard: '{test_word:15s}' → matched to: '{canonical}'")
+        else:
+            print(f"   mic heard: '{test_word:15s}' → no match found")
+    
+    print("-" * 70)
+    print()
+    print("✅ Dictionary ready for integration with speech recognition system!")
+    print()
 
 
 if __name__ == "__main__":
-    # Test the dictionary
-    print("English Pronunciation Dictionary Test")
-    print("=" * 60)
-    
-    test_words = ['a', 'the', 'this', 'that', 'looked', 'walked']
-    for word in test_words:
-        variants = get_pronunciation_variants(word)
-        print(f"'{word}': {variants}")
-    
-    print("\n" + "=" * 60)
-    print("Pronunciation Matching Test")
-    print("=" * 60)
-    
-    test_pairs = [
-        ('a', 'a'),
-        ('ah', 'a'),
-        ('da', 'the'),
-        ('dis', 'this'),
-        ('dat', 'that'),
-        ('look', 'looked'),
-        ('walk', 'walked'),
-    ]
-    
-    for spoken, expected in test_pairs:
-        match = is_pronunciation_match(spoken, expected)
-        print(f"'{spoken}' vs '{expected}': {match}")
-
+    main()

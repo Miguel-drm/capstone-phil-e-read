@@ -1,464 +1,723 @@
 #!/usr/bin/env python3
-"""
-Tagalog Pronunciation Dictionary
-================================
 
-Comprehensive dictionary of Tagalog words with common pronunciation variants.
-Used by the server to match spoken words to expected words, handling:
-- Child mispronunciations
-- Dialectal variations
-- Common speech patterns
 
-Usage:
-    from tagalog_pronunciation_dictionary import TAGALOG_PRONUNCIATION_DICT
-    
-    variants = TAGALOG_PRONUNCIATION_DICT.get('tao', [])
-    # Returns: ['tau', 'tawo', 'tao']
-"""
+import re
+from typing import List, Optional, Dict, Set
+from difflib import get_close_matches
 
 # ============================================================================
-# TAGALOG PRONUNCIATION DICTIONARY
+# PRONUNCIATION DICTIONARY
 # ============================================================================
 
-TAGALOG_PRONUNCIATION_DICT: dict[str, list[str]] = {
-    # Single letters and common sounds
-    'a': ['a', 'ah', 'ay'],
-    'i': ['i', 'e', 'ee'],
-    'o': ['o', 'oh', 'u'],
-    'u': ['u', 'oo', 'o'],
-    'e': ['e', 'i', 'eh'],
-    
-    # Pronouns and particles
-    'ako': ['aku', 'ako'],
-    'ikaw': ['ikao', 'ka', 'ikaw'],
-    'siya': ['sya', 'siya'],
-    'kami': ['kame', 'kami'],
-    'tayo': ['tayu', 'tayo'],
-    'kayo': ['kayu', 'kayo'],
-    'sila': ['sela', 'sila'],
-    'ko': ['ku', 'ko'],
-    'mo': ['mu', 'mo'],
-    'niya': ['nya', 'niya'],
-    'namin': ['namen', 'namin'],
-    'natin': ['naten', 'natin'],
-    'ninyo': ['ninyu', 'ninyo'],
-    'nila': ['nela', 'nila'],
-    'ang': ['an', 'ang'],
-    'ng': ['nang', 'ng'],
-    'sa': ['sang', 'sa'],
-    'mga': ['manga', 'mga'],
-    'ay': ['ai', 'ay'],
-    'na': ['nang', 'na'],
-    'pa': ['pang', 'pa'],
-    'ba': ['bang', 'ba'],
-    'po': ['pu', 'po'],
-    'opo': ['opu', 'opo'],
-    
-    # People and Family
-    'tao': ['tau', 'tawo', 'tao'],
-    'bata': ['bat', 'batang', 'bata'],
-    'nanay': ['nay', 'inay', 'nana', 'nanay'],
-    'tatay': ['tay', 'itay', 'tata', 'tatay'],
-    'ina': ['inang', 'nay', 'ina'],
-    'ama': ['amang', 'tay', 'ama'],
-    'kapatid': ['patid', 'kapatit', 'kapatid'],
-    'ate': ['at', 'ateng', 'ate'],
-    'kuya': ['koya', 'kuyang', 'kuya'],
-    'lolo': ['lol', 'lulo', 'lolo'],
-    'lola': ['lol', 'lula', 'lola'],
-    'pamilya': ['pamilia', 'familia', 'pamilya'],
-    'kaibigan': ['kaybigan', 'kibigan', 'kaibigan'],
-    'kapitbahay': ['kapitbay', 'kapibahay', 'kapitbahay'],
-    'guro': ['guru', 'goro', 'guro'],
-    'estudyante': ['istudyante', 'estudyanti', 'estudyante'],
-    
-    # Animals
-    'aso': ['asong', 'asu', 'aso'],
-    'pusa': ['pusang', 'posa', 'pusa'],
-    'ibon': ['ibong', 'ebon', 'ibon'],
-    'isda': ['isdang', 'esda', 'isda'],
-    'manok': ['manuk', 'manok'],
-    'baboy': ['babuy', 'baboi', 'baboy'],
-    'baka': ['bakang', 'bak', 'baka'],
-    'kabayo': ['kabayu', 'kabayo'],
-    'kambing': ['kambin', 'kambing'],
-    'kalabaw': ['kalabao', 'kalabaw'],
-    'daga': ['dagat', 'dag', 'daga'],
-    'paruparo': ['paro-paro', 'paruparu', 'paruparo'],
-    'langgam': ['langam', 'langgam'],
-    'bubuyog': ['bubuyug', 'bubuyok', 'bubuyog'],
-    'gagamba': ['gagamb', 'gagamba'],
-    'palaka': ['palak', 'palaka'],
-    'ahas': ['ahas'],
-    'pagong': ['pagung', 'pagong'],
-    'unggoy': ['ungoy', 'ungguy', 'unggoy'],
-    
-    # Body Parts
-    'ulo': ['ulu', 'olo', 'ulo'],
-    'mata': ['mat', 'matang', 'mata'],
-    'ilong': ['ilung', 'elong', 'ilong'],
-    'tenga': ['tinga', 'tengga', 'tenga'],
-    'bibig': ['bibik', 'bebig', 'bibig'],
-    'ngipin': ['ngepin', 'nipin', 'ngipin'],
-    'dila': ['dil', 'dela', 'dila'],
-    'leeg': ['lig', 'leeg'],
-    'balikat': ['balekat', 'balikat'],
-    'braso': ['brasu', 'baraso', 'braso'],
-    'kamay': ['kamey', 'kamay'],
-    'daliri': ['dalere', 'daliri'],
-    'kuko': ['kuku', 'koko', 'kuko'],
-    'tiyan': ['tyan', 'tiyan'],
-    'likod': ['likud', 'lekod', 'likod'],
-    'paa': ['pa', 'paang', 'paa'],
-    'tuhod': ['tuhud', 'tohod', 'tuhod'],
-    'binti': ['bente', 'binti'],
-    'puso': ['pusu', 'poso', 'puso'],
-    'baga': ['bag', 'baga'],
-    
-    # Food and Drinks
-    'pagkain': ['pagkaen', 'pakain', 'pagkain'],
-    'kanin': ['kanen', 'kaning', 'kanin'],
-    'tinapay': ['tinapey', 'tinapai', 'tinapay'],
-    'ulam': ['olam', 'ulam'],
-    'gulay': ['golay', 'gulai', 'gulay'],
-    'prutas': ['protas', 'frutas', 'prutas'],
-    'saging': ['sagin', 'saging'],
-    'mansanas': ['manzanas', 'mansanas'],
-    'mangga': ['manga', 'mangga'],
-    'ubas': ['obas', 'ubas'],
-    'pakwan': ['pakoan', 'pakwan'],
-    'karne': ['karni', 'carne', 'karne'],
-    'itlog': ['etlog', 'itlug', 'itlog'],
-    'gatas': ['gatas'],
-    'tubig': ['tobig', 'tubeg', 'tubig'],
-    'kape': ['kapi', 'coffee', 'kape'],
-    'tsaa': ['tsa', 'tea', 'tsaa'],
-    'sopas': ['sopa', 'sopas'],
-    'adobo': ['adobu', 'adobo'],
-    
-    # Places and Objects
-    'bahay': ['bahey', 'bahai', 'bahay'],
-    'paaralan': ['paralan', 'eskwela', 'paaralan'],
-    'silid': ['seled', 'selid', 'silid'],
-    'kusina': ['kosina', 'kusena', 'kusina'],
-    'banyo': ['banyu', 'banio', 'banyo'],
-    'sala': ['sal', 'salang', 'sala'],
-    'kwarto': ['kuarto', 'kwarto'],
-    'pinto': ['pentu', 'pinto'],
-    'bintana': ['bentana', 'bintana'],
-    'hagdan': ['hagdang', 'agdan', 'hagdan'],
-    'bubong': ['bubung', 'bobong', 'bubong'],
-    'sahig': ['saheg', 'saig', 'sahig'],
-    'dingding': ['dengding', 'dinding', 'dingding'],
-    'mesa': ['misa', 'mesa'],
-    'silya': ['silyang', 'silia', 'silya'],
-    'kama': ['kamang', 'kama'],
-    'unan': ['onan', 'unang', 'unan'],
-    'kumot': ['kumut', 'komot', 'kumot'],
-    'libro': ['lebro', 'libro'],
-    'lapis': ['lapes', 'lapis'],
-    'papel': ['papil', 'paper', 'papel'],
-    'bag': ['beg', 'bag'],
-    'sapatos': ['sapatus', 'sapatos'],
-    'damit': ['damet', 'damit'],
-    'sombrero': ['sumbrero', 'sombrero'],
-    
-    # Verbs - Common Actions
-    'kumain': ['kumaen', 'kain', 'kumain'],
-    'uminom': ['uminum', 'inom', 'uminom'],
-    'maglaro': ['maglaru', 'laro', 'maglaro'],
-    'matulog': ['matolog', 'tulog', 'matulog'],
-    'gumising': ['gumesing', 'gising', 'gumising'],
-    'maligo': ['malegu', 'ligo', 'maligo'],
-    'magsipilyo': ['magsepilyo', 'sipilyo', 'magsipilyo'],
-    'maglinis': ['maglenes', 'linis', 'maglinis'],
-    'maglaba': ['maglabang', 'laba', 'maglaba'],
-    'magluto': ['magloto', 'luto', 'magluto'],
-    'kumanta': ['kumantang', 'kanta', 'kumanta'],
-    'sumayaw': ['sumayao', 'sayaw', 'sumayaw'],
-    'tumakbo': ['tumakbu', 'takbo', 'tumakbo'],
-    'lumakad': ['lakad', 'lumakad'],
-    'tumalon': ['tumalun', 'talon', 'tumalon'],
-    'umupo': ['umupu', 'upo', 'umupo'],
-    'tumayo': ['tumayu', 'tayo', 'tumayo'],
-    'humiga': ['humega', 'higa', 'humiga'],
-    'magsulat': ['magsolat', 'sulat', 'magsulat'],
-    'magbasa': ['magbas', 'basa', 'magbasa'],
-    'pumunta': ['pomunta', 'punta', 'pumunta'],
-    'umuwi': ['umuwe', 'uwi', 'umuwi'],
-    'dumating': ['domating', 'dating', 'dumating'],
-    'umalis': ['omalis', 'alis', 'umalis'],
-    'bumalik': ['bomalik', 'balik', 'bumalik'],
-    'tumingin': ['tomengin', 'tingin', 'tumingin'],
-    'makinig': ['makenig', 'kinig', 'makinig'],
-    'magsalita': ['magsalit', 'salita', 'magsalita'],
-    'tumawa': ['tomawa', 'tawa', 'tumawa'],
-    'umiyak': ['umeyak', 'iyak', 'umiyak'],
-    'ngumiti': ['ngomiti', 'ngiti', 'ngumiti'],
-    'sumigaw': ['somigaw', 'sigaw', 'sumigaw'],
-    'bumukas': ['bomukas', 'bukas', 'bumukas'],
-    'magsara': ['magsarang', 'sara', 'magsara'],
-    'kumuha': ['komuha', 'kuha', 'kumuha'],
-    'magbigay': ['magbegay', 'bigay', 'magbigay'],
-    'tumanggap': ['tomanggap', 'tanggap', 'tumanggap'],
-    'magtanong': ['tanong', 'magtanong'],
-    'sumagot': ['somagot', 'sagot', 'sumagot'],
-    'mag-aral': ['magaral', 'aral', 'mag-aral'],
-    
-    # Adjectives
-    'maganda': ['magand', 'magandang', 'maganda'],
-    'pangit': ['panget', 'pangit'],
-    'mabuti': ['mabote', 'buti', 'mabuti'],
-    'masama': ['masam', 'sama', 'masama'],
-    'malaki': ['malake', 'laki', 'malaki'],
-    'maliit': ['malet', 'liit', 'maliit'],
-    'mataba': ['matab', 'taba', 'mataba'],
-    'payat': ['payat'],
-    'mataas': ['matas', 'taas', 'mataas'],
-    'mababa': ['mabab', 'baba', 'mababa'],
-    'mahaba': ['mahab', 'haba', 'mahaba'],
-    'maikli': ['maikle', 'ikli', 'maikli'],
-    'mainit': ['mainet', 'init', 'mainit'],
-    'malamig': ['malameg', 'lamig', 'malamig'],
-    'masaya': ['masay', 'saya', 'masaya'],
-    'malungkot': ['malongkot', 'lungkot', 'malungkot'],
-    'galit': ['galet', 'galit'],
-    'takot': ['takut', 'takot'],
-    'matapang': ['tapang', 'matapang'],
-    'mahiyain': ['mahiyaen', 'hiyain', 'mahiyain'],
-    'matalino': ['matalenu', 'talino', 'matalino'],
-    'bobo': ['bubu', 'bobo'],
-    'mabait': ['mabaet', 'bait', 'mabait'],
-    'masungit': ['masunget', 'sungit', 'masungit'],
-    'maingay': ['maengay', 'ingay', 'maingay'],
-    
-    # Colors
-    'puti': ['pote', 'puti'],
-    'itim': ['etem', 'itim'],
-    'pula': ['pol', 'pula'],
-    'asul': ['asol', 'blue', 'asul'],
-    'dilaw': ['delao', 'yellow', 'dilaw'],
-    'berde': ['birdi', 'green', 'berde'],
-    'kahel': ['kael', 'orange', 'kahel'],
-    'lila': ['lela', 'purple', 'lila'],
-    'rosas': ['rusas', 'pink', 'rosas'],
-    'kulay': ['kolay', 'kulai', 'kulay'],
-    'abo': ['abu', 'gray', 'abo'],
-    'kayumanggi': ['kayomangi', 'brown', 'kayumanggi'],
-    
-    # Numbers
-    'isa': ['es', 'isang', 'isa'],
-    'dalawa': ['dalawang', 'dalwa', 'dalawa'],
-    'tatlo': ['tatlu', 'tatlong', 'tatlo'],
-    'apat': ['apat'],
-    'lima': ['lem', 'limang', 'lima'],
-    'anim': ['anem', 'anim'],
-    'pito': ['petu', 'pitong', 'pito'],
-    'walo': ['walu', 'walong', 'walo'],
-    'siyam': ['siyam'],
-    'sampu': ['sampo', 'sampung', 'sampu'],
-    'labingisa': ['labing-isa', 'labingesa', 'labingisa'],
-    'dalawampu': ['dalawampo', 'dalawampu'],
-    'tatlumpu': ['tatlompo', 'tatlumpu'],
-    'apatnapu': ['apatnapo', 'apatnapu'],
-    'limampu': ['limampo', 'limampu'],
-    'animnapu': ['animnapo', 'animnapu'],
-    'pitumpu': ['pitompo', 'pitumpu'],
-    'walumpu': ['walompo', 'walumpu'],
-    'siyamnapu': ['siyamnapo', 'siyamnapu'],
-    'daan': ['dan', 'daang', 'daan'],
-    'libo': ['lebu', 'libong', 'libo'],
-    
-    # Time Words
-    'araw': ['arao', 'araw'],
-    'gabi': ['gabe', 'gabi'],
-    'umaga': ['omaga', 'umaga'],
-    'hapon': ['hapun', 'hapon'],
-    'tanghali': ['tanggali', 'tanghali'],
-    'buwan': ['buan', 'buwan'],
-    'taon': ['taun', 'taon'],
-    'linggo': ['lingo', 'linggo'],
-    'oras': ['uras', 'oras'],
-    'minuto': ['minoto', 'minuto'],
-    'segundo': ['sigundo', 'segundo'],
-    'ngayon': ['ngayun', 'ngayon'],
-    'bukas': ['bokas', 'bukas'],
-    'kahapon': ['kahapun', 'kahapon'],
-    'mamaya': ['mamay', 'mamaya'],
-    'kanina': ['kanena', 'kanina'],
-    'mamayangabi': ['mamayang-gabi', 'mamayangabe', 'mamayangabi'],
-    
-    # Demonstratives
-    'ito': ['etu', 'itong', 'ito'],
-    'iyan': ['yan', 'iyang', 'iyan'],
-    'iyon': ['yun', 'iyong', 'iyon'],
-    'dito': ['detu', 'ditong', 'dito'],
-    'diyan': ['dyan', 'diyang', 'diyan'],
-    'doon': ['dun', 'doong', 'doon'],
-    'nandito': ['nandetu', 'nandito'],
-    'nandiyan': ['nandyan', 'nandiyan'],
-    'nandoon': ['nandun', 'nandoon'],
-    'heto': ['eto', 'hetu', 'heto'],
-    'hayan': ['ayan', 'hayan'],
-    'hayun': ['ayun', 'hayun'],
-    
-    # Question Words
-    'ano': ['anu', 'ano'],
-    'sino': ['sinu', 'sino'],
-    'saan': ['san', 'saan'],
-    'kailan': ['kelan', 'kailan'],
-    'bakit': ['baket', 'bakit'],
-    'paano': ['pano', 'paanu', 'paano'],
-    'ilan': ['elan', 'ilang', 'ilan'],
-    'alin': ['alen', 'aling', 'alin'],
-    'kanino': ['kanenu', 'kanino'],
-    'magkano': ['magkanu', 'magkano'],
-    
-    # Conjunctions and Connectors
-    'at': ['at'],
-    'o': ['u', 'o'],
-    'pero': ['peru', 'pero'],
-    'ngunit': ['ngonet', 'ngunit'],
-    'kaya': ['kay', 'kaya'],
-    'dahil': ['dahel', 'dahil'],
-    'kung': ['kong', 'kung'],
-    'kapag': ['pag', 'kapag'],
-    'habang': ['habang'],
-    'para': ['par', 'para'],
-    'upang': ['opang', 'upang'],
-    'nang': ['ng', 'nang'],
-    'noong': ['nung', 'noong'],
-    'sapagkat': ['sapagkat'],
-    'subalit': ['sobalit', 'subalit'],
-    'kahit': ['kahet', 'kahit'],
-    'bagaman': ['bagaman'],
-    
-    # Common Adverbs
-    'mabilis': ['mabeles', 'bilis', 'mabilis'],
-    'mabagal': ['bagal', 'mabagal'],
-    'palagi': ['palage', 'lagi', 'palagi'],
-    'minsan': ['mensan', 'minsan'],
-    'kadalasan': ['dalasan', 'kadalasan'],
-    'bihira': ['behera', 'bihira'],
-    'lagi': ['lage', 'lagi'],
-    'hindi': ['hende', 'di', 'hindi'],
-    'oo': ['o', 'oo'],
-    'wala': ['wal', 'wala'],
-    'mayroon': ['mayron', 'meron', 'mayroon'],
-    'meron': ['miron', 'meron'],
-    
-    # More common words
-    'naman': ['naman'],
-    'lang': ['lang'],
-    'din': ['rin', 'din'],
-    'rin': ['din', 'rin'],
-    'kasi': ['kase', 'kasi'],
-    'talaga': ['talag', 'talaga'],
-    'sobra': ['sobrang', 'sobra'],
-    'lahat': ['lahat'],
-    'bawat': ['bawat'],
-    'ibang': ['iba', 'ibang'],
-    'sarili': ['sarele', 'sarili'],
-    'mundo': ['mondo', 'mundo'],
-    'buhay': ['buhey', 'buhay'],
-    
-    # Additional common words
-    'may': ['mey', 'may'],
-    'walang': ['walang', 'wala'],
-    'marami': ['marame', 'marami'],
-    'konti': ['konte', 'konti'],
-    'ibig': ['ebig', 'ibig'],
-    'gusto': ['gosto', 'gusto'],
-    'ayaw': ['ayao', 'ayaw'],
-    'kailangan': ['kelangan', 'kailangan'],
-    'pwede': ['puwede', 'pwedi', 'pwede'],
-    'dapat': ['dapot', 'dapat'],
-    'maaari': ['maare', 'maaari'],
-    'sana': ['san', 'sana'],
-    'lungga': ['longga', 'lunga', 'lungga'],
-    'gutom': ['gotom', 'gutum', 'gutom'],
-    'naglalakad': ['naglalakad', 'naglakad', 'lakad'],
-    'nakita': ['naketa', 'nakita'],
-    'sinabi': ['sinabe', 'sinabi'],
+# Category: Common Nouns - People and Family
+PEOPLE_FAMILY = {
+    'tao': ['tau', 'tao', 'tawo'],
+    'bata': ['bata', 'bat', 'batang'],
+    'nanay': ['nay', 'nanay', 'inay', 'nana'],
+    'tatay': ['tay', 'tatay', 'itay', 'tata'],
+    'ina': ['ina', 'inang', 'nay'],
+    'ama': ['ama', 'amang', 'tay'],
+    'kapatid': ['kapatid', 'patid', 'kapatit'],
+    'ate': ['ate', 'at', 'ateng'],
+    'kuya': ['kuya', 'koya', 'kuyang'],
+    'lolo': ['lolo', 'lol', 'lulo'],
+    'lola': ['lola', 'lol', 'lula'],
+    'pamilya': ['pamilya', 'pamilia', 'familia'],
+    'kaibigan': ['kaibigan', 'kaibigan', 'kaybigan', 'kibigan'],
+    'kapitbahay': ['kapitbahay', 'kapitbay', 'kapibahay'],
+    'guro': ['guro', 'guru', 'goro'],
+    'estudyante': ['estudyante', 'istudyante', 'estudyanti'],
+    'doktor': ['doktor', 'doctor', 'duktor'],
+    'nars': ['nars', 'nurse', 'ners'],
+    'pulis': ['pulis', 'polis', 'pulis'],
+    'bombero': ['bombero', 'bumbero', 'bombiro'],
 }
 
+# Category: Common Nouns - Animals
+ANIMALS = {
+    'aso': ['aso', 'asong', 'asu'],
+    'pusa': ['pusa', 'pusang', 'posa'],
+    'ibon': ['ibon', 'ibong', 'ebon'],
+    'isda': ['isda', 'isdang', 'esda'],
+    'manok': ['manok', 'manuk', 'manok'],
+    'baboy': ['baboy', 'babuy', 'baboi'],
+    'baka': ['baka', 'bakang', 'bak'],
+    'kabayo': ['kabayo', 'kabayu', 'kabayo'],
+    'kambing': ['kambing', 'kambing', 'kambin'],
+    'kalabaw': ['kalabaw', 'kalabao', 'kalabaw'],
+    'daga': ['daga', 'dagat', 'dag'],
+    'paru-paro': ['paruparo', 'paro-paro', 'paruparu'],
+    'langgam': ['langgam', 'langam', 'langgam'],
+    'bubuyog': ['bubuyog', 'bubuyug', 'bubuyok'],
+    'gagamba': ['gagamba', 'gagamb', 'gagamba'],
+    'palaka': ['palaka', 'palak', 'palaka'],
+    'ahas': ['ahas', 'ahas', 'ahas'],
+    'pagong': ['pagong', 'pagung', 'pagong'],
+    'unggoy': ['unggoy', 'ungoy', 'ungguy'],
+    'leon': ['leon', 'liyon', 'leon'],
+}
 
-def get_pronunciation_variants(word: str) -> list[str]:
+# Category: Common Nouns - Body Parts
+BODY_PARTS = {
+    'ulo': ['ulo', 'ulu', 'olo'],
+    'mata': ['mata', 'mat', 'matang'],
+    'ilong': ['ilong', 'ilung', 'elong'],
+    'tenga': ['tenga', 'tinga', 'tengga'],
+    'bibig': ['bibig', 'bibik', 'bebig'],
+    'ngipin': ['ngipin', 'ngepin', 'nipin'],
+    'dila': ['dila', 'dil', 'dela'],
+    'leeg': ['leeg', 'lig', 'leeg'],
+    'balikat': ['balikat', 'balikat', 'balekat'],
+    'braso': ['braso', 'brasu', 'baraso'],
+    'kamay': ['kamay', 'kamay', 'kamey'],
+    'daliri': ['daliri', 'dalere', 'daliri'],
+    'kuko': ['kuko', 'kuku', 'koko'],
+    'tiyan': ['tiyan', 'tiyan', 'tyan'],
+    'likod': ['likod', 'likud', 'lekod'],
+    'paa': ['paa', 'pa', 'paang'],
+    'tuhod': ['tuhod', 'tuhud', 'tohod'],
+    'binti': ['binti', 'bente', 'binti'],
+    'puso': ['puso', 'pusu', 'poso'],
+    'baga': ['baga', 'bag', 'baga'],
+}
+
+# Category: Common Nouns - Food and Drinks
+FOOD_DRINKS = {
+    'pagkain': ['pagkain', 'pagkaen', 'pakain'],
+    'kanin': ['kanin', 'kanen', 'kaning'],
+    'tinapay': ['tinapay', 'tinapey', 'tinapai'],
+    'ulam': ['ulam', 'olam', 'ulam'],
+    'gulay': ['gulay', 'golay', 'gulai'],
+    'prutas': ['prutas', 'protas', 'frutas'],
+    'saging': ['saging', 'saging', 'sagin'],
+    'mansanas': ['mansanas', 'mansanas', 'manzanas'],
+    'mangga': ['mangga', 'manga', 'mangga'],
+    'ubas': ['ubas', 'ubas', 'obas'],
+    'pakwan': ['pakwan', 'pakoan', 'pakwan'],
+    'karne': ['karne', 'karni', 'carne'],
+    'isda': ['isda', 'esda', 'isdang'],
+    'itlog': ['itlog', 'etlog', 'itlug'],
+    'gatas': ['gatas', 'gatas', 'gatas'],
+    'tubig': ['tubig', 'tobig', 'tubeg'],
+    'kape': ['kape', 'kapi', 'coffee'],
+    'tsaa': ['tsaa', 'tsa', 'tea'],
+    'sopas': ['sopas', 'sopas', 'sopa'],
+    'adobo': ['adobo', 'adobu', 'adobo'],
+}
+
+# Category: Common Nouns - Places and Objects
+PLACES_OBJECTS = {
+    'bahay': ['bahay', 'bahey', 'bahai'],
+    'paaralan': ['paaralan', 'paralan', 'eskwela'],
+    'silid': ['silid', 'siled', 'selid'],
+    'kusina': ['kusina', 'kosina', 'kusena'],
+    'banyo': ['banyo', 'banyu', 'banio'],
+    'sala': ['sala', 'sal', 'salang'],
+    'kwarto': ['kwarto', 'kuarto', 'kwarto'],
+    'pinto': ['pinto', 'pentu', 'pinto'],
+    'bintana': ['bintana', 'bentana', 'bintana'],
+    'hagdan': ['hagdan', 'hagdang', 'agdan'],
+    'bubong': ['bubong', 'bubung', 'bobong'],
+    'sahig': ['sahig', 'saheg', 'saig'],
+    'dingding': ['dingding', 'dengding', 'dinding'],
+    'mesa': ['mesa', 'misa', 'mesa'],
+    'silya': ['silya', 'silyang', 'silia'],
+    'kama': ['kama', 'kamang', 'kama'],
+    'unan': ['unan', 'onan', 'unang'],
+    'kumot': ['kumot', 'kumut', 'komot'],
+    'libro': ['libro', 'lebro', 'libro'],
+    'lapis': ['lapis', 'lapes', 'lapis'],
+    'papel': ['papel', 'papil', 'paper'],
+    'bag': ['bag', 'beg', 'bag'],
+    'sapatos': ['sapatos', 'sapatus', 'sapatos'],
+    'damit': ['damit', 'damet', 'damit'],
+    'sombrero': ['sombrero', 'sumbrero', 'sombrero'],
+}
+
+# Category: Verbs - Common Actions
+VERBS_ACTIONS = {
+    'kumain': ['kumain', 'kumaen', 'kain'],
+    'uminom': ['uminom', 'uminum', 'inom'],
+    'maglaro': ['maglaro', 'maglaru', 'laro'],
+    'matulog': ['matulog', 'matolog', 'tulog'],
+    'gumising': ['gumising', 'gumesing', 'gising'],
+    'maligo': ['maligo', 'malegu', 'ligo'],
+    'magsipilyo': ['magsipilyo', 'magsepilyo', 'sipilyo'],
+    'maglinis': ['maglinis', 'maglenes', 'linis'],
+    'maglaba': ['maglaba', 'maglabang', 'laba'],
+    'magluto': ['magluto', 'magloto', 'luto'],
+    'kumanta': ['kumanta', 'kumantang', 'kanta'],
+    'sumayaw': ['sumayaw', 'sumayao', 'sayaw'],
+    'tumakbo': ['tumakbo', 'tumakbu', 'takbo'],
+    'lumakad': ['lumakad', 'lumakad', 'lakad'],
+    'tumalon': ['tumalon', 'tumalun', 'talon'],
+    'umupo': ['umupo', 'umupu', 'upo'],
+    'tumayo': ['tumayo', 'tumayu', 'tayo'],
+    'humiga': ['humiga', 'humega', 'higa'],
+    'magsulat': ['magsulat', 'magsolat', 'sulat'],
+    'magbasa': ['magbasa', 'magbas', 'basa'],
+}
+
+# Category: Adjectives - Descriptions
+ADJECTIVES = {
+    'maganda': ['maganda', 'magand', 'magandang'],
+    'pangit': ['pangit', 'panget', 'pangit'],
+    'mabuti': ['mabuti', 'mabote', 'buti'],
+    'masama': ['masama', 'masam', 'sama'],
+    'malaki': ['malaki', 'malake', 'laki'],
+    'maliit': ['maliit', 'malet', 'liit'],
+    'mataba': ['mataba', 'matab', 'taba'],
+    'payat': ['payat', 'payat', 'payat'],
+    'mataas': ['mataas', 'matas', 'taas'],
+    'mababa': ['mababa', 'mabab', 'baba'],
+    'mahaba': ['mahaba', 'mahab', 'haba'],
+    'maikli': ['maikli', 'maikle', 'ikli'],
+    'mainit': ['mainit', 'mainet', 'init'],
+    'malamig': ['malamig', 'malameg', 'lamig'],
+    'masaya': ['masaya', 'masay', 'saya'],
+    'malungkot': ['malungkot', 'malongkot', 'lungkot'],
+    'galit': ['galit', 'galet', 'galit'],
+    'takot': ['takot', 'takut', 'takot'],
+    'matapang': ['matapang', 'matapang', 'tapang'],
+    'mahiyain': ['mahiyain', 'mahiyaen', 'hiyain'],
+    'matalino': ['matalino', 'matalenu', 'talino'],
+    'bobo': ['bobo', 'bubu', 'bobo'],
+    'mabait': ['mabait', 'mabaet', 'bait'],
+    'masungit': ['masungit', 'masunget', 'sungit'],
+    'maingay': ['maingay', 'maengay', 'ingay'],
+}
+
+# Category: Colors
+COLORS = {
+    'puti': ['puti', 'pote', 'puti'],
+    'itim': ['itim', 'etem', 'itim'],
+    'pula': ['pula', 'pol', 'pula'],
+    'asul': ['asul', 'asol', 'blue'],
+    'dilaw': ['dilaw', 'delao', 'yellow'],
+    'berde': ['berde', 'birdi', 'green'],
+    'kahel': ['kahel', 'kael', 'orange'],
+    'lila': ['lila', 'lela', 'purple'],
+    'rosas': ['rosas', 'rusas', 'pink'],
+    'kulay': ['kulay', 'kolay', 'kulai'],
+    'abo': ['abo', 'abu', 'gray'],
+    'kayumanggi': ['kayumanggi', 'kayomangi', 'brown'],
+}
+
+# Category: Numbers
+NUMBERS = {
+    'isa': ['isa', 'es', 'isang'],
+    'dalawa': ['dalawa', 'dalawang', 'dalwa'],
+    'tatlo': ['tatlo', 'tatlu', 'tatlong'],
+    'apat': ['apat', 'apat', 'apat'],
+    'lima': ['lima', 'lem', 'limang'],
+    'anim': ['anim', 'anem', 'anim'],
+    'pito': ['pito', 'petu', 'pitong'],
+    'walo': ['walo', 'walu', 'walong'],
+    'siyam': ['siyam', 'siyam', 'siyam'],
+    'sampu': ['sampu', 'sampo', 'sampung'],
+    'labing-isa': ['labingisa', 'labing-isa', 'labingesa'],
+    'dalawampu': ['dalawampu', 'dalawampo', 'dalawampu'],
+    'tatlumpu': ['tatlumpu', 'tatlompo', 'tatlumpu'],
+    'apatnapu': ['apatnapu', 'apatnapo', 'apatnapu'],
+    'limampu': ['limampu', 'limampo', 'limampu'],
+    'animnapu': ['animnapu', 'animnapo', 'animnapu'],
+    'pitumpu': ['pitumpu', 'pitompo', 'pitumpu'],
+    'walumpu': ['walumpu', 'walompo', 'walumpu'],
+    'siyamnapu': ['siyamnapu', 'siyamnapo', 'siyamnapu'],
+    'daan': ['daan', 'dan', 'daang'],
+    'libo': ['libo', 'lebu', 'libong'],
+}
+
+# Category: Time Words
+TIME_WORDS = {
+    'araw': ['araw', 'arao', 'araw'],
+    'gabi': ['gabi', 'gabe', 'gabi'],
+    'umaga': ['umaga', 'omaga', 'umaga'],
+    'hapon': ['hapon', 'hapun', 'hapon'],
+    'tanghali': ['tanghali', 'tanggali', 'tanghali'],
+    'buwan': ['buwan', 'buan', 'buwan'],
+    'taon': ['taon', 'taun', 'taon'],
+    'linggo': ['linggo', 'lingo', 'linggo'],
+    'oras': ['oras', 'uras', 'oras'],
+    'minuto': ['minuto', 'minoto', 'minuto'],
+    'segundo': ['segundo', 'sigundo', 'segundo'],
+    'ngayon': ['ngayon', 'ngayun', 'ngayon'],
+    'bukas': ['bukas', 'bokas', 'bukas'],
+    'kahapon': ['kahapon', 'kahapun', 'kahapon'],
+    'mamaya': ['mamaya', 'mamay', 'mamaya'],
+    'kanina': ['kanina', 'kanena', 'kanina'],
+    'mamayang-gabi': ['mamayangabi', 'mamayang-gabi', 'mamayangabe'],
+}
+
+# Category: Pronouns and Particles
+PRONOUNS_PARTICLES = {
+    'ako': ['ako', 'aku', 'ako'],
+    'ikaw': ['ikaw', 'ikao', 'ka'],
+    'siya': ['siya', 'sya', 'siya'],
+    'kami': ['kami', 'kame', 'kami'],
+    'tayo': ['tayo', 'tayu', 'tayo'],
+    'kayo': ['kayo', 'kayu', 'kayo'],
+    'sila': ['sila', 'sela', 'sila'],
+    'ko': ['ko', 'ku', 'ko'],
+    'mo': ['mo', 'mu', 'mo'],
+    'niya': ['niya', 'nya', 'niya'],
+    'namin': ['namin', 'namen', 'namin'],
+    'natin': ['natin', 'naten', 'natin'],
+    'ninyo': ['ninyo', 'ninyu', 'ninyo'],
+    'nila': ['nila', 'nela', 'nila'],
+    'ang': ['ang', 'an', 'ang'],
+    'ng': ['ng', 'nang', 'ng'],
+    'sa': ['sa', 'sang', 'sa'],
+    'mga': ['mga', 'manga', 'mga'],
+    'ay': ['ay', 'ai', 'ay'],
+    'na': ['na', 'nang', 'na'],
+    'pa': ['pa', 'pang', 'pa'],
+    'ba': ['ba', 'bang', 'ba'],
+    'po': ['po', 'pu', 'po'],
+    'opo': ['opo', 'opu', 'opo'],
+}
+
+# Category: Demonstratives and Location
+DEMONSTRATIVES = {
+    'ito': ['ito', 'etu', 'itong'],
+    'iyan': ['iyan', 'yan', 'iyang'],
+    'iyon': ['iyon', 'yun', 'iyong'],
+    'dito': ['dito', 'detu', 'ditong'],
+    'diyan': ['diyan', 'dyan', 'diyang'],
+    'doon': ['doon', 'dun', 'doong'],
+    'nandito': ['nandito', 'nandetu', 'nandito'],
+    'nandiyan': ['nandiyan', 'nandyan', 'nandiyan'],
+    'nandoon': ['nandoon', 'nandun', 'nandoon'],
+    'heto': ['heto', 'eto', 'hetu'],
+    'hayan': ['hayan', 'ayan', 'hayan'],
+    'hayun': ['hayun', 'ayun', 'hayun'],
+}
+
+# Category: Common Verbs - More Actions
+MORE_VERBS = {
+    'pumunta': ['pumunta', 'pomunta', 'punta'],
+    'umuwi': ['umuwi', 'umuwe', 'uwi'],
+    'dumating': ['dumating', 'domating', 'dating'],
+    'umalis': ['umalis', 'omalis', 'alis'],
+    'bumalik': ['bumalik', 'bomalik', 'balik'],
+    'tumingin': ['tumingin', 'tomengin', 'tingin'],
+    'makinig': ['makinig', 'makenig', 'kinig'],
+    'magsalita': ['magsalita', 'magsalit', 'salita'],
+    'tumawa': ['tumawa', 'tomawa', 'tawa'],
+    'umiyak': ['umiyak', 'umeyak', 'iyak'],
+    'ngumiti': ['ngumiti', 'ngomiti', 'ngiti'],
+    'sumigaw': ['sumigaw', 'somigaw', 'sigaw'],
+    'bumukas': ['bumukas', 'bomukas', 'bukas'],
+    'magsara': ['magsara', 'magsarang', 'sara'],
+    'kumuha': ['kumuha', 'komuha', 'kuha'],
+    'magbigay': ['magbigay', 'magbegay', 'bigay'],
+    'tumanggap': ['tumanggap', 'tomanggap', 'tanggap'],
+    'magtanong': ['magtanong', 'magtanong', 'tanong'],
+    'sumagot': ['sumagot', 'somagot', 'sagot'],
+    'mag-aral': ['mag-aral', 'magaral', 'aral'],
+}
+
+# Category: Question Words
+QUESTION_WORDS = {
+    'ano': ['ano', 'anu', 'ano'],
+    'sino': ['sino', 'sinu', 'sino'],
+    'saan': ['saan', 'san', 'saan'],
+    'kailan': ['kailan', 'kelan', 'kailan'],
+    'bakit': ['bakit', 'baket', 'bakit'],
+    'paano': ['paano', 'pano', 'paanu'],
+    'ilan': ['ilan', 'elan', 'ilang'],
+    'alin': ['alin', 'alen', 'aling'],
+    'kanino': ['kanino', 'kanenu', 'kanino'],
+    'magkano': ['magkano', 'magkanu', 'magkano'],
+}
+
+# Category: Conjunctions and Connectors
+CONJUNCTIONS = {
+    'at': ['at', 'at', 'at'],
+    'o': ['o', 'u', 'o'],
+    'pero': ['pero', 'peru', 'pero'],
+    'ngunit': ['ngunit', 'ngonet', 'ngunit'],
+    'kaya': ['kaya', 'kay', 'kaya'],
+    'dahil': ['dahil', 'dahel', 'dahil'],
+    'kung': ['kung', 'kong', 'kung'],
+    'kapag': ['kapag', 'kapag', 'pag'],
+    'habang': ['habang', 'habang', 'habang'],
+    'para': ['para', 'par', 'para'],
+    'upang': ['upang', 'opang', 'upang'],
+    'nang': ['nang', 'nang', 'ng'],
+    'noong': ['noong', 'nung', 'noong'],
+    'sapagkat': ['sapagkat', 'sapagkat', 'sapagkat'],
+    'subalit': ['subalit', 'sobalit', 'subalit'],
+    'kahit': ['kahit', 'kahet', 'kahit'],
+    'bagaman': ['bagaman', 'bagaman', 'bagaman'],
+}
+
+# Category: Common Adverbs
+ADVERBS = {
+    'mabilis': ['mabilis', 'mabeles', 'bilis'],
+    'mabagal': ['mabagal', 'mabagal', 'bagal'],
+    'palagi': ['palagi', 'palage', 'lagi'],
+    'minsan': ['minsan', 'mensan', 'minsan'],
+    'kadalasan': ['kadalasan', 'kadalasan', 'dalasan'],
+    'bihira': ['bihira', 'behera', 'bihira'],
+    'lagi': ['lagi', 'lage', 'lagi'],
+    'hindi': ['hindi', 'hende', 'di'],
+    'oo': ['oo', 'o', 'oo'],
+    'wala': ['wala', 'wal', 'wala'],
+    'mayroon': ['mayroon', 'mayron', 'meron'],
+    'meron': ['meron', 'miron', 'meron'],
+    'doon': ['doon', 'dun', 'doong'],
+    'dito': ['dito', 'detu', 'ditong'],
+    'diyan': ['diyan', 'dyan', 'diyang'],
+}
+
+# Category: Nature and Weather
+NATURE_WEATHER = {
+    'langit': ['langit', 'langet', 'langit'],
+    'lupa': ['lupa', 'lop', 'lupa'],
+    'dagat': ['dagat', 'dagat', 'dagat'],
+    'ilog': ['ilog', 'elog', 'ilog'],
+    'bundok': ['bundok', 'bondok', 'bundok'],
+    'burol': ['burol', 'burul', 'burol'],
+    'gubat': ['gubat', 'gobat', 'gubat'],
+    'puno': ['puno', 'ponu', 'puno'],
+    'dahon': ['dahon', 'dahun', 'dahon'],
+    'bulaklak': ['bulaklak', 'bulaklak', 'bulaklak'],
+    'damo': ['damo', 'damu', 'damo'],
+    'bato': ['bato', 'batu', 'bato'],
+    'buhangin': ['buhangin', 'bohangin', 'buhangin'],
+    'ulan': ['ulan', 'olan', 'ulan'],
+    'araw': ['araw', 'arao', 'araw'],
+    'buwan': ['buwan', 'buan', 'buwan'],
+    'bituin': ['bituin', 'betuin', 'bituin'],
+    'ulap': ['ulap', 'olap', 'ulap'],
+    'hangin': ['hangin', 'hangin', 'hangin'],
+    'kidlat': ['kidlat', 'kedlat', 'kidlat'],
+    'kulog': ['kulog', 'kolog', 'kulog'],
+    'bagyo': ['bagyo', 'bagyu', 'bagyo'],
+    'init': ['init', 'enet', 'init'],
+    'lamig': ['lamig', 'lameg', 'lamig'],
+}
+
+# Category: School and Learning
+SCHOOL_LEARNING = {
+    'paaralan': ['paaralan', 'paralan', 'eskwela'],
+    'silid-aralan': ['silidaralan', 'silid-aralan', 'classroom'],
+    'guro': ['guro', 'guru', 'teacher'],
+    'estudyante': ['estudyante', 'istudyante', 'student'],
+    'kaklase': ['kaklase', 'kaklasi', 'kaklase'],
+    'libro': ['libro', 'lebro', 'book'],
+    'kuwaderno': ['kuwaderno', 'kwaderno', 'notebook'],
+    'lapis': ['lapis', 'lapes', 'pencil'],
+    'bolpen': ['bolpen', 'bulpen', 'ballpen'],
+    'papel': ['papel', 'papil', 'paper'],
+    'pisara': ['pisara', 'pesara', 'blackboard'],
+    'tisa': ['tisa', 'tesa', 'chalk'],
+    'bag': ['bag', 'beg', 'bag'],
+    'aralin': ['aralin', 'aralen', 'lesson'],
+    'pagsusulit': ['pagsusulit', 'pagsosolit', 'exam'],
+    'takdang-aralin': ['takdangaralin', 'takdang-aralin', 'homework'],
+    'grado': ['grado', 'gradu', 'grade'],
+    'marka': ['marka', 'mark', 'marka'],
+}
+
+# Category: Emotions and Feelings
+EMOTIONS = {
+    'saya': ['saya', 'say', 'saya'],
+    'lungkot': ['lungkot', 'longkot', 'lungkot'],
+    'galit': ['galit', 'galet', 'galit'],
+    'takot': ['takot', 'takut', 'takot'],
+    'gulat': ['gulat', 'golat', 'gulat'],
+    'pagod': ['pagod', 'pagud', 'pagod'],
+    'antok': ['antok', 'antuk', 'antok'],
+    'gutom': ['gutom', 'gotom', 'gutom'],
+    'uhaw': ['uhaw', 'ohaw', 'uhaw'],
+    'sakit': ['sakit', 'saket', 'sakit'],
+    'pag-ibig': ['pag-ibig', 'pagibig', 'love'],
+    'inggit': ['inggit', 'engit', 'inggit'],
+    'hiya': ['hiya', 'heya', 'hiya'],
+    'tuwa': ['tuwa', 'towa', 'tuwa'],
+    'inis': ['inis', 'enes', 'inis'],
+    'selos': ['selos', 'silos', 'selos'],
+    'pag-asa': ['pag-asa', 'pagasa', 'hope'],
+    'pangarap': ['pangarap', 'pangarap', 'dream'],
+}
+
+# Category: Transportation
+TRANSPORTATION = {
+    'sasakyan': ['sasakyan', 'sasakyan', 'sasakyan'],
+    'kotse': ['kotse', 'kutsi', 'car'],
+    'bus': ['bus', 'bas', 'bus'],
+    'jeep': ['jeep', 'jip', 'jeepney'],
+    'tren': ['tren', 'train', 'tren'],
+    'eroplano': ['eroplano', 'eruplano', 'airplane'],
+    'barko': ['barko', 'barku', 'ship'],
+    'bangka': ['bangka', 'bangkang', 'boat'],
+    'bisikleta': ['bisikleta', 'bisicleta', 'bike'],
+    'motorsiklo': ['motorsiklo', 'motorseklo', 'motorcycle'],
+    'trak': ['trak', 'truck', 'trak'],
+    'taksi': ['taksi', 'taxi', 'taksi'],
+    'tricycle': ['tricycle', 'traysikol', 'tricycle'],
+}
+
+# Category: Household Items
+HOUSEHOLD = {
+    'plato': ['plato', 'platu', 'plate'],
+    'baso': ['baso', 'basu', 'glass'],
+    'kutsara': ['kutsara', 'kotsara', 'spoon'],
+    'tinidor': ['tinidor', 'tenidor', 'fork'],
+    'kutsilyo': ['kutsilyo', 'kotsilyo', 'knife'],
+    'kaldero': ['kaldero', 'kaldiru', 'pot'],
+    'kawali': ['kawali', 'kawale', 'pan'],
+    'tasa': ['tasa', 'tas', 'cup'],
+    'pitsel': ['pitsel', 'pitcher', 'pitsel'],
+    'sabon': ['sabon', 'sabun', 'soap'],
+    'tuwalya': ['tuwalya', 'towalya', 'towel'],
+    'suklay': ['suklay', 'soklay', 'comb'],
+    'sipilyo': ['sipilyo', 'sepilyo', 'brush'],
+    'salamin': ['salamin', 'salamen', 'mirror'],
+    'ilaw': ['ilaw', 'elao', 'light'],
+    'kandila': ['kandila', 'kandela', 'candle'],
+    'relo': ['relo', 'rilu', 'clock'],
+    'telepono': ['telepono', 'telepunu', 'phone'],
+    'telebisyon': ['telebisyon', 'telebisyun', 'tv'],
+    'radyo': ['radyo', 'radyu', 'radio'],
+}
+
+# ============================================================================
+# COMBINE ALL CATEGORIES INTO MAIN DICTIONARY
+# ============================================================================
+
+PRONUNCIATION_DICT: Dict[str, List[str]] = {}
+
+# Merge all category dictionaries
+for category_dict in [
+    PEOPLE_FAMILY, ANIMALS, BODY_PARTS, FOOD_DRINKS, PLACES_OBJECTS,
+    VERBS_ACTIONS, ADJECTIVES, COLORS, NUMBERS, TIME_WORDS,
+    PRONOUNS_PARTICLES, DEMONSTRATIVES, MORE_VERBS, QUESTION_WORDS,
+    CONJUNCTIONS, ADVERBS, NATURE_WEATHER, SCHOOL_LEARNING,
+    EMOTIONS, TRANSPORTATION, HOUSEHOLD
+]:
+    PRONUNCIATION_DICT.update(category_dict)
+
+# ============================================================================
+# REVERSE LOOKUP: Variant -> Canonical Word
+# ============================================================================
+
+VARIANT_TO_CANONICAL: Dict[str, str] = {}
+
+for canonical, variants in PRONUNCIATION_DICT.items():
+    for variant in variants:
+        VARIANT_TO_CANONICAL[variant.lower()] = canonical
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def normalize_word(word: str) -> str:
     """
-    Get pronunciation variants for a Tagalog word.
+    Normalize a word for matching.
     
     Args:
-        word: The word to get variants for (normalized, lowercase)
+        word: Word to normalize
         
     Returns:
-        List of pronunciation variants including the original word
+        Normalized lowercase word without punctuation
     """
-    normalized = word.lower().strip()
-    variants = TAGALOG_PRONUNCIATION_DICT.get(normalized, [])
-    
-    # Always include the original word if not already in variants
-    if normalized not in variants:
-        return [normalized] + variants
-    
-    return variants
+    return re.sub(r'[^\w]', '', word.lower()).strip()
 
 
-def is_pronunciation_match(spoken: str, expected: str) -> bool:
+def match_word(heard_word: str, threshold: float = 0.8) -> Optional[str]:
     """
-    Check if spoken word matches expected word considering pronunciation variants.
+    Match a heard word to its canonical form.
+    
+    This function uses multiple strategies:
+    1. Exact match in variant dictionary
+    2. Fuzzy matching with difflib
+    3. Pattern-based matching
     
     Args:
-        spoken: The word that was spoken (normalized, lowercase)
-        expected: The expected word (normalized, lowercase)
+        heard_word: Word heard from microphone
+        threshold: Similarity threshold for fuzzy matching (0.0-1.0)
         
     Returns:
-        True if spoken word matches expected word or any of its variants
+        Canonical word if match found, None otherwise
+        
+    Example:
+        >>> match_word("tau")
+        'tao'
+        >>> match_word("kumain")
+        'kumain'
+        >>> match_word("asong")
+        'aso'
     """
-    if not spoken or not expected:
-        return False
+    normalized = normalize_word(heard_word)
     
-    spoken_norm = spoken.lower().strip()
-    expected_norm = expected.lower().strip()
+    if not normalized:
+        return None
     
-    # Exact match
-    if spoken_norm == expected_norm:
-        return True
+    # Strategy 1: Direct lookup in variant dictionary
+    if normalized in VARIANT_TO_CANONICAL:
+        return VARIANT_TO_CANONICAL[normalized]
     
-    # Check if spoken word is a variant of expected word
-    expected_variants = get_pronunciation_variants(expected_norm)
-    if spoken_norm in expected_variants:
-        return True
+    # Strategy 2: Fuzzy matching
+    all_variants = list(VARIANT_TO_CANONICAL.keys())
+    matches = get_close_matches(normalized, all_variants, n=1, cutoff=threshold)
     
-    # Check reverse - if expected word is a variant of spoken word
-    spoken_variants = get_pronunciation_variants(spoken_norm)
-    if expected_norm in spoken_variants:
-        return True
+    if matches:
+        return VARIANT_TO_CANONICAL[matches[0]]
     
-    return False
+    # Strategy 3: Check if it's already a canonical word
+    if normalized in PRONUNCIATION_DICT:
+        return normalized
+    
+    return None
+
+
+def get_variants(canonical_word: str) -> List[str]:
+    """
+    Get all pronunciation variants for a canonical word.
+    
+    Args:
+        canonical_word: Canonical form of the word
+        
+    Returns:
+        List of pronunciation variants
+        
+    Example:
+        >>> get_variants("tao")
+        ['tau', 'tao', 'tawo']
+    """
+    normalized = normalize_word(canonical_word)
+    return PRONUNCIATION_DICT.get(normalized, [])
+
+
+def get_all_canonical_words() -> List[str]:
+    """
+    Get list of all canonical words in the dictionary.
+    
+    Returns:
+        Sorted list of canonical words
+    """
+    return sorted(PRONUNCIATION_DICT.keys())
+
+
+def get_dictionary_stats() -> Dict[str, int]:
+    """
+    Get statistics about the pronunciation dictionary.
+    
+    Returns:
+        Dictionary with statistics
+    """
+    total_canonical = len(PRONUNCIATION_DICT)
+    total_variants = sum(len(variants) for variants in PRONUNCIATION_DICT.values())
+    
+    return {
+        'total_canonical_words': total_canonical,
+        'total_variants': total_variants,
+        'average_variants_per_word': round(total_variants / total_canonical, 2)
+    }
+
+
+def search_words(pattern: str) -> List[str]:
+    """
+    Search for words matching a pattern.
+    
+    Args:
+        pattern: Regex pattern to search for
+        
+    Returns:
+        List of matching canonical words
+        
+    Example:
+        >>> search_words(r'^ma')  # Words starting with 'ma'
+        ['maganda', 'malaki', 'mabuti', ...]
+    """
+    regex = re.compile(pattern, re.IGNORECASE)
+    return [word for word in PRONUNCIATION_DICT.keys() if regex.search(word)]
+
+
+# ============================================================================
+# MAIN FUNCTION
+# ============================================================================
+
+def main():
+    """
+    Main function to demonstrate the pronunciation dictionary.
+    
+    This function:
+    1. Prints dictionary statistics
+    2. Iterates through all entries
+    3. Prints each canonical word and its variants
+    4. Demonstrates word matching functionality
+    """
+    print("=" * 70)
+    print("  TAGALOG PRONUNCIATION DICTIONARY FOR CHILDREN'S SPEECH RECOGNITION")
+    print("=" * 70)
+    print()
+    
+    # Print statistics
+    stats = get_dictionary_stats()
+    print("📊 Dictionary Statistics:")
+    print(f"   Total Canonical Words: {stats['total_canonical_words']}")
+    print(f"   Total Variants: {stats['total_variants']}")
+    print(f"   Average Variants per Word: {stats['average_variants_per_word']}")
+    print()
+    
+    # Print all entries
+    print("📖 Dictionary Entries:")
+    print("-" * 70)
+    
+    for i, (canonical, variants) in enumerate(sorted(PRONUNCIATION_DICT.items()), 1):
+        variants_str = ", ".join(variants)
+        print(f"{i:4d}. {canonical:20s} → [{variants_str}]")
+    
+    print("-" * 70)
+    print()
+    
+    # Demonstrate word matching
+    print("🔍 Word Matching Examples:")
+    print("-" * 70)
+    
+    test_words = [
+        'tau', 'asong', 'kumain', 'magand', 'puti', 
+        'isa', 'bahey', 'guro', 'libro', 'saya'
+    ]
+    
+    for test_word in test_words:
+        canonical = match_word(test_word)
+        if canonical:
+            print(f"   mic heard: '{test_word:15s}' → matched to: '{canonical}'")
+        else:
+            print(f"   mic heard: '{test_word:15s}' → no match found")
+    
+    print("-" * 70)
+    print()
+    
+    # Usage examples
+    print("💡 Usage Examples:")
+    print("-" * 70)
+    print()
+    print("1. Match a heard word to canonical form:")
+    print("   >>> from tagalog_pronunciation_dictionary import match_word")
+    print("   >>> match_word('tau')")
+    print("   'tao'")
+    print()
+    print("2. Get all variants of a word:")
+    print("   >>> from tagalog_pronunciation_dictionary import get_variants")
+    print("   >>> get_variants('tao')")
+    print("   ['tau', 'tao', 'tawo']")
+    print()
+    print("3. Search for words:")
+    print("   >>> from tagalog_pronunciation_dictionary import search_words")
+    print("   >>> search_words(r'^ma')  # Words starting with 'ma'")
+    print("   ['maganda', 'malaki', 'mabuti', ...]")
+    print()
+    print("-" * 70)
+    print()
+    print("✅ Dictionary ready for integration with speech recognition system!")
+    print()
 
 
 if __name__ == "__main__":
-    # Test the dictionary
-    print("Tagalog Pronunciation Dictionary Test")
-    print("=" * 60)
-    
-    test_words = ['tao', 'bata', 'nanay', 'kumain', 'maganda']
-    for word in test_words:
-        variants = get_pronunciation_variants(word)
-        print(f"'{word}': {variants}")
-    
-    print("\n" + "=" * 60)
-    print("Pronunciation Matching Test")
-    print("=" * 60)
-    
-    test_pairs = [
-        ('tau', 'tao'),
-        ('bat', 'bata'),
-        ('nay', 'nanay'),
-        ('kumaen', 'kumain'),
-        ('magand', 'maganda'),
-    ]
-    
-    for spoken, expected in test_pairs:
-        match = is_pronunciation_match(spoken, expected)
-        print(f"'{spoken}' vs '{expected}': {match}")
+    main()
