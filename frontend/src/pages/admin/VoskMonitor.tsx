@@ -43,20 +43,81 @@ const VoskMonitor: React.FC = () => {
   const statsIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isRecordingRef = useRef<boolean>(false);
 
-  // Railway WebSocket URLs - default to Tagalog service
-  // Can be configured via VITE_VOSK_WS_URL_TAGALOG or VITE_VOSK_WS_URL
-  const env = (import.meta as any)?.env || {};
-  const WS_URL = env.VITE_VOSK_WS_URL_TAGALOG || env.VITE_VOSK_WS_URL || 
-                 'wss://vigilant-celebration.up.railway.app';
+  // Get WebSocket URL with local server fallback
+  const getVoskWsUrl = async (lang: string): Promise<string> => {
+    const env = (import.meta as any)?.env || {};
+    const formatWsUrl = (baseUrl: string, language: string) => {
+      const cleanUrl = baseUrl.replace(/\/$/, '');
+      return `${cleanUrl}/?lang=${language}`;
+    };
+    
+    const localPort = env.VITE_VOSK_LOCAL_PORT || "2700";
+    const localUrl = `ws://localhost:${localPort}`;
+    
+    const getRailwayUrl = (language: string) => {
+      if (language === "tagalog" || language === "tl") {
+        const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
+        if (tagalogUrl) {
+          return formatWsUrl(tagalogUrl, "tagalog");
+        }
+        return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
+      } else if (language === "english" || language === "en") {
+        const englishUrl = env.VITE_VOSK_WS_URL_ENGLISH;
+        if (englishUrl) {
+          return formatWsUrl(englishUrl, "english");
+        }
+        return formatWsUrl("wss://philiready-websocket-english.up.railway.app", "english");
+      }
+      const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
+      if (tagalogUrl) {
+        return formatWsUrl(tagalogUrl, "tagalog");
+      }
+      return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
+    };
+    
+    const testLocalConnection = (): Promise<boolean> => {
+      return new Promise((resolve) => {
+        const testWs = new WebSocket(formatWsUrl(localUrl, lang));
+        const timeout = setTimeout(() => {
+          testWs.close();
+          resolve(false);
+        }, 2000);
+        
+        testWs.onopen = () => {
+          clearTimeout(timeout);
+          testWs.close();
+          resolve(true);
+        };
+        
+        testWs.onerror = () => {
+          clearTimeout(timeout);
+          resolve(false);
+        };
+      });
+    };
+    
+    console.log(`🔍 Testing local Vosk server at ${localUrl}...`);
+    const isLocalAvailable = await testLocalConnection();
+    
+    if (isLocalAvailable) {
+      console.log(`✅ Local Vosk server is running and ready! Using local connection.`);
+      return formatWsUrl(localUrl, lang);
+    } else {
+      const railwayUrl = getRailwayUrl(lang);
+      console.log(`⚠️ Local Vosk server not available. Falling back to Railway deployment: ${railwayUrl}`);
+      console.log(`   💡 To use local server, start it with: cd VoskServer && python server.py`);
+      return railwayUrl;
+    }
+  };
 
   // Connect to WebSocket
-  const connectWebSocket = () => {
+  const connectWebSocket = async () => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       return; // Already connected
     }
 
     setConnectionStatus('connecting');
-    const wsUrl = `${WS_URL}?lang=${selectedLanguage}`;
+    const wsUrl = await getVoskWsUrl(selectedLanguage);
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
     ws.binaryType = 'arraybuffer';
@@ -385,7 +446,7 @@ const VoskMonitor: React.FC = () => {
                 Vosk WebSocket Monitor
               </h1>
               <p className="text-gray-600">
-                Real-time monitoring for {WS_URL}
+                Real-time monitoring for Vosk WebSocket server (local or Railway)
               </p>
             </div>
             

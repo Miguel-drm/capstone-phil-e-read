@@ -396,7 +396,7 @@ const ReadingSessionPage: React.FC = () => {
       console.error("Speech recognition connection error:", error);
 
       // attemptVoskReconnect now handles the max attempts check internally
-      attemptVoskReconnect(startVoskFn);
+        attemptVoskReconnect(startVoskFn);
     };
 
     ws.onclose = (event) => {
@@ -858,8 +858,8 @@ const ReadingSessionPage: React.FC = () => {
     // This prevents "kalsada" (8) from matching "kailangan" (9) - they're completely different
     if (maxLength >= 8) {
       if (distance <= 1 && similarity >= 0.95 && lengthDiff <= 1) {
-        return true;
-      }
+          return true;
+        }
       // Reject if similarity is too low or length difference is too large
       return false;
     }
@@ -2238,7 +2238,7 @@ const ReadingSessionPage: React.FC = () => {
       // The server's word recognition enhancer ensures only confirmed words are sent
       const firstWordInTranscript = transcriptWords.length > 0 ? transcriptWords[0] : null;
       const isFirstWordMatch = firstWordInTranscript && isWordMatch(firstWordInTranscript, expectedWord, true);
-      
+
       if (isFirstWordMatch) {
         console.log(`✅ FOUND "${expectedWord}" as FIRST word in transcript! Match detected - moving yellow highlight to next word.`);
 
@@ -2259,9 +2259,9 @@ const ReadingSessionPage: React.FC = () => {
 
         // Remove the first word (matched) and keep remaining words
         const remainingWords = transcriptWords.slice(1);
-        voskFinalTranscriptRef.current = remainingWords.join(' ');
-        setTranscript(remainingWords.join(' '));
-        processedTranscriptWordsRef.current = 0; // Reset since we have new transcript
+          voskFinalTranscriptRef.current = remainingWords.join(' ');
+          setTranscript(remainingWords.join(' '));
+          processedTranscriptWordsRef.current = 0; // Reset since we have new transcript
         console.log(`🧹 Removed matched word "${firstWordInTranscript}", kept ${remainingWords.length} remaining words: [${remainingWords.join(', ')}]`);
 
         // NO cooldown - allow continuous processing for fast readers
@@ -3134,10 +3134,10 @@ const ReadingSessionPage: React.FC = () => {
             // This prevents clearing when an old word matches incorrectly
             const isFirstWord = transcriptWords.indexOf(lastWord) === 0;
             if (isFirstWord) {
-              voskFinalTranscriptRef.current = "";
-              setTranscript("");
-              processedTranscriptWordsRef.current = 0;
-              console.log(`🧹 Cleared transcript after substitution to prevent false matches`);
+            voskFinalTranscriptRef.current = "";
+            setTranscript("");
+            processedTranscriptWordsRef.current = 0;
+            console.log(`🧹 Cleared transcript after substitution to prevent false matches`);
             } else {
               console.log(`⚠️ Substitution detected but word is not first in transcript - not clearing to prevent jumping`);
             }

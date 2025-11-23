@@ -38,6 +38,8 @@ import {
 import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { studentService } from '../../services/studentService';
+import { reportService } from '../../services/reportService';
+import type { ReportQueryParams } from '../../services/reportService';
 import AdminLoader from '../../components/admin/AdminLoader';
 import ReportManagementHub from './ReportManagementHub';
 
@@ -167,85 +169,72 @@ const Reports: React.FC = () => {
     }
   ];
 
-  // Data fetching functions (moved here to avoid hoisting issues)
-  const fetchTeacherISRSubmissionsData = async () => {
-    try {
-      console.log('Fetching Teacher ISR Submissions from database...');
+  // Convert report parameters to query params
+  const getQueryParams = (): ReportQueryParams => {
+    const params: ReportQueryParams = {};
 
-      // Fetch ISR submissions from adminInbox (simplified query to avoid index requirement)
-      const submissionsQuery = query(
-        collection(db, 'adminInbox'),
-        where('type', '==', 'teacher_report')
-      );
-      const submissionsSnapshot = await getDocs(submissionsQuery);
-      console.log('Total teacher reports found:', submissionsSnapshot.docs.length);
+    // Parse academic period filter
+    if (academicPeriodFilter !== 'all') {
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth();
 
-      const submissionData: any[] = [];
-
-      submissionsSnapshot.docs.forEach(doc => {
-        const data = doc.data();
-
-        // Filter for ISR reports only
-        if (data.data?.reportType === 'class_isr' || data.data?.reportType === 'individual_isr') {
-          const studentCount = data.data?.studentCount ||
-            (data.data?.students ? data.data.students.length : 0) ||
-            1;
-
-          const submissionDate = data.createdAt?.toDate?.() || new Date();
-          const reviewDate = data.data?.reviewedAt?.toDate?.();
-
-          submissionData.push({
-            'Teacher Name': data.senderName || data.data?.teacherName || 'Unknown Teacher',
-            'Class': data.data?.className || `Grade ${data.data?.grade || 'N/A'} - ${data.data?.section || 'N/A'}`,
-            'Students Assessed': studentCount,
-            'Submission Date': submissionDate.toLocaleDateString(),
-            'Status': (data.data?.status || 'pending').charAt(0).toUpperCase() + (data.data?.status || 'pending').slice(1),
-            'Grade': data.data?.grade || 'N/A',
-            'Section': data.data?.section || 'N/A',
-            'Report Type': data.data?.reportType === 'class_isr' ? 'Class ISR' : 'Individual ISR',
-            'Reviewed By': data.data?.reviewedBy || 'Pending Review',
-            'Review Date': reviewDate ? reviewDate.toLocaleDateString() : 'Not Reviewed',
-            'Submission ID': doc.id,
-            'Days Since Submission': Math.floor((new Date().getTime() - submissionDate.getTime()) / (1000 * 60 * 60 * 24))
-          });
-        }
-      });
-
-      if (submissionData.length === 0) {
-        return [{
-          'Teacher Name': 'No ISR submissions found',
-          'Class': 'Teachers have not submitted',
-          'Students Assessed': 0,
-          'Submission Date': 'N/A',
-          'Status': 'No Data',
-          'Grade': 'N/A',
-          'Section': 'N/A',
-          'Report Type': 'N/A',
-          'Reviewed By': 'N/A',
-          'Review Date': 'N/A',
-          'Submission ID': 'N/A',
-          'Days Since Submission': 0
-        }];
+      switch (academicPeriodFilter) {
+        case 'current-quarter':
+          if (currentMonth >= 7 && currentMonth <= 9) {
+            params.startDate = new Date(currentYear, 7, 1);
+            params.endDate = new Date(currentYear, 9, 31);
+          } else if (currentMonth >= 10 || currentMonth <= 0) {
+            params.startDate = new Date(currentMonth >= 10 ? currentYear : currentYear - 1, 10, 1);
+            params.endDate = new Date(currentMonth <= 0 ? currentYear : currentYear + 1, 0, 31);
+          } else if (currentMonth >= 1 && currentMonth <= 3) {
+            params.startDate = new Date(currentYear, 1, 1);
+            params.endDate = new Date(currentYear, 3, 30);
+          } else {
+            params.startDate = new Date(currentYear, 4, 1);
+            params.endDate = new Date(currentYear, 6, 31);
+          }
+          break;
+        case 'q1-2024-25':
+          params.startDate = new Date(2024, 7, 1);
+          params.endDate = new Date(2024, 9, 31);
+          break;
+        case 'q2-2024-25':
+          params.startDate = new Date(2024, 10, 1);
+          params.endDate = new Date(2025, 0, 31);
+          break;
+        case 'q3-2024-25':
+          params.startDate = new Date(2025, 1, 1);
+          params.endDate = new Date(2025, 3, 30);
+          break;
+        case 'q4-2024-25':
+          params.startDate = new Date(2025, 4, 1);
+          params.endDate = new Date(2025, 6, 31);
+          break;
+        case 'semester1-2024-25':
+          params.startDate = new Date(2024, 7, 1);
+          params.endDate = new Date(2025, 0, 31);
+          break;
+        case 'semester2-2024-25':
+          params.startDate = new Date(2025, 1, 1);
+          params.endDate = new Date(2025, 6, 31);
+          break;
+        case 'school-year-2024-25':
+          params.startDate = new Date(2024, 7, 1);
+          params.endDate = new Date(2025, 6, 31);
+          break;
+        case 'school-year-2023-24':
+          params.startDate = new Date(2023, 7, 1);
+          params.endDate = new Date(2024, 6, 31);
+          break;
       }
-
-      return submissionData.sort((a, b) => b['Days Since Submission'] - a['Days Since Submission']);
-    } catch (error) {
-      console.error('Error fetching ISR submissions:', error);
-      return [{
-        'Teacher Name': 'Database Error',
-        'Class': 'Failed to fetch submissions',
-        'Students Assessed': 0,
-        'Submission Date': 'Error',
-        'Status': 'Error',
-        'Grade': 'N/A',
-        'Section': 'N/A',
-        'Report Type': 'Error',
-        'Reviewed By': 'Error',
-        'Review Date': 'Error',
-        'Submission ID': 'Error',
-        'Days Since Submission': 0
-      }];
     }
+
+    if (statusFilter !== 'all') {
+      params.status = statusFilter;
+    }
+
+    return params;
   };
 
   useEffect(() => {
@@ -258,17 +247,19 @@ const Reports: React.FC = () => {
       const updatedReports = await Promise.all(reports.map(async (report) => {
         let recordCount = 0;
 
+        const queryParams = getQueryParams();
+        
         switch (report.templateId) {
           case 'phil-iri-summary':
-            const summaryData = await fetchPhilIRISummaryData();
+            const summaryData = await reportService.fetchPhilIRISummaryData(queryParams);
             recordCount = summaryData.filter(item => !item.error && !item.message).length;
             break;
           case 'reading-level-distribution':
-            const distributionData = await fetchReadingLevelDistributionData();
+            const distributionData = await reportService.fetchReadingLevelDistributionData(queryParams);
             recordCount = distributionData.filter(item => item['Total Students'] > 0).length;
             break;
           case 'teacher-isr-submissions':
-            const submissionData = await fetchTeacherISRSubmissionsData();
+            const submissionData = await reportService.fetchTeacherISRSubmissionsData(queryParams);
             recordCount = submissionData.filter(item => !item.error && !item.message).length;
             break;
         }
@@ -346,6 +337,10 @@ const Reports: React.FC = () => {
 
       // Update report counts with real database data
       const reportsWithCounts = await updateReportCounts(mockGeneratedReports);
+      
+      // Fetch real-time statistics
+      const stats = await reportService.getReportStatistics();
+      console.log('[Reports] Report statistics:', stats);
 
       setReportData(prev => ({
         ...prev,
@@ -441,17 +436,18 @@ const Reports: React.FC = () => {
     setShowPreviewModal(true);
 
     try {
-      // Fetch sample data for preview
+      // Fetch sample data for preview using service
+      const queryParams = getQueryParams();
       let sampleData: any[] = [];
       switch (template.id) {
         case 'phil-iri-summary':
-          sampleData = await fetchPhilIRISummaryData();
+          sampleData = await reportService.fetchPhilIRISummaryData({ ...queryParams, limit: 10 });
           break;
         case 'reading-level-distribution':
-          sampleData = await fetchReadingLevelDistributionData();
+          sampleData = await reportService.fetchReadingLevelDistributionData(queryParams);
           break;
         case 'teacher-isr-submissions':
-          sampleData = await fetchTeacherISRSubmissionsData();
+          sampleData = await reportService.fetchTeacherISRSubmissionsData(queryParams);
           break;
         default:
           sampleData = [{ message: 'Preview not available for this report type' }];
@@ -671,21 +667,22 @@ const Reports: React.FC = () => {
 
   const downloadReport = async (report: GeneratedReport, format?: 'xlsx' | 'pdf') => {
     try {
-      // Fetch actual data based on report template
+      // Fetch actual data based on report template using service
+      const queryParams = getQueryParams();
       let data: any[] = [];
 
       switch (report.templateId) {
         case 'phil-iri-summary':
-          data = await fetchPhilIRISummaryData();
+          data = await reportService.fetchPhilIRISummaryData(queryParams);
           break;
         case 'reading-level-distribution':
-          data = await fetchReadingLevelDistributionData();
+          data = await reportService.fetchReadingLevelDistributionData(queryParams);
           break;
         case 'comprehension-analysis':
-          data = await fetchComprehensionAnalysisData();
+          data = await reportService.fetchComprehensionAnalysisData(queryParams);
           break;
         case 'teacher-isr-submissions':
-          data = await fetchTeacherISRSubmissionsData();
+          data = await reportService.fetchTeacherISRSubmissionsData(queryParams);
           break;
         case 'reading-progress-tracking':
           data = await fetchReadingProgressData();
@@ -1320,149 +1317,17 @@ const Reports: React.FC = () => {
     `;
   };
 
+  // Legacy function - kept for backward compatibility but now uses service
   const fetchPhilIRISummaryData = async () => {
-    try {
-      console.log('Fetching Phil-IRI Summary Data from database...');
-
-      // First, fetch from approved ISR records
-      const approvedISRQuery = query(
-        collection(db, 'approvedISRRecords'),
-        orderBy('approvedDate', 'desc')
-      );
-      const approvedSnapshot = await getDocs(approvedISRQuery);
-      console.log('Approved ISR Records found:', approvedSnapshot.docs.length);
-
-      // Also fetch from adminInbox for pending/recent submissions
-      const adminInboxQuery = query(
-        collection(db, 'adminInbox'),
-        where('type', '==', 'teacher_report')
-      );
-      const inboxSnapshot = await getDocs(adminInboxQuery);
-      console.log('Admin Inbox ISR submissions found:', inboxSnapshot.docs.length);
-
-      const isrData: any[] = [];
-
-      // Process approved ISR records
-      approvedSnapshot.docs.forEach(doc => {
-        const data = doc.data();
-        console.log('Processing approved ISR:', data);
-
-        if (data.students && Array.isArray(data.students)) {
-          data.students.forEach((student: any) => {
-            const latestReading = student.readingData?.[0] || {};
-
-            // Determine reading level based on Phil-IRI standards
-            let readingLevel = 'Frustration';
-            if (latestReading.wordReading?.ind && latestReading.comprehension?.ind) {
-              readingLevel = 'Independent';
-            } else if (latestReading.wordReading?.ins && latestReading.comprehension?.ins) {
-              readingLevel = 'Instructional';
-            }
-
-            // Determine comprehension level
-            let comprehensionLevel = 'Frustration';
-            if (latestReading.comprehension?.ind) {
-              comprehensionLevel = 'Independent';
-            } else if (latestReading.comprehension?.ins) {
-              comprehensionLevel = 'Instructional';
-            }
-
-            isrData.push({
-              'Student Name': student.studentName || 'Unknown',
-              'Grade': student.gradeSection || data.grade || 'N/A',
-              'Reading Level': readingLevel,
-              'Comprehension Level': comprehensionLevel,
-              'Language': student.language || 'Filipino',
-              'Assessment Date': latestReading.dateTaken || data.approvedDate?.toDate?.()?.toLocaleDateString() || 'N/A',
-              'Teacher': student.teacher || data.teacherName || 'N/A',
-              'School': student.school || 'Elementary School',
-              'Status': 'Approved',
-              'Submission ID': doc.id
-            });
-          });
-        }
-      });
-
-      // Process recent submissions from adminInbox
-      inboxSnapshot.docs.forEach(doc => {
-        const data = doc.data();
-        if (data.data?.reportType === 'class_isr' || data.data?.reportType === 'individual_isr') {
-          console.log('Processing inbox ISR:', data);
-
-          if (data.data?.students && Array.isArray(data.data.students)) {
-            data.data.students.forEach((student: any) => {
-              const latestReading = student.readingData?.[0] || {};
-
-              // Determine reading level
-              let readingLevel = 'Frustration';
-              if (latestReading.wordReading?.ind && latestReading.comprehension?.ind) {
-                readingLevel = 'Independent';
-              } else if (latestReading.wordReading?.ins && latestReading.comprehension?.ins) {
-                readingLevel = 'Instructional';
-              }
-
-              // Determine comprehension level
-              let comprehensionLevel = 'Frustration';
-              if (latestReading.comprehension?.ind) {
-                comprehensionLevel = 'Independent';
-              } else if (latestReading.comprehension?.ins) {
-                comprehensionLevel = 'Instructional';
-              }
-
-              isrData.push({
-                'Student Name': student.studentName || 'Unknown',
-                'Grade': student.gradeSection || data.data?.grade || 'N/A',
-                'Reading Level': readingLevel,
-                'Comprehension Level': comprehensionLevel,
-                'Language': student.language || 'Filipino',
-                'Assessment Date': latestReading.dateTaken || data.createdAt?.toDate?.()?.toLocaleDateString() || 'N/A',
-                'Teacher': student.teacher || data.senderName || 'N/A',
-                'School': student.school || 'Elementary School',
-                'Status': data.data?.status || 'Pending',
-                'Submission ID': doc.id
-              });
-            });
-          }
-        }
-      });
-
-      console.log('Total ISR data processed:', isrData.length);
-
-      if (isrData.length === 0) {
-        // If no real data, return helpful message
-        return [{
-          'Student Name': 'No ISR data found',
-          'Grade': 'Please ensure teachers have submitted',
-          'Reading Level': 'Individual Summary Records (ISR)',
-          'Comprehension Level': 'through the system',
-          'Language': 'N/A',
-          'Assessment Date': 'N/A',
-          'Teacher': 'N/A',
-          'School': 'N/A',
-          'Status': 'No Data',
-          'Submission ID': 'N/A'
-        }];
-      }
-
-      return isrData;
-    } catch (error) {
-      console.error('Error fetching Phil-IRI data:', error);
-      return [{
-        'Student Name': 'Database Error',
-        'Grade': 'Failed to fetch ISR data',
-        'Reading Level': 'Check console for details',
-        'Comprehension Level': error instanceof Error ? error.message : 'Unknown error',
-        'Language': 'N/A',
-        'Assessment Date': 'N/A',
-        'Teacher': 'N/A',
-        'School': 'N/A',
-        'Status': 'Error',
-        'Submission ID': 'N/A'
-      }];
-    }
+    return reportService.fetchPhilIRISummaryData(getQueryParams());
   };
 
+  // Legacy wrapper - now uses service
   const fetchComprehensionAnalysisData = async () => {
+    return reportService.fetchComprehensionAnalysisData(getQueryParams());
+  };
+
+  const fetchComprehensionAnalysisData_OLD = async () => {
     try {
       // Fetch approved ISR records for comprehension analysis
       const approvedISRQuery = query(
@@ -1520,7 +1385,12 @@ const Reports: React.FC = () => {
     }
   };
 
+  // Legacy function - kept for backward compatibility but now uses service
   const fetchReadingLevelDistributionData = async () => {
+    return reportService.fetchReadingLevelDistributionData(getQueryParams());
+  };
+
+  const fetchReadingLevelDistributionData_OLD = async () => {
     try {
       console.log('Fetching Reading Level Distribution from database...');
 
@@ -2636,8 +2506,10 @@ const Reports: React.FC = () => {
       </div>
     </div>
   );
+};
 
-  const fetchReadingProgressData = async () => {
+// Helper functions moved outside component
+const fetchReadingProgressData = async () => {
     try {
       // This would require historical data tracking - for now, provide sample structure
       const students = await studentService.getAllStudents();
@@ -2659,7 +2531,7 @@ const Reports: React.FC = () => {
     }
   };
 
-  const fetchLanguageComparisonData = async () => {
+const fetchLanguageComparisonData = async () => {
     try {
       // Fetch ISR data for both languages
       const approvedISRQuery = query(
@@ -2702,7 +2574,6 @@ const Reports: React.FC = () => {
       console.error('Error fetching language comparison:', error);
       return [{ error: 'Failed to fetch language comparison data' }];
     }
-  };
 };
 
 export default Reports;
