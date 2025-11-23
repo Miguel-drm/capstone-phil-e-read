@@ -1,0 +1,220 @@
+{
+  "description": "Sample data structures for Reports testing",
+  "approvedISRRecord": {
+    "originalSubmissionId": "submission_123",
+    "teacherId": "teacher_001",
+    "teacherName": "Maria Santos",
+    "className": "Grade 3 - Section A",
+    "grade": "3",
+    "section": "A",
+    "studentCount": 25,
+    "submissionDate": "2024-01-15T00:00:00Z",
+    "approvedDate": "2024-01-16T00:00:00Z",
+    "approvedBy": "admin_001",
+    "approvedByName": "System Administrator",
+    "adminComments": "All records verified and approved",
+    "reportType": "class_isr",
+    "students": [
+      {
+        "studentName": "Juan Dela Cruz",
+        "gradeSection": "Grade 3 - Section A",
+        "language": "Filipino",
+        "teacher": "Maria Santos",
+        "school": "Elementary School",
+        "readingData": [
+          {
+            "dateTaken": "2024-01-10",
+            "wordReading": {
+              "ind": true,
+              "ins": false
+            },
+            "comprehension": {
+              "ind": true,
+              "ins": false
+            }
+          }
+        ],
+        "observations": {
+          "wordByWord": false,
+          "lacksExpression": false,
+          "hardlyAudible": false,
+          "disregardsPunctuation": false,
+          "pointsToWords": false,
+          "littleAnalysis": false,
+          "otherObservations": ""
+        }
+      },
+      {
+        "studentName": "Maria Garcia",
+        "gradeSection": "Grade 3 - Section A",
+        "language": "English",
+        "teacher": "Maria Santos",
+        "school": "Elementary School",
+        "readingData": [
+          {
+            "dateTaken": "2024-01-10",
+            "wordReading": {
+              "ind": false,
+              "ins": true
+            },
+            "comprehension": {
+              "ind": false,
+              "ins": true
+            }
+          }
+        ],
+        "observations": {
+          "wordByWord": true,
+          "lacksExpression": false,
+          "hardlyAudible": false,
+          "disregardsPunctuation": false,
+          "pointsToWords": false,
+          "littleAnalysis": false,
+          "otherObservations": "Needs more practice with fluency"
+        }
+      },
+      {
+        "studentName": "Pedro Santos",
+        "gradeSection": "Grade 3 - Section A",
+        "language": "Filipino",
+        "teacher": "Maria Santos",
+        "school": "Elementary School",
+        "readingData": [
+          {
+            "dateTaken": "2024-01-10",
+            "wordReading": {
+              "ind": false,
+              "ins": false
+            },
+            "comprehension": {
+              "ind": false,
+              "ins": false
+            }
+          }
+        ],
+        "observations": {
+          "wordByWord": true,
+          "lacksExpression": true,
+          "hardlyAudible": false,
+          "disregardsPunctuation": true,
+          "pointsToWords": true,
+          "littleAnalysis": true,
+          "otherObservations": "Student needs intensive reading support"
+        }
+      }
+    ]
+  },
+  "adminInboxSubmission": {
+    "type": "teacher_report",
+    "senderId": "teacher_002",
+    "senderName": "John Reyes",
+    "createdAt": "2024-01-20T00:00:00Z",
+    "isRead": false,
+    "data": {
+      "reportType": "class_isr",
+      "className": "Grade 4 - Section B",
+      "grade": "4",
+      "section": "B",
+      "studentCount": 30,
+      "status": "pending",
+      "teacherName": "John Reyes",
+      "students": [
+        {
+          "studentName": "Ana Lopez",
+          "gradeSection": "Grade 4 - Section B",
+          "language": "Filipino",
+          "teacher": "John Reyes",
+          "school": "Elementary School",
+          "readingData": [
+            {
+              "dateTaken": "2024-01-18",
+              "wordReading": {
+                "ind": false,
+                "ins": false
+              },
+              "comprehension": {
+                "ind": false,
+                "ins": false
+              }
+            }
+          ],
+          "observations": {
+            "wordByWord": true,
+            "lacksExpression": true,
+            "hardlyAudible": false,
+            "disregardsPunctuation": true,
+            "pointsToWords": true,
+            "littleAnalysis": true,
+            "otherObservations": "Student needs intensive reading support"
+          }
+        }
+      ]
+    }
+  },
+  "reportQueryParams": {
+    "academicPeriod": "current-quarter",
+    "grade": "3",
+    "language": "Filipino",
+    "status": "approved",
+    "startDate": "2024-01-01T00:00:00Z",
+    "endDate": "2024-03-31T23:59:59Z",
+    "limit": 100
+  },
+  "reportGenerationRequest": {
+    "templateId": "phil-iri-summary",
+    "format": "xlsx",
+    "parameters": {
+      "academicPeriod": "current-quarter",
+      "grade": "3",
+      "language": "Filipino",
+      "status": "all"
+    },
+    "generatedBy": "admin_001",
+    "generatedByName": "System Administrator"
+  },
+  "expectedReportResponse": {
+    "philIRISummary": [
+      {
+        "Student Name": "Juan Dela Cruz",
+        "Grade": "Grade 3 - Section A",
+        "Reading Level": "Independent",
+        "Comprehension Level": "Independent",
+        "Language": "Filipino",
+        "Assessment Date": "2024-01-10",
+        "Teacher": "Maria Santos",
+        "School": "Elementary School",
+        "Status": "Approved",
+        "Submission ID": "submission_123"
+      }
+    ],
+    "readingLevelDistribution": [
+      {
+        "Grade Level": "Grade 3 - Section A",
+        "Independent Count": 1,
+        "Instructional Count": 1,
+        "Frustration Count": 1,
+        "Total Students": 3,
+        "Independent %": "33.3%",
+        "Instructional %": "33.3%",
+        "Frustration %": "33.3%"
+      }
+    ],
+    "teacherISRSubmissions": [
+      {
+        "Teacher Name": "John Reyes",
+        "Class": "Grade 4 - Section B",
+        "Students Assessed": 30,
+        "Submission Date": "2024-01-20",
+        "Status": "Pending",
+        "Grade": "4",
+        "Section": "B",
+        "Report Type": "Class ISR",
+        "Reviewed By": "Pending Review",
+        "Review Date": "Not Reviewed",
+        "Submission ID": "inbox_001",
+        "Days Since Submission": 5
+      }
+    ]
+  }
+}
+
