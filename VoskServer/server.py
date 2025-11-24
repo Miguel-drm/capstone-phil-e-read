@@ -47,7 +47,7 @@ def float32_to_pcm16(audio_data: np.ndarray) -> bytes:
     # Convert to bytes (little-endian)
     return pcm16.tobytes()
 
-def process_audio_message(message: bytes, source_sample_rate: int = 48000) -> bytes:
+def process_audio_message(message: bytes, source_sample_rate: int = 48000, debug_count: int = 0) -> bytes:
     """
     Process incoming audio message and convert to PCM16 16kHz.
     Supports: Float32 arrays (any sample rate), PCM16 (16kHz)
@@ -57,11 +57,27 @@ def process_audio_message(message: bytes, source_sample_rate: int = 48000) -> by
         if len(message) % 4 == 0:  # Float32 is 4 bytes
             try:
                 float32_array = np.frombuffer(message, dtype=np.float32)
+                
+                # DEBUG: Log audio processing details every 100 chunks
+                if debug_count % 100 == 0:
+                    print(f"   Input: {len(float32_array)} Float32 samples @ {source_sample_rate}Hz")
+                
                 # Downsample if needed
                 downsampled = downsample_to_16k(float32_array, source_sample_rate)
+                
+                if debug_count % 100 == 0:
+                    print(f"   Downsampled: {len(downsampled)} Float32 samples @ 16kHz")
+                
                 # Convert to PCM16
-                return float32_to_pcm16(downsampled)
-            except:
+                pcm16_result = float32_to_pcm16(downsampled)
+                
+                if debug_count % 100 == 0:
+                    print(f"   Output: {len(pcm16_result)} bytes PCM16")
+                
+                return pcm16_result
+            except Exception as e:
+                if debug_count % 100 == 0:
+                    print(f"⚠ Error in Float32 processing: {e}")
                 pass
         
         # Assume it's already PCM16 at 16kHz
@@ -77,6 +93,10 @@ async def recognize(websocket, path, model):
     recognizer = KaldiRecognizer(model, sample_rate)
     recognizer.SetWords(True)  # Enable word-level timestamps (can help with accuracy)
     
+    # DEBUG: Track audio chunks received
+    audio_chunks_received = 0
+    audio_bytes_received = 0
+    
     # Initialize word recognition enhancer to prevent jumping and improve quality
     # Detect language from query parameter for pronunciation matching
     parsed = urllib.parse.urlparse(path if path else '/')
@@ -88,21 +108,26 @@ async def recognize(websocket, path, model):
         detected_language = "english"
     
     enhancer_config = {
-        'min_word_length': 1,  # Allow single letters like "A"
-        'min_confidence': 0.3,
-        'debounce_time': 0.3,      # 300ms between words
-        'stability_count': 2,       # Word must be detected 2 times
-        'stability_time': 0.5,      # Word must be stable for 500ms
-        'max_candidates': 10,
-        'silence_threshold': 0.1,
+        'min_word_length': 1,      # Allow single letters like "A"
+        'min_confidence': 0.0,     # Accept all confidence levels (was 0.3)
+        'debounce_time': 0.05,     # Very fast response - 50ms (was 0.3)
+        'stability_count': 1,      # Accept word immediately (was 2)
+        'stability_time': 0.1,     # Very short stability - 100ms (was 0.5)
+        'max_candidates': 20,      # More candidates (was 10)
+        'silence_threshold': 0.01, # Very low silence threshold (was 0.1)
         'language': detected_language  # Set language for pronunciation matching
     }
     word_enhancer = create_enhanced_recognizer(enhancer_config)
+    print(f"✓ Word enhancer configured with VERY RELAXED settings for maximum recognition")
     
     # Track if grammar has been set
     grammar_set = False
     # Track audio format from client
     client_sample_rate = 48000  # Default, can be overridden via config
+    
+    # Audio accumulation buffer - ULTRA-FAST FOR INSTANT RECOGNITION
+    audio_buffer = bytearray()
+    buffer_size_target = 1600  # ULTRA-REDUCED: ~0.05 seconds of audio (1600 bytes = 800 samples @ 16kHz = 0.05s) - INSTANT RESPONSE
     
     # ACCURACY TRACKING: Track metrics for live updates
     session_start_time = time.time()
@@ -127,142 +152,207 @@ async def recognize(websocket, path, model):
             try:
                 # Handle binary audio data
                 if isinstance(message, (bytes, bytearray)):
-                    # Process audio: convert format, downsampling if needed
-                    pcm16_audio = process_audio_message(message, client_sample_rate)
+                    # DEBUG: Track audio reception
+                    audio_chunks_received += 1
+                    audio_bytes_received += len(message)
                     
-                    # Process audio in chunks - Vosk works best with continuous streaming
-                    if recognizer.AcceptWaveform(pcm16_audio):
-                        # Final result - enhance before sending
-                        res = json.loads(recognizer.Result())
-                        text = res.get("text", "").strip()
-                        if text:
-                            # Use enhancer to filter and stabilize
-                            enhanced_result = word_enhancer.process_vosk_result(res)
-                            if enhanced_result:
-                                recognized_word = enhanced_result['text'].lower().strip()
-                                confidence = enhanced_result.get('confidence', 0.0)
-                                current_time = time.time()
-                                
-                                # ACCURACY: Server-side vocabulary filtering
-                                if vocabulary and recognized_word not in vocabulary:
-                                    # Check if word is similar to any vocabulary word (fuzzy match)
-                                    is_valid = False
-                                    for vocab_word in vocabulary:
-                                        # Simple similarity check (Levenshtein-like)
-                                        if len(recognized_word) == len(vocab_word):
-                                            diff = sum(c1 != c2 for c1, c2 in zip(recognized_word, vocab_word))
-                                            if diff <= 1:  # Allow 1 char difference
-                                                recognized_word = vocab_word  # Use vocabulary word
-                                                is_valid = True
-                                                break
+                    # Log every 100 chunks
+                    if audio_chunks_received % 100 == 0:
+                        print(f"📊 Received {audio_chunks_received} audio chunks ({audio_bytes_received} bytes total)")
+                    
+                    # Process audio: convert format, downsampling if needed
+                    pcm16_audio = process_audio_message(message, client_sample_rate, audio_chunks_received)
+                    
+                    # Accumulate audio in buffer
+                    audio_buffer.extend(pcm16_audio)
+                    
+                    # Debug: Log buffer status every 100 chunks
+                    if audio_chunks_received % 100 == 0:
+                        print(f"   Buffer: {len(audio_buffer)} bytes (target: {buffer_size_target})")
+                    
+                    # Only process when we have enough audio accumulated
+                    if len(audio_buffer) >= buffer_size_target:
+                        # Send accumulated audio to Vosk
+                        audio_to_process = bytes(audio_buffer)
+                        audio_buffer.clear()
+                        
+                        print(f"   ✓ Sending {len(audio_to_process)} bytes to Vosk for recognition")
+                        
+                        # Process audio in chunks - Vosk works best with continuous streaming
+                        if recognizer.AcceptWaveform(audio_to_process):
+                            # Final result - enhance before sending
+                            res = json.loads(recognizer.Result())
+                            text = res.get("text", "").strip()
+                            
+                            # DEBUG: Log raw Vosk output
+                            print(f"🎤 Vosk raw result: '{text}'")
+                            
+                            if text:
+                                # OPTIMIZED: Apply vocabulary filter server-side for speed
+                                words = text.split()
+                                if vocabulary:
+                                    # Filter words - keep only those in vocabulary
+                                    filtered_words = []
+                                    rejected_words = []
+                                    for word in words:
+                                        word_lower = word.lower().strip()
+                                        if word_lower in vocabulary:
+                                            filtered_words.append(word)
+                                        else:
+                                            rejected_words.append(word)
                                     
-                                    if not is_valid:
-                                        # Word not in vocabulary - reject
-                                        print(f"❌ Rejected word not in vocabulary: '{recognized_word}'")
-                                        continue
-                                
-                                # ACCURACY: Check if word matches expected word (for miscue detection)
-                                is_correct = False
-                                is_miscue = False
-                                miscue_type = None
-                                
-                                if expected_words and current_word_index < len(expected_words):
-                                    expected_word = expected_words[current_word_index].lower().strip()
+                                    if rejected_words:
+                                        print(f"   ❌ Vocabulary filter: Rejected {len(rejected_words)} word(s) not in story: {', '.join(rejected_words)}")
                                     
-                                    # Check for exact match
-                                    if recognized_word == expected_word:
-                                        is_correct = True
+                                    if filtered_words:
+                                        filtered_text = ' '.join(filtered_words)
+                                        print(f"   ✅ Vocabulary filter: Accepted \"{filtered_text}\"")
+                                        
+                                        # Send filtered result
+                                        await websocket.send(json.dumps({
+                                            "text": filtered_text,
+                                            "confidence": 1.0
+                                        }))
                                     else:
-                                        # Check for similarity (mispronunciation vs substitution)
-                                        # Simple similarity check
-                                        if len(recognized_word) == len(expected_word):
-                                            diff = sum(c1 != c2 for c1, c2 in zip(recognized_word, expected_word))
-                                            if diff <= 1:
-                                                # Very similar - treat as mispronunciation
-                                                is_miscue = True
-                                                miscue_type = "mispronunciation"
-                                                miscue_types["mispronunciation"] += 1
+                                        print(f"   ⚠️ All words rejected by vocabulary filter")
+                                else:
+                                    # No vocabulary filter - send all words
+                                    print(f"   ✅ Sending word to client: '{text}'")
+                                    await websocket.send(json.dumps({
+                                        "text": text,
+                                        "confidence": 1.0
+                                    }))
+                            
+                            # OLD CODE - COMPLETELY DISABLED
+                            if False:
+                                if text:
+                                    enhanced_result = word_enhancer.process_vosk_result(res)
+                                    print(f"   Enhancer result: {enhanced_result}")
+                                if False and enhanced_result:
+                                    recognized_word = enhanced_result['text'].lower().strip()
+                                    confidence = enhanced_result.get('confidence', 0.0)
+                                    current_time = time.time()
+                                    
+                                    # ACCURACY: Server-side vocabulary filtering
+                                    if vocabulary and recognized_word not in vocabulary:
+                                        # Check if word is similar to any vocabulary word (fuzzy match)
+                                        is_valid = False
+                                        for vocab_word in vocabulary:
+                                            # Simple similarity check (Levenshtein-like)
+                                            if len(recognized_word) == len(vocab_word):
+                                                diff = sum(c1 != c2 for c1, c2 in zip(recognized_word, vocab_word))
+                                                if diff <= 1:  # Allow 1 char difference
+                                                    recognized_word = vocab_word  # Use vocabulary word
+                                                    is_valid = True
+                                                    break
+                                        
+                                        if not is_valid:
+                                            # Word not in vocabulary - reject
+                                            print(f"❌ Rejected word not in vocabulary: '{recognized_word}'")
+                                            continue
+                                    
+                                    # ACCURACY: Check if word matches expected word (for miscue detection)
+                                    is_correct = False
+                                    is_miscue = False
+                                    miscue_type = None
+                                    
+                                    if expected_words and current_word_index < len(expected_words):
+                                        expected_word = expected_words[current_word_index].lower().strip()
+                                        
+                                        # Check for exact match
+                                        if recognized_word == expected_word:
+                                            is_correct = True
+                                        else:
+                                            # Check for similarity (mispronunciation vs substitution)
+                                            # Simple similarity check
+                                            if len(recognized_word) == len(expected_word):
+                                                diff = sum(c1 != c2 for c1, c2 in zip(recognized_word, expected_word))
+                                                if diff <= 1:
+                                                    # Very similar - treat as mispronunciation
+                                                    is_miscue = True
+                                                    miscue_type = "mispronunciation"
+                                                    miscue_types["mispronunciation"] += 1
+                                                else:
+                                                    # Different word - substitution
+                                                    is_miscue = True
+                                                    miscue_type = "substitution"
+                                                    miscue_types["substitution"] += 1
                                             else:
-                                                # Different word - substitution
+                                                # Different length - likely substitution
                                                 is_miscue = True
                                                 miscue_type = "substitution"
                                                 miscue_types["substitution"] += 1
-                                        else:
-                                            # Different length - likely substitution
-                                            is_miscue = True
-                                            miscue_type = "substitution"
-                                            miscue_types["substitution"] += 1
+                                        
+                                        # Increment word index
+                                        current_word_index += 1
                                     
-                                    # Increment word index
-                                    current_word_index += 1
-                                
-                                # Track recognized word with timestamp and correctness
-                                recognized_words.append({
-                                    "word": recognized_word,
-                                    "timestamp": current_time,
-                                    "confidence": confidence,
-                                    "is_correct": is_correct,
-                                    "is_miscue": is_miscue,
-                                    "miscue_type": miscue_type
-                                })
-                                
-                                # Update miscue count
-                                if is_miscue:
-                                    miscues += 1
-                                
-                                # ACCURACY: Calculate live metrics
-                                elapsed_time = current_time - session_start_time
-                                words_count = len(recognized_words)
-                                
-                                # Calculate WPM (Words Per Minute)
-                                wpm = 0
-                                if elapsed_time > 0:
-                                    wpm = int((words_count / elapsed_time) * 60)
-                                
-                                # Calculate accuracy (if expected words provided)
-                                accuracy = 0.0
-                                correct_words = 0
-                                if expected_words and words_count > 0:
-                                    # Count correct words
-                                    correct_words = sum(1 for w in recognized_words if w.get("is_correct", False))
+                                    # Track recognized word with timestamp and correctness
+                                    recognized_words.append({
+                                        "word": recognized_word,
+                                        "timestamp": current_time,
+                                        "confidence": confidence,
+                                        "is_correct": is_correct,
+                                        "is_miscue": is_miscue,
+                                        "miscue_type": miscue_type
+                                    })
                                     
-                                    if words_count > 0:
-                                        accuracy = (correct_words / min(words_count, len(expected_words))) * 100
-                                
-                                # Calculate Oral Reading Score = ((Words Read - Miscues) / Total Words) * 100
-                                oral_reading_score = 0.0
-                                if total_words_expected > 0:
-                                    correct_words_for_score = words_count - miscues
-                                    oral_reading_score = (correct_words_for_score / total_words_expected) * 100
-                                    oral_reading_score = max(0.0, min(100.0, oral_reading_score))  # Clamp 0-100
-                                
-                                # Send enhanced result with live metrics
-                                await websocket.send(json.dumps({
-                                    "text": recognized_word,
-                                    "confidence": confidence,
-                                    "is_correct": is_correct,
-                                    "is_miscue": is_miscue,
-                                    "miscue_type": miscue_type,
-                                    "metrics": {
-                                        "wpm": wpm,
-                                        "accuracy": round(accuracy, 1),
-                                        "words_read": words_count,
-                                        "total_miscues": miscues,
-                                        "oral_reading_score": round(oral_reading_score, 1),
-                                        "elapsed_time": round(elapsed_time, 1),
-                                        "correct_words": correct_words,
-                                        "miscue_types": miscue_types.copy()
-                                    }
-                                }))
-                            # Don't send if filtered (prevents jumping)
-                    else:
-                        # Partial result - process but don't send (prevents jumping)
-                        pres = json.loads(recognizer.PartialResult())
-                        partial = pres.get("partial", "").strip()
-                        if partial:
-                            # Track partial for stability, but don't send to prevent jumping
-                            word_enhancer.process_vosk_result(pres)
-                            # Optionally send partial only if very stable (uncomment if needed)
+                                    # Update miscue count
+                                    if is_miscue:
+                                        miscues += 1
+                                    
+                                    # ACCURACY: Calculate live metrics
+                                    elapsed_time = current_time - session_start_time
+                                    words_count = len(recognized_words)
+                                    
+                                    # Calculate WPM (Words Per Minute)
+                                    wpm = 0
+                                    if elapsed_time > 0:
+                                        wpm = int((words_count / elapsed_time) * 60)
+                                    
+                                    # Calculate accuracy (if expected words provided)
+                                    accuracy = 0.0
+                                    correct_words = 0
+                                    if expected_words and words_count > 0:
+                                        # Count correct words
+                                        correct_words = sum(1 for w in recognized_words if w.get("is_correct", False))
+                                        
+                                        if words_count > 0:
+                                            accuracy = (correct_words / min(words_count, len(expected_words))) * 100
+                                    
+                                    # Calculate Oral Reading Score = ((Words Read - Miscues) / Total Words) * 100
+                                    oral_reading_score = 0.0
+                                    if total_words_expected > 0:
+                                        correct_words_for_score = words_count - miscues
+                                        oral_reading_score = (correct_words_for_score / total_words_expected) * 100
+                                        oral_reading_score = max(0.0, min(100.0, oral_reading_score))  # Clamp 0-100
+                                    
+                                    # Send enhanced result with live metrics
+                                    await websocket.send(json.dumps({
+                                        "text": recognized_word,
+                                        "confidence": confidence,
+                                        "is_correct": is_correct,
+                                        "is_miscue": is_miscue,
+                                        "miscue_type": miscue_type,
+                                        "metrics": {
+                                            "wpm": wpm,
+                                            "accuracy": round(accuracy, 1),
+                                            "words_read": words_count,
+                                            "total_miscues": miscues,
+                                            "oral_reading_score": round(oral_reading_score, 1),
+                                            "elapsed_time": round(elapsed_time, 1),
+                                            "correct_words": correct_words,
+                                            "miscue_types": miscue_types.copy()
+                                        }
+                                    }))
+                                    # Don't send if filtered (prevents jumping)
+                        else:
+                            # Partial result - process but don't send (prevents jumping)
+                            pres = json.loads(recognizer.PartialResult())
+                            partial = pres.get("partial", "").strip()
+                            if partial:
+                                # Track partial for stability, but don't send to prevent jumping
+                                word_enhancer.process_vosk_result(pres)
+                                # Optionally send partial only if very stable (uncomment if needed)
                             # enhanced_partial = word_enhancer.process_vosk_result(pres)
                             # if enhanced_partial:
                             #     await websocket.send(json.dumps({"partial": enhanced_partial['text']}))
@@ -409,26 +499,51 @@ async def recognize(websocket, path, model):
         
         print(f"{'='*60}\n")
     finally:
-        # send final result on close - important for accuracy
+        # CRITICAL: Send final result on close to catch last words
         try:
             fres = json.loads(recognizer.FinalResult())
             text = fres.get("text", "").strip()
+            
             if text:
-                # Enhance final result before sending
-                enhanced_result = word_enhancer.process_vosk_result(fres)
-                if enhanced_result:
+                print(f"🏁 FINAL RESULT on close: '{text}'")
+                
+                # Apply vocabulary filter to final result
+                if vocabulary:
+                    words = text.split()
+                    filtered_words = []
+                    rejected_words = []
+                    for word in words:
+                        word_lower = word.lower().strip()
+                        if word_lower in vocabulary:
+                            filtered_words.append(word)
+                        else:
+                            rejected_words.append(word)
+                    
+                    if rejected_words:
+                        print(f"   ❌ Final result filter: Rejected {len(rejected_words)} word(s): {', '.join(rejected_words)}")
+                    
+                    if filtered_words:
+                        filtered_text = ' '.join(filtered_words)
+                        print(f"   ✅ Final result filter: Accepted \"{filtered_text}\"")
+                        
+                        # Send filtered final result
+                        await websocket.send(json.dumps({
+                            "text": filtered_text,
+                            "confidence": 1.0,
+                            "final": True
+                        }))
+                    else:
+                        print(f"   ⚠️ All final words rejected by vocabulary filter")
+                else:
+                    # No vocabulary filter - send all words
+                    print(f"   ✅ Sending final result: '{text}'")
                     await websocket.send(json.dumps({
-                        "text": enhanced_result['text'],
-                        "confidence": enhanced_result.get('confidence', 0.0),
+                        "text": text,
+                        "confidence": 1.0,
                         "final": True
                     }))
-            
-            # Log enhancement statistics
-            stats = word_enhancer.get_stats()
-            if stats['words_detected'] > 0:
-                print(f"📊 Recognition stats: {stats['words_confirmed']} confirmed, "
-                      f"{stats['words_rejected']} rejected, {stats['noise_filtered']} filtered")
-        except:
+        except Exception as e:
+            print(f"⚠️ Error sending final result: {e}")
             pass
 
 async def handler(ws, path):
@@ -444,6 +559,9 @@ async def handler(ws, path):
         
         print(f"\n{'='*60}")
         print(f"🔌 New connection received")
+        print(f"   RAW PATH: {path}")
+        print(f"   PARSED QUERY: {parsed.query}")
+        print(f"   QUERY PARAMS: {query_params}")
         print(f"   Language requested: {language}")
         print(f"   Available models: {list(models.keys())}")
         print(f"{'='*60}")
@@ -661,7 +779,16 @@ async def main():
         try:
             # In websockets v12+, path is None and we get it from ws.path
             if path is None:
-                path = getattr(ws, 'path', '/')
+                # Try to get full path with query string from request
+                if hasattr(ws, 'request'):
+                    # websockets v12+ stores request info
+                    path = ws.request.path
+                elif hasattr(ws, 'path'):
+                    # Fallback to ws.path
+                    path = ws.path
+                else:
+                    # Last resort default
+                    path = '/'
             await handler(ws, path)
         except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError) as e:
             # Connection closed - this is expected, don't log as error

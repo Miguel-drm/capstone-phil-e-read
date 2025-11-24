@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Tagalog Story Reading Session - Speech Recognition System
+English Story Reading Session - Speech Recognition System
 ==========================================================
 
 This system implements story-constrained speech recognition for children:
@@ -17,13 +17,13 @@ Features:
 
 Usage:
     # Pass story content directly (RECOMMENDED)
-    python tagalog_story_reader.py --story-content "Ang Aso sa Lungga..."
+    python english_story_reader.py --story-content "The Dog in the Cave..."
     
     # Or load from file
-    python tagalog_story_reader.py --story "path/to/story.txt"
+    python english_story_reader.py --story "path/to/story.txt"
     
     # Or fetch from session
-    python tagalog_story_reader.py --session-id "session123"
+    python english_story_reader.py --session-id "session123"
 """
 
 import asyncio
@@ -34,7 +34,7 @@ import re
 import argparse
 from typing import Set, Optional, List
 from difflib import get_close_matches
-from tagalog_pronunciation_dictionary import match_word, PRONUNCIATION_DICT
+from english_pronunciation_dictionary import match_word, PRONUNCIATION_DICT
 from vosk_connection_manager import VoskConnectionManager
 
 # ============================================================================
@@ -85,17 +85,20 @@ def extract_story_vocabulary(story_text: str) -> Set[str]:
         
         # Add common morphological variations
         # Plurals and verb forms
-        vocabulary.add(normalized + 'ng')  # Common Tagalog suffix
-        vocabulary.add(normalized + 'an')  # Location/verb suffix
-        vocabulary.add(normalized + 'in')  # Verb suffix
+        if not normalized.endswith('s'):
+            vocabulary.add(normalized + 's')  # Plurals
+        if not normalized.endswith('ed'):
+            vocabulary.add(normalized + 'ed')  # Past tense
+        if not normalized.endswith('ing'):
+            vocabulary.add(normalized + 'ing')  # Present participle
         
         # Remove suffixes (for root matching)
-        if normalized.endswith('ng'):
+        if normalized.endswith('s') and len(normalized) > 2:
+            vocabulary.add(normalized[:-1])
+        if normalized.endswith('ed') and len(normalized) > 3:
             vocabulary.add(normalized[:-2])
-        if normalized.endswith('an'):
-            vocabulary.add(normalized[:-2])
-        if normalized.endswith('in'):
-            vocabulary.add(normalized[:-2])
+        if normalized.endswith('ing') and len(normalized) > 4:
+            vocabulary.add(normalized[:-3])
     
     return vocabulary
 
@@ -156,15 +159,15 @@ def is_word_in_story(heard_word: str, story_vocabulary: Set[str],
         return matches[0]
     
     # Strategy 4: Try with/without common suffixes
-    # Remove -ng, -an, -in suffixes
-    for suffix in ['ng', 'an', 'in']:
+    # Remove -s, -ed, -ing suffixes
+    for suffix in ['ing', 'ed', 's']:
         if normalized.endswith(suffix) and len(normalized) > len(suffix) + 1:
             root = normalized[:-len(suffix)]
             if root in story_vocabulary:
                 return root
     
     # Add common suffixes
-    for suffix in ['ng', 'an', 'in']:
+    for suffix in ['s', 'ed', 'ing']:
         variant = normalized + suffix
         if variant in story_vocabulary:
             return variant
@@ -232,7 +235,7 @@ def process_heard_word(heard_word: str, story_vocabulary: Set[str],
     - Random words not in story
     - Background noise
     - Off-topic speech
-    - Non-Tagalog words
+    - Non-English words
     
     Args:
         heard_word: Word detected by speech recognition
@@ -302,7 +305,7 @@ async def recognize_story_words(story_text: str):
     try:
         # Connect to Vosk WebSocket using smart connection manager
         print("🔌 Connecting to Vosk server...")
-        connection_manager = VoskConnectionManager(language="tagalog", verbose=True)
+        connection_manager = VoskConnectionManager(language="english", verbose=True)
         ws = await connection_manager.connect(retry=True)
         
         try:
@@ -439,18 +442,18 @@ def fetch_story_from_session(session_id: str) -> str:
 def main():
     """Entry point for the story reading system."""
     parser = argparse.ArgumentParser(
-        description='Tagalog Story Reading Session with Speech Recognition',
+        description='English Story Reading Session with Speech Recognition',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Pass story directly (RECOMMENDED for integration)
-  python tagalog_story_reader.py --story-content "Ang Aso sa Lungga..."
+  python english_story_reader.py --story-content "The Dog in the Cave..."
   
   # Load from file
-  python tagalog_story_reader.py --story "stories/story1.txt"
+  python english_story_reader.py --story "stories/story1.txt"
   
   # Fetch from backend API
-  python tagalog_story_reader.py --session-id "abc123"
+  python english_story_reader.py --session-id "abc123"
         """
     )
     
@@ -482,7 +485,7 @@ Examples:
     
     # Load story from the specified source
     print("=" * 70)
-    print("  TAGALOG STORY READING SESSION")
+    print("  ENGLISH STORY READING SESSION")
     print("  Story-Constrained Speech Recognition System")
     print("=" * 70)
     print()
@@ -520,7 +523,7 @@ Examples:
         print()
     
     print("=" * 60)
-    print("  Tagalog Story Reading Session")
+    print("  English Story Reading Session")
     print("  Story-Constrained Speech Recognition")
     print("=" * 60)
     print()
@@ -537,6 +540,5 @@ Examples:
         print("3. Ensure Vosk server is accessible")
 
 
-if
- __name__ == "__main__":
+if __name__ == "__main__":
     main()

@@ -369,28 +369,13 @@ const ReadingSessionPage: React.FC = () => {
         const getRailwayWsUrl = (lang: string) => {
           const env = (import.meta as any)?.env || {};
           
-          // Use language-specific environment variables if available
-          if (lang === "tagalog" || lang === "tl") {
-            const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
-            if (tagalogUrl) {
-              return `${tagalogUrl}?lang=tagalog`;
-            }
-            // Default fallback
-            return "wss://vigilant-celebration.up.railway.app?lang=tagalog";
-          } else if (lang === "english" || lang === "en") {
-            const englishUrl = env.VITE_VOSK_WS_URL_ENGLISH;
-            if (englishUrl) {
-              return `${englishUrl}?lang=english`;
-            }
-            // Default fallback
-            return "wss://philiready-websocket-english.up.railway.app?lang=english";
-          }
-          // Fallback to Tagalog service
-          const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
-          if (tagalogUrl) {
-            return `${tagalogUrl}?lang=tagalog`;
-          }
-          return "wss://vigilant-celebration.up.railway.app?lang=tagalog";
+          // Single Railway deployment handles both languages via ?lang= parameter
+          const railwayUrl = env.VITE_VOSK_WS_URL || "wss://philiready-websocket-production.up.railway.app";
+          
+          // Normalize language parameter
+          const normalizedLang = (lang === "tl" || lang === "tagalog") ? "tagalog" : "english";
+          
+          return `${railwayUrl}?lang=${normalizedLang}`;
         };
         const wsUrl = getRailwayWsUrl(storyLanguage);
         const startVosk = async () => {
@@ -426,6 +411,16 @@ const ReadingSessionPage: React.FC = () => {
             return result;
           };
 
+          // Connect audio nodes immediately (before WebSocket connection)
+          src.connect(script);
+          script.connect(ctx.destination);
+          
+          // Ensure audio context is running
+          if (ctx.state === 'suspended') {
+            await ctx.resume();
+          }
+          console.log('✅ Audio nodes connected - microphone is active');
+
           setVoskStatus('connecting');
           const ws = new WebSocket(wsUrl);
           voskSocketRef.current = ws;
@@ -435,11 +430,18 @@ const ReadingSessionPage: React.FC = () => {
             setSttProvider('vosk');
             script.onaudioprocess = (e: AudioProcessingEvent) => {
               const channel = e.inputBuffer.getChannelData(0);
-              const pcm16 = downsampleTo16k(channel);
+              
+              // AUDIO AMPLIFICATION: Boost quiet voices (3x amplification)
+              const amplifiedChannel = new Float32Array(channel.length);
+              const amplificationFactor = 3.0;
+              for (let i = 0; i < channel.length; i++) {
+                amplifiedChannel[i] = Math.max(-1.0, Math.min(1.0, channel[i] * amplificationFactor));
+              }
+              
+              const pcm16 = downsampleTo16k(amplifiedChannel);
               if (ws.readyState === WebSocket.OPEN) ws.send(pcm16);
             };
-            src.connect(script);
-            script.connect(ctx.destination);
+            // Audio nodes already connected earlier - no need to reconnect here
           };
           ws.onmessage = (evt) => {
             try {

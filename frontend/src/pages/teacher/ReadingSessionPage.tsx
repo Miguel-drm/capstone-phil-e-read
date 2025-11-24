@@ -77,6 +77,7 @@ const ReadingSessionPage: React.FC = () => {
   const [voskStatus, setVoskStatus] = useState<
     "disconnected" | "connecting" | "connected"
   >("disconnected");
+  const [isUsingLocalVosk, setIsUsingLocalVosk] = useState(false);
   const [wordsRead, setWordsRead] = useState(0);
   const [storyLanguage, setStoryLanguage] = useState<"english" | "tagalog">(
     "english"
@@ -1107,32 +1108,23 @@ const ReadingSessionPage: React.FC = () => {
           const localUrl = `ws://localhost:${localPort}`;
           
           // Get Railway URLs
+          // Single Railway deployment handles both languages via ?lang= parameter
           const getRailwayUrl = (language: string) => {
-            if (language === "tagalog" || language === "tl") {
-              const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
-              if (tagalogUrl) {
-                return formatWsUrl(tagalogUrl, "tagalog");
-              }
-              return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
-            } else if (language === "english" || language === "en") {
-              const englishUrl = env.VITE_VOSK_WS_URL_ENGLISH;
-              if (englishUrl) {
-                return formatWsUrl(englishUrl, "english");
-              }
-              return formatWsUrl("wss://philiready-websocket-english.up.railway.app", "english");
-            }
-            // Default to Tagalog
-            const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
-            if (tagalogUrl) {
-              return formatWsUrl(tagalogUrl, "tagalog");
-            }
-            return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
+            // Use environment variable if set, otherwise use default Railway URL
+            const railwayUrl = env.VITE_VOSK_WS_URL || "wss://philiready-websocket-production.up.railway.app";
+            
+            // Normalize language parameter
+            const normalizedLang = (language === "tl" || language === "tagalog") ? "tagalog" : "english";
+            
+            return formatWsUrl(railwayUrl, normalizedLang);
           };
           
           // Try local server first (quick test with 2 second timeout)
           const testLocalConnection = (): Promise<boolean> => {
             return new Promise((resolve) => {
-              const testWs = new WebSocket(formatWsUrl(localUrl, lang));
+              const testUrl = formatWsUrl(localUrl, lang);
+              console.log(`🔍 Test connection URL: ${testUrl} (lang=${lang})`);
+              const testWs = new WebSocket(testUrl);
               const timeout = setTimeout(() => {
                 testWs.close();
                 resolve(false);
@@ -1174,6 +1166,9 @@ const ReadingSessionPage: React.FC = () => {
           const wsUrl = await getVoskWsUrl(storyLanguage);
           const isLocal = wsUrl.startsWith('ws://localhost:');
           
+          // Update connection type state
+          setIsUsingLocalVosk(isLocal);
+          
           if (isLocal) {
             console.log(`🎯 Using LOCAL Vosk server for ${storyLanguage} recognition`);
           } else {
@@ -1194,6 +1189,17 @@ const ReadingSessionPage: React.FC = () => {
             audioContextRef.current = ctx;
             sourceNodeRef.current = src;
             scriptNodeRef.current = script;
+
+            // Connect audio nodes immediately (before WebSocket connection)
+            // This ensures audio processing starts regardless of WebSocket state
+            src.connect(script);
+            script.connect(ctx.destination);
+            
+            // Ensure audio context is running
+            if (ctx.state === 'suspended') {
+              await ctx.resume();
+            }
+            console.log('✅ Audio nodes connected - microphone is active');
 
             setVoskStatus("connecting");
 
@@ -1361,12 +1367,37 @@ const ReadingSessionPage: React.FC = () => {
 
               // Simplified audio processing - just send raw Float32 audio to server
               // Server handles downsampling, format conversion, and speech detection
+              let audioChunkCount = 0;
               script.onaudioprocess = (e: AudioProcessingEvent) => {
                 try {
+                    audioChunkCount++;
+                    
                     if (ws.readyState === WebSocket.OPEN) {
                     const channel = e.inputBuffer.getChannelData(0);
-                    // Send raw Float32 audio - server will handle processing
-                    ws.send(channel.buffer);
+                    
+                    // AUDIO AMPLIFICATION: Boost quiet voices (3x amplification)
+                    // This helps recognize soft-spoken children
+                    const amplifiedChannel = new Float32Array(channel.length);
+                    const amplificationFactor = 3.0;
+                    
+                    for (let i = 0; i < channel.length; i++) {
+                      // Amplify but prevent clipping (keep between -1.0 and 1.0)
+                      amplifiedChannel[i] = Math.max(-1.0, Math.min(1.0, channel[i] * amplificationFactor));
+                    }
+                    
+                    // Check audio levels every 50 chunks
+                    if (audioChunkCount % 50 === 0) {
+                      const maxLevel = Math.max(...Array.from(amplifiedChannel).map(Math.abs));
+                      const avgLevel = Array.from(amplifiedChannel).reduce((sum, val) => sum + Math.abs(val), 0) / amplifiedChannel.length;
+                      console.log(`📊 Audio chunk ${audioChunkCount}: max=${maxLevel.toFixed(4)}, avg=${avgLevel.toFixed(4)}, amplified=3x`);
+                      
+                      if (maxLevel > 0.001) {
+                        console.log(`🎤 Audio amplified for quiet voices`);
+                      }
+                    }
+                    
+                    // Send amplified audio - server will handle processing
+                    ws.send(amplifiedChannel.buffer);
                     } else if (ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
                       attemptVoskReconnect(startVosk);
                   }
@@ -1374,8 +1405,7 @@ const ReadingSessionPage: React.FC = () => {
                   console.warn("Error sending audio:", error);
                 }
               };
-              src.connect(script);
-              script.connect(ctx.destination);
+              // Audio nodes already connected earlier - no need to reconnect here
             };
 
             setupVoskMessageHandlers(ws);
@@ -1550,6 +1580,16 @@ const ReadingSessionPage: React.FC = () => {
               const script = ctx.createScriptProcessor(2048, 1, 1);
               scriptNodeRef.current = script;
 
+              // Connect audio nodes immediately (before WebSocket connection)
+              src.connect(script);
+              script.connect(ctx.destination);
+              
+              // Ensure audio context is running (already done above, but double-check)
+              if (ctx.state === 'suspended') {
+                await ctx.resume();
+              }
+              console.log('✅ Audio nodes connected (reconnect) - microphone is active');
+
               // Audio processing now handled server-side
 
               setVoskStatus("connecting");
@@ -1628,19 +1668,34 @@ const ReadingSessionPage: React.FC = () => {
 
                 // Simplified audio processing - just send raw Float32 audio to server
                 // Server handles downsampling, format conversion, and speech detection
+                let audioChunkCount = 0;
                 script.onaudioprocess = (e: AudioProcessingEvent) => {
                   try {
+                      audioChunkCount++;
+                      // Log every 100 chunks to verify audio is being processed
+                      if (audioChunkCount % 100 === 0) {
+                        console.log(`📊 Audio processing active (reconnect): ${audioChunkCount} chunks processed`);
+                      }
+                      
                       if (ws.readyState === WebSocket.OPEN) {
                       const channel = e.inputBuffer.getChannelData(0);
-                      // Send raw Float32 audio - server will handle processing
-                      ws.send(channel.buffer);
+                      
+                      // AUDIO AMPLIFICATION: Boost quiet voices (3x amplification)
+                      const amplifiedChannel = new Float32Array(channel.length);
+                      const amplificationFactor = 3.0;
+                      
+                      for (let i = 0; i < channel.length; i++) {
+                        amplifiedChannel[i] = Math.max(-1.0, Math.min(1.0, channel[i] * amplificationFactor));
+                      }
+                      
+                      // Send amplified audio - server will handle processing
+                      ws.send(amplifiedChannel.buffer);
                       }
                   } catch (error) {
                     console.warn("Error sending audio:", error);
                   }
                 };
-                src.connect(script);
-                script.connect(ctx.destination);
+                // Audio nodes already connected earlier - no need to reconnect here
               };
 
               ws.onmessage = (evt) => {
@@ -2166,11 +2221,11 @@ const ReadingSessionPage: React.FC = () => {
 
       if (transcriptWords.length === 0) return;
 
-      // REAL-TIME OPTIMIZATION: Limit transcript to last 10 words to prevent slowdown
-      // This keeps the system fast and responsive for children
-      if (transcriptWords.length > 10) {
-        console.log(`⚡ TRANSCRIPT TRIM: Keeping only last 10 words (had ${transcriptWords.length})`);
-        const trimmedWords = transcriptWords.slice(-10);
+      // JET-SPEED OPTIMIZATION: Limit transcript to last 20 words (increased from 10)
+      // This keeps the system fast while allowing better context matching
+      if (transcriptWords.length > 20) {
+        console.log(`⚡ TRANSCRIPT TRIM: Keeping only last 20 words (had ${transcriptWords.length})`);
+        const trimmedWords = transcriptWords.slice(-20);
         voskFinalTranscriptRef.current = trimmedWords.join(' ');
         setTranscript(trimmedWords.join(' '));
         // Don't reset processedTranscriptWordsRef - let it track naturally
@@ -2228,44 +2283,65 @@ const ReadingSessionPage: React.FC = () => {
         }
       }
 
-      // REMOVED: Full transcript search - was causing false matches and jumping
-      // Now we only match the FIRST word in transcript (most recent word from server)
-      // The server's word recognition enhancer ensures only confirmed words are sent
-      console.log(`🔎 Checking FIRST word in transcript: [${transcriptWords.join(', ')}]`);
+      // ULTRA-FAST: Check ALL words in transcript for matches (not just first)
+      // Process multiple words in one go for jet-speed recognition
+      console.log(`🔎 Checking ALL ${transcriptWords.length} words in transcript: [${transcriptWords.join(', ')}]`);
 
-      // CRITICAL FIX: Only match words in the FIRST position of transcript (most recent word)
-      // This prevents false matches from words that appear later in the transcript
-      // The server's word recognition enhancer ensures only confirmed words are sent
-      const firstWordInTranscript = transcriptWords.length > 0 ? transcriptWords[0] : null;
-      const isFirstWordMatch = firstWordInTranscript && isWordMatch(firstWordInTranscript, expectedWord, true);
+      // Try to match as many words as possible in sequence
+      let wordsMatched = 0;
+      let currentTranscriptIndex = 0;
+      const matchedWordIndices: number[] = []; // Track all matched word indices
+      
+      while (currentTranscriptIndex < transcriptWords.length && currentWordIndex + wordsMatched < realWords.length) {
+        const spokenWord = transcriptWords[currentTranscriptIndex];
+        const expectedWordToMatch = realWords[currentWordIndex + wordsMatched];
+        
+        if (isWordMatch(spokenWord, expectedWordToMatch, true)) {
+          console.log(`✅ MATCH #${wordsMatched + 1}: "${spokenWord}" = "${expectedWordToMatch}"`);
+          
+          // Track this matched word index
+          matchedWordIndices.push(currentWordIndex + wordsMatched);
+          
+          wordsMatched++;
+          currentTranscriptIndex++;
+        } else {
+          // No match, stop trying to match more words
+          break;
+        }
+      }
 
-      if (isFirstWordMatch) {
-        console.log(`✅ FOUND "${expectedWord}" as FIRST word in transcript! Match detected - moving yellow highlight to next word.`);
-
-        // Mark this word as recognized (for green highlighting)
-        setRecognizedWords(prev => new Set(prev).add(currentWordIndex));
-
-        // Increment wordsRead since word was recognized (even if there was a miscue)
-        setWordsRead(prev => Math.min(prev + 1, words.length));
-
-        // Move yellow highlight to next word
-        const newIndex = currentWordIndex + 1;
+      if (wordsMatched > 0) {
+        console.log(`🚀 MATCHED ${wordsMatched} WORDS IN SEQUENCE!`);
+        
+        // Mark ALL matched words as recognized (green highlighting) in ONE state update
+        setRecognizedWords(prev => {
+          const newSet = new Set(prev);
+          matchedWordIndices.forEach(idx => newSet.add(idx));
+          return newSet;
+        });
+        console.log(`✅ Marked ${matchedWordIndices.length} words as CORRECT: indices [${matchedWordIndices.join(', ')}]`);
+        
+        // Update wordsRead
+        setWordsRead(prev => Math.min(prev + wordsMatched, words.length));
+        
+        // Move yellow highlight forward by number of matched words
+        const newIndex = currentWordIndex + wordsMatched;
         setCurrentWordIndex(newIndex);
-        console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex}`);
-        console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)}`);
+        console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex} (+${wordsMatched} words)`);
+        console.log(`📊 Words Read incremented to ${Math.min(wordsRead + wordsMatched, words.length)}`);
 
         // Reset and mark as processed
         lastMiscueWordRef.current = "";
 
-        // Remove the first word (matched) and keep remaining words
-        const remainingWords = transcriptWords.slice(1);
-          voskFinalTranscriptRef.current = remainingWords.join(' ');
-          setTranscript(remainingWords.join(' '));
-          processedTranscriptWordsRef.current = 0; // Reset since we have new transcript
-        console.log(`🧹 Removed matched word "${firstWordInTranscript}", kept ${remainingWords.length} remaining words: [${remainingWords.join(', ')}]`);
+        // Remove matched words from transcript
+        const remainingWords = transcriptWords.slice(wordsMatched);
+        voskFinalTranscriptRef.current = remainingWords.join(' ');
+        setTranscript(remainingWords.join(' '));
+        processedTranscriptWordsRef.current = 0;
+        console.log(`🧹 Removed ${wordsMatched} matched words, kept ${remainingWords.length} remaining words: [${remainingWords.join(', ')}]`);
 
         // NO cooldown - allow continuous processing for fast readers
-        console.log("✅ Match detected, keeping audio processing active");
+        console.log("✅ Matches detected, keeping audio processing active");
 
         return; // Exit early
       } else {
@@ -2376,8 +2452,9 @@ const ReadingSessionPage: React.FC = () => {
         }
       }
 
-      // Check RECENT words (last 5 words) to catch fast reading
-      const recentWordsCount = Math.min(5, transcriptWords.length);
+      // JET-SPEED: Check RECENT words (last 3 words only - reduced from 5)
+      // This reduces fuzzy matching overhead while still catching fast readers
+      const recentWordsCount = Math.min(3, transcriptWords.length);
       const recentWords = transcriptWords.slice(-recentWordsCount);
 
       // Also track NEW words for miscue detection
@@ -2504,38 +2581,19 @@ const ReadingSessionPage: React.FC = () => {
           const normalizedExpected = normalize(expectedWord);
           const normalizedNext = normalize(nextExpectedWord);
 
-          console.log(`🔬 Compound check: "${normalizedSpoken}" vs "${normalizedExpected}" + "${normalizedNext}"`);
-
-          // Method 1: EXACT concatenation (e.g., "henoticed" = "he" + "noticed")
+          // JET-SPEED: Simplified compound check - only exact concat and high similarity
           const concatenated = normalizedExpected + normalizedNext;
           const isExactConcat = normalizedSpoken === concatenated;
+          
+          // Only calculate similarity if not exact match (saves CPU)
+          const similarity = isExactConcat ? 1.0 : getCachedSimilarity(normalizedSpoken, concatenated);
+          const isHighSimilarity = similarity >= 0.85;
 
-          // Method 2: Check if spoken word contains both expected words in order
-          const containsBothInOrder = normalizedSpoken.includes(normalizedExpected) &&
-            normalizedSpoken.includes(normalizedNext) &&
-            normalizedSpoken.indexOf(normalizedExpected) < normalizedSpoken.indexOf(normalizedNext);
+          // REMOVED: containsBothInOrder, isMediumSimilarity, isBlend checks for speed
+          // These were causing excessive CPU usage with minimal benefit
 
-          // Method 3 & 4: Use cached similarity calculation (optimized)
-          const similarity = getCachedSimilarity(normalizedSpoken, concatenated);
-          const isHighSimilarity = similarity >= 0.85; // Lowered from 90% to 85% for fast readers
-          const isMediumSimilarity = similarity >= 0.70; // Raised from 60% to 70% to reduce false positives
-
-          // Method 5: Check if it's a blend (more lenient for fast readers)
-          // "luski" from "lost" (los) + "key" (ki)
-          const firstPart = normalizedExpected.substring(0, Math.min(3, normalizedExpected.length));
-          const lastPart = normalizedNext.substring(Math.max(0, normalizedNext.length - 2));
-          const isBlend = normalizedSpoken.length >= 5 && // Increased from 4 to 5 to reduce false positives
-            normalizedSpoken.includes(firstPart) &&
-            normalizedSpoken.includes(lastPart);
-
-          console.log(`  Exact concat: ${isExactConcat}`);
-          console.log(`  Contains both in order: ${containsBothInOrder}`);
-          console.log(`  Similarity to "${concatenated}": ${(similarity * 100).toFixed(0)}%`);
-          console.log(`  Debug: normalizedSpoken="${normalizedSpoken}", concatenated="${concatenated}"`);
-          console.log(`  Is blend: ${isBlend} (has "${firstPart}" and "${lastPart}")`);
-
-          // Match if ANY of these conditions are true (but with stricter thresholds)
-          if (isExactConcat || containsBothInOrder || isHighSimilarity || (isMediumSimilarity && normalizedSpoken.length >= 6)) {
+          // Match only if exact or very similar (85%+)
+          if (isExactConcat || isHighSimilarity) {
             console.log(`✅ COMPOUND MATCH! "${spokenWord}" = "${expectedWord}" + "${nextExpectedWord}" - but not auto-advancing`);
             // AUTO-ADVANCE REMOVED: Teacher must manually advance
             // wordsAdvanced = 2;
@@ -3664,13 +3722,30 @@ const ReadingSessionPage: React.FC = () => {
       {/* Real-time Mic Heard Indicator */}
       {isRecording && (
         <div className="w-full flex justify-center mb-4">
-          <div className="border-2 rounded-xl px-6 py-3 flex items-center gap-3 shadow-lg text-lg transition-all duration-200 bg-gray-50 border-gray-300">
-            <span className="font-semibold text-gray-600">
-              mic heard:
-            </span>
-            <span className="font-mono text-xl font-bold text-gray-400">
-              {transcript.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || '-'}
-            </span>
+          <div className="flex flex-col sm:flex-row gap-3 items-center">
+            {/* Main mic heard indicator */}
+            <div className="border-2 rounded-xl px-6 py-3 flex items-center gap-3 shadow-lg text-lg transition-all duration-200 bg-white border-blue-300">
+              <span className="font-semibold text-blue-700">
+                🎤 mic heard:
+              </span>
+              <span className="font-mono text-xl font-bold text-blue-600 min-w-[100px]">
+                {transcript.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || '-'}
+              </span>
+            </div>
+            
+            {/* Connection type indicator */}
+            <div className={`border-2 rounded-xl px-4 py-2 flex items-center gap-2 shadow-md text-sm transition-all duration-200 ${
+              voskStatus === 'connected' 
+                ? 'bg-green-50 border-green-300' 
+                : 'bg-gray-50 border-gray-300'
+            }`}>
+              <span className="font-semibold text-gray-600">
+                {voskStatus === 'connected' ? '🟢' : '🔴'}
+              </span>
+              <span className="font-medium text-gray-700">
+                {isUsingLocalVosk ? '🏠 Local' : '☁️ Railway'}
+              </span>
+            </div>
           </div>
         </div>
       )}
@@ -3831,13 +3906,15 @@ const ReadingSessionPage: React.FC = () => {
                                   isSpecialChar
                                     ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"
                                     : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl transition-all duration-300 ease-in-out relative ` +
-                                    (isRead
-                                      ? "bg-green-100 text-green-800 font-bold shadow-lg border-2 border-green-400"
-                                      : isCurrent
-                                        ? "bg-yellow-400 text-black font-extrabold shadow-2xl z-10 border-4 border-yellow-600"
-                                        : miscueType
-                                          ? `${getMiscueColor(miscueType)} font-semibold`
-                                          : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
+                                    (isCurrent
+                                      ? "bg-yellow-400 text-black font-extrabold shadow-2xl z-10 border-4 border-yellow-600"
+                                      : miscueType && showMiscueColors
+                                        ? `${getMiscueColor(miscueType)} font-semibold`
+                                        : recognizedWords.has(realWordIndex)
+                                          ? "bg-green-100 text-green-800 font-bold shadow-lg border-2 border-green-400"
+                                          : realWordIndex < currentWordIndex
+                                            ? "bg-gray-100 text-gray-600 font-normal border border-gray-300"
+                                            : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
                                 }
                                 style={
                                   isCurrent
