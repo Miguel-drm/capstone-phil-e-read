@@ -330,6 +330,12 @@ const ReadingSessionPage: React.FC = () => {
               // Don't mark anything - session hasn't started yet
               return;  // Don't update anything
               
+            case 'pending':
+              // Word is pending - waiting to see if next word matches
+              // This could be an insertion
+              console.log(`⏸️ Word pending: "${word}" - waiting for next word`);
+              return;  // Don't mark anything yet
+              
             case 'correct':
               // Mark as correct (green)
               setRecognizedWords(prev => new Set(prev).add(wordIndex));
@@ -370,6 +376,19 @@ const ReadingSessionPage: React.FC = () => {
                 correctWord: realWords[wordIndex]
               }));
               console.log(`⚠️ Word ${wordIndex} marked as substitution`);
+              break;
+              
+            case 'insertion':
+              // Mark as insertion (cyan caret with word above)
+              const insertedWord = msg.match_result.inserted_word || word;
+              setWordMiscues(prev => new Map(prev).set(wordIndex, 'insertion'));
+              setWordMarkings(prev => new Map(prev).set(wordIndex, {
+                type: 'insertion',
+                marking: `Use caret (^) to show where word was inserted`,
+                spokenWord: insertedWord,
+                correctWord: realWords[wordIndex] || ''
+              }));
+              console.log(`⚠️ Word ${wordIndex} marked as insertion: "${insertedWord}"`);
               break;
           }
           
@@ -570,6 +589,34 @@ const ReadingSessionPage: React.FC = () => {
     wordsRead?: number;
     totalMiscues?: number;
   }>({});
+
+  // ============================================================================
+  // FAST READING OPTIMIZATION: Reading Speed Tracking
+  // ============================================================================
+  const [matchTimestamps, setMatchTimestamps] = useState<number[]>([]);
+  const [currentReadingSpeed, setCurrentReadingSpeed] = useState<number>(0); // words per second
+  
+  // Calculate reading speed from recent matches
+  const calculateReadingSpeed = () => {
+    if (matchTimestamps.length < 2) return 0;
+    
+    // Use last 10 matches for speed calculation
+    const recentMatches = matchTimestamps.slice(-10);
+    const timeSpan = recentMatches[recentMatches.length - 1] - recentMatches[0];
+    
+    if (timeSpan === 0) return 0;
+    
+    const wordsPerSecond = (recentMatches.length - 1) / (timeSpan / 1000);
+    return wordsPerSecond;
+  };
+  
+  // Get optimal buffer size based on reading speed
+  const getOptimalBufferSize = (wordsPerSecond: number) => {
+    if (wordsPerSecond < 2) return 15;  // Slow reading
+    if (wordsPerSecond < 4) return 25;  // Normal reading
+    if (wordsPerSecond < 6) return 35;  // Fast reading
+    return 50;  // Very fast reading (5-10 words/sec)
+  };
 
   // Real-time Oral Reading Score (Accuracy) - use server value if available
   const oralReadingScore = useMemo(() => {
@@ -2348,11 +2395,15 @@ const ReadingSessionPage: React.FC = () => {
 
       if (transcriptWords.length === 0) return;
 
-      // JET-SPEED OPTIMIZATION: Limit transcript to last 20 words (increased from 10)
-      // This keeps the system fast while allowing better context matching
-      if (transcriptWords.length > 20) {
-        console.log(`⚡ TRANSCRIPT TRIM: Keeping only last 20 words (had ${transcriptWords.length})`);
-        const trimmedWords = transcriptWords.slice(-20);
+      // ADAPTIVE BUFFER: Adjust buffer size based on reading speed
+      // Fast readers need larger buffers to prevent losing words
+      const readingSpeed = calculateReadingSpeed();
+      const optimalBufferSize = getOptimalBufferSize(readingSpeed);
+      
+      if (transcriptWords.length > optimalBufferSize) {
+        console.log(`⚡ ADAPTIVE TRIM: Reading speed ${readingSpeed.toFixed(1)} words/sec → buffer size ${optimalBufferSize}`);
+        console.log(`   Keeping last ${optimalBufferSize} words (had ${transcriptWords.length})`);
+        const trimmedWords = transcriptWords.slice(-optimalBufferSize);
         voskFinalTranscriptRef.current = trimmedWords.join(' ');
         setTranscript(trimmedWords.join(' '));
         // Don't reset processedTranscriptWordsRef - let it track naturally
@@ -2414,26 +2465,85 @@ const ReadingSessionPage: React.FC = () => {
       // Process multiple words in one go for jet-speed recognition
       console.log(`🔎 Checking ALL ${transcriptWords.length} words in transcript: [${transcriptWords.join(', ')}]`);
 
-      // Try to match as many words as possible in sequence
+      // ADAPTIVE MATCHING: Use fuzzy matching for fast reading
+      const isFastReading = currentReadingSpeed > 4; // More than 4 words per second
       let wordsMatched = 0;
       let currentTranscriptIndex = 0;
       const matchedWordIndices: number[] = []; // Track all matched word indices
+      const insertedWords: Array<{word: string, position: number}> = []; // Track insertions during matching
       
-      while (currentTranscriptIndex < transcriptWords.length && currentWordIndex + wordsMatched < realWords.length) {
-        const spokenWord = transcriptWords[currentTranscriptIndex];
-        const expectedWordToMatch = realWords[currentWordIndex + wordsMatched];
+      if (isFastReading && transcriptWords.length >= 3) {
+        console.log(`⚡ FAST READING: Using fuzzy sequence matching for ${transcriptWords.length} words`);
         
-        if (isWordMatch(spokenWord, expectedWordToMatch, true)) {
-          console.log(`✅ MATCH #${wordsMatched + 1}: "${spokenWord}" = "${expectedWordToMatch}"`);
+        // Try to match each transcript word to nearby story words (within 3 positions)
+        for (let i = 0; i < transcriptWords.length && currentWordIndex + wordsMatched < realWords.length; i++) {
+          const spokenWord = transcriptWords[i];
+          let foundMatch = false;
           
-          // Track this matched word index
-          matchedWordIndices.push(currentWordIndex + wordsMatched);
+          // Check current position and next 2 positions
+          for (let offset = 0; offset <= 2 && currentWordIndex + wordsMatched + offset < realWords.length; offset++) {
+            const expectedWord = realWords[currentWordIndex + wordsMatched + offset];
+            
+            if (isWordMatch(spokenWord, expectedWord, true)) {
+              console.log(`✅ FUZZY MATCH #${wordsMatched + 1}: "${spokenWord}" = "${expectedWord}" (offset: ${offset})`);
+              
+              // If offset > 0, we skipped some words (but don't mark as omission during fast reading)
+              if (offset > 0) {
+                console.log(`   ⚠️ Skipped ${offset} word(s) during fast reading - not marking as omission yet`);
+              }
+              
+              matchedWordIndices.push(currentWordIndex + wordsMatched + offset);
+              wordsMatched += offset + 1;
+              foundMatch = true;
+              break;
+            }
+          }
           
-          wordsMatched++;
-          currentTranscriptIndex++;
-        } else {
-          // No match, stop trying to match more words
-          break;
+          if (!foundMatch) {
+            // No match found, stop processing
+            break;
+          }
+        }
+      } else {
+        // Normal sequential matching for slow/normal reading
+        while (currentTranscriptIndex < transcriptWords.length && currentWordIndex + wordsMatched < realWords.length) {
+          const spokenWord = transcriptWords[currentTranscriptIndex];
+          const expectedWordToMatch = realWords[currentWordIndex + wordsMatched];
+          
+          if (isWordMatch(spokenWord, expectedWordToMatch, true)) {
+            console.log(`✅ MATCH #${wordsMatched + 1}: "${spokenWord}" = "${expectedWordToMatch}"`);
+            
+            // Track this matched word index
+            matchedWordIndices.push(currentWordIndex + wordsMatched);
+            
+            wordsMatched++;
+            currentTranscriptIndex++;
+          } else {
+            // INSERTION DETECTION: Check if this is an inserted word
+            // Word doesn't match expected word - might be insertion
+            // Check if next transcript word matches current expected word
+            // Pattern: transcript has "word1 INSERTION word2", story has "word1 word2"
+            if (currentTranscriptIndex + 1 < transcriptWords.length) {
+              const nextSpokenWord = transcriptWords[currentTranscriptIndex + 1];
+              
+              if (isWordMatch(nextSpokenWord, expectedWordToMatch, true)) {
+                // Next spoken word matches current expected word!
+                // This means current spoken word is an INSERTION
+                console.log(`⚠️ INSERTION DETECTED: "${spokenWord}" inserted before "${expectedWordToMatch}"`);
+                insertedWords.push({
+                  word: spokenWord,
+                  position: currentWordIndex + wordsMatched
+                });
+                
+                // Skip the inserted word and continue matching
+                currentTranscriptIndex++;
+                continue;
+              }
+            }
+            
+            // No match and not an insertion, stop trying to match more words
+            break;
+          }
         }
       }
 
@@ -2447,6 +2557,49 @@ const ReadingSessionPage: React.FC = () => {
           return newSet;
         });
         console.log(`✅ Marked ${matchedWordIndices.length} words as CORRECT: indices [${matchedWordIndices.join(', ')}]`);
+        
+        // FAST READING: Track match timestamps for reading speed calculation
+        const now = Date.now();
+        setMatchTimestamps(prev => {
+          const updated = [...prev];
+          // Add timestamp for each matched word
+          for (let i = 0; i < wordsMatched; i++) {
+            updated.push(now);
+          }
+          // Keep only last 20 timestamps
+          return updated.slice(-20);
+        });
+        
+        // Update current reading speed
+        const newSpeed = calculateReadingSpeed();
+        setCurrentReadingSpeed(newSpeed);
+        if (newSpeed > 0) {
+          console.log(`📊 Reading speed: ${newSpeed.toFixed(1)} words/second`);
+        }
+        
+        // Process detected insertions
+        if (insertedWords.length > 0) {
+          console.log(`🔍 Processing ${insertedWords.length} insertions detected during matching`);
+          
+          for (const insertion of insertedWords) {
+            const position = insertion.position;
+            
+            if (!countedMiscuePositionsRef.current.has(position)) {
+              countedMiscuePositionsRef.current.add(position);
+              setMiscues(prev => prev + 1);
+              setMiscueTypes(prev => ({ ...prev, insertion: prev.insertion + 1 }));
+              
+              setWordMarkings(prev => new Map(prev).set(position, {
+                type: 'insertion',
+                marking: `Use caret (^) to show where word was inserted and write above: "${insertion.word}"`,
+                spokenWord: insertion.word,
+                correctWord: realWords[position] || ''
+              }));
+              
+              console.log(`⚠️ INSERTION MARKED: "${insertion.word}" at position ${position}`);
+            }
+          }
+        }
         
         // Update wordsRead
         setWordsRead(prev => Math.min(prev + wordsMatched, words.length));
@@ -2506,8 +2659,15 @@ const ReadingSessionPage: React.FC = () => {
         // STRICT: Only check the LAST 2 words spoken (most recent) to avoid false positives
         // SAFETY: Only enable after child has read at least 1 word to prevent false omissions at start
         // CRITICAL: Skip this check if we found a split-word match (to prevent false omissions)
+        // ADAPTIVE: During fast reading (>4 words/sec), be more lenient to avoid false omissions
         const hasStartedReading = wordsRead > 0 || currentWordIndex > 0;
-        if (transcriptWords.length > 0 && currentWordIndex < realWords.length - 1 && hasStartedReading && !foundSplitWordMatch) {
+        const isFastReading = currentReadingSpeed > 4;
+        const shouldCheckOmission = !isFastReading || (Date.now() - (matchTimestamps[matchTimestamps.length - 1] || 0) > 1500);
+        
+        if (transcriptWords.length > 0 && currentWordIndex < realWords.length - 1 && hasStartedReading && !foundSplitWordMatch && shouldCheckOmission) {
+          if (isFastReading) {
+            console.log(`⚡ FAST READING MODE: Being lenient with omission detection (${currentReadingSpeed.toFixed(1)} words/sec)`);
+          }
           // Check the LAST 5 words (most recent) to catch skip-ahead
           // Increased from 2 to 5 to handle cases where child reads multiple words ahead
           const recentWordsToCheck = transcriptWords.slice(-5);
@@ -2827,16 +2987,31 @@ const ReadingSessionPage: React.FC = () => {
         const alreadyCountedMiscue = countedMiscuePositionsRef.current.has(currentWordIndex);
 
         if (newWords.length > 0 && !alreadyCountedMiscue) {
+          console.log(`🔍 INSERTION CHECK: Analyzing ${newWords.length} new words: [${newWords.join(', ')}]`);
           let insertionCount = 0;
           const insertedWordsList: string[] = [];
 
           for (const word of newWords) {
             const normalizedWord = normalize(word);
+            console.log(`   Checking word: "${word}" (normalized: "${normalizedWord}")`);
 
-            // No look-ahead - only check if word matches current expected word or nearby words
 
-            // Check if this word matches ANY word in the story
-            const matchesAnyStoryWord = realWords.some(storyWord => isWordMatch(word, storyWord));
+            // CRITICAL FIX: Check if word matches EXPECTED word at current position
+            // Not just ANY word in the story
+            // Example: Story "naglalakad sa" → Child "naglalakad doon sa"
+            //   "doon" doesn't match "sa" (expected word) → INSERTION
+            const expectedWord = realWords[currentWordIndex];
+            const matchesExpectedWord = isWordMatch(word, expectedWord);
+            
+            // Also check if it matches the NEXT expected word (might be reading ahead)
+            const nextExpectedWord = currentWordIndex + 1 < realWords.length ? realWords[currentWordIndex + 1] : '';
+            const matchesNextWord = nextExpectedWord && isWordMatch(word, nextExpectedWord);
+            
+            // Only skip insertion if it matches current or next expected word
+            const matchesAnyStoryWord = matchesExpectedWord || matchesNextWord;
+            
+            console.log(`   Expected: "${expectedWord}", Next: "${nextExpectedWord}"`);
+            console.log(`   Matches expected position: ${matchesAnyStoryWord}`);
 
             // ENHANCED CHECK: Is this word a fragment/compound of ANY story words?
             // Check both nearby words AND all story words for compounds
@@ -2911,16 +3086,25 @@ const ReadingSessionPage: React.FC = () => {
             // Only count as insertion if:
             // 1. Word doesn't match any story word
             // 2. Word is NOT a fragment of nearby words
-            // 3. Word is substantial (4+ chars to reduce false positives)
-            // 4. Word is not a number or punctuation
-            // 5. Word is not a common filler word
-            const fillerWords = ['um', 'uh', 'like', 'you', 'know', 'well', 'so', 'and', 'the', 'a'];
-            const isFillerWord = fillerWords.includes(normalizedWord);
+            // 3. Word is not a pure filler sound (um, uh, ah)
+            // 4. Word has at least 2 characters
+            // RELAXED: Allow common words like "the", "a", "and" as insertions
+            // RELAXED: Reduced minimum length from 4 to 2 characters
+            const pureFillerSounds = ['um', 'uh', 'ah', 'eh', 'hmm', 'mm'];
+            const isPureFillerSound = pureFillerSounds.includes(normalizedWord);
 
-            if (!matchesAnyStoryWord && !isLikelyFragment && !isFillerWord && word.length >= 4 && /[a-z]/i.test(word)) {
+            if (!matchesAnyStoryWord && !isLikelyFragment && !isPureFillerSound && word.length >= 2 && /[a-z]/i.test(word)) {
               insertionCount++;
               insertedWordsList.push(word);
               console.log(`⚠️ INSERTION! Child added extra word: "${word}" (not in story)`);
+            } else if (matchesAnyStoryWord) {
+              console.log(`   ℹ️ "${word}" matches a story word - not counting as insertion`);
+            } else if (isLikelyFragment) {
+              console.log(`   ℹ️ "${word}" is a fragment - not counting as insertion`);
+            } else if (isPureFillerSound) {
+              console.log(`   ℹ️ "${word}" is a filler sound - not counting as insertion`);
+            } else if (word.length < 2) {
+              console.log(`   ℹ️ "${word}" is too short - not counting as insertion`);
             }
           }
 
@@ -4140,17 +4324,26 @@ const ReadingSessionPage: React.FC = () => {
                                     )}
 
                                     {/* INSERTION: Caret (^) after word + italic inserted word above */}
+                                    {/* DepEd Format: "the^ flowers" with "lovely" above the caret */}
                                     {marking.type === 'insertion' && (
                                       <>
+                                        {/* Caret positioned after the word (insertion point) */}
                                         <span
-                                          className="absolute -right-3 top-0 text-lg text-cyan-600 font-bold z-20"
-                                          title="DepEd: Use caret to show where word was inserted"
+                                          className="absolute -right-2 top-1/2 transform -translate-y-1/2 text-2xl text-cyan-700 font-bold z-20"
+                                          title={`DepEd: Caret shows insertion point for "${marking.spokenWord}"`}
+                                          style={{ lineHeight: '1' }}
                                         >
                                           ^
                                         </span>
+                                        {/* Inserted word(s) above the caret in italic */}
                                         <span
-                                          className="absolute left-0 -top-7 text-sm italic text-cyan-800 bg-cyan-100 px-2 py-0.5 rounded shadow-sm whitespace-nowrap z-20 border border-cyan-300"
-                                          style={{ fontFamily: 'cursive' }}
+                                          className="absolute -right-2 -top-8 text-base italic text-cyan-900 bg-cyan-50 px-2 py-1 rounded shadow-md whitespace-nowrap z-20 border-2 border-cyan-400"
+                                          style={{ 
+                                            fontFamily: 'Georgia, serif',
+                                            fontStyle: 'italic',
+                                            fontWeight: '500'
+                                          }}
+                                          title={`Inserted: ${marking.spokenWord}`}
                                         >
                                           {marking.spokenWord}
                                         </span>

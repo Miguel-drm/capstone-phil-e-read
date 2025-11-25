@@ -62,6 +62,20 @@ const ReadingSessionPage: React.FC = () => {
 
   // Add miscues state
   const [miscues, setMiscues] = useState(0);
+  
+  // Word markings for visual display of miscues
+  const [wordMarkings, setWordMarkings] = useState<Map<number, {
+    type: 'insertion' | 'substitution' | 'mispronunciation' | 'omission';
+    spokenWord: string;
+    correctWord: string;
+  }>>(new Map());
+  
+  // Track correctly read words (for green highlighting)
+  const [recognizedWords, setRecognizedWords] = useState<Set<number>>(new Set());
+  
+  // Track insertions as separate elements to display between words
+  // Map: wordIndex -> array of inserted words that come AFTER this word
+  const [insertedWordsAfter, setInsertedWordsAfter] = useState<Map<number, string[]>>(new Map());
 
   // Real-time Oral Reading Score (Accuracy) using useMemo
   const oralReadingScore = useMemo(() => {
@@ -351,6 +365,101 @@ const ReadingSessionPage: React.FC = () => {
           ws.onmessage = (evt) => {
             try {
               const msg = JSON.parse(evt.data);
+              
+              // NEW: Handle backend word matching results
+              if (msg.match_result) {
+                const { match_type, new_position, details } = msg.match_result;
+                const metrics = msg.metrics;
+                const word = msg.text;
+                
+                console.log(`🎯 Backend match: ${match_type} - ${details}`);
+                
+                // Update position from backend
+                if (new_position !== undefined) {
+                  setCurrentWordIndex(new_position);
+                  console.log(`🟡 Position updated to ${new_position}`);
+                }
+                
+                // Handle different match types
+                switch (match_type) {
+                  case 'waiting_for_start':
+                    // Ignore - waiting for first word
+                    console.log(`⏳ Waiting for story to start, ignoring word`);
+                    return;
+                    
+                  case 'pending':
+                    // Word is pending - waiting to see if next word matches
+                    // This could be an insertion
+                    console.log(`⏸️ Word pending: "${word}" - waiting for next word`);
+                    return;  // Don't update metrics yet
+                    
+                  case 'correct':
+                    // Word read correctly
+                    const correctWordIndex = new_position - 1;
+                    setRecognizedWords(prev => new Set(prev).add(correctWordIndex));
+                    console.log(`✅ Word ${correctWordIndex} marked correct`);
+                    break;
+                    
+                  case 'omission':
+                    // Word omitted
+                    console.log(`⚠️ Word marked as omission`);
+                    break;
+                    
+                  case 'mispronunciation':
+                    // Word mispronounced
+                    console.log(`⚠️ Word marked as mispronunciation`);
+                    break;
+                    
+                  case 'substitution':
+                    // Word substituted
+                    console.log(`⚠️ Word marked as substitution`);
+                    break;
+                    
+                  case 'insertion':
+                    // Word inserted (extra word added)
+                    const insertedWord = msg.match_result.inserted_word || word;
+                    console.log(`⚠️ Insertion detected: "${insertedWord}"`);
+                    console.log(`   new_position: ${new_position}, current word: "${word}"`);
+                    
+                    // Mark the word BEFORE the insertion with the inserted word
+                    // new_position is the position AFTER advancing, so new_position - 1 is the word that was just read
+                    const insertionWordIndex = new_position - 1;
+                    
+                    console.log(`   insertionWordIndex: ${insertionWordIndex}, word at that position: "${realWords[insertionWordIndex]}"`);
+                    
+                    // IMPORTANT: Mark the word as recognized (green) because it was read correctly
+                    // The insertion happened AFTER this word
+                    setRecognizedWords(prev => {
+                      const newSet = new Set(prev);
+                      newSet.add(insertionWordIndex);
+                      console.log(`   Added ${insertionWordIndex} to recognizedWords, set now has:`, Array.from(newSet));
+                      return newSet;
+                    });
+                    
+                    // Add the inserted word to display AFTER this word
+                    setInsertedWordsAfter(prev => {
+                      const newMap = new Map(prev);
+                      const existing = newMap.get(insertionWordIndex) || [];
+                      newMap.set(insertionWordIndex, [...existing, insertedWord]);
+                      return newMap;
+                    });
+                    
+                    console.log(`📍 Marked insertion at word ${insertionWordIndex}: "${insertedWord}" inserted after "${realWords[insertionWordIndex]}"`);
+                    break;
+                }
+                
+                // Update metrics from backend (source of truth)
+                if (metrics) {
+                  console.log(`📊 Metrics: WPM=${metrics.wpm}, Accuracy=${metrics.oral_reading_score}%, Words=${metrics.words_read}, Miscues=${metrics.total_miscues}`);
+                  
+                  setWordsRead(metrics.words_read);
+                  setMiscues(metrics.total_miscues);
+                }
+                
+                return;  // Exit early - backend handled everything
+              }
+              
+              // FALLBACK: Old format (for backward compatibility)
               // Process both final and partial results immediately for faster response
               if (msg.text) {
                 // Final result - update transcript and clear partial
@@ -1058,22 +1167,39 @@ const ReadingSessionPage: React.FC = () => {
                           
                           const isSpecialChar = !/\w+/.test(word);
                           const isCurrentWord = !isSpecialChar && realWordIndex === currentWordIndex;
+                          const isRecognized = recognizedWords.has(realWordIndex);
+                          const insertionsAfter = insertedWordsAfter.get(realWordIndex) || [];
                           
                           return (
-                            <span
-                              key={`${paragraphIndex}-${wordIndex}`}
-                              className={
-                                isSpecialChar
-                                  ? 'inline-block mr-3 mb-2 px-3 py-2 rounded font-serif text-2xl text-gray-400 bg-transparent pointer-events-none select-none not-allowed'
-                                  : `inline-block mr-3 mb-2 px-3 py-2 rounded font-serif text-2xl transition-all duration-200 ` +
-                                    (isCurrentWord
-                                      ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold shadow-lg scale-110 animate-pulse'
-                                      : 'bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer')
-                              }
-                              style={isCurrentWord ? { boxShadow: '0 0 12px 2px #a5b4fc' } : {}}
-                            >
-                              {word}
-                            </span>
+                            <React.Fragment key={`${paragraphIndex}-${wordIndex}`}>
+                              {/* Story word */}
+                              <span
+                                className={
+                                  isSpecialChar
+                                    ? 'inline-block mr-3 mb-2 px-3 py-2 rounded font-serif text-2xl text-gray-400 bg-transparent pointer-events-none select-none not-allowed'
+                                    : `inline-block mr-3 mb-2 px-3 py-2 rounded font-serif text-2xl transition-all duration-200 ` +
+                                      (isCurrentWord
+                                        ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold shadow-lg scale-110 animate-pulse'
+                                        : isRecognized
+                                        ? 'bg-green-100 text-green-900 border-2 border-green-300'
+                                        : 'bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer')
+                                }
+                                style={isCurrentWord ? { boxShadow: '0 0 12px 2px #a5b4fc' } : {}}
+                              >
+                                {word}
+                              </span>
+                              
+                              {/* Inserted words that come AFTER this word */}
+                              {insertionsAfter.map((insertedWord, idx) => (
+                                <span
+                                  key={`insertion-${paragraphIndex}-${wordIndex}-${idx}`}
+                                  className="inline-block mr-3 mb-2 px-3 py-2 rounded font-serif text-2xl transition-all duration-200 bg-cyan-100 text-cyan-900 border-2 border-cyan-400"
+                                  title={`Inserted word: "${insertedWord}" (not in story)`}
+                                >
+                                  {insertedWord}
+                                </span>
+                              ))}
+                            </React.Fragment>
                           );
                         })}
                       </p>

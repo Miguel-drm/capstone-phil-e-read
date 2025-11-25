@@ -171,6 +171,34 @@ def match_word(
             "details": f"Correct: '{spoken_word}' matches '{expected_word}'"
         }
     
+    # INSERTION DETECTION: Check if spoken word matches a FUTURE word (not current)
+    # This indicates the child inserted an extra word
+    # Example: Story "naglalakad sa", Child "naglalakad doon sa"
+    #   - "doon" doesn't match "sa" (expected)
+    #   - But if next spoken word will be "sa", then "doon" is an insertion
+    # Since we process one word at a time, we check if spoken word matches
+    # a word that's NOT at the current position (within reasonable range)
+    insertion_check_range = 2  # Check next 2 positions
+    for i in range(1, min(insertion_check_range + 1, len(expected_words) - current_position)):
+        future_word = expected_words[current_position + i]
+        if check_pronunciation_match(spoken_word, future_word, language, allow_mishearings=False):
+            # Spoken word matches a future word (not current)
+            # This could be insertion OR omission
+            # To distinguish: if i==1, it's likely insertion (child added word before current)
+            # if i>1, it's likely omission (child skipped words)
+            if i == 1:
+                # Spoken word matches NEXT expected word
+                # This suggests current word was skipped OR an insertion happened
+                # Mark as INSERTION (child added extra word)
+                return {
+                    "match_type": "insertion",
+                    "advance": False,  # Don't advance - we haven't matched current word yet
+                    "new_position": current_position,
+                    "miscue_count": 1,
+                    "inserted_word": spoken_word,
+                    "details": f"Insertion: '{spoken_word}' inserted before '{expected_word}'"
+                }
+    
     # CONSERVATIVE SEARCH: Check if spoken word matches nearby words only
     # This prevents jumping to repeated words later in the story
     # Example: If "Mia" appears at position 0 and position 23, and we're at position 15,
@@ -259,9 +287,13 @@ class WordMatcherSession:
         self.miscue_types = {
             "mispronunciation": 0,
             "omission": 0,
-            "substitution": 0
+            "substitution": 0,
+            "insertion": 0
         }
+        self.recent_words = []  # Track recent spoken words for insertion detection
+        self.max_recent_words = 5  # Keep last 5 words
         self.words_read = 0
+        self.pending_word = None  # Track pending word for insertion detection
         self.session_started = False  # Track if we've found the first word
     
     def process_word(self, spoken_word: str) -> Dict:
@@ -307,6 +339,41 @@ class WordMatcherSession:
                     "details": f"Waiting for first word '{self.expected_words[0]}', ignoring '{spoken_word}'"
                 }
         
+        # INSERTION DETECTION: Check BEFORE matching
+        # If we have a pending unmatched word and current word matches expected,
+        # then the previous word was an insertion
+        if hasattr(self, 'pending_word') and self.pending_word:
+            # We have a pending word that didn't match
+            # Check if current word matches the expected word
+            if check_pronunciation_match(spoken_word, expected_word, self.language):
+                # Current word matches! The pending word was an INSERTION
+                prev_word = self.pending_word
+                print(f"   ⚠️ INSERTION DETECTED: '{prev_word}' inserted before '{expected_word}'")
+                self.miscue_types["insertion"] += 1
+                self.total_miscues += 1
+                
+                # Clear pending word
+                self.pending_word = None
+                
+                # Add current word to buffer
+                self.recent_words.append(spoken_word)
+                if len(self.recent_words) > self.max_recent_words:
+                    self.recent_words.pop(0)
+                
+                # Advance position since current word matches
+                self.current_position += 1
+                self.words_read += 1
+                
+                # Return insertion result for previous word
+                return {
+                    "match_type": "insertion",
+                    "advance": True,
+                    "new_position": self.current_position,
+                    "miscue_count": 1,
+                    "inserted_word": prev_word,
+                    "details": f"Insertion: '{prev_word}' inserted before '{expected_word}'"
+                }
+        
         # Match the word
         result = match_word(
             spoken_word,
@@ -315,6 +382,51 @@ class WordMatcherSession:
             self.current_position,
             self.language
         )
+        
+        # INSERTION DETECTION: If word doesn't match and isn't found nearby,
+        # mark it as pending and DON'T advance position
+        # Wait for next word to see if it matches the expected word
+        if result["match_type"] in ["substitution", "mispronunciation"]:
+            # Check if this word matches any nearby expected words
+            matches_nearby = False
+            check_range = range(max(0, self.current_position - 2), min(len(self.expected_words), self.current_position + 3))
+            for i in check_range:
+                if i != self.current_position and check_pronunciation_match(spoken_word, self.expected_words[i], self.language):
+                    matches_nearby = True
+                    break
+            
+            if not matches_nearby:
+                # Word doesn't match current or nearby words
+                # This could be an insertion - hold it as pending
+                if not hasattr(self, 'pending_word'):
+                    self.pending_word = None
+                self.pending_word = spoken_word
+                
+                # Don't advance position - wait for next word
+                return {
+                    "match_type": "pending",
+                    "advance": False,
+                    "new_position": self.current_position,
+                    "miscue_count": 0,
+                    "details": f"Pending: '{spoken_word}' doesn't match '{expected_word}', waiting for next word"
+                }
+        
+        # Clear pending word if we got a match or omission
+        if hasattr(self, 'pending_word'):
+            # If we had a pending word but current word is not a match,
+            # treat the pending word as a substitution
+            if self.pending_word and result["match_type"] != "correct":
+                print(f"   ⚠️ Treating pending word '{self.pending_word}' as substitution")
+                self.miscue_types["substitution"] += 1
+                self.total_miscues += 1
+                self.current_position += 1
+                self.words_read += 1
+            self.pending_word = None
+        
+        # Add to recent words buffer
+        self.recent_words.append(spoken_word)
+        if len(self.recent_words) > self.max_recent_words:
+            self.recent_words.pop(0)
         
         # Update state
         if result["advance"]:
