@@ -8,7 +8,14 @@ import urllib.parse
 import websockets
 import numpy as np
 from vosk import Model, KaldiRecognizer
-from word_recognition_enhancer import WordRecognitionEnhancer, create_enhanced_recognizer
+from word_recognition_enhancer import (
+    WordRecognitionEnhancer, 
+    create_enhanced_recognizer,
+    match_pronunciation,
+    normalize_with_pronunciation,
+    get_word_variants
+)
+from word_matcher import WordMatcherSession
 
 # Server accepts audio in multiple formats and handles processing server-side
 # Supported formats: Float32 (any sample rate), PCM16 (16kHz)
@@ -38,12 +45,84 @@ def downsample_to_16k(audio_data: np.ndarray, source_rate: int) -> np.ndarray:
         downsampled = np.interp(indices, np.arange(len(audio_data)), audio_data)
         return downsampled.astype(np.float32)
 
+def apply_high_pass_filter(audio_data: np.ndarray, sample_rate: int = 16000, cutoff: float = 80.0) -> np.ndarray:
+    """
+    Apply simple high-pass filter to remove low-frequency noise (rumble, hum).
+    Uses a simple first-order IIR filter for efficiency.
+    """
+    if len(audio_data) == 0:
+        return audio_data
+    
+    # Calculate filter coefficient
+    rc = 1.0 / (cutoff * 2 * np.pi)
+    dt = 1.0 / sample_rate
+    alpha = rc / (rc + dt)
+    
+    # Apply filter
+    filtered = np.zeros_like(audio_data)
+    filtered[0] = audio_data[0]
+    
+    for i in range(1, len(audio_data)):
+        filtered[i] = alpha * (filtered[i-1] + audio_data[i] - audio_data[i-1])
+    
+    return filtered
+
+def apply_noise_gate(audio_data: np.ndarray, threshold: float = 0.015, attack: float = 0.001, release: float = 0.05) -> np.ndarray:
+    """
+    Apply noise gate with smooth attack/release to remove low-level background noise.
+    Samples below threshold are attenuated smoothly to avoid clicks.
+    
+    Args:
+        audio_data: Input audio samples
+        threshold: Amplitude threshold (0.0-1.0)
+        attack: Attack time in seconds (how fast gate opens)
+        release: Release time in seconds (how fast gate closes)
+    """
+    if len(audio_data) == 0:
+        return audio_data
+    
+    # Calculate absolute values
+    abs_audio = np.abs(audio_data)
+    
+    # Create envelope follower
+    envelope = np.zeros_like(abs_audio)
+    envelope[0] = abs_audio[0]
+    
+    # Simple envelope follower with attack/release
+    for i in range(1, len(abs_audio)):
+        if abs_audio[i] > envelope[i-1]:
+            # Attack (fast)
+            envelope[i] = abs_audio[i]
+        else:
+            # Release (slow)
+            envelope[i] = envelope[i-1] * 0.95 + abs_audio[i] * 0.05
+    
+    # Create smooth gate based on envelope
+    gate = np.where(envelope > threshold, 1.0, envelope / threshold * 0.3)  # Partial attenuation below threshold
+    
+    # Apply gate
+    gated_audio = audio_data * gate
+    
+    return gated_audio
+
 def float32_to_pcm16(audio_data: np.ndarray) -> bytes:
-    """Convert Float32 audio (-1.0 to 1.0) to PCM16 bytes (little-endian)."""
+    """Convert Float32 audio (-1.0 to 1.0) to PCM16 bytes (little-endian) with advanced noise filtering."""
+    # Apply high-pass filter to remove low-frequency noise (rumble, hum)
+    audio_data = apply_high_pass_filter(audio_data, sample_rate=16000, cutoff=80.0)
+    
+    # Apply noise gate with smooth attack/release to remove background noise
+    audio_data = apply_noise_gate(audio_data, threshold=0.015, attack=0.001, release=0.05)
+    
+    # Apply gentle compression to normalize volume levels
+    # This helps with varying microphone distances and volumes
+    audio_data = np.tanh(audio_data * 1.2) * 0.9  # Soft compression
+    
     # Clamp values to [-1.0, 1.0]
     audio_data = np.clip(audio_data, -1.0, 1.0)
+    
     # Convert to int16
     pcm16 = (audio_data * 32767).astype(np.int16)
+    
     # Convert to bytes (little-endian)
     return pcm16.tobytes()
 
@@ -109,12 +188,12 @@ async def recognize(websocket, path, model):
     
     enhancer_config = {
         'min_word_length': 1,      # Allow single letters like "A"
-        'min_confidence': 0.0,     # Accept all confidence levels (was 0.3)
-        'debounce_time': 0.05,     # Very fast response - 50ms (was 0.3)
-        'stability_count': 1,      # Accept word immediately (was 2)
-        'stability_time': 0.1,     # Very short stability - 100ms (was 0.5)
+        'min_confidence': 0.2,     # Slightly higher confidence threshold for better accuracy (was 0.0)
+        'debounce_time': 0.1,      # Balanced response - 100ms (was 0.05)
+        'stability_count': 2,      # Require 2 detections for stability (was 1)
+        'stability_time': 0.15,    # Slightly longer stability - 150ms (was 0.1)
         'max_candidates': 20,      # More candidates (was 10)
-        'silence_threshold': 0.01, # Very low silence threshold (was 0.1)
+        'silence_threshold': 0.015, # Slightly higher silence threshold (was 0.01)
         'language': detected_language  # Set language for pronunciation matching
     }
     word_enhancer = create_enhanced_recognizer(enhancer_config)
@@ -125,9 +204,9 @@ async def recognize(websocket, path, model):
     # Track audio format from client
     client_sample_rate = 48000  # Default, can be overridden via config
     
-    # Audio accumulation buffer - ULTRA-FAST FOR INSTANT RECOGNITION
+    # Audio accumulation buffer - OPTIMIZED FOR ACCURACY
     audio_buffer = bytearray()
-    buffer_size_target = 1600  # ULTRA-REDUCED: ~0.05 seconds of audio (1600 bytes = 800 samples @ 16kHz = 0.05s) - INSTANT RESPONSE
+    buffer_size_target = 3200  # OPTIMIZED: ~0.1 seconds of audio (3200 bytes = 1600 samples @ 16kHz = 0.1s) - Better accuracy with minimal latency
     
     # ACCURACY TRACKING: Track metrics for live updates
     session_start_time = time.time()
@@ -146,6 +225,9 @@ async def recognize(websocket, path, model):
         "reversal": 0
     }
     current_word_index = 0  # Track which expected word we're on
+    
+    # NEW: Word matcher session for server-side word matching
+    word_matcher = None  # Will be initialized when expected_words are received
     
     try:
         async for message in websocket:
@@ -188,18 +270,47 @@ async def recognize(websocket, path, model):
                             print(f"🎤 Vosk raw result: '{text}'")
                             
                             if text:
-                                # OPTIMIZED: Apply vocabulary filter server-side for speed
+                                # OPTIMIZED: Apply vocabulary filter with pronunciation matching
                                 words = text.split()
                                 if vocabulary:
-                                    # Filter words - keep only those in vocabulary
+                                    # Filter words - keep only those in vocabulary (with pronunciation matching)
                                     filtered_words = []
                                     rejected_words = []
                                     for word in words:
                                         word_lower = word.lower().strip()
+                                        
+                                        # Direct match
                                         if word_lower in vocabulary:
                                             filtered_words.append(word)
                                         else:
-                                            rejected_words.append(word)
+                                            # Try pronunciation matching against vocabulary
+                                            matched = False
+                                            best_match = None
+                                            
+                                            # First try exact pronunciation match
+                                            for vocab_word in vocabulary:
+                                                if match_pronunciation(word_lower, vocab_word, detected_language):
+                                                    # Use the vocabulary word (canonical form)
+                                                    best_match = vocab_word
+                                                    matched = True
+                                                    print(f"   🔄 Pronunciation match: '{word}' → '{vocab_word}'")
+                                                    break
+                                            
+                                            # If no pronunciation match, try fuzzy match (1-2 char difference)
+                                            if not matched:
+                                                for vocab_word in vocabulary:
+                                                    if len(word_lower) == len(vocab_word):
+                                                        diff = sum(c1 != c2 for c1, c2 in zip(word_lower, vocab_word))
+                                                        if diff <= 1:  # Allow 1 character difference
+                                                            best_match = vocab_word
+                                                            matched = True
+                                                            print(f"   🔄 Fuzzy match: '{word}' → '{vocab_word}' (1 char diff)")
+                                                            break
+                                            
+                                            if matched and best_match:
+                                                filtered_words.append(best_match)
+                                            else:
+                                                rejected_words.append(word)
                                     
                                     if rejected_words:
                                         print(f"   ❌ Vocabulary filter: Rejected {len(rejected_words)} word(s) not in story: {', '.join(rejected_words)}")
@@ -208,20 +319,60 @@ async def recognize(websocket, path, model):
                                         filtered_text = ' '.join(filtered_words)
                                         print(f"   ✅ Vocabulary filter: Accepted \"{filtered_text}\"")
                                         
-                                        # Send filtered result
-                                        await websocket.send(json.dumps({
-                                            "text": filtered_text,
-                                            "confidence": 1.0
-                                        }))
+                                        # NEW: Use word matcher if initialized
+                                        if word_matcher:
+                                            # Process each word through the matcher
+                                            for word in filtered_words:
+                                                match_result = word_matcher.process_word(word)
+                                                
+                                                # Calculate current metrics
+                                                elapsed = time.time() - session_start_time
+                                                metrics = word_matcher.get_metrics(elapsed)
+                                                
+                                                # Send match result with metrics
+                                                await websocket.send(json.dumps({
+                                                    "text": word,
+                                                    "match_result": match_result,
+                                                    "metrics": metrics
+                                                }))
+                                                
+                                                print(f"   📊 Match: {match_result['match_type']} - {match_result['details']}")
+                                        else:
+                                            # Fallback: Send filtered result without matching
+                                            await websocket.send(json.dumps({
+                                                "text": filtered_text,
+                                                "confidence": 1.0
+                                            }))
                                     else:
                                         print(f"   ⚠️ All words rejected by vocabulary filter")
                                 else:
                                     # No vocabulary filter - send all words
                                     print(f"   ✅ Sending word to client: '{text}'")
-                                    await websocket.send(json.dumps({
-                                        "text": text,
-                                        "confidence": 1.0
-                                    }))
+                                    
+                                    # NEW: Use word matcher if initialized
+                                    if word_matcher:
+                                        # Process each word through the matcher
+                                        for word in words:
+                                            match_result = word_matcher.process_word(word)
+                                            
+                                            # Calculate current metrics
+                                            elapsed = time.time() - session_start_time
+                                            metrics = word_matcher.get_metrics(elapsed)
+                                            
+                                            # Send match result with metrics
+                                            await websocket.send(json.dumps({
+                                                "text": word,
+                                                "match_result": match_result,
+                                                "metrics": metrics
+                                            }))
+                                            
+                                            print(f"   📊 Match: {match_result['match_type']} - {match_result['details']}")
+                                    else:
+                                        # Fallback: Send text without matching
+                                        await websocket.send(json.dumps({
+                                            "text": text,
+                                            "confidence": 1.0
+                                        }))
                             
                             # OLD CODE - COMPLETELY DISABLED
                             if False:
@@ -379,10 +530,14 @@ async def recognize(websocket, path, model):
                             
                             # ACCURACY: Store expected word sequence for accuracy calculation
                             if "expected_words" in config:
-                                expected_words = [word.lower().strip() for word in config["expected_words"]]
+                                expected_words = [word.strip() for word in config["expected_words"]]  # Keep original case
                                 total_words_expected = len(expected_words)
                                 current_word_index = 0  # Reset word index
+                                
+                                # Initialize word matcher session
+                                word_matcher = WordMatcherSession(expected_words, detected_language)
                                 print(f"✓ Expected word sequence loaded: {total_words_expected} words")
+                                print(f"✓ Word matcher initialized for {detected_language} language")
                             
                             # Check for enhancer configuration
                             if "enhancer" in config:
@@ -398,16 +553,55 @@ async def recognize(websocket, path, model):
                             grammar = config.get("grammar") or config.get("word_list")
                             
                             if grammar and isinstance(grammar, list) and len(grammar) > 0:
-                                # Try to apply grammar constraint (not all models support this)
+                                # ACCURACY BOOST: Enhance grammar with pronunciation variants
+                                enhanced_grammar = []  # Use list to allow duplicates for boosting
+                                
+                                # Import pronunciation dictionaries
                                 try:
-                                    grammar_json = json.dumps(grammar)
+                                    if detected_language == "english":
+                                        from english_pronunciation_dictionary import PRONUNCIATION_DICT
+                                    else:
+                                        from tagalog_pronunciation_dictionary import PRONUNCIATION_DICT
+                                    
+                                    # Add pronunciation variants for each word
+                                    for word in grammar:
+                                        word_lower = word.lower().strip()
+                                        enhanced_grammar.append(word)  # Add original
+                                        
+                                        # SHORT WORD BOOST: Repeat short words to increase recognition weight
+                                        if len(word_lower) <= 3:
+                                            # Boost short words (1-3 letters) by adding them multiple times
+                                            enhanced_grammar.extend([word] * 3)  # Add 3 more copies
+                                            print(f"   🔊 Boosted short word: '{word}' (4x weight)")
+                                        
+                                        if word_lower in PRONUNCIATION_DICT:
+                                            # Add all pronunciation variants
+                                            for variant in PRONUNCIATION_DICT[word_lower]:
+                                                enhanced_grammar.append(variant)
+                                                # Also boost short variants
+                                                if len(variant) <= 3:
+                                                    enhanced_grammar.extend([variant] * 2)
+                                    
+                                    unique_count = len(set(enhanced_grammar))
+                                    print(f"✓ Enhanced grammar: {len(grammar)} words → {unique_count} unique words ({len(enhanced_grammar)} total with boosting)")
+                                except ImportError:
+                                    print(f"⚠ Pronunciation dictionary not available, using basic grammar")
+                                    enhanced_grammar = grammar
+                                
+                                # Try to apply enhanced grammar constraint (not all models support this)
+                                try:
+                                    # Convert to list if it's a set, keep as list if already list
+                                    grammar_list = list(enhanced_grammar) if not isinstance(enhanced_grammar, list) else enhanced_grammar
+                                    grammar_json = json.dumps(grammar_list)
                                     recognizer = KaldiRecognizer(model, sample_rate, grammar_json)
                                     recognizer.SetWords(True)
                                     grammar_set = True
-                                    print(f"✓ Grammar constraint applied: {len(grammar)} words")
+                                    unique_words = len(set(grammar_list))
+                                    print(f"✓ Enhanced grammar constraint applied: {unique_words} unique words ({len(grammar_list)} total with boosting)")
                                     await websocket.send(json.dumps({
                                         "status": "grammar_applied",
-                                        "word_count": len(grammar)
+                                        "word_count": len(enhanced_grammar),
+                                        "original_count": len(grammar)
                                     }))
                                 except Exception as e:
                                     # Model doesn't support runtime graphs (grammar constraints)

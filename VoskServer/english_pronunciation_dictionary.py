@@ -28,7 +28,7 @@ from difflib import get_close_matches
 # Category: Common Articles and Determiners
 ARTICLES = {
     'the': ['the', 'da', 'de', 'thee', 'thuh'],
-    'a': ['a', 'uh', 'ay'],
+    'a': ['a', 'uh', 'ay', 'ah', 'ey', 'eh', 'ae'],
     'an': ['an', 'un'],
     'this': ['this', 'dis', 'thiss'],
     'that': ['that', 'dat', 'thatt'],
@@ -535,6 +535,48 @@ def match_word(heard_word: str, threshold: float = 0.8) -> Optional[str]:
         return normalized
     
     return None
+
+
+def is_pronunciation_match(spoken_word: str, expected_word: str, threshold: float = 0.8) -> bool:
+    """
+    Check if a spoken word matches an expected word (considering pronunciation variants).
+    
+    Args:
+        spoken_word: Word heard from microphone
+        expected_word: Expected canonical word
+        threshold: Similarity threshold for fuzzy matching (0.0-1.0)
+        
+    Returns:
+        True if words match, False otherwise
+    """
+    spoken_normalized = normalize_word(spoken_word)
+    expected_normalized = normalize_word(expected_word)
+    
+    if not spoken_normalized or not expected_normalized:
+        return False
+    
+    # Exact match
+    if spoken_normalized == expected_normalized:
+        return True
+    
+    # Check if spoken word is a variant of expected word
+    expected_variants = get_variants(expected_normalized)
+    if spoken_normalized in [normalize_word(v) for v in expected_variants]:
+        return True
+    
+    # Check if spoken word matches expected word via canonical lookup
+    spoken_canonical = match_word(spoken_word, threshold)
+    if spoken_canonical and spoken_canonical == expected_normalized:
+        return True
+    
+    return False
+
+
+def get_pronunciation_variants(word: str) -> List[str]:
+    """
+    Alias for get_variants() for compatibility with server code.
+    """
+    return get_variants(word)
 
 
 def get_variants(canonical_word: str) -> List[str]:

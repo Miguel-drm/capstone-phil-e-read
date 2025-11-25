@@ -74,6 +74,7 @@ const ReadingSessionPage: React.FC = () => {
   const voskConnectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const voskHeartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [transcript, setTranscript] = useState("");
+  const [partialTranscript, setPartialTranscript] = useState(""); // Real-time partial results
   const [voskStatus, setVoskStatus] = useState<
     "disconnected" | "connecting" | "connected"
   >("disconnected");
@@ -305,20 +306,83 @@ const ReadingSessionPage: React.FC = () => {
           });
         }
 
-        if (msg.text && msg.text.trim()) {
-          const originalText = msg.text.trim();
-          console.log(`🎯 Vosk recognized (final): "${originalText}"`);
+        // NEW: Handle backend word matching results
+        if (msg.match_result) {
+          const { match_type, new_position, details, session_state } = msg.match_result;
+          const metrics = msg.metrics;
+          const word = msg.text;
           
-          // ACCURACY: Use server-side filtered result (already filtered by server)
-          // Server sends back pre-filtered words, but we can do additional client-side validation
-          const filteredText = filterThroughVocabulary(originalText, storyVocabulary);
-
-          // ACCURACY: Update metrics from server (backend calculates all metrics)
-          if (msg.metrics) {
-            const metrics = msg.metrics;
-            console.log(`📊 Server metrics: WPM=${metrics.wpm}, Accuracy=${metrics.accuracy}%, Words Read=${metrics.words_read}, Miscues=${metrics.total_miscues}, Oral Score=${metrics.oral_reading_score}%`);
+          console.log(`🎯 Backend match: ${match_type} - ${details}`);
+          
+          // Update position from backend
+          if (session_state) {
+            setCurrentWordIndex(session_state.current_position);
+            console.log(`🟡 Position updated to ${session_state.current_position}`);
+          }
+          
+          // Mark word based on match type
+          const wordIndex = new_position - 1;  // Position before advance
+          
+          switch (match_type) {
+            case 'waiting_for_start':
+              // Ignore - waiting for first word
+              console.log(`⏳ Waiting for story to start, ignoring word`);
+              return;  // Don't update anything
+              
+            case 'correct':
+              // Mark as correct (green)
+              setRecognizedWords(prev => new Set(prev).add(wordIndex));
+              console.log(`✅ Word ${wordIndex} marked correct`);
+              break;
+              
+            case 'omission':
+              // Mark as omitted (orange circle)
+              setWordMiscues(prev => new Map(prev).set(wordIndex, 'omission'));
+              setWordMarkings(prev => new Map(prev).set(wordIndex, {
+                type: 'omission',
+                marking: `Circle omitted word`,
+                spokenWord: '',
+                correctWord: realWords[wordIndex]
+              }));
+              console.log(`⚠️ Word ${wordIndex} marked as omission`);
+              break;
+              
+            case 'mispronunciation':
+              // Mark as mispronounced (red underline)
+              setWordMiscues(prev => new Map(prev).set(wordIndex, 'mispronunciation'));
+              setWordMarkings(prev => new Map(prev).set(wordIndex, {
+                type: 'mispronunciation',
+                marking: `Underline and write phonetic spelling above`,
+                spokenWord: word,
+                correctWord: realWords[wordIndex]
+              }));
+              console.log(`⚠️ Word ${wordIndex} marked as mispronunciation`);
+              break;
+              
+            case 'substitution':
+              // Mark as substituted (yellow underline)
+              setWordMiscues(prev => new Map(prev).set(wordIndex, 'substitution'));
+              setWordMarkings(prev => new Map(prev).set(wordIndex, {
+                type: 'substitution',
+                marking: `Underline and write substituted word above`,
+                spokenWord: word,
+                correctWord: realWords[wordIndex]
+              }));
+              console.log(`⚠️ Word ${wordIndex} marked as substitution`);
+              break;
+          }
+          
+          // Update metrics from backend (source of truth)
+          if (metrics) {
+            console.log(`📊 Metrics: WPM=${metrics.wpm}, Accuracy=${metrics.oral_reading_score}%, Words=${metrics.words_read}, Miscues=${metrics.total_miscues}`);
             
-            // Store server metrics (backend is source of truth)
+            setWordsRead(metrics.words_read);
+            setMiscues(metrics.total_miscues);
+            
+            if (metrics.miscue_types) {
+              setMiscueTypes(metrics.miscue_types);
+            }
+            
             setServerMetrics({
               wpm: metrics.wpm,
               accuracy: metrics.accuracy,
@@ -326,46 +390,23 @@ const ReadingSessionPage: React.FC = () => {
               wordsRead: metrics.words_read,
               totalMiscues: metrics.total_miscues
             });
-            
-            // Update all metrics from server (backend is source of truth)
-            if (metrics.words_read !== undefined) {
-              setWordsRead(metrics.words_read);
-            }
-            
-            if (metrics.total_miscues !== undefined) {
-              setMiscues(metrics.total_miscues);
-            }
-            
-            if (metrics.miscue_types) {
-              setMiscueTypes(prev => ({
-                ...prev,
-                mispronunciation: metrics.miscue_types.mispronunciation || 0,
-                substitution: metrics.miscue_types.substitution || 0,
-                omission: metrics.miscue_types.omission || 0,
-                insertion: metrics.miscue_types.insertion || 0,
-                repetition: metrics.miscue_types.repetition || 0,
-                transposition: metrics.miscue_types.transposition || 0,
-                reversal: metrics.miscue_types.reversal || 0
-              }));
-            }
-            
-            // Server metrics override client calculations for accuracy
           }
-
-          // Log vocabulary validation results
-          if (originalText !== filteredText) {
-            const rejectedWords = originalText.split(/\s+/).filter((word: string) =>
-              !filteredText.split(/\s+/).includes(word)
-            );
-            console.log(`❌ Vocabulary filter: Rejected ${rejectedWords.length} word(s) not in story: ${rejectedWords.join(', ')}`);
-          }
+          
+          return;  // Exit early - backend handled everything
+        }
+        
+        // FALLBACK: Old format (for backward compatibility)
+        if (msg.text && msg.text.trim()) {
+          const originalText = msg.text.trim();
+          console.log(`🎯 Vosk recognized (final - old format): "${originalText}"`);
+          
+          const filteredText = filterThroughVocabulary(originalText, storyVocabulary);
 
           if (filteredText) {
             console.log(`✅ Vocabulary filter: Accepted "${filteredText}"`);
             voskFinalTranscriptRef.current += (voskFinalTranscriptRef.current ? " " : "") + filteredText;
             setTranscript(voskFinalTranscriptRef.current);
-          } else {
-            console.log(`⚠️ All words rejected by vocabulary filter`);
+            setPartialTranscript("");
           }
         } else if (msg.partial && msg.partial.trim()) {
           const originalPartial = msg.partial.trim();
@@ -373,9 +414,9 @@ const ReadingSessionPage: React.FC = () => {
           const filteredPartial = filterThroughVocabulary(originalPartial, storyVocabulary);
 
           if (filteredPartial) {
-            setTranscript(voskFinalTranscriptRef.current + (voskFinalTranscriptRef.current ? " " : "") + filteredPartial);
+            setPartialTranscript(filteredPartial); // Update partial separately for real-time display
           } else {
-            setTranscript(voskFinalTranscriptRef.current);
+            setPartialTranscript(""); // Clear if no valid words
           }
         }
       } catch (error) {
@@ -787,32 +828,52 @@ const ReadingSessionPage: React.FC = () => {
       return false;
     }
 
-    // For very short words (3 chars or less), be strict
+    // SPECIAL CASE: Common Vosk mishearings for very short words
+    // "the" is often misheard as "a" and vice versa
+    const commonMishearings: { [key: string]: string[] } = {
+      'a': ['the', 'uh', 'ah', 'ay'],
+      'the': ['a', 'da', 'de'],
+      'i': ['eye', 'aye'],
+      'to': ['too', 'two']
+    };
+    
+    if (commonMishearings[normExpected]?.includes(normSpoken)) {
+      console.debug(`✓ Common mishearing: "${normSpoken}" accepted for "${normExpected}"`);
+      return true;
+    }
+
+    // For single character words (like "a"), be very lenient
+    if (normExpected.length === 1) {
+      // Accept if first character matches or phonetically similar
+      if (normSpoken.length === 1 || normSpoken.length === 2) {
+        return similarity >= 0.5;  // Very lenient for single chars
+      }
+    }
+
+    // For very short words (2-3 chars), be more lenient
     if (normExpected.length <= 3) {
-      // Require exact match or 1 char difference with 85%+ similarity
-      // e.g., "the" vs "tea" = 66%, won't match
-      // e.g., "may" vs "mey" = 66% but length diff = 0, should match via accentMap
-      const matches = lengthDiff <= 1 && similarity >= 0.85;
+      // Reduced from 85% to 70% for better recognition
+      const matches = lengthDiff <= 1 && similarity >= 0.70;
       if ((normSpoken === 'in' && normExpected === 'when') || (normSpoken === 'when' && normExpected === 'in')) {
-        console.log(`   Checking short word (<=3): similarity=${(similarity * 100).toFixed(0)}%, lengthDiff=${lengthDiff}, threshold=85%, matches=${matches}`);
+        console.log(`   Checking short word (<=3): similarity=${(similarity * 100).toFixed(0)}%, lengthDiff=${lengthDiff}, threshold=70%, matches=${matches}`);
       }
       return matches;
     }
 
-    // For short words (4 chars), be STRICT - require 90%+ similarity AND similar length
-    // This prevents false matches like "isang" vs "asong"
+    // For short words (4 chars), be more lenient - reduced from 90% to 75%
+    // This helps with words like "heard" vs "hear"
     if (normExpected.length === 4) {
       // Allow max 1 character difference
-      if (lengthDiff <= 1 && similarity >= 0.90) {
+      if (lengthDiff <= 1 && similarity >= 0.75) {
         return true;
       }
     }
 
-    // For 5-char words, require 95%+ similarity AND very similar length
-    // This prevents false matches like "isang" vs "asong" (80% similar, same length)
+    // For 5-char words, reduced from 95% to 80% for better recognition
+    // Still prevents false matches like "isang" vs "asong" (80% similar, same length)
     if (normExpected.length === 5) {
       // Must be same length or 1 char difference
-      if (lengthDiff <= 1 && similarity >= 0.95) {
+      if (lengthDiff <= 1 && similarity >= 0.80) {
         return true;
       }
     }
@@ -895,6 +956,18 @@ const ReadingSessionPage: React.FC = () => {
     // Extract all words including contractions (e.g., "It's", "don't", "I'll")
     const words = text.match(/\b\w+(?:'\w+)?\b/g) || [];
 
+    // Common phonetic variants to help Vosk accuracy
+    const phoneticVariants: { [key: string]: string[] } = {
+      'when': ['wen', 'wen', 'whn'],
+      'the': ['da', 'de', 'thee', 'thuh'],
+      'a': ['uh', 'ay', 'ah'],
+      'she': ['shee', 'shi'],
+      'he': ['hee', 'hi'],
+      'heard': ['herd', 'hurd'],
+      'rooster': ['roosta', 'ruster'],
+      'crow': ['cro', 'krow']
+    };
+
     for (const word of words) {
       const normalized = normalize(word);
       if (!normalized) continue;
@@ -902,13 +975,21 @@ const ReadingSessionPage: React.FC = () => {
       // Add the base word (always)
       vocabulary.add(normalized);
 
-      // For Tagalog stories, only add minimal variations
-      // Tagalog doesn't have English-style plurals, past tense, or gerunds
-      // Just add the exact words from the story
+      // Add phonetic variants if available
+      if (phoneticVariants[normalized]) {
+        phoneticVariants[normalized].forEach(variant => vocabulary.add(variant));
+      }
 
       // Contraction variations (useful for both languages)
       if (normalized.includes("'")) {
         vocabulary.add(normalized.replace("'", ''));
+      }
+      
+      // Add common morphological variations
+      if (normalized.length > 3) {
+        vocabulary.add(normalized + 's');    // Plurals
+        vocabulary.add(normalized + 'ed');   // Past tense
+        vocabulary.add(normalized + 'ing');  // Gerunds
       }
     }
 
@@ -1045,6 +1126,7 @@ const ReadingSessionPage: React.FC = () => {
     setIsRecording(true);
     setIsPaused(false);
     setTranscript("");
+    setPartialTranscript(""); // Reset partial transcript for real-time display
     voskFinalTranscriptRef.current = ""; // Reset Vosk transcript accumulator
     setWordsRead(0);
     // reset derived metrics
@@ -1311,16 +1393,17 @@ const ReadingSessionPage: React.FC = () => {
               // ACCURACY: Send vocabulary and expected words to server for accurate filtering and metrics
               if (storyVocabulary.size > 0) {
                 const vocabularyList = Array.from(storyVocabulary);
-                const expectedWordsList = realWords.map(w => normalize(w));
+                // Send original words (with case) for backend matching
+                const expectedWordsList = realWords;  // Keep original case for backend
 
-                // Enhanced config with vocabulary and expected words for server-side accuracy
+                // Enhanced config with vocabulary and expected words for BACKEND WORD MATCHING
                 const config1 = JSON.stringify({
                   config: {
                     words: true,
                     max_alternatives: 0,
                     grammar: vocabularyList,  // Send story vocabulary to Vosk (if supported)
                     vocabulary: vocabularyList,  // For server-side filtering
-                    expected_words: expectedWordsList  // For accuracy calculation
+                    expected_words: expectedWordsList  // For BACKEND word matching (original case)
                   }
                 });
 
@@ -1375,10 +1458,10 @@ const ReadingSessionPage: React.FC = () => {
                     if (ws.readyState === WebSocket.OPEN) {
                     const channel = e.inputBuffer.getChannelData(0);
                     
-                    // AUDIO AMPLIFICATION: Boost quiet voices (3x amplification)
-                    // This helps recognize soft-spoken children
+                    // AUDIO AMPLIFICATION: Moderate boost for accuracy (1.5x amplification)
+                    // Reduced from 2x to minimize noise and maximize Vosk accuracy
                     const amplifiedChannel = new Float32Array(channel.length);
-                    const amplificationFactor = 3.0;
+                    const amplificationFactor = 1.5;
                     
                     for (let i = 0; i < channel.length; i++) {
                       // Amplify but prevent clipping (keep between -1.0 and 1.0)
@@ -1389,7 +1472,7 @@ const ReadingSessionPage: React.FC = () => {
                     if (audioChunkCount % 50 === 0) {
                       const maxLevel = Math.max(...Array.from(amplifiedChannel).map(Math.abs));
                       const avgLevel = Array.from(amplifiedChannel).reduce((sum, val) => sum + Math.abs(val), 0) / amplifiedChannel.length;
-                      console.log(`📊 Audio chunk ${audioChunkCount}: max=${maxLevel.toFixed(4)}, avg=${avgLevel.toFixed(4)}, amplified=3x`);
+                      console.log(`📊 Audio chunk ${audioChunkCount}: max=${maxLevel.toFixed(4)}, avg=${avgLevel.toFixed(4)}, amplified=2x`);
                       
                       if (maxLevel > 0.001) {
                         console.log(`🎤 Audio amplified for quiet voices`);
@@ -1680,9 +1763,10 @@ const ReadingSessionPage: React.FC = () => {
                       if (ws.readyState === WebSocket.OPEN) {
                       const channel = e.inputBuffer.getChannelData(0);
                       
-                      // AUDIO AMPLIFICATION: Boost quiet voices (3x amplification)
+                      // AUDIO AMPLIFICATION: Moderate boost for accuracy (1.5x amplification)
+                      // Reduced from 3x to minimize noise and maximize Vosk accuracy
                       const amplifiedChannel = new Float32Array(channel.length);
-                      const amplificationFactor = 3.0;
+                      const amplificationFactor = 1.5;
                       
                       for (let i = 0; i < channel.length; i++) {
                         amplifiedChannel[i] = Math.max(-1.0, Math.min(1.0, channel[i] * amplificationFactor));
@@ -1709,17 +1793,17 @@ const ReadingSessionPage: React.FC = () => {
                     if (filteredText) {
                       voskFinalTranscriptRef.current += (voskFinalTranscriptRef.current ? " " : "") + filteredText;
                       setTranscript(voskFinalTranscriptRef.current);
+                      setPartialTranscript(""); // Clear partial when we get final result
                     }
                   } else if (msg.partial && msg.partial.trim()) {
                     // Filter partial results through vocabulary validation
                     const filteredPartial = filterThroughVocabulary(msg.partial.trim(), storyVocabulary);
 
-                    // Show accumulated + filtered partial for instant feedback
+                    // Update partial separately for real-time display
                     if (filteredPartial) {
-                      setTranscript(voskFinalTranscriptRef.current + (voskFinalTranscriptRef.current ? " " : "") + filteredPartial);
+                      setPartialTranscript(filteredPartial);
                     } else {
-                      // If no valid words in partial, just show accumulated
-                      setTranscript(voskFinalTranscriptRef.current);
+                      setPartialTranscript(""); // Clear if no valid words
                     }
                   }
                 } catch (error) {
@@ -2443,8 +2527,20 @@ const ReadingSessionPage: React.FC = () => {
               const newIndex = currentWordIndex + 1;
               setCurrentWordIndex(newIndex);
               console.log(`⚠️ Omission marked - auto-advancing yellow highlight from ${currentWordIndex} to ${newIndex}`);
+              
+              // Clear transcript to prevent re-processing
+              voskFinalTranscriptRef.current = "";
+              setTranscript("");
+              processedTranscriptWordsRef.current = 0;
             } else {
               console.log(`⚠️ Omission already marked for word "${expectedWord}" at index ${currentWordIndex} - skipping duplicate`);
+              
+              // CRITICAL FIX: Clear transcript even for duplicate omissions
+              // Otherwise transcript accumulates and causes runaway processing
+              voskFinalTranscriptRef.current = "";
+              setTranscript("");
+              processedTranscriptWordsRef.current = 0;
+              console.log(`🧹 Cleared accumulated transcript to prevent runaway processing`);
             }
 
             return; // Exit to allow state update to trigger re-render
@@ -3107,6 +3203,11 @@ const ReadingSessionPage: React.FC = () => {
             setWordsRead(prev => Math.min(prev + 1, words.length));
             console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)} (mispronunciation counted)`);
             
+            // AUTO-ADVANCE: Move yellow highlight to next word after mispronunciation
+            const newIndex = currentWordIndex + 1;
+            setCurrentWordIndex(newIndex);
+            console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex} (mispronunciation auto-advance)`);
+            
             // Clear transcript to prevent false matches
             const isFirstWord = transcriptWords.indexOf(lastWord) === 0;
             if (isFirstWord) {
@@ -3135,6 +3236,11 @@ const ReadingSessionPage: React.FC = () => {
             // Increment wordsRead - child read the word (with mispronunciation)
             setWordsRead(prev => Math.min(prev + 1, words.length));
             console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)} (mispronunciation counted)`);
+            
+            // AUTO-ADVANCE: Move yellow highlight to next word after mispronunciation
+            const newIndex = currentWordIndex + 1;
+            setCurrentWordIndex(newIndex);
+            console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex} (mispronunciation auto-advance)`);
             
             // Clear transcript to prevent false matches (only if first word)
             const isFirstWord = transcriptWords.indexOf(lastWord) === 0;
@@ -3185,23 +3291,19 @@ const ReadingSessionPage: React.FC = () => {
             setWordsRead(prev => Math.min(prev + 1, words.length));
             console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)} (substitution counted)`);
 
-            // CRITICAL FIX: Clear the transcript after substitution to prevent continued matching
-            // Without this, the transcript keeps accumulating and matching subsequent words
-            // causing the yellow highlight to advance even though child hasn't read them
-            // BUT: Only clear if this is the FIRST word in transcript (most recent)
-            // This prevents clearing when an old word matches incorrectly
-            const isFirstWord = transcriptWords.indexOf(lastWord) === 0;
-            if (isFirstWord) {
+            // AUTO-ADVANCE: Move yellow highlight to next word after substitution
+            // This allows reading to continue naturally while tracking the error
+            const newIndex = currentWordIndex + 1;
+            setCurrentWordIndex(newIndex);
+            console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex} (substitution auto-advance)`);
+
+            // CRITICAL FIX: Always clear the transcript after substitution
+            // Without this, the transcript keeps accumulating and the same word
+            // gets matched against every subsequent expected word, causing runaway advancement
             voskFinalTranscriptRef.current = "";
             setTranscript("");
             processedTranscriptWordsRef.current = 0;
-            console.log(`🧹 Cleared transcript after substitution to prevent false matches`);
-            } else {
-              console.log(`⚠️ Substitution detected but word is not first in transcript - not clearing to prevent jumping`);
-            }
-            
-            // DON'T auto-advance - let teacher decide or wait for self-correction
-            console.log(`⚠️ Substitution marked, waiting for teacher intervention or self-correction`);
+            console.log(`🧹 Cleared transcript after substitution to prevent runaway matching`);
             
             return; // Exit early to prevent further processing
           }
@@ -3729,7 +3831,12 @@ const ReadingSessionPage: React.FC = () => {
                 🎤 mic heard:
               </span>
               <span className="font-mono text-xl font-bold text-blue-600 min-w-[100px]">
-                {transcript.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || '-'}
+                {(() => {
+                  // Show partial transcript (real-time) if available, otherwise show last final word
+                  const partial = partialTranscript.trim().split(/\s+/).filter(Boolean).slice(-1)[0];
+                  const final = transcript.trim().split(/\s+/).filter(Boolean).slice(-1)[0];
+                  return partial || final || '-';
+                })()}
               </span>
             </div>
             

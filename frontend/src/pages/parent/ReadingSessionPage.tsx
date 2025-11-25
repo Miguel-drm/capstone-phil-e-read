@@ -50,6 +50,7 @@ const ReadingSessionPage: React.FC = () => {
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const voskSocketRef = useRef<WebSocket | null>(null);
   const [transcript, setTranscript] = useState('');
+  const [partialTranscript, setPartialTranscript] = useState(''); // Real-time partial results
   const [sttProvider, setSttProvider] = useState<'vosk' | 'webspeech' | 'none'>('none');
   const [voskStatus, setVoskStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const [wordsRead, setWordsRead] = useState(0);
@@ -143,152 +144,54 @@ const ReadingSessionPage: React.FC = () => {
       return true;
     }
 
-    // Filipino accent variations and children's speech patterns
-    const accentMap: { [key: string]: string[] } = {
-      // Filipino accent variations
-      'the': ['da', 'de', 'duh', 'di'],
-      'this': ['dis', 'dees'],
-      'that': ['dat', 'det'],
-      'three': ['tree', 'tri'],
-      'think': ['tink', 'tingk'],
-      'thing': ['ting'],
-      'with': ['wit', 'wid'],
-      'they': ['dey', 'day'],
-      'them': ['dem'],
-      'there': ['der', 'dere'],
-      'their': ['der', 'deir'],
-      'then': ['den'],
-      'than': ['dan'],
-      'through': ['tru', 'troo'],
-      'thought': ['tot', 'taught'],
-      'though': ['do', 'dough'],
-      'these': ['dis', 'dees'],
-      'those': ['dos', 'dose'],
-      'other': ['oder', 'udder'],
-      'another': ['anoder', 'anudder'],
-      'brother': ['broder', 'brudder'],
-      'mother': ['moder', 'mudder'],
-      'father': ['fader', 'fadder'],
-      'weather': ['weder', 'wedder'],
-      'whether': ['weder', 'wedder'],
-      'together': ['togeder', 'togedder'],
-      
-      // Children's speech: past tense -ed endings (often dropped or mispronounced)
-      'looked': ['look', 'looke', 'lookt'],
-      'walked': ['walk', 'walke', 'walkt'],
-      'talked': ['talk', 'talke', 'talkt'],
-      'picked': ['pick', 'picke', 'pickt'],
-      'noticed': ['notice', 'notic', 'notis'],
-      'wanted': ['want', 'wante', 'wantid'],
-      'needed': ['need', 'neede', 'needid'],
-      'started': ['start', 'starte', 'startid'],
-      'ended': ['end', 'ende', 'endid'],
-      'asked': ['ask', 'aske', 'askt'],
-      'helped': ['help', 'helpe', 'helpt'],
-      'jumped': ['jump', 'jumpe', 'jumpt'],
-      'played': ['play', 'playe', 'playd'],
-      'stayed': ['stay', 'staye', 'stayd'],
-      'tried': ['try', 'trie', 'tryd'],
-      'turned': ['turn', 'turne', 'turnd'],
-      'learned': ['learn', 'learne', 'learnd'],
-      'opened': ['open', 'opene', 'opend'],
-      'closed': ['close', 'clos', 'closd'],
-      'lived': ['live', 'liv', 'livd'],
-      'loved': ['love', 'lov', 'lovd'],
-      'moved': ['move', 'mov', 'movd'],
-      'used': ['use', 'us', 'usd'],
-      'called': ['call', 'calle', 'calld'],
-      'worked': ['work', 'worke', 'workt'],
-      'seemed': ['seem', 'seeme', 'seemd'],
-      'showed': ['show', 'showe', 'showd'],
-      'followed': ['follow', 'followe', 'followd'],
-      'happened': ['happen', 'happene', 'happend'],
-      'appeared': ['appear', 'appeare', 'appeard'],
-      'believed': ['believe', 'believ', 'believd'],
-      'received': ['receive', 'receiv', 'receivd'],
-      
-      // Common irregular verbs children struggle with
-      'saw': ['see', 'sow', 'so'],
-      'said': ['say', 'sed', 'sayed'],
-      'went': ['go', 'goed', 'wented'],
-      'came': ['come', 'comed', 'camed'],
-      'took': ['take', 'taked', 'taked'],
-      'gave': ['give', 'gived', 'gaved'],
-      'made': ['make', 'maked', 'maded'],
-      'got': ['get', 'getted', 'goted'],
-      'found': ['find', 'finded', 'founded'],
-      'told': ['tell', 'telled', 'tolded'],
-      'knew': ['know', 'knowed', 'knewed'],
-      'felt': ['feel', 'feeled', 'felted'],
-      'left': ['leave', 'leaved', 'lefted'],
-      'kept': ['keep', 'keeped', 'kepted'],
-      'held': ['hold', 'holded', 'helded'],
-      'brought': ['bring', 'bringed', 'broughted'],
-      'began': ['begin', 'begined', 'beganed'],
-      'ran': ['run', 'runned', 'raned'],
-      'stood': ['stand', 'standed', 'stooded'],
-      'heard': ['hear', 'heared', 'herd'],
-      'became': ['become', 'becomed', 'becamed'],
-      'put': ['put', 'putted', 'puted'],
-      'let': ['let', 'letted', 'leted'],
-      'read': ['read', 'readed', 'red'],
-      'met': ['meet', 'meeted', 'meted'],
-      'sat': ['sit', 'sitted', 'sated'],
-      'spoke': ['speak', 'speaked', 'spoked'],
-      'wrote': ['write', 'writed', 'wroted'],
-      'ate': ['eat', 'eated', 'ated'],
-      'drank': ['drink', 'drinked', 'dranked'],
-      'sang': ['sing', 'singed', 'sanged'],
-      'swam': ['swim', 'swimmed', 'swamed'],
-      'flew': ['fly', 'flyed', 'flewed'],
-      'drew': ['draw', 'drawed', 'drewed'],
-      'grew': ['grow', 'growed', 'grewed'],
-      'threw': ['throw', 'throwed', 'threwed'],
-      'wore': ['wear', 'weared', 'wored'],
-      'broke': ['break', 'breaked', 'broked'],
-      'chose': ['choose', 'choosed', 'chosed'],
-      'drove': ['drive', 'drived', 'droved'],
-      'rode': ['ride', 'rided', 'roded'],
-      'woke': ['wake', 'waked', 'woked'],
-      'froze': ['freeze', 'freezed', 'frosed'],
-      'stole': ['steal', 'stealed', 'stoled']
-    };
-
-    // Check if expected word has accent variations
-    if (accentMap[normExpected]) {
-      if (accentMap[normExpected].includes(normSpoken)) {
-        return true;
-      }
-    }
-
-    // Also check reverse - if spoken word is in the map
-    for (const [standard, variations] of Object.entries(accentMap)) {
-      if (variations.includes(normSpoken) && standard === normExpected) {
-        return true;
-      }
-    }
+    // Pronunciation matching is now handled server-side via:
+    // - VoskServer/english_pronunciation_dictionary.py
+    // - VoskServer/tagalog_pronunciation_dictionary.py
+    // The server automatically applies pronunciation variants based on story language
 
     // Calculate similarity metrics
     const distance = levenshtein(normSpoken, normExpected);
     const maxLength = Math.max(normSpoken.length, normExpected.length);
     const similarity = 1 - (distance / maxLength);
 
-    // For very short words (3 chars or less), be strict
+    // SPECIAL CASE: Common Vosk mishearings for very short words
+    // "the" is often misheard as "a" and vice versa
+    const commonMishearings: { [key: string]: string[] } = {
+      'a': ['the', 'uh', 'ah', 'ay'],
+      'the': ['a', 'da', 'de'],
+      'i': ['eye', 'aye'],
+      'to': ['too', 'two']
+    };
+    
+    if (commonMishearings[normExpected]?.includes(normSpoken)) {
+      console.debug(`✓ Common mishearing: "${normSpoken}" accepted for "${normExpected}"`);
+      return true;
+    }
+
+    // For single character words (like "a"), be very lenient
+    if (normExpected.length === 1) {
+      // Accept if first character matches or phonetically similar
+      if (normSpoken.length === 1 || normSpoken.length === 2) {
+        return similarity >= 0.5;  // Very lenient for single chars
+      }
+    }
+
+    // For very short words (2-3 chars), be more lenient
     if (normExpected.length <= 3) {
-      // Allow only 85%+ similarity (e.g., "the" vs "tea" = 66%, won't match)
-      return similarity >= 0.85;
+      // Reduced from 85% to 70% for better recognition
+      return similarity >= 0.70;
     }
 
     // For short words (4 chars), allow small variations
     if (normExpected.length === 4) {
-      // Allow 75%+ similarity (e.g., "lost" vs "loss" = 75%, will match)
-      if (similarity >= 0.75) return true;
+      // Reduced from 75% to 65% for better recognition
+      if (similarity >= 0.65) return true;
     }
 
     // For medium words (5-7 chars), be more lenient
     if (normExpected.length >= 5 && normExpected.length <= 7) {
-      // Allow 70%+ similarity for common reading words
-      if (similarity >= 0.70) return true;
+      // Reduced from 70% to 60% for better recognition
+      if (similarity >= 0.60) return true;
     }
 
     // Double Metaphone phonetic match for longer words
@@ -326,6 +229,7 @@ const ReadingSessionPage: React.FC = () => {
     setIsRecording(true);
     setIsPaused(false);
     setTranscript('');
+    setPartialTranscript('');
     setWordsRead(0);
     
     setElapsedTime(0);
@@ -431,9 +335,10 @@ const ReadingSessionPage: React.FC = () => {
             script.onaudioprocess = (e: AudioProcessingEvent) => {
               const channel = e.inputBuffer.getChannelData(0);
               
-              // AUDIO AMPLIFICATION: Boost quiet voices (3x amplification)
+              // AUDIO AMPLIFICATION: Moderate boost for accuracy (1.5x amplification)
+              // Reduced from 3x to minimize noise and maximize Vosk accuracy
               const amplifiedChannel = new Float32Array(channel.length);
-              const amplificationFactor = 3.0;
+              const amplificationFactor = 1.5;
               for (let i = 0; i < channel.length; i++) {
                 amplifiedChannel[i] = Math.max(-1.0, Math.min(1.0, channel[i] * amplificationFactor));
               }
@@ -448,11 +353,12 @@ const ReadingSessionPage: React.FC = () => {
               const msg = JSON.parse(evt.data);
               // Process both final and partial results immediately for faster response
               if (msg.text) {
-                // Final result - update transcript
+                // Final result - update transcript and clear partial
                 setTranscript(msg.text);
+                setPartialTranscript('');
               } else if (msg.partial) {
-                // Partial result - update transcript immediately for instant feedback
-                setTranscript(msg.partial);
+                // Partial result - update partial transcript immediately for instant feedback
+                setPartialTranscript(msg.partial);
               }
             } catch {}
           };
@@ -508,8 +414,9 @@ const ReadingSessionPage: React.FC = () => {
               if (event.results[i].isFinal) runningTranscript += event.results[i][0].transcript + ' ';
               else interim += event.results[i][0].transcript;
             }
-            // Update immediately for instant feedback
-            setTranscript(runningTranscript + interim);
+            // Update final transcript and partial separately for instant feedback
+            setTranscript(runningTranscript);
+            setPartialTranscript(interim);
           };
           recognition.onerror = (e: any) => {
             console.warn('Speech recognition error:', e.error);
@@ -573,7 +480,9 @@ const ReadingSessionPage: React.FC = () => {
             if (event.results[i].isFinal) runningTranscript += event.results[i][0].transcript + ' ';
             else interim += event.results[i][0].transcript;
           }
-          setTranscript(runningTranscript + interim);
+          // Update final transcript and partial separately for instant feedback
+          setTranscript(runningTranscript);
+          setPartialTranscript(interim);
         };
         recognition.onerror = (e: any) => {
           console.warn('Speech recognition error:', e.error);
@@ -879,9 +788,6 @@ const ReadingSessionPage: React.FC = () => {
     }
   }, [storyText, pdfContent]);
 
-  // Track which transcript words we've already processed
-  const [processedTranscriptLength, setProcessedTranscriptLength] = useState(0);
-
   // Update the useEffect that tracks transcript and currentWordIndex, using realWords for matching
   // Check if new words in transcript match the current highlighted word
   useEffect(() => {
@@ -890,53 +796,56 @@ const ReadingSessionPage: React.FC = () => {
     const transcriptWords = transcript.split(/\s+/).filter(Boolean);
     if (transcriptWords.length === 0) return;
 
-    // Only process new words that we haven't checked yet
-    if (transcriptWords.length <= processedTranscriptLength) return;
-
-    // Get the newly added words
-    const newWords = transcriptWords.slice(processedTranscriptLength);
+    // Only process the FIRST word in transcript to prevent over-advancement
+    const spokenWord = transcriptWords[0];
+    const currentExpectedWord = realWords[currentWordIndex];
     
-    console.log('New words:', newWords);
-    console.log('Current expected word:', realWords[currentWordIndex]);
+    console.log('Checking word:', spokenWord);
+    console.log('Expected word:', currentExpectedWord);
     console.log('Current index:', currentWordIndex);
+    
+    if (!currentExpectedWord) {
+      // Reached end of story - clear transcript
+      setTranscript('');
+      return;
+    }
 
-    // Check each new word against the current expected word
-    let tempIndex = currentWordIndex;
-    let matchesFound = 0;
-    let miscuesFound = 0;
-
-    for (const spokenWord of newWords) {
-      const currentExpectedWord = realWords[tempIndex];
+    if (isWordMatch(spokenWord, currentExpectedWord)) {
+      // Match found! Move to next word
+      setCurrentWordIndex((prev) => prev + 1);
+      setWordsRead((prev) => prev + 1);
+      console.log('✓ Match:', spokenWord, '=', currentExpectedWord);
       
-      if (!currentExpectedWord) {
-        // Reached end of story
-        break;
+      // Remove the matched word from transcript
+      const remainingWords = transcriptWords.slice(1);
+      setTranscript(remainingWords.join(' '));
+    } else {
+      // No match - check if it's a story word that's out of sequence
+      // If it matches a word within the next 5 words, it might be reading ahead
+      const lookAheadRange = 5;
+      let foundAhead = false;
+      
+      for (let i = 1; i <= lookAheadRange && currentWordIndex + i < realWords.length; i++) {
+        if (isWordMatch(spokenWord, realWords[currentWordIndex + i])) {
+          console.log(`⚠️ Word "${spokenWord}" matches word ${i} positions ahead - possible reading ahead or omission`);
+          foundAhead = true;
+          break;
+        }
       }
-
-      if (isWordMatch(spokenWord, currentExpectedWord)) {
-        // Match found! Move to next word
-        tempIndex++;
-        matchesFound++;
-        console.log('✓ Match:', spokenWord, '=', currentExpectedWord);
-      } else {
-        // No match - this is a miscue, but we still continue listening
-        miscuesFound++;
-        console.log('✗ Miscue:', spokenWord, '≠', currentExpectedWord);
+      
+      if (!foundAhead) {
+        // True miscue - word doesn't match current or nearby expected words
+        setMiscues((prev) => prev + 1);
+        setCurrentWordIndex((prev) => prev + 1);
+        setWordsRead((prev) => prev + 1);
+        console.log('✗ Miscue:', spokenWord, '≠', currentExpectedWord, '(counted and advancing)');
       }
+      
+      // Always remove the processed word from transcript
+      const remainingWords = transcriptWords.slice(1);
+      setTranscript(remainingWords.join(' '));
     }
-
-    // Update state with all changes at once
-    if (matchesFound > 0) {
-      setCurrentWordIndex((prev) => prev + matchesFound);
-      setWordsRead((prev) => prev + matchesFound);
-    }
-    if (miscuesFound > 0) {
-      setMiscues((prev) => prev + miscuesFound);
-    }
-
-    // Update processed length
-    setProcessedTranscriptLength(transcriptWords.length);
-  }, [transcript, realWords, currentWordIndex, processedTranscriptLength]);
+  }, [transcript, realWords, currentWordIndex]);
 
   // Reset miscues at the start of each session
   useEffect(() => {
@@ -1056,21 +965,7 @@ const ReadingSessionPage: React.FC = () => {
     a.remove();
   };
 
-  
 
-  // In the rendering, highlight only if the display word is the current real word
-  // To do this, map realWords to their positions in the display words array
-  // We'll build a mapping from real word index to display word index
-  function getDisplayWordIndexForRealWord(realWordIdx: number, displayWords: string[]): number {
-    let count = 0;
-    for (let i = 0; i < displayWords.length; i++) {
-      if (/\w+/.test(displayWords[i])) {
-        if (count === realWordIdx) return i;
-        count++;
-      }
-    }
-    return -1;
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-100 flex flex-col">
@@ -1114,7 +1009,14 @@ const ReadingSessionPage: React.FC = () => {
         <div className="w-full flex justify-center mb-4">
           <div className="bg-yellow-100 border border-yellow-300 rounded-lg px-6 py-3 flex items-center gap-3 text-lg">
             <span className="font-semibold text-yellow-800">Mic heard:</span>
-            <span className="font-mono text-yellow-900 text-xl font-bold">{transcript.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || '-'}</span>
+            <span className="font-mono text-yellow-900 text-xl font-bold">
+              {(() => {
+                // Show partial transcript (real-time) if available, otherwise show last final word
+                const partial = partialTranscript.trim().split(/\s+/).filter(Boolean).slice(-1)[0];
+                const final = transcript.trim().split(/\s+/).filter(Boolean).slice(-1)[0];
+                return partial || final || '-';
+              })()}
+            </span>
           </div>
         </div>
       )}
@@ -1140,15 +1042,23 @@ const ReadingSessionPage: React.FC = () => {
               {(storyText || pdfContent) ? (
                 (storyText ? storyText : pdfContent).split('\n\n').filter(p => p.trim().length > 0).map((paragraph, paragraphIndex, paragraphs) => {
                   const wordsInParagraph = paragraph.trim().split(/\s+/);
+                  
                   return (
                     <div key={paragraphIndex} className="mb-8 last:mb-0">
                       <p className="text-gray-800 leading-relaxed flex flex-wrap gap-y-3">
                         {wordsInParagraph.map((word, wordIndex) => {
-                          const globalWordIndex = paragraphs
-                            .slice(0, paragraphIndex)
-                            .reduce((acc, p) => acc + p.trim().split(/\s+/).length, 0) + wordIndex;
-                          const isCurrentWord = getDisplayWordIndexForRealWord(currentWordIndex, wordsInParagraph) === globalWordIndex;
+                          // Count only real words (alphanumeric) up to this point
+                          const realWordIndex = wordsInParagraph
+                            .slice(0, wordIndex)
+                            .filter(w => /\w+/.test(w))
+                            .length + 
+                            paragraphs
+                              .slice(0, paragraphIndex)
+                              .reduce((acc, p) => acc + p.trim().split(/\s+/).filter(w => /\w+/.test(w)).length, 0);
+                          
                           const isSpecialChar = !/\w+/.test(word);
+                          const isCurrentWord = !isSpecialChar && realWordIndex === currentWordIndex;
+                          
                           return (
                             <span
                               key={`${paragraphIndex}-${wordIndex}`}

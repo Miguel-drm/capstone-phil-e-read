@@ -34,7 +34,8 @@ import re
 import argparse
 from typing import Set, Optional, List
 from difflib import get_close_matches
-from english_pronunciation_dictionary import match_word, PRONUNCIATION_DICT
+from english_pronunciation_dictionary import match_word as match_word_english, PRONUNCIATION_DICT as ENGLISH_DICT
+from tagalog_pronunciation_dictionary import match_word as match_word_tagalog, PRONUNCIATION_DICT as TAGALOG_DICT
 from vosk_connection_manager import VoskConnectionManager
 
 # ============================================================================
@@ -78,9 +79,13 @@ def extract_story_vocabulary(story_text: str) -> Set[str]:
         # Add the base word
         vocabulary.add(normalized)
         
-        # Add pronunciation variants from dictionary
-        if normalized in PRONUNCIATION_DICT:
-            for variant in PRONUNCIATION_DICT[normalized]:
+        # Add pronunciation variants from BOTH English and Tagalog dictionaries
+        if normalized in ENGLISH_DICT:
+            for variant in ENGLISH_DICT[normalized]:
+                vocabulary.add(normalize_word(variant))
+        
+        if normalized in TAGALOG_DICT:
+            for variant in TAGALOG_DICT[normalized]:
                 vocabulary.add(normalize_word(variant))
         
         # Add common morphological variations
@@ -148,10 +153,14 @@ def is_word_in_story(heard_word: str, story_vocabulary: Set[str],
     if normalized in story_vocabulary:
         return normalized
     
-    # Strategy 2: Check pronunciation dictionary
-    canonical = match_word(heard_word)
-    if canonical and normalize_word(canonical) in story_vocabulary:
-        return canonical
+    # Strategy 2: Check pronunciation dictionaries (both English and Tagalog)
+    canonical_english = match_word_english(heard_word)
+    if canonical_english and normalize_word(canonical_english) in story_vocabulary:
+        return canonical_english
+    
+    canonical_tagalog = match_word_tagalog(heard_word)
+    if canonical_tagalog and normalize_word(canonical_tagalog) in story_vocabulary:
+        return canonical_tagalog
     
     # Strategy 3: Fuzzy matching against story vocabulary
     matches = get_close_matches(normalized, story_vocabulary, n=1, cutoff=threshold)
