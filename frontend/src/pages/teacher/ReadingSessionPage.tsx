@@ -1863,6 +1863,42 @@ const ReadingSessionPage: React.FC = () => {
       voskFinalTranscriptRef.current = "";
       voskReconnectAttemptsRef.current = 0;
 
+      // ============================================================================
+      // DEPED RULE: Mark all remaining unread words as OMISSION
+      // ============================================================================
+      // When the session ends, any words that were not read should be marked as omissions
+      // Gray words = skipped/unread = Omission according to DepEd Phil-IRI marking system
+      const realWords = words.filter(w => /\w+/.test(w)); // Filter out punctuation
+      const lastReadIndex = currentWordIndex; // Current position when stopped
+      
+      console.log(`📋 Session stopped at word ${lastReadIndex} of ${realWords.length}`);
+      console.log(`📋 Marking remaining ${realWords.length - lastReadIndex} unread words as omissions...`);
+      
+      // Mark all words from current position to end as omissions
+      for (let i = lastReadIndex; i < realWords.length; i++) {
+        // Skip if already marked with a miscue
+        if (wordMiscues.has(i) || recognizedWords.has(i)) {
+          continue;
+        }
+        
+        // Mark as omission
+        if (!countedMiscuePositionsRef.current.has(i)) {
+          countedMiscuePositionsRef.current.add(i);
+          setMiscues(prev => prev + 1);
+          setMiscueTypes(prev => ({ ...prev, omission: prev.omission + 1 }));
+          setWordMiscues(prev => new Map(prev).set(i, 'omission'));
+          setWordMarkings(prev => new Map(prev).set(i, {
+            type: 'omission',
+            marking: `Circle omitted word`,
+            spokenWord: '',
+            correctWord: realWords[i]
+          }));
+          console.log(`⭕ Word ${i} "${realWords[i]}" marked as omission (unread at session end)`);
+        }
+      }
+      
+      console.log(`✅ Marked all unread words as omissions per DepEd rules`);
+
       // If Tagalog story, optionally send audio to backend Whisper for better transcription
       const enableServerTranscribe =
         (import.meta as any)?.env?.VITE_ENABLE_SERVER_TRANSCRIBE === "true";
@@ -2529,11 +2565,20 @@ const ReadingSessionPage: React.FC = () => {
               setWordsRead(prev => Math.min(prev + 1, words.length));
               console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)} (omission counted)`);
 
-              // AUTO-ADVANCE: Move yellow highlight forward when omission is detected
-              // The child has already moved ahead, so we must advance to let them continue
-              const newIndex = currentWordIndex + 1;
+              // AUTO-ADVANCE: Move yellow highlight to where the child actually is
+              // CRITICAL FIX: Advance to futureWordPosition (where child jumped to), not just +1
+              // This prevents marking the landing word as omission
+              // Example: Child at "na", skips "naglalakad", says "sa"
+              //   - Mark "naglalakad" as omission ✅
+              //   - Advance to "sa" (futureWordPosition) ✅
+              //   - Don't mark "sa" as omission ✅
+              const newIndex = futureWordPosition;
               setCurrentWordIndex(newIndex);
-              console.log(`⚠️ Omission marked - auto-advancing yellow highlight from ${currentWordIndex} to ${newIndex}`);
+              console.log(`⚠️ Omission marked - auto-advancing yellow highlight from ${currentWordIndex} to ${newIndex} (where child is)`);
+              
+              // Mark the landing word as recognized (child said it correctly)
+              setRecognizedWords(prev => new Set(prev).add(futureWordPosition));
+              console.log(`✅ Marked word ${futureWordPosition} "${matchedFutureWord}" as recognized (landing word after skip)`);
               
               // Clear transcript to prevent re-processing
               voskFinalTranscriptRef.current = "";
@@ -3943,8 +3988,9 @@ const ReadingSessionPage: React.FC = () => {
                             const isRead = !isSpecialChar && isWordRead(realWordIndex);
                             const miscueType = !isSpecialChar ? wordMiscues.get(realWordIndex) : undefined;
 
-                            // Only show miscue colors AFTER session is completed or stopped (not during active recording)
-                            const showMiscueColors = isCompleted || (!isRecording && wordsRead > 0);
+                            // Show miscue colors for omissions immediately (even during recording)
+                            // Show other miscue colors AFTER session is completed or stopped
+                            const showMiscueColors = isCompleted || (!isRecording && wordsRead > 0) || (miscueType === 'omission');
 
                             // Color mapping for miscue types - Balanced: DepEd format + color coding for visibility
                             const getMiscueColor = (type: MiscueType | undefined) => {
@@ -4027,7 +4073,7 @@ const ReadingSessionPage: React.FC = () => {
                                         : recognizedWords.has(realWordIndex)
                                           ? "bg-green-100 text-green-800 font-bold shadow-lg border-2 border-green-400"
                                           : realWordIndex < currentWordIndex
-                                            ? "bg-gray-100 text-gray-600 font-normal border border-gray-300"
+                                            ? "bg-white text-gray-800 font-normal border border-gray-200"
                                             : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
                                 }
                                 style={

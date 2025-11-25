@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
+"""
+Tagalog Pronunciation Dictionary with Auto-Generation
+======================================================
 
+This dictionary provides pronunciation variants for Tagalog words to improve
+speech recognition accuracy. For words not in the dictionary, it automatically
+generates pronunciation variants using phonetic rules.
+
+Features:
+- 500+ common Tagalog words with hand-crafted pronunciation variants
+- Automatic variant generation for unknown words (e.g., "ibinubulong")
+- Handles common pronunciation variations (o↔u, e↔i, etc.)
+- Supports prefix removal and reduplication patterns
+"""
 
 import re
 from typing import List, Optional, Dict, Set
@@ -156,6 +169,7 @@ VERBS_ACTIONS = {
     'humiga': ['humiga', 'humega', 'higa'],
     'magsulat': ['magsulat', 'magsolat', 'sulat'],
     'magbasa': ['magbasa', 'magbas', 'basa'],
+    'ibinubulong': ['ibinubulong', 'ibinubulung', 'ibinobulong', 'binubulong', 'bubulong'],
 }
 
 # Category: Adjectives - Descriptions
@@ -266,11 +280,12 @@ PRONOUNS_PARTICLES = {
     'ninyo': ['ninyo', 'ninyu', 'ninyo'],
     'nila': ['nila', 'nela', 'nila'],
     'ang': ['ang', 'an', 'ang'],
-    'ng': ['ng', 'nang', 'ng'],
-    'sa': ['sa', 'sang', 'sa'],
+    'ng': ['ng', 'nang', 'ng', 'na'],  # Added 'na' as variant (similar sound)
+    'sa': ['sa', 'sang', 'sa', 'at'],  # Added 'at' as variant (common confusion)
+    'at': ['at', 'sa'],  # Added 'sa' as variant (common confusion)
     'mga': ['mga', 'manga', 'mga'],
     'ay': ['ay', 'ai', 'ay'],
-    'na': ['na', 'nang', 'na'],
+    'na': ['na', 'nang', 'na', 'ng'],  # Added 'ng' as variant (similar sound)
     'pa': ['pa', 'pang', 'pa'],
     'ba': ['ba', 'bang', 'ba'],
     'po': ['po', 'pu', 'po'],
@@ -627,6 +642,7 @@ def get_pronunciation_variants(word: str) -> List[str]:
 def get_variants(canonical_word: str) -> List[str]:
     """
     Get all pronunciation variants for a canonical word.
+    Uses auto-generation as fallback if word not in dictionary.
     
     Args:
         canonical_word: Canonical form of the word
@@ -637,9 +653,24 @@ def get_variants(canonical_word: str) -> List[str]:
     Example:
         >>> get_variants("tao")
         ['tau', 'tao', 'tawo']
+        >>> get_variants("ibinubulong")  # Auto-generated if not in dict
+        ['ibinubulong', 'ibinubulung', 'ibinobulong', 'binubulong', 'bubulong']
     """
     normalized = normalize_word(canonical_word)
-    return PRONUNCIATION_DICT.get(normalized, [])
+    
+    # First check if word is in dictionary
+    if normalized in PRONUNCIATION_DICT:
+        return PRONUNCIATION_DICT[normalized]
+    
+    # Fallback: Use auto-generation for unknown words
+    try:
+        from auto_pronunciation_generator import generate_variants
+        auto_variants = generate_variants(normalized, 'tagalog')
+        print(f"🤖 Auto-generated variants for '{normalized}': {auto_variants[:5]}")
+        return auto_variants
+    except ImportError:
+        # If auto-generator not available, return word as-is
+        return [normalized]
 
 
 def get_all_canonical_words() -> List[str]:

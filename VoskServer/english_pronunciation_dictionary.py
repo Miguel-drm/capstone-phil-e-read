@@ -580,9 +580,31 @@ def get_pronunciation_variants(word: str) -> List[str]:
 
 
 def get_variants(canonical_word: str) -> List[str]:
-    """Get all pronunciation variants for a canonical word."""
+    """
+    Get all pronunciation variants for a canonical word.
+    Uses auto-generation as fallback if word not in dictionary.
+    
+    Args:
+        canonical_word: Canonical form of the word
+        
+    Returns:
+        List of pronunciation variants
+    """
     normalized = normalize_word(canonical_word)
-    return PRONUNCIATION_DICT.get(normalized, [])
+    
+    # First check if word is in dictionary
+    if normalized in PRONUNCIATION_DICT:
+        return PRONUNCIATION_DICT[normalized]
+    
+    # Fallback: Use auto-generation for unknown words
+    try:
+        from auto_pronunciation_generator import generate_variants
+        auto_variants = generate_variants(normalized, 'english')
+        print(f"🤖 Auto-generated variants for '{normalized}': {auto_variants[:5]}")
+        return auto_variants
+    except ImportError:
+        # If auto-generator not available, return word as-is
+        return [normalized]
 
 
 def get_all_canonical_words() -> List[str]:
