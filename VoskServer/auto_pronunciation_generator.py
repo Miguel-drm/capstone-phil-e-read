@@ -4,9 +4,11 @@ import re
 from typing import List, Set
 
 def generate_variants(word: str) -> List[str]:
+    """Generate pronunciation variants for a word."""
     word = word.lower().strip()
     if not word or len(word) < 2:
         return [word]
+    
     variants = set([word])
     variants.update(_vowel_substitutions(word))
     variants.update(_consonant_variations(word))
@@ -14,10 +16,12 @@ def generate_variants(word: str) -> List[str]:
     variants.update(_double_letter_variations(word))
     variants.update(_common_child_patterns(word))
     variants.update(_ending_variations(word))
+    
     valid_variants = [v for v in variants if len(v) >= 2]
     return sorted(valid_variants)
 
 def _vowel_substitutions(word: str) -> Set[str]:
+    """Generate variants with vowel substitutions."""
     variants = set()
     vowel_rules = [
         (r'ea', ['e', 'u', 'ee', 'a']),
@@ -40,12 +44,17 @@ def _vowel_substitutions(word: str) -> Set[str]:
     return variants
 
 def _consonant_variations(word: str) -> Set[str]:
+    """Generate variants with consonant variations."""
     variants = set()
     consonant_rules = [
         (r'th', ['t', 'd', 'f']),
         (r'ph', ['f']),
         (r'gh', ['f', '']),
         (r'ck', ['k', 'c']),
+        (r'qu', ['kw', 'k', 'q']),
+        (r'x', ['ks', 'z', 'x']),
+        (r'c(?=[eiy])', ['s']),
+        (r'g(?=[eiy])', ['j']),
     ]
     for pattern, replacements in consonant_rules:
         if re.search(pattern, word):
@@ -56,6 +65,7 @@ def _consonant_variations(word: str) -> Set[str]:
     return variants
 
 def _silent_letter_variations(word: str) -> Set[str]:
+    """Generate variants by removing silent letters."""
     variants = set()
     silent_rules = [
         (r'^k(?=n)', ''),
@@ -63,6 +73,8 @@ def _silent_letter_variations(word: str) -> Set[str]:
         (r'g(?=n)', ''),
         (r'mb$', 'm'),
         (r'e$', ''),
+        (r'([wgr])h', r'\1'),
+        (r'l(?=[kmf])', ''),
     ]
     for pattern, replacement in silent_rules:
         if re.search(pattern, word):
@@ -72,19 +84,32 @@ def _silent_letter_variations(word: str) -> Set[str]:
     return variants
 
 def _double_letter_variations(word: str) -> Set[str]:
+    """Generate variants with double/single letter variations."""
     variants = set()
     variant = re.sub(r'(.)\1', r'\1', word)
     if variant != word and len(variant) >= 2:
         variants.add(variant)
+    for i, char in enumerate(word):
+        if char.isalpha() and char not in 'aeiou':
+            if i > 0 and word[i-1] == char:
+                continue
+            if i < len(word) - 1 and word[i+1] == char:
+                continue
+            variant = word[:i+1] + char + word[i+1:]
+            if len(variant) >= 2:
+                variants.add(variant)
     return variants
 
 def _common_child_patterns(word: str) -> Set[str]:
+    """Generate variants based on common child pronunciation patterns."""
     variants = set()
     child_rules = [
         (r'r', 'w'),
         (r'l', 'w'),
         (r'th', 'f'),
         (r'th', 'v'),
+        (r's', 'th'),
+        (r'[^aeiou]$', ''),
     ]
     for pattern, replacement in child_rules:
         if re.search(pattern, word):
@@ -94,6 +119,7 @@ def _common_child_patterns(word: str) -> Set[str]:
     return variants
 
 def _ending_variations(word: str) -> Set[str]:
+    """Generate variants with common ending variations."""
     variants = set()
     if word.endswith('ing'):
         variants.add(word[:-1])
@@ -101,13 +127,26 @@ def _ending_variations(word: str) -> Set[str]:
     if word.endswith('ed'):
         variants.add(word[:-2] + 't')
         variants.add(word[:-2])
+        variants.add(word[:-1])
     if word.endswith('s') and len(word) > 2:
         variants.add(word[:-1])
+    if word.endswith('ly'):
+        variants.add(word[:-2] + 'lee')
+        variants.add(word[:-2])
     return variants
 
-if __name__ == "__main__":
-    test_words = ["heard", "said", "with", "the"]
-    print("Testing pronunciation variants:")
+def test_generator():
+    """Test the pronunciation variant generator."""
+    test_words = ["heard", "said", "been", "with", "the", "know", "write"]
+    print("=" * 70)
+    print("PRONUNCIATION VARIANT GENERATOR TEST")
+    print("=" * 70)
+    print()
     for word in test_words:
         variants = generate_variants(word)
-        print(f"{word}: {variants[:5]}")
+        print(f"{word:15} -> {', '.join(variants[:8])}")
+    print()
+    print("=" * 70)
+
+if __name__ == "__main__":
+    test_generator()

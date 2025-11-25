@@ -176,7 +176,7 @@ def match_word(
     # Example: If "Mia" appears at position 0 and position 23, and we're at position 15,
     # we should NOT jump to position 23 when we hear "Mia" - that's a different occurrence!
     look_ahead_range = 3   # Only look 3 words ahead (prevents false jumps to repeated words)
-    look_behind_range = 2  # Look 2 words back (for corrections)
+    look_behind_range = 5  # Look 5 words back (handles delayed words from Vosk buffering)
     
     # Check ahead (WITHOUT mishearings to prevent false matches)
     for i in range(1, min(look_ahead_range + 1, len(expected_words) - current_position)):
@@ -193,17 +193,18 @@ def match_word(
                 "details": f"Omission: Skipped {i} word(s), found '{spoken_word}' at position +{i}"
             }
     
-    # Check behind (in case we advanced too far) - WITHOUT mishearings
+    # Check behind (for delayed words from Vosk buffering) - WITHOUT mishearings
     for i in range(1, min(look_behind_range + 1, current_position + 1)):
         past_word = expected_words[current_position - i]
         if check_pronunciation_match(spoken_word, past_word, language, allow_mishearings=False):
-            # Found the word behind - we advanced too far, go back
+            # Found a delayed word! Mark as correct but don't move position backwards
+            # This handles Vosk's buffering delays where words arrive out of order
             return {
                 "match_type": "correct",
-                "advance": False,  # Don't advance, we're going back
-                "new_position": current_position - i + 1,
+                "advance": False,  # Don't advance position (word was from the past)
+                "new_position": current_position,  # Stay at current position
                 "miscue_count": 0,
-                "details": f"Position correction: Found '{spoken_word}' at position -{i} (went back)"
+                "details": f"Delayed word: '{spoken_word}' from position -{i} (Vosk buffering delay)"
             }
     
     # Calculate similarity for mispronunciation vs substitution
@@ -285,26 +286,25 @@ class WordMatcherSession:
         
         expected_word = self.expected_words[self.current_position]
         
-        # WAIT FOR FIRST WORD: Don't start matching until we find the first word of the story
+        # WAIT FOR FIRST WORD: Don't start matching until we find the FIRST word of the story
+        # STRICT MODE: Only accept the first word (position 0) to start the session
+        # This prevents false starts when Vosk hears phantom words or words from later in the story
         if not self.session_started:
-            # Search for ANY word in the first 10 words of the story
-            for i in range(min(10, len(self.expected_words))):
-                if check_pronunciation_match(spoken_word, self.expected_words[i], self.language):
-                    # Found a story word! Start the session here
-                    print(f"   🎯 SESSION START: Found '{spoken_word}' at position {i}")
-                    self.current_position = i
-                    self.session_started = True
-                    expected_word = self.expected_words[i]
-                    break
-            
-            if not self.session_started:
-                # Haven't found the first word yet - ignore this word
+            # Only check if spoken word matches the FIRST word of the story
+            if check_pronunciation_match(spoken_word, self.expected_words[0], self.language):
+                # Found the first word! Start the session
+                print(f"   🎯 SESSION START: Found first word '{spoken_word}' at position 0")
+                self.current_position = 0
+                self.session_started = True
+                expected_word = self.expected_words[0]
+            else:
+                # Not the first word yet - ignore this word
                 return {
                     "match_type": "waiting_for_start",
                     "advance": False,
                     "new_position": 0,
                     "miscue_count": 0,
-                    "details": f"Waiting for story to start, ignoring '{spoken_word}'"
+                    "details": f"Waiting for first word '{self.expected_words[0]}', ignoring '{spoken_word}'"
                 }
         
         # Match the word

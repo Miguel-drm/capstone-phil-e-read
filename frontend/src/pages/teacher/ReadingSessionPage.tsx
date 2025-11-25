@@ -327,6 +327,7 @@ const ReadingSessionPage: React.FC = () => {
             case 'waiting_for_start':
               // Ignore - waiting for first word
               console.log(`⏳ Waiting for story to start, ignoring word`);
+              // Don't mark anything - session hasn't started yet
               return;  // Don't update anything
               
             case 'correct':
@@ -1135,6 +1136,12 @@ const ReadingSessionPage: React.FC = () => {
     setAudioUrl(null);
     setCurrentWordIndex(0);
     voskReconnectAttemptsRef.current = 0; // Reset reconnect attempts
+    
+    // Clear all word markings from previous session
+    setWordMiscues(new Map());
+    setWordMarkings(new Map());
+    setInsertedWords(new Map());
+    setRecognizedWords(new Set());
 
     // --- MediaRecorder ---
     // Note: MediaRecorder failure is non-blocking - speech recognition will still work
