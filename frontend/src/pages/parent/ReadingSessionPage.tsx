@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { readingSessionService, type ReadingSession } from '@/services/readingSessionService';
 import { UnifiedStoryService } from '@/services/UnifiedStoryService';
 import type { Story } from '@/types/Story';
-import { ArrowLeftIcon, XCircleIcon, BookOpenIcon, UserGroupIcon, ChartBarIcon, MicrophoneIcon, PlayIcon, PauseIcon, StopIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, XCircleIcon, BookOpenIcon, UserGroupIcon, ChartBarIcon, MicrophoneIcon, StopIcon } from '@heroicons/react/24/outline';
 import * as pdfjsLib from 'pdfjs-dist';
 import type { TextItem } from 'pdfjs-dist/types/src/display/api';
 import 'pdfjs-dist/build/pdf.worker.entry';
@@ -37,7 +37,29 @@ const ReadingSessionPage: React.FC = () => {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [pdfContent, setPdfContent] = useState<string>('');
   const [pdfError, setPdfError] = useState<string | null>(null);
-
+  
+  // Countdown modal state
+  const [showCountdown, setShowCountdown] = useState(false);
+  const [countdown, setCountdown] = useState(5);
+  
+  // Track if session has been started (to show Complete button)
+  const [hasStarted, setHasStarted] = useState(false);
+  
+  // Countdown effect - preload Vosk connection during countdown
+  useEffect(() => {
+    if (showCountdown && countdown > 0) {
+      const timer = setTimeout(() => {
+        setCountdown(countdown - 1);
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else if (showCountdown && countdown === 0) {
+      // Countdown finished, start recording
+      setShowCountdown(false);
+      startRecordingAfterCountdown();
+      setCountdown(5); // Reset for next time
+    }
+  }, [showCountdown, countdown]);
+  
   // Audio recording state
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -88,6 +110,22 @@ const ReadingSessionPage: React.FC = () => {
   useEffect(() => {
     console.log('wordsRead:', wordsRead, 'miscues:', miscues, 'totalWords:', words.length, 'oralReadingScore:', oralReadingScore);
   }, [wordsRead, miscues, words.length, oralReadingScore]);
+  
+  // Check Vosk connection status during countdown
+  useEffect(() => {
+    if (showCountdown && countdown === 5 && words.length > 0) {
+      // Check if Vosk is already connected from preload
+      const isConnected = voskSocketRef.current && voskSocketRef.current.readyState === WebSocket.OPEN;
+      if (isConnected) {
+        console.log('✅ Vosk already connected - ready to start!');
+      } else {
+        console.log('⏳ Vosk still connecting...');
+        // Try to connect if not already connected
+        preloadVoskConnection();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCountdown, countdown]);
 
   // Real-time Reading Speed (WPM)
   const readingSpeedWPM = elapsedTime > 0 ? calculateReadingSpeedWPM(wordsRead, elapsedTime).toString() : '0';
@@ -240,8 +278,207 @@ const ReadingSessionPage: React.FC = () => {
 
   // Start recording and speech recognition
   const handleStartRecording = () => {
+    // Show countdown modal first
+    setShowCountdown(true);
+    setCountdown(5);
+  };
+  
+  // Preload Vosk connection (called during loading or countdown)
+  const preloadVoskConnection = async () => {
+    console.log('🔄 preloadVoskConnection called - storyLanguage:', storyLanguage, 'words:', words.length);
+    
+    const useVosk = storyLanguage === 'tagalog' || storyLanguage === 'english';
+    if (!useVosk) {
+      console.log('⚠️ Not using Vosk - language:', storyLanguage);
+      return;
+    }
+    
+    // Prevent duplicate connections
+    if (voskSocketRef.current && voskSocketRef.current.readyState === WebSocket.OPEN) {
+      console.log('✅ Vosk already connected - skipping preload');
+      return;
+    }
+    
+    // Close any existing connection that's not open
+    if (voskSocketRef.current) {
+      try {
+        voskSocketRef.current.close();
+      } catch (e) {
+        console.warn('Error closing existing Vosk connection:', e);
+      }
+    }
+    
+    // Helper to get WebSocket URLs
+    const getLocalWsUrl = (lang: string) => {
+      const normalizedLang = (lang === "tl" || lang === "tagalog") ? "tagalog" : "english";
+      return `ws://localhost:2700/?lang=${normalizedLang}`;
+    };
+    
+    const getRailwayWsUrl = (lang: string) => {
+      const env = (import.meta as any)?.env || {};
+      const railwayUrl = env.VITE_VOSK_WS_URL || "wss://philiready-websocket-production.up.railway.app";
+      const normalizedLang = (lang === "tl" || lang === "tagalog") ? "tagalog" : "english";
+      return `${railwayUrl}?lang=${normalizedLang}`;
+    };
+    
+    // Try local server first, then Railway
+    const localUrl = getLocalWsUrl(storyLanguage);
+    const railwayUrl = getRailwayWsUrl(storyLanguage);
+    
+    console.log('🔍 Checking local Vosk server:', localUrl);
+    setVoskStatus('connecting');
+    
+    // Try local server first with quick timeout
+    const tryLocalServer = () => {
+      return new Promise<WebSocket>((resolve, reject) => {
+        const ws = new WebSocket(localUrl);
+        ws.binaryType = 'arraybuffer';
+        
+        const timeout = setTimeout(() => {
+          ws.close();
+          reject(new Error('Local server timeout'));
+        }, 2000); // 2 second timeout for local
+        
+        ws.onopen = () => {
+          clearTimeout(timeout);
+          console.log('✅ Connected to LOCAL Vosk server');
+          resolve(ws);
+        };
+        
+        ws.onerror = () => {
+          clearTimeout(timeout);
+          ws.close();
+          reject(new Error('Local server not available'));
+        };
+      });
+    };
+    
+    // Try Railway server
+    const tryRailwayServer = () => {
+      return new Promise<WebSocket>((resolve, reject) => {
+        console.log('🌐 Trying Railway Vosk server:', railwayUrl);
+        const ws = new WebSocket(railwayUrl);
+        ws.binaryType = 'arraybuffer';
+        
+        const timeout = setTimeout(() => {
+          ws.close();
+          reject(new Error('Railway server timeout'));
+        }, 5000); // 5 second timeout for Railway
+        
+        ws.onopen = () => {
+          clearTimeout(timeout);
+          console.log('✅ Connected to RAILWAY Vosk server');
+          resolve(ws);
+        };
+        
+        ws.onerror = () => {
+          clearTimeout(timeout);
+          ws.close();
+          reject(new Error('Railway server not available'));
+        };
+      });
+    };
+    
+    try {
+      // Try local first
+      let ws: WebSocket;
+      try {
+        ws = await tryLocalServer();
+        console.log('🏠 Using LOCAL Vosk server');
+      } catch (localError) {
+        console.log('⚠️ Local server not available, trying Railway...');
+        ws = await tryRailwayServer();
+        console.log('☁️ Using RAILWAY Vosk server');
+      }
+      
+      voskSocketRef.current = ws;
+      ws.binaryType = 'arraybuffer';
+      
+      // Connection already established, set up handlers
+      setVoskStatus('connected');
+      setSttProvider('vosk');
+      
+      // Send story vocabulary for server-side filtering
+      if (words.length > 0) {
+        const vocabulary = Array.from(new Set(words.map((w: string) => w.toLowerCase())));
+        ws.send(JSON.stringify({
+          config: {
+            vocabulary: vocabulary,
+            expected_words: words.map((w: string) => w.toLowerCase())
+          }
+        }));
+        console.log(`📚 Sent vocabulary: ${vocabulary.length} unique words`);
+      }
+      
+      ws.onerror = (error) => {
+        console.warn('⚠️ Vosk connection error:', error);
+        setVoskStatus('disconnected');
+      };
+      
+      ws.onclose = () => {
+        console.log('🔌 Vosk connection closed');
+        setVoskStatus('disconnected');
+      };
+      
+      // Handle messages (word matching results)
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          
+          if (msg.match_result) {
+            const { match_type, new_position, details } = msg.match_result;
+            const metrics = msg.metrics;
+            const word = msg.text;
+            
+            console.log(`🎯 Backend match: ${match_type} - ${details}`);
+            
+            if (new_position !== undefined) {
+              setCurrentWordIndex(new_position);
+            }
+            
+            switch (match_type) {
+              case 'correct':
+                const correctWordIndex = new_position - 1;
+                setRecognizedWords(prev => new Set(prev).add(correctWordIndex));
+                break;
+                
+              case 'insertion':
+                const insertedWord = msg.match_result.inserted_word || word;
+                const insertionWordIndex = new_position - 1;
+                setRecognizedWords(prev => {
+                  const newSet = new Set(prev);
+                  newSet.add(insertionWordIndex);
+                  return newSet;
+                });
+                setInsertedWordsAfter(prev => {
+                  const newMap = new Map(prev);
+                  const existing = newMap.get(insertionWordIndex) || [];
+                  newMap.set(insertionWordIndex, [...existing, insertedWord]);
+                  return newMap;
+                });
+                break;
+            }
+            
+            if (metrics) {
+              setWordsRead(metrics.words_read);
+              setMiscues(metrics.total_miscues);
+            }
+          }
+        } catch {}
+      };
+      
+    } catch (error) {
+      console.error('❌ Failed to connect to both local and Railway Vosk servers:', error);
+      setVoskStatus('disconnected');
+      voskSocketRef.current = null;
+    }
+  };
+
+  // Actual recording start after countdown
+  const startRecordingAfterCountdown = () => {
     setIsRecording(true);
     setIsPaused(false);
+    setHasStarted(true); // Mark that session has started
     setTranscript('');
     setPartialTranscript('');
     setWordsRead(0);
@@ -276,138 +513,185 @@ const ReadingSessionPage: React.FC = () => {
     }
 
     // Choose STT path: Vosk (WS) for both Tagalog and English, else Web Speech
-    // Force-try Vosk for both languages; fallback to Web Speech if Vosk WS fails
+    // Check if Vosk is already preloaded during countdown
     const useVosk = storyLanguage === 'tagalog' || storyLanguage === 'english';
     if (useVosk) {
-      try {
-        // Railway WebSocket URLs (separate services for each language)
-        // Can be configured via environment variables:
-        // - VITE_VOSK_WS_URL_TAGALOG: Tagalog WebSocket URL
-        // - VITE_VOSK_WS_URL_ENGLISH: English WebSocket URL
-        const getRailwayWsUrl = (lang: string) => {
-          const env = (import.meta as any)?.env || {};
-          
-          // Single Railway deployment handles both languages via ?lang= parameter
-          const railwayUrl = env.VITE_VOSK_WS_URL || "wss://philiready-websocket-production.up.railway.app";
-          
-          // Normalize language parameter
-          const normalizedLang = (lang === "tl" || lang === "tagalog") ? "tagalog" : "english";
-          
-          return `${railwayUrl}?lang=${normalizedLang}`;
-        };
-        const wsUrl = getRailwayWsUrl(storyLanguage);
-        const startVosk = async () => {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 48000 } });
-          const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
-          audioContextRef.current = ctx;
-          const src = ctx.createMediaStreamSource(stream);
-          sourceNodeRef.current = src;
-          // Reduced buffer size from 4096 to 2048 for lower latency (faster recognition)
-          const script = ctx.createScriptProcessor(2048, 1, 1);
-          scriptNodeRef.current = script;
+      // Check if Vosk was already preloaded during countdown
+      const isVoskPreloaded = voskSocketRef.current && voskSocketRef.current.readyState === WebSocket.OPEN;
+      
+      if (isVoskPreloaded) {
+        console.log('✅ Using preloaded Vosk connection - starting audio immediately!');
+        
+        // Start audio processing with preloaded connection
+        try {
+          const startVoskAudio = async () => {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 48000 } });
+            const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
+            audioContextRef.current = ctx;
+            const src = ctx.createMediaStreamSource(stream);
+            sourceNodeRef.current = src;
+            const script = ctx.createScriptProcessor(2048, 1, 1);
+            scriptNodeRef.current = script;
 
-          // Downsample Float32 (48k) to Int16 (16k)
-          const downsampleTo16k = (input: Float32Array): Int16Array => {
-            const sampleRate = ctx.sampleRate || 48000;
-            const ratio = sampleRate / 16000;
-            const newLength = Math.floor(input.length / ratio);
-            const result = new Int16Array(newLength);
-            let idx = 0;
-            let i = 0;
-            while (idx < newLength) {
-              const next = Math.floor((idx + 1) * ratio);
-              let sum = 0;
-              let count = 0;
-              for (; i < next && i < input.length; i++) {
-                sum += input[i];
-                count++;
+            // Downsample Float32 (48k) to Int16 (16k)
+            const downsampleTo16k = (input: Float32Array): Int16Array => {
+              const sampleRate = ctx.sampleRate || 48000;
+              const ratio = sampleRate / 16000;
+              const newLength = Math.floor(input.length / ratio);
+              const result = new Int16Array(newLength);
+              let idx = 0;
+              let i = 0;
+              while (idx < newLength) {
+                const next = Math.floor((idx + 1) * ratio);
+                let sum = 0;
+                let count = 0;
+                for (; i < next && i < input.length; i++) {
+                  sum += input[i];
+                  count++;
+                }
+                const sample = sum / (count || 1);
+                const s = Math.max(-1, Math.min(1, sample));
+                result[idx++] = s < 0 ? s * 0x8000 : s * 0x7FFF;
               }
-              const sample = sum / (count || 1);
-              const s = Math.max(-1, Math.min(1, sample));
-              result[idx++] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+              return result;
+            };
+
+            src.connect(script);
+            script.connect(ctx.destination);
+            
+            if (ctx.state === 'suspended') {
+              await ctx.resume();
             }
-            return result;
-          };
-
-          // Connect audio nodes immediately (before WebSocket connection)
-          src.connect(script);
-          script.connect(ctx.destination);
-          
-          // Ensure audio context is running
-          if (ctx.state === 'suspended') {
-            await ctx.resume();
-          }
-          console.log('✅ Audio nodes connected - microphone is active');
-
-          setVoskStatus('connecting');
-          const ws = new WebSocket(wsUrl);
-          voskSocketRef.current = ws;
-          ws.binaryType = 'arraybuffer';
-          ws.onopen = () => {
-            setVoskStatus('connected');
-            setSttProvider('vosk');
+            
+            console.log('✅ Audio nodes connected - using preloaded Vosk connection');
+            
+            // Use the preloaded WebSocket
+            const ws = voskSocketRef.current!;
             script.onaudioprocess = (e: AudioProcessingEvent) => {
               const channel = e.inputBuffer.getChannelData(0);
-              
-              // AUDIO AMPLIFICATION: Moderate boost for accuracy (1.5x amplification)
-              // Reduced from 3x to minimize noise and maximize Vosk accuracy
               const amplifiedChannel = new Float32Array(channel.length);
               const amplificationFactor = 1.5;
               for (let i = 0; i < channel.length; i++) {
                 amplifiedChannel[i] = Math.max(-1.0, Math.min(1.0, channel[i] * amplificationFactor));
               }
-              
               const pcm16 = downsampleTo16k(amplifiedChannel);
               if (ws.readyState === WebSocket.OPEN) ws.send(pcm16);
             };
-            // Audio nodes already connected earlier - no need to reconnect here
           };
-          ws.onmessage = (evt) => {
-            try {
-              const msg = JSON.parse(evt.data);
-              
-              // NEW: Handle backend word matching results
-              if (msg.match_result) {
-                const { match_type, new_position, details } = msg.match_result;
-                const metrics = msg.metrics;
-                const word = msg.text;
-                
-                console.log(`🎯 Backend match: ${match_type} - ${details}`);
-                
-                // Update position from backend
-                if (new_position !== undefined) {
-                  setCurrentWordIndex(new_position);
-                  console.log(`🟡 Position updated to ${new_position}`);
+          
+          startVoskAudio().catch(err => {
+            console.warn('Failed to start audio with preloaded Vosk:', err);
+            setIsRecording(false);
+          });
+        } catch (error) {
+          console.warn('Error starting audio with preloaded Vosk:', error);
+          setIsRecording(false);
+        }
+      } else {
+        // Vosk not preloaded - connect now (fallback)
+        console.log('⚠️ Vosk not preloaded, connecting now...');
+        try {
+          const getRailwayWsUrl = (lang: string) => {
+            const env = (import.meta as any)?.env || {};
+            const railwayUrl = env.VITE_VOSK_WS_URL || "wss://philiready-websocket-production.up.railway.app";
+            const normalizedLang = (lang === "tl" || lang === "tagalog") ? "tagalog" : "english";
+            return `${railwayUrl}?lang=${normalizedLang}`;
+          };
+          const wsUrl = getRailwayWsUrl(storyLanguage);
+          const startVosk = async () => {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 48000 } });
+            const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
+            audioContextRef.current = ctx;
+            const src = ctx.createMediaStreamSource(stream);
+            sourceNodeRef.current = src;
+            const script = ctx.createScriptProcessor(2048, 1, 1);
+            scriptNodeRef.current = script;
+
+            const downsampleTo16k = (input: Float32Array): Int16Array => {
+              const sampleRate = ctx.sampleRate || 48000;
+              const ratio = sampleRate / 16000;
+              const newLength = Math.floor(input.length / ratio);
+              const result = new Int16Array(newLength);
+              let idx = 0;
+              let i = 0;
+              while (idx < newLength) {
+                const next = Math.floor((idx + 1) * ratio);
+                let sum = 0;
+                let count = 0;
+                for (; i < next && i < input.length; i++) {
+                  sum += input[i];
+                  count++;
                 }
+                const sample = sum / (count || 1);
+                const s = Math.max(-1, Math.min(1, sample));
+                result[idx++] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+              }
+              return result;
+            };
+
+            src.connect(script);
+            script.connect(ctx.destination);
+            
+            if (ctx.state === 'suspended') {
+              await ctx.resume();
+            }
+            console.log('✅ Audio nodes connected - microphone is active');
+
+            setVoskStatus('connecting');
+            const ws = new WebSocket(wsUrl);
+            voskSocketRef.current = ws;
+            ws.binaryType = 'arraybuffer';
+            ws.onopen = () => {
+              setVoskStatus('connected');
+              setSttProvider('vosk');
+              script.onaudioprocess = (e: AudioProcessingEvent) => {
+                const channel = e.inputBuffer.getChannelData(0);
+                const amplifiedChannel = new Float32Array(channel.length);
+                const amplificationFactor = 1.5;
+                for (let i = 0; i < channel.length; i++) {
+                  amplifiedChannel[i] = Math.max(-1.0, Math.min(1.0, channel[i] * amplificationFactor));
+                }
+                const pcm16 = downsampleTo16k(amplifiedChannel);
+                if (ws.readyState === WebSocket.OPEN) ws.send(pcm16);
+              };
+            };
+            ws.onmessage = (evt) => {
+              try {
+                const msg = JSON.parse(evt.data);
                 
-                // Handle different match types
-                switch (match_type) {
-                  case 'waiting_for_start':
-                    // Ignore - waiting for first word
-                    console.log(`⏳ Waiting for story to start, ignoring word`);
-                    return;
-                    
-                  case 'pending':
-                    // Word is pending - waiting to see if next word matches
-                    // This could be an insertion
-                    console.log(`⏸️ Word pending: "${word}" - waiting for next word`);
-                    return;  // Don't update metrics yet
-                    
-                  case 'correct':
-                    // Word read correctly
-                    const correctWordIndex = new_position - 1;
-                    setRecognizedWords(prev => new Set(prev).add(correctWordIndex));
-                    console.log(`✅ Word ${correctWordIndex} marked correct`);
-                    break;
-                    
-                  case 'omission':
-                    // Word omitted
-                    console.log(`⚠️ Word marked as omission`);
-                    break;
-                    
-                  case 'mispronunciation':
-                    // Word mispronounced
-                    console.log(`⚠️ Word marked as mispronunciation`);
+                if (msg.match_result) {
+                  const { match_type, new_position, details } = msg.match_result;
+                  const metrics = msg.metrics;
+                  const word = msg.text;
+                  
+                  console.log(`🎯 Backend match: ${match_type} - ${details}`);
+                  
+                  if (new_position !== undefined) {
+                    setCurrentWordIndex(new_position);
+                    console.log(`🟡 Position updated to ${new_position}`);
+                  }
+                  
+                  switch (match_type) {
+                    case 'waiting_for_start':
+                      console.log(`⏳ Waiting for story to start, ignoring word`);
+                      return;
+                      
+                    case 'pending':
+                      console.log(`⏸️ Word pending: "${word}" - waiting for next word`);
+                      return;
+                      
+                    case 'correct':
+                      const correctWordIndex = new_position - 1;
+                      setRecognizedWords(prev => new Set(prev).add(correctWordIndex));
+                      console.log(`✅ Word ${correctWordIndex} marked correct`);
+                      break;
+                      
+                    case 'omission':
+                      console.log(`⚠️ Word marked as omission`);
+                      break;
+                      
+                    case 'mispronunciation':
+                      console.log(`⚠️ Word marked as mispronunciation`);
                     break;
                     
                   case 'substitution':
@@ -563,54 +847,6 @@ const ReadingSessionPage: React.FC = () => {
           recognition.start();
         }
       }
-    } else {
-      // Web Speech path (default)
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        const recognition = new SpeechRecognition();
-        recognitionRef.current = recognition;
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        const selectRecognitionLang = (lang: 'english' | 'tagalog') => {
-          if (lang === 'tagalog') {
-            const preferred = (navigator.languages || []).map(l => l.toLowerCase());
-            if (preferred.includes('fil-ph')) return 'fil-PH';
-            if (preferred.includes('tl-ph')) return 'tl-PH';
-            return 'fil-PH';
-          }
-          return 'en-US';
-        };
-        recognition.lang = selectRecognitionLang(storyLanguage);
-        setSttProvider('webspeech');
-        let runningTranscript = '';
-        recognition.onresult = (event: any) => {
-          let interim = '';
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) runningTranscript += event.results[i][0].transcript + ' ';
-            else interim += event.results[i][0].transcript;
-          }
-          // Update final transcript and partial separately for instant feedback
-          setTranscript(runningTranscript);
-          setPartialTranscript(interim);
-        };
-        recognition.onerror = (e: any) => {
-          console.warn('Speech recognition error:', e.error);
-        };
-        recognition.onend = () => {
-          // Auto-restart if still recording
-          if (isRecording && !isPaused && recognitionRef.current) {
-            console.log('Speech recognition ended, restarting...');
-            try {
-              recognition.start();
-            } catch (e) {
-              console.warn('Failed to restart recognition:', e);
-            }
-          }
-        };
-        recognition.start();
-      } else {
-        alert('SpeechRecognition not supported in this browser.');
-      }
     }
   };
 
@@ -680,17 +916,7 @@ const ReadingSessionPage: React.FC = () => {
     }
   };
 
-  // Pause/Resume speech recognition (optional)
-  const handlePauseRecording = () => {
-    setIsPaused(true);
-    if (recognitionRef.current) recognitionRef.current.abort();
-    if (mediaRecorderRef.current) mediaRecorderRef.current.pause();
-  };
-  const handleResumeRecording = () => {
-    setIsPaused(false);
-    if (mediaRecorderRef.current) mediaRecorderRef.current.resume();
-    if (recognitionRef.current) recognitionRef.current.start();
-  };
+
 
   // Update elapsed time as time passes
   useEffect(() => {
@@ -792,8 +1018,10 @@ const ReadingSessionPage: React.FC = () => {
           // Language
           if (fullStory.language) {
             const internalLanguage = fullStory.language === 'none' ? 'tagalog' : 'english';
+            console.log('📖 Setting story language:', internalLanguage, '(from:', fullStory.language, ')');
             setStoryLanguage(internalLanguage);
           } else {
+            console.log('📖 Setting default story language: english');
             setStoryLanguage('english');
           }
 
@@ -801,6 +1029,7 @@ const ReadingSessionPage: React.FC = () => {
           if (fullStory.textContent && fullStory.textContent.trim().length > 0) {
             setStoryText(fullStory.textContent.trim());
             const wordArray = fullStory.textContent.trim().split(/\s+/).filter((w: string) => w.length > 0);
+            console.log('📖 Setting words:', wordArray.length, 'words');
             setWords(wordArray);
           }
 
@@ -827,14 +1056,17 @@ const ReadingSessionPage: React.FC = () => {
 
           if (fullStory.language) {
             const internalLanguage = fullStory.language === 'none' ? 'tagalog' : 'english';
+            console.log('📖 Setting story language:', internalLanguage, '(from:', fullStory.language, ')');
             setStoryLanguage(internalLanguage);
           } else {
+            console.log('📖 Setting default story language: english');
             setStoryLanguage('english');
           }
 
           if (fullStory.textContent && fullStory.textContent.trim().length > 0) {
             setStoryText(fullStory.textContent.trim());
             const wordArray = fullStory.textContent.trim().split(/\s+/).filter((w: string) => w.length > 0);
+            console.log('📖 Setting words:', wordArray.length, 'words');
             setWords(wordArray);
           }
 
@@ -856,6 +1088,20 @@ const ReadingSessionPage: React.FC = () => {
 
     fetchData();
   }, [isPracticeMode, storyId, sessionId]);
+  
+  // Preload Vosk connection as soon as we have story data (even during loading)
+  useEffect(() => {
+    console.log('🔍 Preload useEffect triggered - words:', words.length, 'storyLanguage:', storyLanguage, 'isLoading:', isLoading);
+    
+    // Start preloading as soon as we have words and language (don't wait for loading to finish)
+    if (words.length > 0 && storyLanguage) {
+      console.log('📚 Story data available - preloading Vosk connection NOW (during loading)...');
+      preloadVoskConnection();
+    } else {
+      console.log('⏳ Waiting for story data - words:', words.length, 'language:', storyLanguage);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [words.length, storyLanguage]);
 
   const handleGoBack = () => {
     navigate(-1);
@@ -1008,7 +1254,23 @@ const ReadingSessionPage: React.FC = () => {
   }, [currentSession]);
 
   if (isLoading) {
-    return <ParentLoader label={isPracticeMode ? 'Loading story…' : 'Loading session…'} fullScreen size="lg" />;
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-100 flex flex-col items-center justify-center">
+        <ParentLoader label={isPracticeMode ? 'Loading story…' : 'Loading session…'} fullScreen size="lg" />
+        {voskStatus === 'connecting' && (
+          <div className="mt-8 flex items-center gap-3 bg-white/80 px-6 py-3 rounded-full shadow-lg">
+            <div className="w-3 h-3 bg-yellow-500 rounded-full animate-pulse"></div>
+            <span className="text-sm font-medium text-gray-700">Connecting to speech recognition...</span>
+          </div>
+        )}
+        {voskStatus === 'connected' && (
+          <div className="mt-8 flex items-center gap-3 bg-white/80 px-6 py-3 rounded-full shadow-lg">
+            <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+            <span className="text-sm font-medium text-gray-700">Speech recognition ready!</span>
+          </div>
+        )}
+      </div>
+    );
   }
 
   if (!currentSession && !isPracticeMode) {
@@ -1032,6 +1294,37 @@ const ReadingSessionPage: React.FC = () => {
       </div>
     );
   }
+
+  // Retry/Reset reading session
+  const handleRetrySession = () => {
+    // Stop any ongoing recording
+    if (isRecording) {
+      handleStopRecording();
+    }
+    
+    // Reset all session state
+    setCurrentWordIndex(0);
+    setWordsRead(0);
+    setMiscues(0);
+    setElapsedTime(0);
+    setTranscript('');
+    setPartialTranscript('');
+    setRecognizedWords(new Set());
+    setInsertedWordsAfter(new Map());
+    setAudioBlob(null);
+    setAudioUrl(null);
+    setIsRecording(false);
+    setHasStarted(false);
+    
+    // Show confirmation
+    Swal.fire({
+      icon: 'success',
+      title: 'Session Reset!',
+      text: 'You can start a new reading session now.',
+      timer: 2000,
+      showConfirmButton: false
+    });
+  };
 
   const handleCompleteSession = async () => {
     if (!sessionId || !currentSession) return;
@@ -1139,7 +1432,7 @@ const ReadingSessionPage: React.FC = () => {
             <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 rounded-t-3xl animate-pulse" style={{ width: `${Math.min((currentWordIndex / words.length) * 100, 100)}%` }}></div>
             <div className="mb-8 flex items-center justify-between">
               <h3 className="text-2xl font-bold text-blue-900 flex items-center gap-2">
-                <BookOpenIcon className="h-7 w-7 text-blue-500" /> Story Content
+                <BookOpenIcon className="h-7 w-7 text-blue-500" /> Story
               </h3>
               <div className="flex items-center gap-6 text-lg text-blue-700">
                 <span>{words.length} words</span>
@@ -1284,112 +1577,135 @@ const ReadingSessionPage: React.FC = () => {
       {/* Session Controls */}
       <section className="w-full px-4 sm:px-8 pb-8">
         <div className="bg-white/80 rounded-3xl shadow-xl border border-blue-100 p-8 flex flex-col items-center gap-6">
-          {/* Language selector + STT Provider/Vosk status badge */}
+          {/* Language display with status indicator */}
           <div className="w-full flex justify-between items-center gap-2 -mt-4 -mb-2">
             <div className="flex items-center gap-2">
-              <label htmlFor="recognition-language" className="text-sm font-semibold text-blue-900">Recognition language</label>
-              <select
-                id="recognition-language"
-                value={storyLanguage}
-                onChange={(e) => setStoryLanguage(e.target.value as 'english' | 'tagalog')}
-                className="text-sm px-2 py-1 rounded-md border border-blue-200 bg-white text-blue-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-              >
-                <option value="english">English</option>
-                <option value="tagalog">Tagalog</option>
-              </select>
+              <span className="text-sm font-semibold text-blue-900">Story Language:</span>
+              <span className="text-sm px-2 py-1 text-blue-900 font-medium">Tagalog</span>
             </div>
             <div className="flex items-center gap-2">
-              {/* Always show Vosk status for Tagalog and English stories */}
+              {/* Status indicator dot only - no text */}
               {(storyLanguage === 'tagalog' || storyLanguage === 'english') && (
-                <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold ${voskStatus === 'connected' ? 'bg-green-100 text-green-800' : voskStatus === 'connecting' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
-                  <span className={`w-2 h-2 rounded-full ${voskStatus === 'connected' ? 'bg-green-500' : voskStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'}`}></span>
-                  {voskStatus === 'connected' 
-                    ? `Vosk (${storyLanguage === 'tagalog' ? 'Tagalog' : 'English'}) connected` 
-                    : voskStatus === 'connecting' 
-                      ? `Vosk (${storyLanguage === 'tagalog' ? 'Tagalog' : 'English'}) connecting…` 
-                      : `Vosk (${storyLanguage === 'tagalog' ? 'Tagalog' : 'English'}) disconnected`}
-                </span>
-              )}
-              {/* If we fell back, show a small fallback label */}
-              {(storyLanguage === 'tagalog' || storyLanguage === 'english') && sttProvider === 'webspeech' && (
-                <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                  Fallback: Web Speech
-                </span>
-              )}
-              {/* For other languages (if any) */}
-              {storyLanguage !== 'tagalog' && storyLanguage !== 'english' && sttProvider === 'webspeech' && (
-                <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                  Web Speech
-                </span>
+                <span className={`w-3 h-3 rounded-full ${voskStatus === 'connected' ? 'bg-green-500' : voskStatus === 'connecting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'}`}></span>
               )}
             </div>
           </div>
           <div className="flex items-center gap-4 mb-2">
             <MicrophoneIcon className="h-7 w-7 text-blue-500" />
-            <h4 className="text-lg font-bold text-blue-900">Session Controls</h4>
+            <h4 className="text-lg font-bold text-blue-900">Controls</h4>
           </div>
           <div className="flex flex-row flex-wrap justify-center gap-6 w-full">
             {!isRecording ? (
               <button
                 onClick={handleStartRecording}
                 className="flex items-center gap-2 px-8 py-4 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white text-xl font-bold shadow-lg hover:scale-105 hover:from-blue-600 hover:to-purple-600 transition-all duration-200"
-                title="Start Session"
+                title="Start"
               >
                 <MicrophoneIcon className="h-7 w-7" /> Start
               </button>
             ) : (
-              <>
-                {isPaused ? (
-                  <button
-                    onClick={handleResumeRecording}
-                    className="flex items-center gap-2 px-8 py-4 rounded-2xl bg-gradient-to-r from-green-400 to-blue-400 text-white text-xl font-bold shadow-lg hover:scale-105 transition-all duration-200"
-                    title="Resume Recording"
-                  >
-                    <PlayIcon className="h-7 w-7" /> Resume
-                  </button>
-                ) : (
-                  <button
-                    onClick={handlePauseRecording}
-                    className="flex items-center gap-2 px-8 py-4 rounded-2xl bg-gradient-to-r from-yellow-400 to-orange-400 text-white text-xl font-bold shadow-lg hover:scale-105 transition-all duration-200"
-                    title="Pause Recording"
-                  >
-                    <PauseIcon className="h-7 w-7" /> Pause
-                  </button>
-                )}
-                <button
-                  onClick={handleStopRecording}
-                  className="flex items-center gap-2 px-8 py-4 rounded-2xl bg-gradient-to-r from-red-500 to-pink-500 text-white text-xl font-bold shadow-lg hover:scale-105 transition-all duration-200"
-                  title="Stop Recording"
-                >
-                  <StopIcon className="h-7 w-7" /> Stop
-                </button>
-              </>
+              <button
+                onClick={handleDownloadAudio}
+                disabled={!audioUrl}
+                className="flex items-center gap-2 px-8 py-4 rounded-2xl bg-gradient-to-r from-green-400 to-blue-400 text-white text-xl font-bold shadow-lg hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Download audio recording"
+              >
+                <svg xmlns='http://www.w3.org/2000/svg' className='h-7 w-7' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4' /></svg>
+                Download Audio
+              </button>
             )}
-            {!isPracticeMode && currentSession?.status === 'in-progress' && (
+            {!isPracticeMode && currentSession?.status === 'in-progress' && hasStarted && (
               <button
                 onClick={handleCompleteSession}
                 className="flex items-center gap-2 px-8 py-4 rounded-2xl bg-gradient-to-r from-green-500 to-blue-500 text-white text-xl font-bold shadow-lg hover:scale-105 transition-all duration-200"
-                title="Complete Session"
+                title="Complete"
               >
-                <ChartBarIcon className="h-7 w-7" /> Complete Session
+                <ChartBarIcon className="h-7 w-7" /> Complete
+              </button>
+            )}
+            {isRecording && (
+              <button
+                onClick={handleRetrySession}
+                className="flex items-center gap-2 px-8 py-4 rounded-2xl bg-gradient-to-r from-yellow-500 to-orange-500 text-white text-xl font-bold shadow-lg hover:scale-105 transition-all duration-200"
+                title="Retry"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Retry
               </button>
             )}
           </div>
-          {/* Download Audio Button (show only if audioUrl exists) */}
-          {audioUrl && (
-            <button
-              onClick={handleDownloadAudio}
-              className="mt-6 flex items-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-green-400 to-blue-400 text-white text-lg font-bold shadow-lg hover:scale-105 transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-400"
-              title="Download audio recording"
-            >
-              <svg xmlns='http://www.w3.org/2000/svg' className='h-6 w-6' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4' /></svg>
-              Download Audio
-            </button>
-          )}
         </div>
       </section>
+
+      {/* Countdown Modal */}
+      {showCountdown && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm">
+          {/* Big Circular Container */}
+          <div className="relative w-[500px] h-[500px] sm:w-[600px] sm:h-[600px]">
+            {/* Background Circle with Gradient */}
+            <svg className="w-full h-full" viewBox="0 0 600 600">
+              <defs>
+                <linearGradient id="circleGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#60a5fa" />
+                  <stop offset="100%" stopColor="#2563eb" />
+                </linearGradient>
+              </defs>
+              {/* Main filled circle background */}
+              <circle
+                cx="300"
+                cy="300"
+                r="288"
+                fill="url(#circleGradient)"
+                className="drop-shadow-2xl"
+              />
+              {/* Progress ring background */}
+              <circle
+                cx="300"
+                cy="300"
+                r="270"
+                stroke="rgba(255, 255, 255, 0.3)"
+                strokeWidth="20"
+                fill="none"
+              />
+              {/* Animated progress ring */}
+              <circle
+                cx="300"
+                cy="300"
+                r="270"
+                stroke="white"
+                strokeWidth="20"
+                fill="none"
+                pathLength="100"
+                strokeDasharray="100"
+                strokeDashoffset={100 - ((5 - countdown) / 5) * 100}
+                strokeLinecap="butt"
+                transform="rotate(-90 300 300)"
+                className="transition-all duration-1000 ease-linear"
+              />
+            </svg>
+            
+            {/* Content inside circle */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-6">
+              {/* Countdown Number */}
+              <span className="text-[180px] sm:text-[220px] font-black text-white drop-shadow-2xl animate-pulse leading-none">
+                {countdown}
+              </span>
+              
+              {/* Instructions */}
+              <div className="space-y-4 px-12 text-center">
+                <h3 className="text-4xl sm:text-5xl font-black text-white drop-shadow-lg">
+                  Get Ready!
+                </h3>
+                <p className="text-3xl sm:text-4xl font-bold text-white/95 leading-tight">
+                  Read LOUD and CLEAR
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

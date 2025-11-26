@@ -13,8 +13,6 @@ import {
   UserGroupIcon,
   ChartBarIcon,
   MicrophoneIcon,
-  PlayIcon,
-  PauseIcon,
   StopIcon,
 } from "@heroicons/react/24/outline";
 import * as pdfjsLib from "pdfjs-dist";
@@ -57,6 +55,44 @@ const ReadingSessionPage: React.FC = () => {
   const [pdfContent, setPdfContent] = useState<string>("");
   const [isLoadingPdf, setIsLoadingPdf] = useState(false); // used in PDF fetch display logic
   const [pdfError, setPdfError] = useState<string | null>(null);
+  
+  // Countdown modal state
+  const [showCountdown, setShowCountdown] = useState(false);
+  const [countdown, setCountdown] = useState(5);
+  
+  // Track if session has been started (to show Complete button)
+  const [hasStarted, setHasStarted] = useState(false);
+  
+  // Countdown effect - preload Vosk connection during countdown
+  useEffect(() => {
+    if (showCountdown && countdown > 0) {
+      const timer = setTimeout(() => {
+        setCountdown(countdown - 1);
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else if (showCountdown && countdown === 0) {
+      // Countdown finished, start recording
+      setShowCountdown(false);
+      startRecordingAfterCountdown();
+      setCountdown(5); // Reset for next time
+    }
+  }, [showCountdown, countdown]);
+  
+  // Check Vosk connection status during countdown
+  useEffect(() => {
+    if (showCountdown && countdown === 5 && words.length > 0) {
+      // Check if Vosk is already connected from preload
+      const isConnected = voskSocketRef.current && voskSocketRef.current.readyState === WebSocket.OPEN;
+      if (isConnected) {
+        console.log('✅ [Teacher] Vosk already connected - ready to start!');
+      } else {
+        console.log('⏳ [Teacher] Vosk still connecting...');
+        // Try to connect if not already connected
+        preloadVoskConnection();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCountdown, countdown]);
 
   // Audio recording state
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
@@ -580,6 +616,9 @@ const ReadingSessionPage: React.FC = () => {
 
   // Track inserted words (extra words child said) with their position
   const [insertedWords, setInsertedWords] = useState<Map<number, string[]>>(new Map());
+
+  // Toggle visibility of Miscue Types Detection section (hidden by default)
+  const [showMiscueDetails, setShowMiscueDetails] = useState(false);
 
   // Server-calculated metrics (backend is source of truth)
   const [serverMetrics, setServerMetrics] = useState<{
@@ -1171,8 +1210,206 @@ const ReadingSessionPage: React.FC = () => {
       alert("This session is already completed. Recording is disabled.");
       return;
     }
+    // Show countdown modal first
+    setShowCountdown(true);
+    setCountdown(5);
+  };
+
+  // Preload Vosk connection (called during loading or countdown)
+  const preloadVoskConnection = async () => {
+    console.log('🔄 [Teacher] preloadVoskConnection called - storyLanguage:', storyLanguage, 'words:', words.length);
+    
+    const useVosk = storyLanguage === 'tagalog' || storyLanguage === 'english';
+    if (!useVosk) {
+      console.log('⚠️ [Teacher] Not using Vosk - language:', storyLanguage);
+      return;
+    }
+    
+    // Prevent duplicate connections
+    if (voskSocketRef.current && voskSocketRef.current.readyState === WebSocket.OPEN) {
+      console.log('✅ [Teacher] Vosk already connected - skipping preload');
+      return;
+    }
+    
+    // Close any existing connection that's not open
+    if (voskSocketRef.current) {
+      try {
+        voskSocketRef.current.close();
+      } catch (e) {
+        console.warn('[Teacher] Error closing existing Vosk connection:', e);
+      }
+    }
+    
+    // Helper to get WebSocket URLs
+    const getLocalWsUrl = (lang: string) => {
+      const normalizedLang = (lang === "tl" || lang === "tagalog") ? "tagalog" : "english";
+      return `ws://localhost:2700/?lang=${normalizedLang}`;
+    };
+    
+    const getRailwayWsUrl = (lang: string) => {
+      const env = (import.meta as any)?.env || {};
+      const railwayUrl = env.VITE_VOSK_WS_URL || "wss://philiready-websocket-production.up.railway.app";
+      const normalizedLang = (lang === "tl" || lang === "tagalog") ? "tagalog" : "english";
+      return `${railwayUrl}?lang=${normalizedLang}`;
+    };
+    
+    // Try local server first, then Railway
+    const localUrl = getLocalWsUrl(storyLanguage);
+    const railwayUrl = getRailwayWsUrl(storyLanguage);
+    
+    console.log('🔍 [Teacher] Checking local Vosk server:', localUrl);
+    setVoskStatus('connecting');
+    
+    // Try local server first with quick timeout
+    const tryLocalServer = () => {
+      return new Promise<WebSocket>((resolve, reject) => {
+        const ws = new WebSocket(localUrl);
+        ws.binaryType = 'arraybuffer';
+        
+        const timeout = setTimeout(() => {
+          ws.close();
+          reject(new Error('Local server timeout'));
+        }, 2000); // 2 second timeout for local
+        
+        ws.onopen = () => {
+          clearTimeout(timeout);
+          console.log('✅ [Teacher] Connected to LOCAL Vosk server');
+          resolve(ws);
+        };
+        
+        ws.onerror = () => {
+          clearTimeout(timeout);
+          ws.close();
+          reject(new Error('Local server not available'));
+        };
+      });
+    };
+    
+    // Try Railway server
+    const tryRailwayServer = () => {
+      return new Promise<WebSocket>((resolve, reject) => {
+        console.log('🌐 [Teacher] Trying Railway Vosk server:', railwayUrl);
+        const ws = new WebSocket(railwayUrl);
+        ws.binaryType = 'arraybuffer';
+        
+        const timeout = setTimeout(() => {
+          ws.close();
+          reject(new Error('Railway server timeout'));
+        }, 5000); // 5 second timeout for Railway
+        
+        ws.onopen = () => {
+          clearTimeout(timeout);
+          console.log('✅ [Teacher] Connected to RAILWAY Vosk server');
+          resolve(ws);
+        };
+        
+        ws.onerror = () => {
+          clearTimeout(timeout);
+          ws.close();
+          reject(new Error('Railway server not available'));
+        };
+      });
+    };
+    
+    try {
+      // Try local first
+      let ws: WebSocket;
+      try {
+        ws = await tryLocalServer();
+        console.log('🏠 [Teacher] Using LOCAL Vosk server');
+      } catch (localError) {
+        console.log('⚠️ [Teacher] Local server not available, trying Railway...');
+        ws = await tryRailwayServer();
+        console.log('☁️ [Teacher] Using RAILWAY Vosk server');
+      }
+      
+      voskSocketRef.current = ws;
+      ws.binaryType = 'arraybuffer';
+      
+      // Connection already established, set up handlers
+      setVoskStatus('connected');
+      
+      // Send story vocabulary for server-side filtering
+      if (words.length > 0) {
+        const vocabulary = Array.from(new Set(words.map((w: string) => w.toLowerCase())));
+        ws.send(JSON.stringify({
+          config: {
+            vocabulary: vocabulary,
+            expected_words: words.map((w: string) => w.toLowerCase())
+          }
+        }));
+        console.log(`📚 [Teacher] Sent vocabulary: ${vocabulary.length} unique words`);
+      }
+      
+      ws.onerror = (error) => {
+        console.warn('⚠️ [Teacher] Vosk connection error:', error);
+        setVoskStatus('disconnected');
+      };
+      
+      ws.onclose = () => {
+        console.log('🔌 [Teacher] Vosk connection closed');
+        setVoskStatus('disconnected');
+      };
+      
+      // Handle messages (word matching results)
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          
+          if (msg.match_result) {
+            const { match_type, new_position, details } = msg.match_result;
+            const metrics = msg.metrics;
+            const word = msg.text;
+            
+            console.log(`🎯 [Teacher] Backend match: ${match_type} - ${details}`);
+            
+            if (new_position !== undefined) {
+              setCurrentWordIndex(new_position);
+            }
+            
+            switch (match_type) {
+              case 'correct':
+                const correctWordIndex = new_position - 1;
+                setRecognizedWords(prev => new Set(prev).add(correctWordIndex));
+                break;
+                
+              case 'insertion':
+                const insertedWord = msg.match_result.inserted_word || word;
+                const insertionWordIndex = new_position - 1;
+                setRecognizedWords(prev => {
+                  const newSet = new Set(prev);
+                  newSet.add(insertionWordIndex);
+                  return newSet;
+                });
+                setInsertedWords((prev: Map<number, string[]>) => {
+                  const newMap = new Map(prev);
+                  const existing = newMap.get(insertionWordIndex) || [];
+                  newMap.set(insertionWordIndex, [...existing, insertedWord]);
+                  return newMap;
+                });
+                break;
+            }
+            
+            if (metrics) {
+              setWordsRead(metrics.words_read);
+              setMiscues(metrics.total_miscues);
+            }
+          }
+        } catch {}
+      };
+      
+    } catch (error) {
+      console.error('❌ [Teacher] Failed to connect to both local and Railway Vosk servers:', error);
+      setVoskStatus('disconnected');
+      voskSocketRef.current = null;
+    }
+  };
+
+  // Actual recording start after countdown
+  const startRecordingAfterCountdown = () => {
     setIsRecording(true);
     setIsPaused(false);
+    setHasStarted(true); // Mark that session has started
     setTranscript("");
     setPartialTranscript(""); // Reset partial transcript for real-time display
     voskFinalTranscriptRef.current = ""; // Reset Vosk transcript accumulator
@@ -1995,15 +2232,7 @@ const ReadingSessionPage: React.FC = () => {
     });
   };
 
-  // Pause/Resume recording (optional)
-  const handlePauseRecording = () => {
-    setIsPaused(true);
-    if (mediaRecorderRef.current) mediaRecorderRef.current.pause();
-  };
-  const handleResumeRecording = () => {
-    setIsPaused(false);
-    if (mediaRecorderRef.current) mediaRecorderRef.current.resume();
-  };
+
 
   // Update elapsed time as time passes
   useEffect(() => {
@@ -2155,9 +2384,11 @@ const ReadingSessionPage: React.FC = () => {
               internalLanguage = "english";
             }
 
+            console.log('📖 [Teacher] Setting story language:', internalLanguage, '(from:', fullStory.language, ')');
             setStoryLanguage(internalLanguage);
           } else {
             // Default to English if no language is specified
+            console.log('📖 [Teacher] Setting default story language: english');
             setStoryLanguage("english");
           }
 
@@ -2171,6 +2402,7 @@ const ReadingSessionPage: React.FC = () => {
             const wordArray = trimmedText
               .split(/\s+/)
               .filter((word: string) => word.length > 0);
+            console.log('📖 [Teacher] Setting words:', wordArray.length, 'words');
             setWords(wordArray);
 
             // Extract vocabulary for vocabulary-constrained recognition
@@ -2237,6 +2469,20 @@ const ReadingSessionPage: React.FC = () => {
 
     fetchSession();
   }, [sessionId]);
+  
+  // Preload Vosk connection as soon as we have story data (even during loading)
+  useEffect(() => {
+    console.log('🔍 [Teacher] Preload useEffect triggered - words:', words.length, 'storyLanguage:', storyLanguage, 'isLoading:', isLoading);
+    
+    // Start preloading as soon as we have words and language (don't wait for loading to finish)
+    if (words.length > 0 && storyLanguage) {
+      console.log('📚 [Teacher] Story data available - preloading Vosk connection NOW (during loading)...');
+      preloadVoskConnection();
+    } else {
+      console.log('⏳ [Teacher] Waiting for story data - words:', words.length, 'language:', storyLanguage);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [words.length, storyLanguage]);
 
   const handleGoBack = () => {
     navigate(-1);
@@ -3937,6 +4183,40 @@ const ReadingSessionPage: React.FC = () => {
     }
   };
 
+  // Retry/Reset reading session
+  const handleRetrySession = () => {
+    // Stop any ongoing recording
+    if (isRecording) {
+      handleStopRecording();
+    }
+    
+    // Reset all session state
+    setCurrentWordIndex(0);
+    setWordsRead(0);
+    setMiscues(0);
+    setMiscueTypes({ omission: 0, substitution: 0, insertion: 0, mispronunciation: 0, repetition: 0, transposition: 0, reversal: 0, selfCorrection: 0 });
+    setElapsedTime(0);
+    setTranscript('');
+    setPartialTranscript('');
+    setRecognizedWords(new Set());
+    setWordMiscues(new Map());
+    setWordMarkings(new Map());
+    setInsertedWords(new Map());
+    setAudioBlob(null);
+    setAudioUrl(null);
+    setIsRecording(false);
+    setHasStarted(false);
+    
+    // Show confirmation
+    Swal.fire({
+      icon: 'success',
+      title: 'Session Reset!',
+      text: 'You can start a new reading session now.',
+      timer: 2000,
+      showConfirmButton: false
+    });
+  };
+
   const handleCompleteSession = async () => {
     if (!sessionId || !currentSession) return;
 
@@ -4111,7 +4391,7 @@ const ReadingSessionPage: React.FC = () => {
             <div className="mb-4 sm:mb-6 lg:mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
               <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-blue-900 flex items-center gap-2">
                 <BookOpenIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 text-blue-500" />{" "}
-                Story Content
+                Story
               </h3>
               <div className="flex items-center gap-3 sm:gap-6 text-sm sm:text-base lg:text-lg text-blue-700">
                 <span>{words.length} words</span>
@@ -4577,11 +4857,36 @@ const ReadingSessionPage: React.FC = () => {
       {(!isRecording || isCompleted) && (
         <section className="w-full px-4 sm:px-8 pb-4">
           <div className="bg-gradient-to-br from-red-50 to-orange-50 rounded-2xl lg:rounded-3xl border-2 border-red-200 p-4 sm:p-6 lg:p-8">
-            <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-red-800 mb-4 flex items-center gap-2">
-              <span className="text-2xl">🔍</span>
-              Miscue Types Detection (Phil-IRI) - Results
-            </h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-red-800 flex items-center gap-2">
+                <span className="text-2xl">🔍</span>
+                Miscue Types Detection (Phil-IRI) - Results
+              </h3>
+              <button
+                onClick={() => setShowMiscueDetails(!showMiscueDetails)}
+                className="px-3 py-1.5 sm:px-4 sm:py-2 bg-red-600 hover:bg-red-700 text-white text-xs sm:text-sm font-semibold rounded-lg transition-colors flex items-center gap-2"
+              >
+                {showMiscueDetails ? (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                    </svg>
+                    <span>Hide Details</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    <span>Show Details</span>
+                  </>
+                )}
+              </button>
+            </div>
 
+            {showMiscueDetails && (
+            <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               {/* 1. Mispronunciation */}
               <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.mispronunciation > 0 ? 'bg-red-100 border-red-400 shadow-lg' : 'bg-white border-gray-200'}`}>
@@ -4722,6 +5027,8 @@ const ReadingSessionPage: React.FC = () => {
                 <span className="font-semibold">Note:</span> Self-corrections are marked but not counted as errors. Dialectal variations are not counted as mispronunciations.
               </p>
             </div>
+            </>
+            )}
           </div>
         </section>
       )}
@@ -4733,67 +5040,31 @@ const ReadingSessionPage: React.FC = () => {
             {/* Language selector + STT Provider/Vosk status badge */}
             <div className="w-full flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 -mt-2 -mb-2">
               <div className="flex items-center gap-2">
-                <label
-                  htmlFor="recognition-language"
-                  className="text-xs sm:text-sm font-semibold text-blue-900"
-                >
+                <span className="text-xs sm:text-sm font-semibold text-blue-900">
                   Story Language:
-                </label>
-                <select
-                  id="recognition-language"
-                  value={storyLanguage}
-                  onChange={(e) =>
-                    setStoryLanguage(e.target.value as "english" | "tagalog")
-                  }
-                  disabled={isRecording}
-                  className="text-xs sm:text-sm px-2 py-1 rounded-md border border-blue-200 bg-white text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  title={isRecording ? "Cannot change language during recording" : "Select story language for speech recognition"}
-                >
-                  <option value="english">English</option>
-                  <option value="tagalog">Tagalog</option>
-                </select>
+                </span>
+                <span className="text-xs sm:text-sm px-2 py-1 text-blue-900 font-medium">
+                  Tagalog
+                </span>
               </div>
               <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
-                {/* Always show Vosk status for Tagalog and English stories */}
+                {/* Status indicator dot only - no text */}
                 {(storyLanguage === "tagalog" || storyLanguage === "english") && (
                   <span
-                    className={`inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-semibold ${voskStatus === "connected"
-                      ? "bg-green-100 text-green-800"
+                    className={`w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full ${voskStatus === "connected"
+                      ? "bg-green-500"
                       : voskStatus === "connecting"
-                        ? "bg-yellow-100 text-yellow-800"
-                        : "bg-red-100 text-red-800"
+                        ? "bg-yellow-500 animate-pulse"
+                        : "bg-red-500"
                       }`}
-                  >
-                    <span
-                      className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${voskStatus === "connected"
-                        ? "bg-green-500 animate-pulse"
-                        : voskStatus === "connecting"
-                          ? "bg-yellow-500 animate-pulse"
-                          : "bg-red-500"
-                        }`}
-                    ></span>
-                    <span className="hidden sm:inline">
-                      {voskStatus === "connected"
-                        ? `Vosk ${storyLanguage === "tagalog" ? "Tagalog" : "English"} Model: Connected`
-                        : voskStatus === "connecting"
-                          ? `Vosk ${storyLanguage === "tagalog" ? "Tagalog" : "English"} Model: Connecting…`
-                          : `Vosk ${storyLanguage === "tagalog" ? "Tagalog" : "English"} Model: Disconnected`}
-                    </span>
-                    <span className="sm:hidden">
-                      {voskStatus === "connected"
-                        ? `Vosk ${storyLanguage === "tagalog" ? "TL" : "EN"}`
-                        : voskStatus === "connecting"
-                          ? `Vosk ${storyLanguage === "tagalog" ? "TL" : "EN"}...`
-                          : `Vosk ${storyLanguage === "tagalog" ? "TL" : "EN"}`}
-                    </span>
-                  </span>
+                  ></span>
                 )}
               </div>
             </div>
             <div className="flex items-center gap-2 sm:gap-4 mb-2">
               <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 text-blue-500" />
               <h4 className="text-base sm:text-lg font-bold text-blue-900">
-                Session Controls
+                Controls
               </h4>
             </div>
             <div className="flex flex-row flex-wrap justify-center gap-3 sm:gap-4 lg:gap-6 w-full">
@@ -4804,165 +5075,184 @@ const ReadingSessionPage: React.FC = () => {
                     className="flex items-center justify-center gap-2 sm:gap-3 px-8 sm:px-12 lg:px-16 py-4 sm:py-5 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white text-lg sm:text-xl lg:text-2xl font-bold hover:scale-105 hover:from-blue-600 hover:to-purple-600 transition-all duration-200 shadow-lg"
                   >
                     <MicrophoneIcon className="h-7 w-7 sm:h-8 sm:w-8 lg:h-9 lg:w-9" />
-                    <span>Start Reading Session</span>
+                    <span>Start</span>
                   </button>
                   <p className="text-sm text-gray-500 text-center">
                     Click to begin recording the student's reading
                   </p>
                 </div>
               ) : (
-                <>
-                  {isPaused ? (
-                    <button
-                      onClick={handleResumeRecording}
-                      className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-green-400 to-blue-400 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
-                      title="Resume Recording"
-                    >
-                      <PlayIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-                      <span className="hidden sm:inline">Resume</span>
-                      <span className="sm:hidden">Resume</span>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handlePauseRecording}
-                      className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-yellow-400 to-orange-400 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
-                      title="Pause Recording"
-                    >
-                      <PauseIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-                      <span className="hidden sm:inline">Pause</span>
-                      <span className="sm:hidden">Pause</span>
-                    </button>
-                  )}
-                  <div className="flex flex-col items-center gap-2 w-full">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
-                      <span className="text-sm font-semibold text-red-600">Recording in Progress</span>
-                    </div>
-                    <button
-                      onClick={handleStopRecording}
-                      className="flex items-center gap-2 sm:gap-3 px-8 sm:px-12 py-4 sm:py-5 rounded-2xl bg-gradient-to-r from-red-500 to-pink-500 text-white text-lg sm:text-xl font-bold hover:scale-105 transition-all duration-200 shadow-lg"
-                    >
-                      <StopIcon className="h-6 w-6 sm:h-7 sm:w-7" />
-                      <span>Stop & Save Session</span>
-                    </button>
+                <div className="flex flex-col items-center gap-3 w-full">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                    <span className="text-sm font-semibold text-red-600">Recording in Progress</span>
                   </div>
-                  {/* Skip Word Button - for when stuck (DepEd Rule: Manual omission) */}
                   <button
-                    onClick={() => {
-                      const skippedWord = realWords[currentWordIndex];
-                      console.log(`⏭️ Manual skip: Advancing from word ${currentWordIndex} ("${skippedWord}") - DepEd Rule: Circle omitted word`);
-
-                      // Mark as omission following DepEd rules
-                      setMiscues(prev => prev + 1);
-                      setMiscueTypes(prev => ({ ...prev, omission: prev.omission + 1 }));
-                      setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'omission'));
-                      setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
-                        type: 'omission',
-                        marking: `Circle the omitted word: "${skippedWord}"`,
-                        spokenWord: '(manually skipped)',
-                        correctWord: skippedWord
-                      }));
-
-                      // Advance to next word
-                      setCurrentWordIndex(prev => prev + 1);
-                      setWordsRead(prev => prev + 1);
-                    }}
-                    className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 lg:px-6 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-gray-500 to-gray-600 text-white text-sm sm:text-base lg:text-lg font-bold hover:scale-105 transition-all duration-200"
-                    title="Skip current word (counts as omission)"
+                    onClick={handleDownloadAudio}
+                    disabled={!audioUrl}
+                    className="flex items-center justify-center gap-2 sm:gap-3 px-8 sm:px-12 lg:px-16 py-4 sm:py-5 rounded-2xl bg-gradient-to-r from-green-400 to-blue-400 text-white text-lg sm:text-xl lg:text-2xl font-bold hover:scale-105 transition-all duration-200 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Download audio recording"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 8.688c0-.864.933-1.405 1.683-.977l7.108 4.062a1.125 1.125 0 010 1.953l-7.108 4.062A1.125 1.125 0 013 16.81V8.688zM12.75 8.688c0-.864.933-1.405 1.683-.977l7.108 4.062a1.125 1.125 0 010 1.953l-7.108 4.062a1.125 1.125 0 01-1.683-.977V8.688z" />
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-7 w-7 sm:h-8 sm:w-8 lg:h-9 lg:w-9"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"
+                      />
                     </svg>
-                    <span className="hidden lg:inline">Skip</span>
+                    <span>Download Audio</span>
                   </button>
-                </>
+                </div>
               )}
-              {!isCompleted && (
+              {!isCompleted && hasStarted && (
                 <button
                   onClick={handleCompleteSession}
                   className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-green-500 to-blue-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
-                  title="Complete Session"
+                  title="Complete"
                 >
                   <ChartBarIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-                  <span className="hidden sm:inline">Complete Session</span>
-                  <span className="sm:hidden">Complete</span>
+                  <span>Complete</span>
+                </button>
+              )}
+              {isRecording && (
+                <button
+                  onClick={handleRetrySession}
+                  className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-yellow-500 to-orange-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
+                  title="Retry"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  <span>Retry</span>
                 </button>
               )}
             </div>
-            {/* Download Audio Button (show only if audioUrl exists) */}
-            {audioUrl && (
-              <button
-                onClick={handleDownloadAudio}
-                className="mt-4 sm:mt-6 flex items-center gap-1 sm:gap-2 px-4 sm:px-6 py-2 sm:py-3 rounded-full bg-gradient-to-r from-green-400 to-blue-400 text-white text-sm sm:text-base lg:text-lg font-bold hover:scale-105 transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-400"
-                title="Download audio recording"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"
-                  />
-                </svg>
-                <span className="hidden sm:inline">Download Audio</span>
-                <span className="sm:hidden">Download</span>
-              </button>
-            )}
           </div>
         </section>
       )}
-      {/* Bottom Quiz Button */}
-      <div className="w-full px-4 sm:px-8 py-4 mt-auto bg-white/80 border-t border-blue-100">
-        <div className="max-w-6xl mx-auto">
-          <button
-            onClick={() => {
-              if (!currentSession) return;
-              // choose student deterministically: first completed, else first in list
-              const completedIds = Object.keys(completedStudents).filter(
-                (id) => completedStudents[id]
-              );
+      {/* Bottom Quiz Button - Only show when session is completed */}
+      {isCompleted && (
+        <div className="w-full px-4 sm:px-8 py-4 mt-auto bg-white/80 border-t border-blue-100">
+          <div className="max-w-6xl mx-auto">
+            <button
+              onClick={() => {
+                if (!currentSession) return;
+                // choose student deterministically: first completed, else first in list
+                const completedIds = Object.keys(completedStudents).filter(
+                  (id) => completedStudents[id]
+                );
 
-              // Extract student IDs from students array (handle both old and new format)
-              const studentIds = currentSession.students.map(s =>
-                typeof s === 'string' ? s : s.id
-              );
+                // Extract student IDs from students array (handle both old and new format)
+                const studentIds = currentSession.students.map(s =>
+                  typeof s === 'string' ? s : s.id
+                );
 
-              const studentId =
-                currentSession.students.length === 1
-                  ? studentIds[0]
-                  : completedIds[0] || studentIds[0];
+                const studentId =
+                  currentSession.students.length === 1
+                    ? studentIds[0]
+                    : completedIds[0] || studentIds[0];
 
-              // Get student name (handle both old and new format)
-              const firstStudent = currentSession.students[0];
-              const studentName = typeof firstStudent === 'string'
-                ? (studentNames[studentId] || studentId)
-                : firstStudent.name;
-              if (!resolvedTestId) {
-                alert("No test found for this story.");
-                return;
-              }
+                // Get student name (handle both old and new format)
+                const firstStudent = currentSession.students[0];
+                const studentName = typeof firstStudent === 'string'
+                  ? (studentNames[studentId] || studentId)
+                  : firstStudent.name;
+                if (!resolvedTestId) {
+                  alert("No test found for this story.");
+                  return;
+                }
 
-              navigate(`/student/test/${resolvedTestId}` as any, {
-                state: {
-                  studentId,
-                  studentName,
-                  teacherId: currentSession.teacherId,
-                },
-              });
-            }}
-            disabled={false}
-            className="w-full py-4 rounded-2xl text-white font-bold text-lg transition-all duration-200 bg-gradient-to-r from-indigo-500 to-blue-500 hover:from-indigo-600 hover:to-blue-600 hover:scale-[1.01]"
-          >
-            Quiz
-          </button>
+                navigate(`/student/test/${resolvedTestId}` as any, {
+                  state: {
+                    studentId,
+                    studentName,
+                    teacherId: currentSession.teacherId,
+                  },
+                });
+              }}
+              disabled={false}
+              className="w-full py-4 rounded-2xl text-white font-bold text-lg transition-all duration-200 bg-gradient-to-r from-indigo-500 to-blue-500 hover:from-indigo-600 hover:to-blue-600 hover:scale-[1.01]"
+            >
+              Quiz
+            </button>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Countdown Modal */}
+      {showCountdown && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm">
+          {/* Big Circular Container */}
+          <div className="relative w-[500px] h-[500px] sm:w-[600px] sm:h-[600px]">
+            {/* Background Circle with Gradient */}
+            <svg className="w-full h-full" viewBox="0 0 600 600">
+              <defs>
+                <linearGradient id="circleGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#60a5fa" />
+                  <stop offset="100%" stopColor="#2563eb" />
+                </linearGradient>
+              </defs>
+              {/* Main filled circle background */}
+              <circle
+                cx="300"
+                cy="300"
+                r="288"
+                fill="url(#circleGradient)"
+                className="drop-shadow-2xl"
+              />
+              {/* Progress ring background */}
+              <circle
+                cx="300"
+                cy="300"
+                r="270"
+                stroke="rgba(255, 255, 255, 0.3)"
+                strokeWidth="20"
+                fill="none"
+              />
+              {/* Animated progress ring */}
+              <circle
+                cx="300"
+                cy="300"
+                r="270"
+                stroke="white"
+                strokeWidth="20"
+                fill="none"
+                pathLength="100"
+                strokeDasharray="100"
+                strokeDashoffset={100 - ((5 - countdown) / 5) * 100}
+                strokeLinecap="butt"
+                transform="rotate(-90 300 300)"
+                className="transition-all duration-1000 ease-linear"
+              />
+            </svg>
+            
+            {/* Content inside circle */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-6">
+              {/* Countdown Number */}
+              <span className="text-[180px] sm:text-[220px] font-black text-white drop-shadow-2xl animate-pulse leading-none">
+                {countdown}
+              </span>
+              
+              {/* Instructions */}
+              <div className="space-y-4 px-12 text-center">
+                <h3 className="text-4xl sm:text-5xl font-black text-white drop-shadow-lg">
+                  Get Ready!
+                </h3>
+                <p className="text-3xl sm:text-4xl font-bold text-white/95 leading-tight">
+                  Read LOUD and CLEAR
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
