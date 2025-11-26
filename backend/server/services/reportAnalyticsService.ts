@@ -1,5 +1,6 @@
 import ISRResult from '../models/ISRResult.js';
 import Teacher from '../models/Teacher.js';
+import type { PipelineStage } from 'mongoose';
 
 type DistributionFilters = {
   grade?: string;
@@ -35,7 +36,8 @@ const buildMatchStage = (filters?: DistributionFilters) => {
 
 export const getReadingLevelDistribution = async (filters?: DistributionFilters) => {
   const match = buildMatchStage(filters);
-  const pipeline = [
+  const pipeline: PipelineStage[] = (
+    [
     Object.keys(match).length ? { $match: match } : null,
     {
       $group: {
@@ -69,7 +71,8 @@ export const getReadingLevelDistribution = async (filters?: DistributionFilters)
       },
     },
     { $sort: { grade: 1 } },
-  ].filter(Boolean) as Record<string, any>[];
+  ] as (PipelineStage | null)[]
+  ).filter(Boolean) as PipelineStage[];
 
   const distribution = await ISRResult.aggregate(pipeline);
 

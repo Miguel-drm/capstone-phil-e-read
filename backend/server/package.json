@@ -209,7 +209,8 @@
     "vosk": "0.3.45"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.19"
+    "@types/cors": "^2.8.19",
+    "@types/node-cron": "^3.0.11"
   },
   "scripts": {
     "dev": "tsx server.ts",

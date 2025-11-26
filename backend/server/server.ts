@@ -396,11 +396,11 @@ app.get('/api/test', (req, res) => {
 
         // Check if it's a valid PDF (only for PDF files, skip for text files)
         if (req.file.mimetype === 'application/pdf') {
-          const pdfHeader = req.file.buffer.slice(0, 4).toString();
-          if (!pdfHeader.startsWith('%PDF')) {
-            console.error('Invalid PDF header:', pdfHeader);
-            res.status(400).json({ error: 'Invalid PDF file: Missing PDF header' });
-            return;
+        const pdfHeader = req.file.buffer.slice(0, 4).toString();
+        if (!pdfHeader.startsWith('%PDF')) {
+          console.error('Invalid PDF header:', pdfHeader);
+          res.status(400).json({ error: 'Invalid PDF file: Missing PDF header' });
+          return;
           }
         } else if (req.file.mimetype === 'text/plain') {
           // For text files (manual input), no header validation needed
