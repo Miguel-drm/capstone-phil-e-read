@@ -13,7 +13,6 @@ import {
   UserGroupIcon,
   ChartBarIcon,
   MicrophoneIcon,
-  StopIcon,
 } from "@heroicons/react/24/outline";
 import * as pdfjsLib from "pdfjs-dist";
 import type { TextItem } from "pdfjs-dist/types/src/display/api";
@@ -110,11 +109,9 @@ const ReadingSessionPage: React.FC = () => {
   const voskConnectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const voskHeartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [transcript, setTranscript] = useState("");
-  const [partialTranscript, setPartialTranscript] = useState(""); // Real-time partial results
   const [voskStatus, setVoskStatus] = useState<
     "disconnected" | "connecting" | "connected"
   >("disconnected");
-  const [isUsingLocalVosk, setIsUsingLocalVosk] = useState(false);
   const [wordsRead, setWordsRead] = useState(0);
   const [storyLanguage, setStoryLanguage] = useState<"english" | "tagalog">(
     "english"
@@ -462,18 +459,11 @@ const ReadingSessionPage: React.FC = () => {
             console.log(`✅ Vocabulary filter: Accepted "${filteredText}"`);
             voskFinalTranscriptRef.current += (voskFinalTranscriptRef.current ? " " : "") + filteredText;
             setTranscript(voskFinalTranscriptRef.current);
-            setPartialTranscript("");
           }
         } else if (msg.partial && msg.partial.trim()) {
           const originalPartial = msg.partial.trim();
           console.log(`🎯 Vosk recognized (partial): "${originalPartial}"`);
-          const filteredPartial = filterThroughVocabulary(originalPartial, storyVocabulary);
-
-          if (filteredPartial) {
-            setPartialTranscript(filteredPartial); // Update partial separately for real-time display
-          } else {
-            setPartialTranscript(""); // Clear if no valid words
-          }
+          // Partial results are no longer displayed in UI
         }
       } catch (error) {
         console.error("Failed to process Vosk recognition result:", error);
@@ -1411,7 +1401,6 @@ const ReadingSessionPage: React.FC = () => {
     setIsPaused(false);
     setHasStarted(true); // Mark that session has started
     setTranscript("");
-    setPartialTranscript(""); // Reset partial transcript for real-time display
     voskFinalTranscriptRef.current = ""; // Reset Vosk transcript accumulator
     setWordsRead(0);
     // reset derived metrics
@@ -1538,9 +1527,7 @@ const ReadingSessionPage: React.FC = () => {
         const startVosk = async (isReconnect: boolean = false) => {
           const wsUrl = await getVoskWsUrl(storyLanguage);
           const isLocal = wsUrl.startsWith('ws://localhost:');
-          
-          // Update connection type state
-          setIsUsingLocalVosk(isLocal);
+
           
           if (isLocal) {
             console.log(`🎯 Using LOCAL Vosk server for ${storyLanguage} recognition`);
@@ -2084,18 +2071,9 @@ const ReadingSessionPage: React.FC = () => {
                     if (filteredText) {
                       voskFinalTranscriptRef.current += (voskFinalTranscriptRef.current ? " " : "") + filteredText;
                       setTranscript(voskFinalTranscriptRef.current);
-                      setPartialTranscript(""); // Clear partial when we get final result
                     }
                   } else if (msg.partial && msg.partial.trim()) {
-                    // Filter partial results through vocabulary validation
-                    const filteredPartial = filterThroughVocabulary(msg.partial.trim(), storyVocabulary);
-
-                    // Update partial separately for real-time display
-                    if (filteredPartial) {
-                      setPartialTranscript(filteredPartial);
-                    } else {
-                      setPartialTranscript(""); // Clear if no valid words
-                    }
+                    // Partial results are no longer displayed in UI
                   }
                 } catch (error) {
                   console.warn("Error parsing Vosk message:", error);
@@ -4197,7 +4175,6 @@ const ReadingSessionPage: React.FC = () => {
     setMiscueTypes({ omission: 0, substitution: 0, insertion: 0, mispronunciation: 0, repetition: 0, transposition: 0, reversal: 0, selfCorrection: 0 });
     setElapsedTime(0);
     setTranscript('');
-    setPartialTranscript('');
     setRecognizedWords(new Set());
     setWordMiscues(new Map());
     setWordMarkings(new Map());
@@ -4305,7 +4282,7 @@ const ReadingSessionPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-100 flex flex-col">
       {/* Title */}
-      <header className="w-full px-4 sm:px-8 pt-4 sm:pt-8 pb-4 relative z-50 bg-gradient-to-br from-blue-50 via-white to-purple-100">
+      <header className="w-full px-4 sm:px-8 pt-4 sm:pt-8 pb-6 sm:pb-8 relative z-50 bg-gradient-to-br from-blue-50 via-white to-purple-100">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-2 sm:gap-4">
             <button
@@ -4337,41 +4314,7 @@ const ReadingSessionPage: React.FC = () => {
         </div>
       </header>
 
-      {/* Real-time Mic Heard Indicator */}
-      {isRecording && (
-        <div className="w-full flex justify-center mb-4">
-          <div className="flex flex-col sm:flex-row gap-3 items-center">
-            {/* Main mic heard indicator */}
-            <div className="border-2 rounded-xl px-6 py-3 flex items-center gap-3 shadow-lg text-lg transition-all duration-200 bg-white border-blue-300">
-              <span className="font-semibold text-blue-700">
-                🎤 mic heard:
-              </span>
-              <span className="font-mono text-xl font-bold text-blue-600 min-w-[100px]">
-                {(() => {
-                  // Show partial transcript (real-time) if available, otherwise show last final word
-                  const partial = partialTranscript.trim().split(/\s+/).filter(Boolean).slice(-1)[0];
-                  const final = transcript.trim().split(/\s+/).filter(Boolean).slice(-1)[0];
-                  return partial || final || '-';
-                })()}
-              </span>
-            </div>
-            
-            {/* Connection type indicator */}
-            <div className={`border-2 rounded-xl px-4 py-2 flex items-center gap-2 shadow-md text-sm transition-all duration-200 ${
-              voskStatus === 'connected' 
-                ? 'bg-green-50 border-green-300' 
-                : 'bg-gray-50 border-gray-300'
-            }`}>
-              <span className="font-semibold text-gray-600">
-                {voskStatus === 'connected' ? '🟢' : '🔴'}
-              </span>
-              <span className="font-medium text-gray-700">
-                {isUsingLocalVosk ? '🏠 Local' : '☁️ Railway'}
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {/* Story Content + Progress Side by Side */}
       <section className="w-full px-4 sm:px-8 mb-6 flex flex-col lg:flex-row gap-4 lg:gap-8 relative z-10">
@@ -4389,19 +4332,12 @@ const ReadingSessionPage: React.FC = () => {
               }}
             ></div>
             <div className="mb-4 sm:mb-6 lg:mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
-              <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-blue-900 flex items-center gap-2">
-                <BookOpenIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 text-blue-500" />{" "}
-                Story
+              <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-blue-900 flex items-center gap-3">
+                <BookOpenIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 text-blue-500" />
+                {currentStory?.title || "Story"}
               </h3>
               <div className="flex items-center gap-3 sm:gap-6 text-sm sm:text-base lg:text-lg text-blue-700">
                 <span>{words.length} words</span>
-                <span className="hidden sm:inline">•</span>
-                <span>
-                  {storyText
-                    ? storyText.split("\n\n").filter(p => p.trim().length > 0).length
-                    : pdfContent.split("\n\n").filter(p => p.trim().length > 0).length}{" "}
-                  paragraph{(storyText ? storyText.split("\n\n").filter(p => p.trim().length > 0).length : pdfContent.split("\n\n").filter(p => p.trim().length > 0).length) !== 1 ? 's' : ''}
-                </span>
                 {isLoadingPdf && <span className="hidden sm:inline">•</span>}
                 {isLoadingPdf && <span>Loading PDF…</span>}
               </div>
@@ -4744,113 +4680,106 @@ const ReadingSessionPage: React.FC = () => {
             )}
           </div>
         </div>
-        {/* Progress Column */}
-        <div className="w-full lg:w-80 flex-shrink-0">
-          <div className="grid grid-cols-2 lg:grid-cols-1 gap-2 sm:gap-4">
-            {/* Students */}
-            <div className="rounded-lg sm:rounded-xl bg-blue-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
-              <span className="text-blue-700 font-bold text-sm sm:text-base lg:text-lg mb-1 flex items-center gap-1 sm:gap-2">
-                <UserGroupIcon className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500" />
-                <span className="hidden sm:inline">Students</span>
-                <span className="sm:hidden">Students</span>
-              </span>
-              <div className="flex flex-wrap gap-1 sm:gap-2 justify-center">
-                {currentSession?.students.map(
-                  (student, idx: number) => {
-                    // Handle both old format (string) and new format ({id, name})
-                    const studentId = typeof student === 'string' ? student : student.id;
-                    const studentName = typeof student === 'string'
-                      ? (studentNames[student] || student)
-                      : student.name;
+        {/* Progress Column - Only show after Complete button is clicked */}
+        {isCompleted && (
+          <div className="w-full lg:w-80 flex-shrink-0">
+            <div className="grid grid-cols-2 lg:grid-cols-1 gap-2 sm:gap-4">
+              {/* Students */}
+              <div className="rounded-lg sm:rounded-xl bg-blue-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
+                <span className="text-blue-700 font-bold text-sm sm:text-base lg:text-lg mb-1 flex items-center gap-1 sm:gap-2">
+                  <UserGroupIcon className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500" />
+                  <span className="hidden sm:inline">Students</span>
+                  <span className="sm:hidden">Students</span>
+                </span>
+                <div className="flex flex-wrap gap-1 sm:gap-2 justify-center">
+                  {currentSession?.students.map(
+                    (student, idx: number) => {
+                      // Handle both old format (string) and new format ({id, name})
+                      const studentId = typeof student === 'string' ? student : student.id;
+                      const studentName = typeof student === 'string'
+                        ? (studentNames[student] || student)
+                        : student.name;
 
-                    return (
-                      <span
-                        key={idx}
-                        className="inline-flex items-center gap-1 sm:gap-2 px-1.5 sm:px-2 py-0.5 rounded-full text-xs font-medium bg-blue-200 text-blue-800"
-                      >
-                        <span className="truncate max-w-[60px] sm:max-w-none">
-                          {studentName}
-                        </span>
-                        {completedStudents[studentId] && (
-                          <span className="ml-1 inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full bg-green-200 text-green-800 text-[10px] font-semibold">
-                            ✓
+                      return (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center gap-1 sm:gap-2 px-1.5 sm:px-2 py-0.5 rounded-full text-xs font-medium bg-blue-200 text-blue-800"
+                        >
+                          <span className="truncate max-w-[60px] sm:max-w-none">
+                            {studentName}
                           </span>
-                        )}
-                      </span>
-                    );
-                  }
+                          {completedStudents[studentId] && (
+                            <span className="ml-1 inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full bg-green-200 text-green-800 text-[10px] font-semibold">
+                              ✓
+                            </span>
+                          )}
+                        </span>
+                      );
+                    }
+                  )}
+                </div>
+              </div>
+              {/* Words Read */}
+              <div className="rounded-lg sm:rounded-xl bg-blue-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
+                <span className="text-blue-700 font-bold text-xs sm:text-sm lg:text-lg">
+                  Words Read
+                </span>
+                <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-blue-700 mt-1">
+                  {Math.min(wordsRead, words.length)}
+                </span>
+              </div>
+              {/* Miscues */}
+              <div className="rounded-lg sm:rounded-xl bg-red-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
+                <span className="text-red-700 font-bold text-xs sm:text-sm lg:text-lg">
+                  Total Miscues
+                </span>
+                <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-red-700 mt-1">
+                  {miscues}
+                </span>
+                {/* Miscue Types Breakdown */}
+                {(miscues > 0 || miscueTypes.selfCorrection > 0) && (
+                  <div className="mt-2 text-xs text-red-600 space-y-0.5 w-full">
+                    {miscueTypes.mispronunciation > 0 && <div>Mispronunciation: {miscueTypes.mispronunciation}</div>}
+                    {miscueTypes.omission > 0 && <div>Omission: {miscueTypes.omission}</div>}
+                    {miscueTypes.substitution > 0 && <div>Substitution: {miscueTypes.substitution}</div>}
+                    {miscueTypes.insertion > 0 && <div>Insertion: {miscueTypes.insertion}</div>}
+                    {miscueTypes.repetition > 0 && <div>Repetition: {miscueTypes.repetition}</div>}
+                    {miscueTypes.transposition > 0 && <div>Transposition: {miscueTypes.transposition}</div>}
+                    {miscueTypes.reversal > 0 && <div>Reversal: {miscueTypes.reversal}</div>}
+                    {miscueTypes.selfCorrection > 0 && <div className="text-green-600">Self-Correction: {miscueTypes.selfCorrection}</div>}
+                  </div>
                 )}
               </div>
-            </div>
-            {/* Words Read */}
-            <div className="rounded-lg sm:rounded-xl bg-blue-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
-              <span className="text-blue-700 font-bold text-xs sm:text-sm lg:text-lg">
-                Words Read
-              </span>
-              <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-blue-700 mt-1">
-                {Math.min(wordsRead, words.length)}
-              </span>
-            </div>
-            {/* Miscues */}
-            <div className="rounded-lg sm:rounded-xl bg-red-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
-              <span className="text-red-700 font-bold text-xs sm:text-sm lg:text-lg">
-                Total Miscues
-              </span>
-              <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-red-700 mt-1">
-                {miscues}
-              </span>
-              {/* Miscue Types Breakdown */}
-              {(miscues > 0 || miscueTypes.selfCorrection > 0) && (
-                <div className="mt-2 text-xs text-red-600 space-y-0.5 w-full">
-                  {miscueTypes.mispronunciation > 0 && <div>Mispronunciation: {miscueTypes.mispronunciation}</div>}
-                  {miscueTypes.omission > 0 && <div>Omission: {miscueTypes.omission}</div>}
-                  {miscueTypes.substitution > 0 && <div>Substitution: {miscueTypes.substitution}</div>}
-                  {miscueTypes.insertion > 0 && <div>Insertion: {miscueTypes.insertion}</div>}
-                  {miscueTypes.repetition > 0 && <div>Repetition: {miscueTypes.repetition}</div>}
-                  {miscueTypes.transposition > 0 && <div>Transposition: {miscueTypes.transposition}</div>}
-                  {miscueTypes.reversal > 0 && <div>Reversal: {miscueTypes.reversal}</div>}
-                  {miscueTypes.selfCorrection > 0 && <div className="text-green-600">Self-Correction: {miscueTypes.selfCorrection}</div>}
-                </div>
-              )}
-            </div>
-            {/* Oral Reading Score */}
-            <div className="rounded-lg sm:rounded-xl bg-yellow-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
-              <span className="text-yellow-700 font-bold text-xs sm:text-sm lg:text-lg">
-                Oral Reading Score
-              </span>
-              <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-yellow-700 mt-1">
-                {oralReadingScore}%
-              </span>
-            </div>
-            {/* Reading Speed */}
-            <div className="rounded-lg sm:rounded-xl bg-green-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
-              <span className="text-green-700 font-bold text-xs sm:text-sm lg:text-lg">
-                Reading Speed
-              </span>
-              <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-green-700 mt-1">
-                {readingSpeedWPM} WPM
-              </span>
-            </div>
-            {/* Elapsed */}
-            <div className="rounded-lg sm:rounded-xl bg-yellow-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
-              <span className="text-yellow-700 font-bold text-xs sm:text-sm lg:text-lg">
-                Elapsed
-              </span>
-              <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-yellow-700 mt-1">
-                {formatElapsedTime(elapsedTime)}
-              </span>
-            </div>
-            {/* Book */}
-            <div className="rounded-lg sm:rounded-xl bg-indigo-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center col-span-2 lg:col-span-1">
-              <span className="text-indigo-700 font-bold text-xs sm:text-sm lg:text-lg">
-                Book
-              </span>
-              <span className="text-sm sm:text-base lg:text-lg font-semibold text-indigo-700 mt-1 text-center truncate w-full">
-                {currentSession?.book}
-              </span>
+              {/* Oral Reading Score */}
+              <div className="rounded-lg sm:rounded-xl bg-yellow-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
+                <span className="text-yellow-700 font-bold text-xs sm:text-sm lg:text-lg">
+                  Oral Reading Score
+                </span>
+                <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-yellow-700 mt-1">
+                  {oralReadingScore}%
+                </span>
+              </div>
+              {/* Reading Speed */}
+              <div className="rounded-lg sm:rounded-xl bg-green-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
+                <span className="text-green-700 font-bold text-xs sm:text-sm lg:text-lg">
+                  Reading Speed
+                </span>
+                <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-green-700 mt-1">
+                  {readingSpeedWPM} WPM
+                </span>
+              </div>
+              {/* Elapsed */}
+              <div className="rounded-lg sm:rounded-xl bg-yellow-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
+                <span className="text-yellow-700 font-bold text-xs sm:text-sm lg:text-lg">
+                  Elapsed
+                </span>
+                <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-yellow-700 mt-1">
+                  {formatElapsedTime(elapsedTime)}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </section>
 
       {/* Detailed Miscue Types Observation Panel - Only show after recording stops */}
