@@ -2378,16 +2378,16 @@ const ReadingSessionPage: React.FC = () => {
             fullStory.textContent &&
             fullStory.textContent.trim().length > 0
           ) {
-            const trimmedText = fullStory.textContent.trim();
-            setStoryText(trimmedText);
-            const wordArray = trimmedText
+            // Don't trim the text to preserve leading/trailing whitespace for proper formatting
+            setStoryText(fullStory.textContent);
+            const wordArray = fullStory.textContent
               .split(/\s+/)
               .filter((word: string) => word.length > 0);
             console.log('📖 [Teacher] Setting words:', wordArray.length, 'words');
             setWords(wordArray);
 
             // Extract vocabulary for vocabulary-constrained recognition
-            const vocabulary = extractVocabulary(trimmedText);
+            const vocabulary = extractVocabulary(fullStory.textContent);
             setStoryVocabulary(vocabulary);
 
             // Pronunciation matching now handled by server
@@ -4354,6 +4354,14 @@ const ReadingSessionPage: React.FC = () => {
                   .split("\n\n")
                   .filter((p) => p.trim().length > 0)
                   .map((paragraph, paragraphIndex, paragraphs) => {
+                    // Detect leading whitespace before trimming
+                    const leadingMatch = paragraph.match(/^(\s+)/);
+                    const leadingSpaces = leadingMatch ? leadingMatch[1] : '';
+                    
+                    // Debug: Log ALL paragraphs to see which have spaces
+                    console.log(`Paragraph ${paragraphIndex}:`, JSON.stringify(paragraph.substring(0, 50)));
+                    console.log(`  Leading spaces: ${leadingSpaces.length}`);
+                    
                     const wordsInParagraph = paragraph.trim().split(/\s+/);
                     // Calculate the starting real word index for this paragraph
                     const paragraphStartIndex = paragraphs
@@ -4368,7 +4376,23 @@ const ReadingSessionPage: React.FC = () => {
                         key={paragraphIndex}
                         className="mb-4 sm:mb-6 lg:mb-8 last:mb-0"
                       >
-                        <p className="text-gray-800 leading-relaxed flex flex-wrap gap-y-1 sm:gap-y-2 lg:gap-y-3">
+                        <p 
+                          className="text-gray-800 leading-relaxed flex flex-wrap gap-y-1 sm:gap-y-2 lg:gap-y-3" 
+                          style={{ 
+                            whiteSpace: 'pre-wrap'
+                          }}
+                        >
+                          {leadingSpaces && leadingSpaces.length > 0 && (
+                            <span 
+                              style={{ 
+                                width: `${leadingSpaces.length * 1}ch`,
+                                minWidth: `${leadingSpaces.length * 1}ch`,
+                                flexShrink: 0,
+                                display: 'inline-block'
+                              }}
+                              title={`Indent: ${leadingSpaces.length} spaces`}
+                            />
+                          )}
                           {wordsInParagraph.map((word, wordIndex) => {
                             const isSpecialChar = !/\w+/.test(word);
 

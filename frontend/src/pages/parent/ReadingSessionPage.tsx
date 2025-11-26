@@ -1027,8 +1027,9 @@ const ReadingSessionPage: React.FC = () => {
 
           // Text content primary
           if (fullStory.textContent && fullStory.textContent.trim().length > 0) {
-            setStoryText(fullStory.textContent.trim());
-            const wordArray = fullStory.textContent.trim().split(/\s+/).filter((w: string) => w.length > 0);
+            // Don't trim to preserve leading/trailing whitespace
+            setStoryText(fullStory.textContent);
+            const wordArray = fullStory.textContent.split(/\s+/).filter((w: string) => w.length > 0);
             console.log('📖 Setting words:', wordArray.length, 'words');
             setWords(wordArray);
           }
@@ -1064,8 +1065,9 @@ const ReadingSessionPage: React.FC = () => {
           }
 
           if (fullStory.textContent && fullStory.textContent.trim().length > 0) {
-            setStoryText(fullStory.textContent.trim());
-            const wordArray = fullStory.textContent.trim().split(/\s+/).filter((w: string) => w.length > 0);
+            // Don't trim to preserve leading/trailing whitespace
+            setStoryText(fullStory.textContent);
+            const wordArray = fullStory.textContent.split(/\s+/).filter((w: string) => w.length > 0);
             console.log('📖 Setting words:', wordArray.length, 'words');
             setWords(wordArray);
           }
@@ -1443,11 +1445,37 @@ const ReadingSessionPage: React.FC = () => {
             <div className="max-h-[38rem] overflow-y-auto custom-scrollbar prose prose-xl prose-blue bg-white/60 rounded-xl p-8 shadow-inner text-[1.35rem] leading-relaxed tracking-wide">
               {(storyText || pdfContent) ? (
                 (storyText ? storyText : pdfContent).split('\n\n').filter(p => p.trim().length > 0).map((paragraph, paragraphIndex, paragraphs) => {
+                  // Detect leading whitespace before trimming
+                  const leadingMatch = paragraph.match(/^(\s+)/);
+                  const leadingSpaces = leadingMatch ? leadingMatch[1] : '';
+                  
+                  // Debug: Log paragraph and leading spaces
+                  if (paragraphIndex === 0) {
+                    console.log('First paragraph:', JSON.stringify(paragraph.substring(0, 50)));
+                    console.log('Leading spaces count:', leadingSpaces.length);
+                  }
+                  
                   const wordsInParagraph = paragraph.trim().split(/\s+/);
                   
                   return (
                     <div key={paragraphIndex} className="mb-8 last:mb-0">
-                      <p className="text-gray-800 leading-relaxed flex flex-wrap gap-y-3">
+                      <p 
+                        className="text-gray-800 leading-relaxed flex flex-wrap gap-y-3" 
+                        style={{ 
+                          whiteSpace: 'pre-wrap'
+                        }}
+                      >
+                        {leadingSpaces && leadingSpaces.length > 0 && (
+                          <span 
+                            style={{ 
+                              width: `${leadingSpaces.length * 1}ch`,
+                              minWidth: `${leadingSpaces.length * 1}ch`,
+                              flexShrink: 0,
+                              display: 'inline-block'
+                            }}
+                            title={`Indent: ${leadingSpaces.length} spaces`}
+                          />
+                        )}
                         {wordsInParagraph.map((word, wordIndex) => {
                           // Count only real words (alphanumeric) up to this point
                           const realWordIndex = wordsInParagraph

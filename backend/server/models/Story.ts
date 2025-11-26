@@ -15,6 +15,10 @@ export interface IStory extends Document {
   readingLevel?: string;
   categories?: string[];
   isActive: boolean;
+  // Formatting metadata
+  fontSize?: number;
+  textAlign?: 'left' | 'center' | 'right' | 'justify';
+  lineHeight?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -61,8 +65,8 @@ const StorySchema: Schema = new Schema({
   textContent: {
     type: String,
     required: false,
-    default: '',
-    trim: true
+    default: ''
+    // NOTE: trim is intentionally NOT set to preserve leading/trailing whitespace for proper story formatting
   },
   language: {
     type: String,
@@ -83,6 +87,23 @@ const StorySchema: Schema = new Schema({
   isActive: {
     type: Boolean,
     default: true
+  },
+  // Formatting metadata for preserving story format
+  fontSize: {
+    type: Number,
+    required: false,
+    default: 14
+  },
+  textAlign: {
+    type: String,
+    enum: ['left', 'center', 'right', 'justify'],
+    required: false,
+    default: 'justify'
+  },
+  lineHeight: {
+    type: Number,
+    required: false,
+    default: 1.8
   }
 }, {
   timestamps: true,

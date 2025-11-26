@@ -352,7 +352,7 @@ app.get('/api/test', (req, res) => {
           return;
         }
 
-        const { title, description, language, createdBy, readingLevel, categories, grade, storySet } = req.body;
+        const { title, description, language, createdBy, readingLevel, categories, grade, storySet, fontSize, textAlign, lineHeight } = req.body;
         
         // Log received data for debugging
         console.log('🔍 Backend received story data:', {
@@ -414,7 +414,11 @@ app.get('/api/test', (req, res) => {
           categories: parsedCategories,
           grade: grade || '3',  // Default to grade 3 if not provided
           storySet: storySet,  // Can be undefined for unassigned stories
-          textContent: ''  // Default empty string for text content
+          textContent: '',  // Default empty string for text content
+          // Formatting metadata
+          fontSize: fontSize ? parseInt(fontSize) : 14,
+          textAlign: textAlign || 'justify',
+          lineHeight: lineHeight ? parseFloat(lineHeight) : 1.8
         };
 
         console.log('🔍 Backend storyData to save:', {
