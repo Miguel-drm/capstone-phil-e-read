@@ -29,6 +29,7 @@ const iconMap: Record<string, React.ReactNode> = {
   reading: <MenuBookIcon fontSize="medium" />,
   'class-list': <GroupIcon fontSize="medium" />,
   reports: <BarChartIcon fontSize="medium" />,
+  'administrative-reports': <BarChartIcon fontSize="medium" />,
   profile: <PersonIcon fontSize="medium" />,
   progress: <AssignmentIcon fontSize="medium" />,
 
@@ -43,6 +44,8 @@ const iconMap: Record<string, React.ReactNode> = {
   children: <GroupIcon fontSize="medium" />, // Added for My Children
   'vosk-monitor': <MonitorIcon fontSize="medium" />
 };
+
+const ADMIN_REPORTS_FEATURE = import.meta.env.VITE_FEATURE_ADMIN_REPORTS === 'true';
 
 const Sidebar: React.FC<SidebarProps> = ({ 
   userRole,
@@ -60,18 +63,22 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const getNavItems = () => {
     switch (userRole) {
-      case 'admin':
-        return [
+      case 'admin': {
+        const items = [
           { path: '/admin/dashboard', label: 'Dashboard', icon: 'dashboard' },
           { path: '/admin/teachers', label: 'Teachers', icon: 'teachers' },
           { path: '/admin/students', label: 'Students', icon: 'students' },
           { path: '/admin/parents', label: 'Parents', icon: 'parents' },
           { path: '/admin/isr', label: 'ISR Records', icon: 'isr' },
-          { path: '/admin/reports', label: 'Reports', icon: 'reports' },
+        ] as { path: string; label: string; icon: string }[];
+
+        items.push(
           { path: '/admin/resources', label: 'Resources', icon: 'resources' },
           { path: '/admin/vosk-monitor', label: 'Vosk Monitor', icon: 'vosk-monitor' },
           { path: '/admin/profile', label: 'Profile', icon: 'profile' }
-        ];
+        );
+        return items;
+      }
       case 'teacher':
         return [
           { path: '/teacher/dashboard', label: 'Dashboard', icon: 'dashboard' },

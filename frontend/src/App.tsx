@@ -39,6 +39,7 @@ import ParentNotifications from './pages/parent/Notifications';
 import SyncTeacherProfile from './components/SyncTeacherProfile';
 import AdminReports from './pages/admin/Reports';
 import ISRManagement from './pages/admin/ISRManagement';
+import AdministrativeReportsPage from './pages/admin/AdministrativeReports';
 
 import TeacherReports from './pages/teacher/Reports';
 import AdminProfile from './pages/admin/Profile';
@@ -75,6 +76,7 @@ const App: React.FC = () => {
                     <Route path="parents" element={<Parents />} />
 
                     <Route path="reports" element={<AdminReports />} />
+                    <Route path="administrative-reports" element={<AdministrativeReportsPage />} />
                     <Route path="isr" element={<ISRManagement />} />
                     <Route path="vosk-monitor" element={<VoskMonitor />} />
 
