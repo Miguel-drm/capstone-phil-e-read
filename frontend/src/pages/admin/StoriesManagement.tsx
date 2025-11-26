@@ -118,8 +118,13 @@ export default function StoriesManagement() {
         Swal.fire('Error', 'Please enter a story title', 'error');
         return;
       }
-      if (!file || file.type !== 'application/pdf') {
-        Swal.fire('Error', 'Please upload a valid PDF file', 'error');
+      if (!file) {
+        Swal.fire('Error', 'Please upload a file', 'error');
+        return;
+      }
+      // Accept both PDF files and text files (for manual input)
+      if (file.type !== 'application/pdf' && file.type !== 'text/plain') {
+        Swal.fire('Error', 'Please upload a valid PDF or text file', 'error');
         return;
       }
 

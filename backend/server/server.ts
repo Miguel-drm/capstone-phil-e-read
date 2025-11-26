@@ -29,17 +29,18 @@ const PORT = process.env.PORT || 5000;
 
 const isProduction = process.env.NODE_ENV === 'production';
 
-// Configure multer for PDF uploads
+// Configure multer for PDF and text file uploads
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB limit
   },
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype === 'application/pdf') {
+    // Accept both PDF files (for PDF import) and text files (for manual input)
+    if (file.mimetype === 'application/pdf' || file.mimetype === 'text/plain') {
       cb(null, true);
     } else {
-      cb(new Error('Only PDF files are allowed'));
+      cb(new Error('Only PDF and text files are allowed'));
     }
   },
 });
@@ -386,17 +387,22 @@ app.get('/api/test', (req, res) => {
           parsedCategories = undefined;
         }
 
-        // Verify the PDF file
+        // Verify the file
         if (!req.file.buffer) {
-          throw new Error('PDF file buffer is missing');
+          throw new Error('File buffer is missing');
         }
 
-        // Check if it's a valid PDF
-        const pdfHeader = req.file.buffer.slice(0, 4).toString();
-        if (!pdfHeader.startsWith('%PDF')) {
-          console.error('Invalid PDF header:', pdfHeader);
-          res.status(400).json({ error: 'Invalid PDF file: Missing PDF header' });
-          return;
+        // Check if it's a valid PDF (only for PDF files, skip for text files)
+        if (req.file.mimetype === 'application/pdf') {
+          const pdfHeader = req.file.buffer.slice(0, 4).toString();
+          if (!pdfHeader.startsWith('%PDF')) {
+            console.error('Invalid PDF header:', pdfHeader);
+            res.status(400).json({ error: 'Invalid PDF file: Missing PDF header' });
+            return;
+          }
+        } else if (req.file.mimetype === 'text/plain') {
+          // For text files (manual input), no header validation needed
+          console.log('Processing text file for manual story input');
         }
 
         const storyData = {
@@ -421,9 +427,10 @@ app.get('/api/test', (req, res) => {
 
 
         console.log('Creating story with data:', storyData);
-        console.log('PDF file size:', req.file.size, 'bytes');
+        console.log('File size:', req.file.size, 'bytes');
+        console.log('File type:', req.file.mimetype);
 
-        const story = await mongoStoryService.createStory(storyData, req.file.buffer);
+        const story = await mongoStoryService.createStory(storyData, req.file.buffer, req.file.mimetype);
         res.status(201).json(story);
         return;
       } catch (error) {

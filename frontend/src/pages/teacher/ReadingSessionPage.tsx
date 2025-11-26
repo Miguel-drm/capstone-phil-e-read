@@ -610,6 +610,9 @@ const ReadingSessionPage: React.FC = () => {
   // Toggle visibility of Miscue Types Detection section (hidden by default)
   const [showMiscueDetails, setShowMiscueDetails] = useState(false);
 
+  // No Quiz Modal state
+  const [showNoQuizModal, setShowNoQuizModal] = useState(false);
+
   // Server-calculated metrics (backend is source of truth)
   const [serverMetrics, setServerMetrics] = useState<{
     wpm?: number;
@@ -4317,7 +4320,7 @@ const ReadingSessionPage: React.FC = () => {
 
 
       {/* Story Content + Progress Side by Side */}
-      <section className="w-full px-4 sm:px-8 mb-6 flex flex-col lg:flex-row gap-4 lg:gap-8 relative z-10">
+      <section className="w-full px-4 pt-6 sm:px-8 mb-6 flex flex-col lg:flex-row gap-4 lg:gap-8 relative z-10">
         {/* Story Content */}
         <div className="flex-1">
           <div className="relative bg-white/80 rounded-2xl lg:rounded-3xl border border-blue-100 p-4 sm:p-6 lg:p-10 overflow-hidden max-h-[40rem] lg:max-h-[48rem]">
@@ -5094,7 +5097,7 @@ const ReadingSessionPage: React.FC = () => {
                   ? (studentNames[studentId] || studentId)
                   : firstStudent.name;
                 if (!resolvedTestId) {
-                  alert("No test found for this story.");
+                  setShowNoQuizModal(true);
                   return;
                 }
 
@@ -5177,6 +5180,42 @@ const ReadingSessionPage: React.FC = () => {
                 <p className="text-3xl sm:text-4xl font-bold text-white/95 leading-tight">
                   Read LOUD and CLEAR
                 </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* No Quiz Available Modal */}
+      {showNoQuizModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 animate-fade-in">
+            <div className="flex flex-col items-center text-center">
+              {/* Icon */}
+              <div className="w-20 h-20 bg-yellow-100 rounded-full flex items-center justify-center mb-4">
+                <svg className="w-10 h-10 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+
+              {/* Title */}
+              <h3 className="text-2xl font-bold text-gray-900 mb-3">
+                No Quiz Available
+              </h3>
+
+              {/* Message */}
+              <p className="text-gray-600 mb-6 leading-relaxed">
+                There is no quiz associated with this story yet. Please contact your administrator to create a quiz for this story before students can take the assessment.
+              </p>
+
+              {/* Actions */}
+              <div className="flex justify-center w-full">
+                <button
+                  onClick={() => setShowNoQuizModal(false)}
+                  className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+                >
+                  Got it
+                </button>
               </div>
             </div>
           </div>

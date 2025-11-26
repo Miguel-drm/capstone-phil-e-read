@@ -20,27 +20,39 @@ interface StoryInput {
 }
 
 export const mongoStoryService = {
-  async createStory(storyData: StoryInput, file: Buffer): Promise<IStory> {
+  async createStory(storyData: StoryInput, file: Buffer, fileType?: string): Promise<IStory> {
     try {
-      // Upload PDF to GridFS
-      const pdfFileId = await GridFSService.uploadFile(file, `${storyData.title.replace(/\s+/g, '-').toLowerCase()}.pdf`, {
-        contentType: 'application/pdf',
-        ...(storyData.grade && { grade: storyData.grade })
-      });
-
+      let pdfFileId: mongoose.Types.ObjectId | undefined;
       let extractedText = '';
-      try {
-        const parsed = await pdfParse(file); // file is the PDF buffer
-        extractedText = parsed.text || '';
-      } catch (err) {
-        console.warn('Failed to extract text from PDF:', err);
+
+      // Check if this is a text file (manual input) or PDF file
+      const isTextFile = fileType === 'text/plain' || file.toString('utf8', 0, 10).indexOf('%PDF') === -1;
+
+      if (isTextFile) {
+        // For text files (manual input), use the file content directly as text
+        console.log('Processing text file for manual story input');
+        extractedText = file.toString('utf8');
+        // Don't upload text files to GridFS, just store the text content
+      } else {
+        // For PDF files, upload to GridFS and extract text
+        pdfFileId = await GridFSService.uploadFile(file, `${storyData.title.replace(/\s+/g, '-').toLowerCase()}.pdf`, {
+          contentType: 'application/pdf',
+          ...(storyData.grade && { grade: storyData.grade })
+        });
+
+        try {
+          const parsed = await pdfParse(file); // file is the PDF buffer
+          extractedText = parsed.text || '';
+        } catch (err) {
+          console.warn('Failed to extract text from PDF:', err);
+        }
       }
 
-      // Create the story with the GridFS file ID
+      // Create the story with the GridFS file ID (only for PDFs)
       const storyToSave = {
         ...storyData,
         textContent: extractedText,
-        pdfFileId: pdfFileId,
+        ...(pdfFileId && { pdfFileId }), // Only include pdfFileId if it exists
         isActive: true
       };
       
@@ -53,7 +65,9 @@ export const mongoStoryService = {
         title: story.title,
         grade: story.grade,
         storySet: story.storySet,
-        id: story._id
+        id: story._id,
+        hasTextContent: !!story.textContent,
+        hasPdfFileId: !!story.pdfFileId
       });
       
       return story;
