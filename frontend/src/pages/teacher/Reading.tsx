@@ -215,24 +215,6 @@ const Reading: React.FC = () => {
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 mb-3 sm:mb-4">
               <!-- Left Column -->
               <div class="space-y-3 sm:space-y-4">
-                <!-- Session Title -->
-                <div class="bg-white rounded-lg sm:rounded-xl border-2 border-gray-200 p-3 sm:p-4 hover:border-blue-300 transition-all duration-200 shadow-sm">
-                  <label class="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-bold text-gray-800 mb-1.5 sm:mb-2">
-                    <div class="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-blue-100 flex items-center justify-center">
-                      <svg class="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                    </div>
-                    <span class="text-xs sm:text-sm">Session Title</span>
-                  </label>
-                  <input 
-                    id="session-title" 
-                    class="w-full px-2.5 sm:px-3 py-1.5 sm:py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs sm:text-sm transition-all" 
-                    placeholder="e.g., Individual Reading - Emma"
-                  >
-                  <p class="mt-1 sm:mt-1.5 text-[10px] sm:text-xs text-gray-500">Give your session a descriptive name</p>
-                </div>
-
                 <!-- Story Selection -->
                 <div class="bg-white rounded-lg sm:rounded-xl border-2 border-gray-200 p-3 sm:p-4 hover:border-purple-300 transition-all duration-200 shadow-sm">
                   <label class="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-bold text-gray-800 mb-1.5 sm:mb-2">
@@ -439,7 +421,6 @@ const Reading: React.FC = () => {
           }
         },
         preConfirm: () => {
-          const title = (document.getElementById('session-title') as HTMLInputElement).value;
           const storySelect = document.getElementById('session-story') as HTMLSelectElement;
           const book = storySelect.value;
           const storyUrl = storySelect.options[storySelect.selectedIndex].getAttribute('data-url') || '';
@@ -448,7 +429,7 @@ const Reading: React.FC = () => {
           const selectedRadio = document.querySelector('input[name="selected-student"]:checked') as HTMLInputElement | null;
           const selectedStudentKey = selectedRadio?.value || '';
 
-          if (!title || !book || !gradeId || !selectedStudentKey) {
+          if (!book || !gradeId || !selectedStudentKey) {
             Swal.showValidationMessage('Please complete all fields and select a student');
             return false;
           }
@@ -463,6 +444,8 @@ const Reading: React.FC = () => {
               Swal.showValidationMessage('Student ID and name are required');
               return false;
             }
+            // Auto-generate title from student name
+            const title = `Reading Session - ${selectedStudentName}`;
             return {
               title,
               book,
@@ -700,11 +683,14 @@ const Reading: React.FC = () => {
                   const completedCount = sessionStudents.length - pendingCount;
                   const isSessionCompleted = (session as any).status === 'completed' || (pendingCount === 0 && completedCount > 0);
 
+                  // Get the first student's name to display instead of title
+                  const displayName = sessionStudents.length > 0 ? sessionStudents[0].name : 'No Student';
+
                   return (
                     <div key={session.id} className="bg-white rounded-xl shadow-md border border-blue-50 overflow-hidden flex flex-col h-full">
                       <div className="p-4 flex-grow flex flex-col">
                         <div className="flex items-center justify-between mb-1">
-                          <h3 className="text-lg font-semibold text-blue-900 line-clamp-1">{session.title}</h3>
+                          <h3 className="text-lg font-semibold text-blue-900 line-clamp-1">{displayName}</h3>
                         </div>
                         <div className="mb-3">
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-blue-100 text-blue-700">{session.book}</span>
