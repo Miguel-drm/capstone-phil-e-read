@@ -264,13 +264,17 @@ class WordMatcherSession:
             "mispronunciation": 0,
             "omission": 0,
             "substitution": 0,
-            "insertion": 0
+            "insertion": 0,
+            "repetition": 0,
+            "selfCorrection": 0
         }
         self.recent_words = []  # Track recent spoken words for insertion detection
         self.max_recent_words = 5  # Keep last 5 words
         self.words_read = 0
         self.pending_word = None  # Track pending word for insertion detection
         self.session_started = False  # Track if we've found the first word
+        self.last_spoken_word = None  # Track last spoken word for repetition detection
+        self.last_match_result = None  # Track last match result for self-correction detection
     
     def process_word(self, spoken_word: str) -> Dict:
         """
@@ -315,6 +319,95 @@ class WordMatcherSession:
                     "details": f"Waiting for first word '{self.expected_words[0]}', ignoring '{spoken_word}'"
                 }
         
+        # REPETITION DETECTION: Check if the same word is spoken twice in a row
+        # This must be checked BEFORE other logic to catch immediate repetitions
+        if self.last_spoken_word is not None:
+            if check_pronunciation_match(spoken_word, self.last_spoken_word, self.language):
+                # Same word spoken twice - this is a REPETITION
+                print(f"   🔁 REPETITION DETECTED: '{spoken_word}' repeated")
+                
+                # Update last spoken word
+                self.last_spoken_word = spoken_word
+                
+                # Add to recent words
+                self.recent_words.append(spoken_word)
+                if len(self.recent_words) > self.max_recent_words:
+                    self.recent_words.pop(0)
+                
+                # Return repetition result (don't advance position)
+                repetition_result = {
+                    "match_type": "repetition",
+                    "advance": False,  # Don't advance - word was already read
+                    "new_position": self.current_position,
+                    "miscue_count": 1,
+                    "repeated_word": spoken_word,
+                    "details": f"Repetition: '{spoken_word}' repeated"
+                }
+                
+                # Update miscue count
+                self.total_miscues += 1
+                self.miscue_types["repetition"] += 1
+                
+                # Add session state
+                repetition_result["session_state"] = {
+                    "current_position": self.current_position,
+                    "words_read": self.words_read,
+                    "total_miscues": self.total_miscues,
+                    "miscue_types": self.miscue_types.copy(),
+                    "progress": f"{self.current_position}/{len(self.expected_words)}"
+                }
+                
+                return repetition_result
+        
+        # SELF-CORRECTION DETECTION: Check if previous word was wrong and current word is correct
+        # This detects when a student says a wrong word then immediately corrects it
+        if self.last_match_result is not None:
+            # Check if last result was a miscue (substitution or mispronunciation)
+            if self.last_match_result.get("match_type") in ["substitution", "mispronunciation"]:
+                # Check if current word matches the PREVIOUS expected word (the one they got wrong)
+                previous_position = self.current_position - 1
+                if previous_position >= 0:
+                    previous_expected = self.expected_words[previous_position]
+                    if check_pronunciation_match(spoken_word, previous_expected, self.language):
+                        # Student corrected their mistake! This is SELF-CORRECTION
+                        print(f"   ✅ SELF-CORRECTION DETECTED: Corrected '{previous_expected}' after saying '{self.last_match_result.get('spoken_word', 'unknown')}'")
+                        
+                        # Update last spoken word
+                        self.last_spoken_word = spoken_word
+                        
+                        # Add to recent words
+                        self.recent_words.append(spoken_word)
+                        if len(self.recent_words) > self.max_recent_words:
+                            self.recent_words.pop(0)
+                        
+                        # Return self-correction result (don't advance - word was already counted)
+                        self_correction_result = {
+                            "match_type": "selfCorrection",
+                            "advance": False,  # Don't advance - correcting previous word
+                            "new_position": self.current_position,
+                            "miscue_count": 0,  # Self-correction is NOT counted as a miscue (it's a positive behavior)
+                            "corrected_word": spoken_word,
+                            "original_miscue": self.last_match_result.get("match_type"),
+                            "details": f"Self-correction: Corrected '{previous_expected}'"
+                        }
+                        
+                        # Track self-correction (for reporting, but don't add to total miscues)
+                        self.miscue_types["selfCorrection"] += 1
+                        
+                        # Add session state
+                        self_correction_result["session_state"] = {
+                            "current_position": self.current_position,
+                            "words_read": self.words_read,
+                            "total_miscues": self.total_miscues,
+                            "miscue_types": self.miscue_types.copy(),
+                            "progress": f"{self.current_position}/{len(self.expected_words)}"
+                        }
+                        
+                        # Clear last match result to prevent double detection
+                        self.last_match_result = None
+                        
+                        return self_correction_result
+        
         # INSERTION DETECTION: Use pending word logic to detect insertions
         # When a word doesn't match, hold it as "pending" and wait for the next word
         # If the next word matches the expected word, the pending word was an insertion
@@ -324,7 +417,57 @@ class WordMatcherSession:
         if self.pending_word is not None:
             # We have a pending word - check if current word matches expected
             if check_pronunciation_match(spoken_word, expected_word, self.language):
-                # Current word matches! The pending word was an INSERTION
+                # Current word matches! But first check if this is a SELF-CORRECTION
+                # Self-correction: pending word was wrong, current word corrects it
+                # Example: "malaki... isang" where "isang" is expected
+                
+                # Check if current word matches the EXPECTED word (the one pending word failed to match)
+                # If yes, this is self-correction, not insertion
+                if self.current_position > 0:
+                    # The pending word was trying to match the current expected word
+                    # Now the student said the correct word - this is SELF-CORRECTION!
+                    print(f"   ✅ SELF-CORRECTION DETECTED: Said '{self.pending_word}' then corrected to '{spoken_word}'")
+                    
+                    # Return self-correction result
+                    self_correction_result = {
+                        "match_type": "selfCorrection",
+                        "advance": True,  # Advance because they got it right eventually
+                        "new_position": self.current_position + 1,
+                        "miscue_count": 0,  # Self-correction is positive, not counted as miscue
+                        "corrected_word": spoken_word,
+                        "wrong_word": self.pending_word,
+                        "details": f"Self-correction: Said '{self.pending_word}' then corrected to '{spoken_word}'"
+                    }
+                    
+                    # Clear pending word
+                    self.pending_word = None
+                    
+                    # Update state
+                    self.current_position = self_correction_result["new_position"]
+                    self.words_read += 1
+                    self.miscue_types["selfCorrection"] += 1
+                    # Note: Don't increment total_miscues - self-correction is positive!
+                    
+                    # Update last spoken word
+                    self.last_spoken_word = spoken_word
+                    
+                    # Add to recent words
+                    self.recent_words.append(spoken_word)
+                    if len(self.recent_words) > self.max_recent_words:
+                        self.recent_words.pop(0)
+                    
+                    # Add session state
+                    self_correction_result["session_state"] = {
+                        "current_position": self.current_position,
+                        "words_read": self.words_read,
+                        "total_miscues": self.total_miscues,
+                        "miscue_types": self.miscue_types.copy(),
+                        "progress": f"{self.current_position}/{len(self.expected_words)}"
+                    }
+                    
+                    return self_correction_result
+                
+                # Not self-correction, it's an INSERTION
                 print(f"   ✅ INSERTION CONFIRMED: '{self.pending_word}' inserted before '{expected_word}'")
                 
                 # Return insertion result for the pending word
@@ -394,6 +537,13 @@ class WordMatcherSession:
         
         # Word matched or is an omission - process normally
         self.pending_word = None
+        
+        # Update last spoken word for repetition detection
+        self.last_spoken_word = spoken_word
+        
+        # Store result with spoken word for self-correction detection
+        result["spoken_word"] = spoken_word
+        self.last_match_result = result.copy()
         
         # Add to recent words buffer
         self.recent_words.append(spoken_word)

@@ -433,6 +433,41 @@ const ReadingSessionPage: React.FC = () => {
               setRecognizedWords(prev => new Set(prev).add(wordIndex));
               console.log(`✅ Word ${wordIndex} ("${realWords[wordIndex]}") marked correct (after insertion)`);
               break;
+              
+            case 'repetition':
+              // Mark as repetition (blue underline)
+              // The word was repeated - show it as a separate box AFTER the original word
+              const repeatedWord = msg.match_result.repeated_word || word;
+              
+              // Add to repeatedWords map to show as separate box with blue underline
+              setRepeatedWords(prev => {
+                const newMap = new Map(prev);
+                const existing = newMap.get(wordIndex) || [];
+                newMap.set(wordIndex, [...existing, repeatedWord]);
+                return newMap;
+              });
+              
+              console.log(`⚠️ Repetition detected: "${repeatedWord}" repeated after word ${wordIndex}`);
+              break;
+              
+            case 'selfCorrection':
+              // Mark as self-correction (green 'S' above)
+              // Student corrected their own mistake - this is POSITIVE behavior
+              const correctedWord = msg.match_result.corrected_word || word;
+              const wrongWord = msg.match_result.wrong_word || '';
+              
+              // Mark the CURRENT word (the one that was corrected) with self-correction
+              // The student said the wrong word first, then corrected to this word
+              setWordMiscues(prev => new Map(prev).set(wordIndex, 'selfCorrection'));
+              setWordMarkings(prev => new Map(prev).set(wordIndex, {
+                type: 'selfCorrection',
+                marking: `Write 'S' above self-corrected word`,
+                spokenWord: correctedWord,
+                correctWord: realWords[wordIndex] || '',
+                wrongWord: wrongWord  // Track what they said wrong first
+              }));
+              console.log(`✅ Word ${wordIndex} ("${realWords[wordIndex]}") marked as self-correction (was "${wrongWord}", corrected to "${correctedWord}")`);
+              break;
           }
           
           // Update metrics from backend (source of truth)
@@ -612,10 +647,14 @@ const ReadingSessionPage: React.FC = () => {
     marking: string; // The actual marking (underline, circle, caret, etc.)
     spokenWord?: string; // What the child actually said
     correctWord: string; // What should have been said
+    wrongWord?: string; // For self-correction: what they said wrong first
   }>>(new Map());
 
   // Track inserted words (extra words child said) with their position
   const [insertedWords, setInsertedWords] = useState<Map<number, string[]>>(new Map());
+  
+  // Track repeated words (words said twice) with their position
+  const [repeatedWords, setRepeatedWords] = useState<Map<number, string[]>>(new Map());
 
   // Toggle visibility of Miscue Types Detection section (hidden by default)
   const [showMiscueDetails, setShowMiscueDetails] = useState(false);
@@ -4658,6 +4697,23 @@ const ReadingSessionPage: React.FC = () => {
                                   </>
                                 )}
                               </span>
+                              
+                              {/* Show repeated words as separate word boxes AFTER this word */}
+                              {!isSpecialChar && repeatedWords.has(realWordIndex) && showMiscueColors && repeatedWords.get(realWordIndex)!.map((repeatedWord, idx) => (
+                                <span
+                                  key={`repeat-${realWordIndex}-${idx}`}
+                                  className="inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative bg-blue-50 text-blue-900 border-2 border-blue-400 font-semibold"
+                                  style={{
+                                    textDecoration: 'underline',
+                                    textDecorationColor: '#2563eb',
+                                    textDecorationThickness: '2px',
+                                    textDecorationStyle: 'solid'
+                                  }}
+                                  title={`Repeated word: "${repeatedWord}"`}
+                                >
+                                  {repeatedWord}
+                                </span>
+                              ))}
                               </React.Fragment>
                             );
                           })}
