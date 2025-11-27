@@ -11,11 +11,13 @@ import Story, { IStory } from './models/Story.js';
 import GridFSService from './services/gridfsService.js';
 import teacherRoutes from './routes/teacherRoutes.js';
 import parentRoutes from './routes/parentRoutes.js';
+import reportRoutes from './routes/reportRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import { resultService } from './services/resultService.js';
 import { isrResultService } from './services/isrResultService.js';
 import { isrReviewRecordService } from './services/isrReviewRecordService.js';
 import { calculateFromISRResult } from './services/isrReviewCalculator.js';
+import { startScheduledReportRunner } from './services/scheduledReportRunner.js';
 import type { Readable } from 'stream';
 import { adminDb, firestoreAdmin } from './config/firebaseAdmin.js';
 import { db as firestore } from './config/firebase.js';
@@ -394,11 +396,11 @@ app.get('/api/test', (req, res) => {
 
         // Check if it's a valid PDF (only for PDF files, skip for text files)
         if (req.file.mimetype === 'application/pdf') {
-          const pdfHeader = req.file.buffer.slice(0, 4).toString();
-          if (!pdfHeader.startsWith('%PDF')) {
-            console.error('Invalid PDF header:', pdfHeader);
-            res.status(400).json({ error: 'Invalid PDF file: Missing PDF header' });
-            return;
+        const pdfHeader = req.file.buffer.slice(0, 4).toString();
+        if (!pdfHeader.startsWith('%PDF')) {
+          console.error('Invalid PDF header:', pdfHeader);
+          res.status(400).json({ error: 'Invalid PDF file: Missing PDF header' });
+          return;
           }
         } else if (req.file.mimetype === 'text/plain') {
           // For text files (manual input), no header validation needed
@@ -944,6 +946,12 @@ app.get('/api/test', (req, res) => {
 
     app.use('/api/teachers', teacherRoutes);
     app.use('/api/parents', parentRoutes);
+    const ADMIN_REPORTS_ENABLED = process.env.ADMIN_REPORTS_ENABLED === 'true';
+    if (ADMIN_REPORTS_ENABLED) {
+      console.log('Administrative Reports routes enabled');
+      app.use('/api/reports', reportRoutes);
+      startScheduledReportRunner();
+    }
     
     // Use admin routes
     app.use('/api/admin', adminRoutes);

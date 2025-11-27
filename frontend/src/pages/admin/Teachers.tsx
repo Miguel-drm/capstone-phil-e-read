@@ -123,12 +123,21 @@ const Teachers: React.FC = () => {
     displayedTeachers.sort((a, b) => (a.id || '').localeCompare(b.id || ''));
   }
 
+  const teacherStats = [
+    { label: 'Total Teachers', value: teachers.length },
+    { label: 'Profile Photos', value: teachers.filter((t) => Boolean(t.profileImage)).length },
+    { label: 'Schools', value: new Set(teachers.map((t) => t.school || 'Unknown')).size },
+  ];
+
   return (
-    <div className="p-8">
+    <div className="p-6 lg:p-8 space-y-6">
       {viewTeacher ? (
-        <div className="bg-white rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.12)] p-2 sm:p-6">
-          <div className="flex justify-between mb-4 items-center">
-            <h2 className="text-2xl font-bold text-gray-800">Teacher Details</h2>
+        <div className="bg-white rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.12)] p-4 sm:p-8 space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">Overview</p>
+              <h2 className="text-2xl font-bold text-gray-900">Teacher Details</h2>
+            </div>
             <button
               className="bg-gray-100 hover:bg-gray-200 text-gray-700 p-2 rounded-full shadow flex items-center justify-center"
               onClick={() => setViewTeacher(null)}
@@ -140,21 +149,31 @@ const Teachers: React.FC = () => {
             </button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-gray-50 p-6 rounded-lg">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">Basic Information</h3>
-              <p><span className="font-medium text-gray-900">Name:</span> {viewTeacher.displayName || 'N/A'}</p>
-              <p><span className="font-medium text-gray-900">Email:</span> {viewTeacher.email || 'N/A'}</p>
-              <p><span className="font-medium text-gray-900">Phone:</span> {viewTeacher.phoneNumber || 'N/A'}</p>
-              <p><span className="font-medium text-gray-900">School:</span> {viewTeacher.school || 'N/A'}</p>
-              <p><span className="font-medium text-gray-900">Grade Level:</span> {viewTeacher.gradeLevel || 'N/A'}</p>
+            <div className="bg-gray-50 rounded-xl p-6 space-y-3">
+              <h3 className="text-lg font-semibold text-gray-800">Basic Information</h3>
+              <div className="space-y-2 text-sm text-gray-700">
+                <p><span className="font-medium text-gray-900">Name:</span> {viewTeacher.displayName || 'N/A'}</p>
+                <p><span className="font-medium text-gray-900">Email:</span> {viewTeacher.email || 'N/A'}</p>
+                <p><span className="font-medium text-gray-900">Phone:</span> {viewTeacher.phoneNumber || 'N/A'}</p>
+                <p><span className="font-medium text-gray-900">School:</span> {viewTeacher.school || 'N/A'}</p>
+                <p><span className="font-medium text-gray-900">Grade Level:</span> {viewTeacher.gradeLevel || 'N/A'}</p>
+              </div>
             </div>
-            <div className="bg-gray-50 p-6 rounded-lg">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">Profile Image</h3>
-              {viewTeacher.profileImage ? (
-                <img src={viewTeacher.profileImage} alt={viewTeacher.displayName || 'Profile'} className="w-full h-40 object-cover rounded-lg" />
-              ) : (
-                <div className="w-full h-40 bg-gray-200 flex items-center justify-center rounded-lg text-gray-500">No Image</div>
-              )}
+            <div className="bg-gray-50 rounded-xl p-6 flex flex-col md:flex-row items-center gap-4">
+              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-indigo-500 to-blue-500 flex items-center justify-center text-white text-2xl font-bold overflow-hidden">
+                {viewTeacher.profileImage ? (
+                  <img src={viewTeacher.profileImage} alt={viewTeacher.displayName || 'Profile'} className="w-full h-full object-cover" />
+                ) : (
+                  viewTeacher.displayName?.charAt(0)?.toUpperCase() ||
+                  viewTeacher.email?.charAt(0)?.toUpperCase() ||
+                  'T'
+                )}
+              </div>
+              <div className="space-y-2 text-sm text-gray-700 w-full">
+                <h3 className="text-lg font-semibold text-gray-800">Profile & Status</h3>
+                <p><span className="font-medium text-gray-900">Last Updated:</span> {new Date().toLocaleDateString()}</p>
+                <p><span className="font-medium text-gray-900">Role:</span> Teacher</p>
+              </div>
             </div>
           </div>
         </div>
@@ -165,63 +184,65 @@ const Teachers: React.FC = () => {
       ) : teachers.length === 0 ? (
         <div className="text-gray-500">No teachers found.</div>
       ) : (
-          <div className="bg-white rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.12)] p-2 sm:p-6">
-          <div className="flex justify-between mb-4 items-center relative">
-            <h2 className="text-2xl font-bold text-gray-800">Teachers</h2>
-            <div className="flex items-center gap-2 ml-auto">
-              <button
-                className="bg-gray-100 hover:bg-gray-200 text-gray-700 p-2 rounded-full shadow flex items-center justify-center"
-                onClick={() => setFilterOpen(f => !f)}
-                title="Filter"
-              >
-                <FunnelIcon className="w-5 h-5" />
-              </button>
-              <span
-                className="bg-gray-100 text-gray-700 p-2 rounded-full shadow flex items-center justify-center"
-                title="Search"
-              >
-                <MagnifyingGlassIcon className="w-5 h-5" />
-              </span>
-              <div className="ml-2 w-56">
-                <input
-                  type="text"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400"
-                  placeholder="Search by name..."
-                  value={searchValue}
-                  onChange={e => setSearchValue(e.target.value)}
-                />
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {teacherStats.map((stat) => (
+              <div key={stat.label} className="rounded-2xl bg-white shadow-sm border border-gray-100 px-5 py-4">
+                <p className="text-sm text-gray-500">{stat.label}</p>
+                <p className="text-2xl font-semibold text-gray-900 mt-1">{stat.value}</p>
               </div>
-              {filterOpen && (
-                <div className="absolute right-0 top-12 bg-white border border-gray-200 rounded-lg shadow-lg z-20 w-48">
-                  <button
-                    className={`w-full text-left px-4 py-2 hover:bg-blue-50 ${filterType === 'az' ? 'font-bold text-blue-700' : ''}`}
-                    onClick={() => { setFilterType('az'); setFilterOpen(false); }}
-                  >
-                    Name: A to Z
-                  </button>
-                  <button
-                    className={`w-full text-left px-4 py-2 hover:bg-blue-50 ${filterType === 'za' ? 'font-bold text-blue-700' : ''}`}
-                    onClick={() => { setFilterType('za'); setFilterOpen(false); }}
-                  >
-                    Name: Z to A
-                  </button>
-                  <button
-                    className={`w-full text-left px-4 py-2 hover:bg-blue-50 ${filterType === 'newest' ? 'font-bold text-blue-700' : ''}`}
-                    onClick={() => { setFilterType('newest'); setFilterOpen(false); }}
-                  >
-                    Newest Teacher
-                  </button>
-                  <button
-                    className={`w-full text-left px-4 py-2 hover:bg-blue-50 ${filterType === 'oldest' ? 'font-bold text-blue-700' : ''}`}
-                    onClick={() => { setFilterType('oldest'); setFilterOpen(false); }}
-                  >
-                    Oldest Teacher
-                  </button>
-                </div>
-              )}
-            </div>
+            ))}
           </div>
-          <div className="overflow-visible">
+          <div className="bg-white rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.12)] p-2 sm:p-6 space-y-4">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">Teachers</h2>
+                <p className="text-sm text-gray-500 mt-1">Manage teacher profiles, schools, and grade assignments.</p>
+              </div>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+                <div className="relative w-full sm:w-64">
+                  <MagnifyingGlassIcon className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    className="w-full border border-gray-200 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Search by name or school..."
+                    value={searchValue}
+                    onChange={(e) => setSearchValue(e.target.value)}
+                  />
+                </div>
+                <div className="relative">
+                  <button
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                    onClick={() => setFilterOpen((f) => !f)}
+                  >
+                    <FunnelIcon className="w-5 h-5 text-gray-500" />
+                    Sort
+                  </button>
+                  {filterOpen && (
+                    <div className="absolute right-0 mt-2 bg-white border border-gray-200 rounded-2xl shadow-xl z-20 w-56 overflow-hidden">
+                      {[
+                        { key: 'az', label: 'Name: A to Z' },
+                        { key: 'za', label: 'Name: Z to A' },
+                        { key: 'newest', label: 'Newest Teacher' },
+                        { key: 'oldest', label: 'Oldest Teacher' },
+                      ].map((option) => (
+                        <button
+                          key={option.key}
+                          className={`w-full text-left px-4 py-2.5 text-sm hover:bg-blue-50 ${filterType === option.key ? 'font-semibold text-blue-700' : 'text-gray-700'}`}
+                          onClick={() => {
+                            setFilterType(option.key as typeof filterType);
+                            setFilterOpen(false);
+                          }}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="overflow-visible">
             <table className="min-w-full rounded-2xl">
               <thead>
                 <tr className="bg-white shadow-sm rounded-t-2xl sticky top-0 z-10">
@@ -244,7 +265,11 @@ const Teachers: React.FC = () => {
                       <span className="w-16 h-16 rounded-full bg-white border border-gray-200 shadow flex items-center justify-center overflow-hidden mr-2">
                         {teacher.profileImage ? (
                           <img src={teacher.profileImage} alt={teacher.displayName || 'Profile'} className="w-full h-full object-cover rounded-full" />
-                        ) : null}
+                        ) : (
+                          <div className="w-full h-full rounded-full bg-gradient-to-br from-indigo-500 to-blue-500 flex items-center justify-center text-white text-xl font-semibold">
+                            {(teacher.displayName || teacher.email || 'T').charAt(0).toUpperCase()}
+                          </div>
+                        )}
                       </span>
                       <div className="flex flex-col">
                         <span className="font-extrabold text-lg text-gray-900">{teacher.displayName || 'N/A'}</span>
@@ -290,6 +315,7 @@ const Teachers: React.FC = () => {
             </table>
           </div>
         </div>
+        </>
       )}
 
       {selectedTeacher && (

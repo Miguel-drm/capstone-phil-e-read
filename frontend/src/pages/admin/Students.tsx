@@ -211,8 +211,14 @@ const Students: React.FC = () => {
     displayedStudents.sort((a, b) => (a.id || '').localeCompare(b.id || ''));
   }
 
+  const studentStats = [
+    { label: showArchived ? 'Archived Students' : 'Active Students', value: students.length },
+    { label: 'Linked Parents', value: students.filter((s) => Boolean(s.parentName)).length },
+    { label: 'Grade Levels Visible', value: new Set(students.map((s) => s.grade || 'Unassigned')).size },
+  ];
+
   return (
-    <div className="p-8">
+    <div className="p-6 lg:p-8 space-y-6">
       {viewStudent ? (
         <div className="bg-white rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.12)] p-2 sm:p-6">
           <div className="flex justify-between mb-4 items-center">
@@ -273,54 +279,99 @@ const Students: React.FC = () => {
           )}
         </div>
       ) : (
-        <div className="bg-white rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.12)] p-2 sm:p-6">
-          <div className="flex justify-between mb-4 items-center">
-            <h2 className="text-2xl font-bold text-gray-800">Students</h2>
-            <div className="flex items-center gap-4">
-              <button
-                type="button"
-                onClick={() => setShowArchived(s => !s)}
-                className={`text-sm px-3 py-2 rounded-lg border shadow-sm transition-colors ${showArchived ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}`}
-                title={showArchived ? 'Show Active Students' : 'Show Archived Students'}
-              >
-                {showArchived ? 'Show Active' : 'Show Archived'}
-              </button>
-              <div className="relative">
-              <select
-                value={selectedGradeId}
-                onChange={handleGradeChange}
-                  className="appearance-none bg-white border border-gray-300 rounded-lg px-4 py-2 pr-8 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm transition-all duration-150 hover:border-gray-400"
-                disabled={loading}
-              >
-                <option value="all">All Grades</option>
-                {grades.map((grade) => (
-                  <option key={grade.id} value={grade.id}>
-                    {grade.name}
-                  </option>
-                ))}
-              </select>
-                <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {studentStats.map((stat) => (
+              <div key={stat.label} className="rounded-2xl bg-white shadow-sm border border-gray-100 px-5 py-4">
+                <p className="text-sm text-gray-500">{stat.label}</p>
+                <p className="text-2xl font-semibold text-gray-900 mt-1">{stat.value}</p>
+              </div>
+            ))}
+          </div>
+          <div className="bg-white rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.12)] p-2 sm:p-6 space-y-4">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">Students</h2>
+                <p className="text-sm text-gray-500 mt-1">Browse and manage learners, enrollment status, and parent links.</p>
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <button
+                  type="button"
+                  onClick={() => setShowArchived((s) => !s)}
+                  className={`inline-flex items-center justify-center text-sm px-4 py-2.5 rounded-xl border shadow-sm transition-colors ${showArchived ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}
+                >
+                  {showArchived ? 'Show Active' : 'Show Archived'}
+                </button>
+                <div className="relative">
+                  <select
+                    value={selectedGradeId}
+                    onChange={handleGradeChange}
+                    className="appearance-none bg-white border border-gray-200 rounded-xl px-4 py-2.5 pr-10 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm transition-all"
+                    disabled={loading}
+                  >
+                    <option value="all">All Grades</option>
+                    {grades.map((grade) => (
+                      <option key={grade.id} value={grade.id}>
+                        {grade.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2 ml-2">
-                <span className="bg-gray-100 text-gray-700 p-2 rounded-full shadow flex items-center justify-center" title="Search">
-                  <MagnifyingGlassIcon className="w-5 h-5" />
-              </span>
-                <div className="w-56">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+                <div className="relative w-full sm:w-64">
+                  <MagnifyingGlassIcon className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400"
+                    className="w-full border border-gray-200 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     placeholder="Search by name, LRN, or parent..."
                     value={searchValue}
-                    onChange={e => setSearchValue(e.target.value)}
+                    onChange={(e) => setSearchValue(e.target.value)}
                   />
                 </div>
+                <div className="relative">
+                  <button
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                    onClick={() => setFilterOpen((f) => !f)}
+                  >
+                    <FunnelIcon className="w-5 h-5 text-gray-500" />
+                    Sort
+                  </button>
+                  {filterOpen && (
+                    <div className="absolute right-0 mt-2 bg-white border border-gray-200 rounded-2xl shadow-xl z-20 w-56 overflow-hidden">
+                      {[
+                        { key: 'az', label: 'Name: A to Z' },
+                        { key: 'za', label: 'Name: Z to A' },
+                        { key: 'newest', label: 'Newest Student' },
+                        { key: 'oldest', label: 'Oldest Student' },
+                      ].map((option) => (
+                        <button
+                          key={option.key}
+                          className={`w-full text-left px-4 py-2.5 text-sm hover:bg-blue-50 ${filterType === option.key ? 'font-semibold text-blue-700' : 'text-gray-700'}`}
+                          onClick={() => {
+                            setFilterType(option.key as typeof filterType);
+                            setFilterOpen(false);
+                          }}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-5 rounded-xl shadow transition-all duration-150"
+                  onClick={() => setEditModalOpen(true)}
+                >
+                  + Edit Students
+                </button>
               </div>
             </div>
-          </div>
           <div className="overflow-visible">
             <table className="min-w-full rounded-2xl">
               <thead>
@@ -331,50 +382,7 @@ const Students: React.FC = () => {
                   <th className="px-6 py-5 text-left text-sm font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200">Parent</th>
                   <th className="px-6 py-5 text-center text-sm font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200">Status</th>
                   <th className="px-6 py-5 text-right text-sm font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200" colSpan={2}>
-                    <div className="flex justify-end items-center gap-2">
-                      <button
-                        className="bg-gray-100 hover:bg-gray-200 text-gray-700 p-2 rounded-full shadow flex items-center justify-center"
-                        onClick={() => setFilterOpen(f => !f)}
-                        title="Filter"
-                      >
-                        <FunnelIcon className="w-5 h-5" />
-                      </button>
-                      {filterOpen && (
-                        <div className="absolute right-24 top-12 bg-white border border-gray-200 rounded-lg shadow-lg z-20 w-48">
-                          <button
-                            className={`w-full text-left px-4 py-2 hover:bg-blue-50 ${filterType === 'az' ? 'font-bold text-blue-700' : ''}`}
-                            onClick={() => { setFilterType('az'); setFilterOpen(false); }}
-                          >
-                            Name: A to Z
-                          </button>
-                          <button
-                            className={`w-full text-left px-4 py-2 hover:bg-blue-50 ${filterType === 'za' ? 'font-bold text-blue-700' : ''}`}
-                            onClick={() => { setFilterType('za'); setFilterOpen(false); }}
-                          >
-                            Name: Z to A
-                          </button>
-                          <button
-                            className={`w-full text-left px-4 py-2 hover:bg-blue-50 ${filterType === 'newest' ? 'font-bold text-blue-700' : ''}`}
-                            onClick={() => { setFilterType('newest'); setFilterOpen(false); }}
-                          >
-                            Newest Student
-                          </button>
-                          <button
-                            className={`w-full text-left px-4 py-2 hover:bg-blue-50 ${filterType === 'oldest' ? 'font-bold text-blue-700' : ''}`}
-                            onClick={() => { setFilterType('oldest'); setFilterOpen(false); }}
-                          >
-                            Oldest Student
-                          </button>
-                        </div>
-                      )}
-                      {/* Removed duplicate toggleable search; single search lives in header controls */}
-                      <button
-                        className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-5 rounded-lg shadow transition-all duration-150"
-                onClick={() => setEditModalOpen(true)}
-              >
-                        + Edit Students
-              </button>
-            </div>
+                    Actions
                   </th>
                   </tr>
                 </thead>
@@ -437,63 +445,63 @@ const Students: React.FC = () => {
                             )}
                           </Menu.Item>
                         {showArchived ? (
-                            <Menu.Item>
-                              {({ active }) => (
-                          <button
-                            onClick={async () => {
-                              const sid = (student.id || student.studentId)!;
-                              await StudentServiceModule.studentService.batchSetArchived([sid], false);
-                              try {
-                                const grade = grades.find(g => g.name === student.grade);
-                                if (grade) {
-                                  await gradeService.addStudentToGrade(grade.id!, sid);
-                                  const updated = await gradeService.getStudentsInGrade(grade.id!);
-                                  await gradeService.updateStudentCount(grade.id!, updated.length);
-                                }
-                              } catch {}
-                              setStudents(prev => prev.filter(s => (s.id || s.studentId) !== (student.id || student.studentId)));
-                            }}
-                                  className={`w-full text-left px-4 py-2 text-sm rounded-md transition-colors ${active ? 'bg-green-50 text-green-700' : 'text-green-600'}`}
-                          >
-                                  Restore
-                          </button>
-                              )}
-                            </Menu.Item>
+                          <Menu.Item>
+                            {({ active }) => (
+                              <button
+                                onClick={async () => {
+                                  const sid = (student.id || student.studentId)!;
+                                  await StudentServiceModule.studentService.batchSetArchived([sid], false);
+                                  try {
+                                    const grade = grades.find((g) => g.name === student.grade);
+                                    if (grade) {
+                                      await gradeService.addStudentToGrade(grade.id!, sid);
+                                      const updated = await gradeService.getStudentsInGrade(grade.id!);
+                                      await gradeService.updateStudentCount(grade.id!, updated.length);
+                                    }
+                                  } catch {}
+                                  setStudents((prev) => prev.filter((s) => (s.id || s.studentId) !== (student.id || student.studentId)));
+                                }}
+                                className={`w-full text-left px-4 py-2 text-sm rounded-md transition-colors ${active ? 'bg-green-50 text-green-700' : 'text-green-600'}`}
+                              >
+                                Restore
+                              </button>
+                            )}
+                          </Menu.Item>
                         ) : (
                           <>
+                            <Menu.Item>
+                              {({ active }) => (
+                                <button
+                                  onClick={async () => {
+                                    const sid = (student.id || student.studentId)!;
+                                    await StudentServiceModule.studentService.batchSetArchived([sid], true, true);
+                                    try {
+                                      const grade = grades.find((g) => g.name === student.grade);
+                                      if (grade) {
+                                        await gradeService.removeStudentFromGrade(grade.id!, sid);
+                                        const updated = await gradeService.getStudentsInGrade(grade.id!);
+                                        await gradeService.updateStudentCount(grade.id!, updated.length);
+                                      }
+                                    } catch {}
+                                    setStudents((prev) => prev.filter((s) => (s.id || s.studentId) !== (student.id || student.studentId)));
+                                  }}
+                                  className={`w-full text-left px-4 py-2 text-sm rounded-md transition-colors ${active ? 'bg-yellow-50 text-yellow-700' : 'text-yellow-600'}`}
+                                >
+                                  Archive
+                                </button>
+                              )}
+                            </Menu.Item>
+                            {userRole === 'admin' && (
                               <Menu.Item>
                                 {({ active }) => (
-                            <button
-                              onClick={async () => {
-                                const sid = (student.id || student.studentId)!;
-                                      await StudentServiceModule.studentService.batchSetArchived([sid], true, true);
-                                try {
-                                  const grade = grades.find(g => g.name === student.grade);
-                                  if (grade) {
-                                    await gradeService.removeStudentFromGrade(grade.id!, sid);
-                                    const updated = await gradeService.getStudentsInGrade(grade.id!);
-                                    await gradeService.updateStudentCount(grade.id!, updated.length);
-                                  }
-                                } catch {}
-                                setStudents(prev => prev.filter(s => (s.id || s.studentId) !== (student.id || student.studentId)));
-                              }}
-                                    className={`w-full text-left px-4 py-2 text-sm rounded-md transition-colors ${active ? 'bg-yellow-50 text-yellow-700' : 'text-yellow-600'}`}
-                            >
-                                    Archive
-                            </button>
+                                  <button
+                                    onClick={() => handleDeleteStudent(student)}
+                                    className={`w-full text-left px-4 py-2 text-sm rounded-md transition-colors ${active ? 'bg-red-50 text-red-700' : 'text-red-600'}`}
+                                  >
+                                    Delete
+                                  </button>
                                 )}
                               </Menu.Item>
-                            {userRole === 'admin' && (
-                                <Menu.Item>
-                                  {({ active }) => (
-                              <button
-                                onClick={() => handleDeleteStudent(student)}
-                                      className={`w-full text-left px-4 py-2 text-sm rounded-md transition-colors ${active ? 'bg-red-50 text-red-700' : 'text-red-600'}`}
-                              >
-                                      Delete
-                              </button>
-                                  )}
-                                </Menu.Item>
                             )}
                           </>
                         )}
@@ -506,6 +514,7 @@ const Students: React.FC = () => {
               </table>
           </div>
         </div>
+        </>
       )}
       <EditStudentModal
         open={editModalOpen}
