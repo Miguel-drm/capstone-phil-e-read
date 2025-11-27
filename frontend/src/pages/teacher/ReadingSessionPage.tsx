@@ -413,15 +413,106 @@ const ReadingSessionPage: React.FC = () => {
               
             case 'insertion':
               // Mark as insertion (cyan caret with word above)
+              // Insertion should be placed BEFORE the current word (between previous and current)
               const insertedWord = msg.match_result.inserted_word || word;
-              setWordMiscues(prev => new Map(prev).set(wordIndex, 'insertion'));
+              const insertionPosition = wordIndex; // Position where insertion happened (before this word)
+              
+              // Add to insertedWords map to show as separate box BEFORE this word
+              setInsertedWords(prev => {
+                const newMap = new Map(prev);
+                const existing = newMap.get(insertionPosition) || [];
+                newMap.set(insertionPosition, [...existing, insertedWord]);
+                return newMap;
+              });
+              
+              console.log(`⚠️ Insertion detected: "${insertedWord}" before word ${wordIndex} ("${realWords[wordIndex]}")`);
+              
+              // IMPORTANT: The current word (at wordIndex) should still be marked as CORRECT
+              // because the child DID read it correctly - they just added an extra word before it
+              // The insertion is tracked separately in insertedWords map
+              setRecognizedWords(prev => new Set(prev).add(wordIndex));
+              console.log(`✅ Word ${wordIndex} ("${realWords[wordIndex]}") marked correct (after insertion)`);
+              break;
+              
+            case 'repetition':
+              // Mark as repetition (blue underline)
+              // The word was repeated - show it as a separate box AFTER the original word
+              const repeatedWord = msg.match_result.repeated_word || word;
+              
+              // Add to repeatedWords map to show as separate box with blue underline
+              setRepeatedWords(prev => {
+                const newMap = new Map(prev);
+                const existing = newMap.get(wordIndex) || [];
+                newMap.set(wordIndex, [...existing, repeatedWord]);
+                return newMap;
+              });
+              
+              console.log(`⚠️ Repetition detected: "${repeatedWord}" repeated after word ${wordIndex}`);
+              break;
+              
+            case 'selfCorrection':
+              // Mark as self-correction (green 'S' above)
+              // Student corrected their own mistake - this is POSITIVE behavior
+              const correctedWord = msg.match_result.corrected_word || word;
+              const wrongWord = msg.match_result.wrong_word || '';
+              
+              // Mark the CURRENT word (the one that was corrected) with self-correction
+              // The student said the wrong word first, then corrected to this word
+              setWordMiscues(prev => new Map(prev).set(wordIndex, 'selfCorrection'));
               setWordMarkings(prev => new Map(prev).set(wordIndex, {
-                type: 'insertion',
-                marking: `Use caret (^) to show where word was inserted`,
-                spokenWord: insertedWord,
+                type: 'selfCorrection',
+                marking: `Write 'S' above self-corrected word`,
+                spokenWord: correctedWord,
+                correctWord: realWords[wordIndex] || '',
+                wrongWord: wrongWord  // Track what they said wrong first
+              }));
+              console.log(`✅ Word ${wordIndex} ("${realWords[wordIndex]}") marked as self-correction (was "${wrongWord}", corrected to "${correctedWord}")`);
+              break;
+              
+            case 'reversal':
+              // Mark as reversal (pink background, correct word above)
+              // Student reversed the letters (e.g., "was" → "saw")
+              setWordMiscues(prev => new Map(prev).set(wordIndex, 'reversal'));
+              setWordMarkings(prev => new Map(prev).set(wordIndex, {
+                type: 'reversal',
+                marking: `Write correct word above reversed word`,
+                spokenWord: word,
                 correctWord: realWords[wordIndex] || ''
               }));
-              console.log(`⚠️ Word ${wordIndex} marked as insertion: "${insertedWord}"`);
+              console.log(`⚠️ Word ${wordIndex} marked as reversal: "${word}" (should be "${realWords[wordIndex]}")`);
+              break;
+              
+            case 'transposition':
+              // Mark as transposition (purple, curved line connecting the two words)
+              // Student swapped word order (e.g., "big red" → "red big")
+              const firstWord = msg.match_result.first_word || '';
+              const secondWord = msg.match_result.second_word || '';
+              
+              // Mark BOTH words involved in the transposition
+              // wordIndex-1 is the first word, wordIndex is the second word
+              const firstWordIndex = wordIndex - 1;
+              
+              if (firstWordIndex >= 0) {
+                // Mark first word
+                setWordMiscues(prev => new Map(prev).set(firstWordIndex, 'transposition'));
+                setWordMarkings(prev => new Map(prev).set(firstWordIndex, {
+                  type: 'transposition',
+                  marking: `Use transpositional symbol (curved line)`,
+                  spokenWord: firstWord,
+                  correctWord: realWords[firstWordIndex] || ''
+                }));
+                
+                // Mark second word
+                setWordMiscues(prev => new Map(prev).set(wordIndex, 'transposition'));
+                setWordMarkings(prev => new Map(prev).set(wordIndex, {
+                  type: 'transposition',
+                  marking: `Use transpositional symbol (curved line)`,
+                  spokenWord: secondWord,
+                  correctWord: realWords[wordIndex] || ''
+                }));
+                
+                console.log(`⚠️ Transposition detected: "${firstWord}" and "${secondWord}" swapped (words ${firstWordIndex} and ${wordIndex})`);
+              }
               break;
           }
           
@@ -602,10 +693,14 @@ const ReadingSessionPage: React.FC = () => {
     marking: string; // The actual marking (underline, circle, caret, etc.)
     spokenWord?: string; // What the child actually said
     correctWord: string; // What should have been said
+    wrongWord?: string; // For self-correction: what they said wrong first
   }>>(new Map());
 
   // Track inserted words (extra words child said) with their position
   const [insertedWords, setInsertedWords] = useState<Map<number, string[]>>(new Map());
+  
+  // Track repeated words (words said twice) with their position
+  const [repeatedWords, setRepeatedWords] = useState<Map<number, string[]>>(new Map());
 
   // Toggle visibility of Miscue Types Detection section (hidden by default)
   const [showMiscueDetails, setShowMiscueDetails] = useState(false);
@@ -2378,16 +2473,16 @@ const ReadingSessionPage: React.FC = () => {
             fullStory.textContent &&
             fullStory.textContent.trim().length > 0
           ) {
-            const trimmedText = fullStory.textContent.trim();
-            setStoryText(trimmedText);
-            const wordArray = trimmedText
+            // Don't trim the text to preserve leading/trailing whitespace for proper formatting
+            setStoryText(fullStory.textContent);
+            const wordArray = fullStory.textContent
               .split(/\s+/)
               .filter((word: string) => word.length > 0);
             console.log('📖 [Teacher] Setting words:', wordArray.length, 'words');
             setWords(wordArray);
 
             // Extract vocabulary for vocabulary-constrained recognition
-            const vocabulary = extractVocabulary(trimmedText);
+            const vocabulary = extractVocabulary(fullStory.textContent);
             setStoryVocabulary(vocabulary);
 
             // Pronunciation matching now handled by server
@@ -4354,6 +4449,14 @@ const ReadingSessionPage: React.FC = () => {
                   .split("\n\n")
                   .filter((p) => p.trim().length > 0)
                   .map((paragraph, paragraphIndex, paragraphs) => {
+                    // Detect leading whitespace before trimming
+                    const leadingMatch = paragraph.match(/^(\s+)/);
+                    const leadingSpaces = leadingMatch ? leadingMatch[1] : '';
+                    
+                    // Debug: Log ALL paragraphs to see which have spaces
+                    console.log(`Paragraph ${paragraphIndex}:`, JSON.stringify(paragraph.substring(0, 50)));
+                    console.log(`  Leading spaces: ${leadingSpaces.length}`);
+                    
                     const wordsInParagraph = paragraph.trim().split(/\s+/);
                     // Calculate the starting real word index for this paragraph
                     const paragraphStartIndex = paragraphs
@@ -4368,7 +4471,23 @@ const ReadingSessionPage: React.FC = () => {
                         key={paragraphIndex}
                         className="mb-4 sm:mb-6 lg:mb-8 last:mb-0"
                       >
-                        <p className="text-gray-800 leading-relaxed flex flex-wrap gap-y-1 sm:gap-y-2 lg:gap-y-3">
+                        <p 
+                          className="text-gray-800 leading-relaxed flex flex-wrap gap-y-1 sm:gap-y-2 lg:gap-y-3" 
+                          style={{ 
+                            whiteSpace: 'pre-wrap'
+                          }}
+                        >
+                          {leadingSpaces && leadingSpaces.length > 0 && (
+                            <span 
+                              style={{ 
+                                width: `${leadingSpaces.length * 1}ch`,
+                                minWidth: `${leadingSpaces.length * 1}ch`,
+                                flexShrink: 0,
+                                display: 'inline-block'
+                              }}
+                              title={`Indent: ${leadingSpaces.length} spaces`}
+                            />
+                          )}
                           {wordsInParagraph.map((word, wordIndex) => {
                             const isSpecialChar = !/\w+/.test(word);
 
@@ -4402,7 +4521,7 @@ const ReadingSessionPage: React.FC = () => {
                                 mispronunciation: 'bg-red-50 text-red-900 border border-red-200', // Light red, underlined
                                 omission: 'bg-orange-50 text-orange-900 border border-orange-200', // Light orange, circled
                                 substitution: 'bg-yellow-50 text-yellow-900 border border-yellow-200', // Light yellow, underlined
-                                insertion: 'bg-cyan-50 text-cyan-900 border border-cyan-200', // Light cyan, caret shown
+                                insertion: '', // Don't color story word - inserted word shown separately
                                 repetition: 'bg-blue-50 text-blue-900 border border-blue-200', // Light blue, underlined
                                 transposition: 'bg-purple-50 text-purple-900 border border-purple-200', // Light purple, curved line
                                 reversal: 'bg-pink-50 text-pink-900 border border-pink-200', // Light pink, word above
@@ -4462,23 +4581,37 @@ const ReadingSessionPage: React.FC = () => {
                             const marking = !isSpecialChar ? wordMarkings.get(realWordIndex) : undefined;
 
                             return (
-                              <span
-                                key={`${paragraphIndex}-${wordIndex}`}
-                                ref={isCurrent ? currentWordRef : null}
-                                className={
-                                  isSpecialChar
-                                    ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"
-                                    : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl transition-all duration-300 ease-in-out relative ` +
-                                    (isCurrent
-                                      ? "bg-yellow-400 text-black font-extrabold shadow-2xl z-10 border-4 border-yellow-600"
-                                      : miscueType && showMiscueColors
-                                        ? `${getMiscueColor(miscueType)} font-semibold`
-                                        : recognizedWords.has(realWordIndex)
-                                          ? "bg-green-100 text-green-800 font-bold shadow-lg border-2 border-green-400"
-                                          : realWordIndex < currentWordIndex
-                                            ? "bg-white text-gray-800 font-normal border border-gray-200"
-                                            : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
-                                }
+                              <React.Fragment key={`${paragraphIndex}-${wordIndex}`}>
+                                {/* Show inserted words as separate word boxes BEFORE this word */}
+                                {!isSpecialChar && insertedWords.has(realWordIndex) && showMiscueColors && insertedWords.get(realWordIndex)!.map((insertedWord, idx) => (
+                                  <span
+                                    key={`insert-${realWordIndex}-${idx}`}
+                                    className="inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative bg-cyan-100 text-cyan-900 border-2 border-cyan-400 font-semibold"
+                                    title={`Inserted word: "${insertedWord}" (not in story)`}
+                                  >
+                                    {insertedWord}
+                                    {/* Caret at bottom pointing up to show insertion */}
+                                    <span className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-cyan-600 text-2xl font-bold leading-none">^</span>
+                                  </span>
+                                ))}
+                                
+                                {/* The actual story word */}
+                                <span
+                                  ref={isCurrent ? currentWordRef : null}
+                                  className={
+                                    isSpecialChar
+                                      ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"
+                                      : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative ` +
+                                      (isCurrent
+                                        ? "bg-yellow-400 text-black font-extrabold shadow-2xl z-10 border-4 border-yellow-600"
+                                        : miscueType && showMiscueColors
+                                          ? `${getMiscueColor(miscueType)} font-semibold`
+                                          : recognizedWords.has(realWordIndex)
+                                            ? "bg-green-100 text-green-800 font-bold shadow-lg border-2 border-green-400"
+                                            : realWordIndex < currentWordIndex
+                                              ? "bg-white text-gray-800 font-normal border border-gray-200"
+                                              : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
+                                  }
                                 style={
                                   isCurrent
                                     ? {
@@ -4609,23 +4742,25 @@ const ReadingSessionPage: React.FC = () => {
                                     )}
                                   </>
                                 )}
-
-                                {/* Show inserted words as floating badges after this word - ONLY after session completes */}
-                                {!isSpecialChar && insertedWords.has(realWordIndex) && showMiscueColors && (
-                                  <span className="relative">
-                                    {insertedWords.get(realWordIndex)!.map((insertedWord, idx) => (
-                                      <span
-                                        key={`insert-${realWordIndex}-${idx}`}
-                                        className="absolute left-0 top-[-20px] bg-cyan-600 text-white text-xs px-2 py-0.5 rounded shadow-lg whitespace-nowrap z-20"
-                                        style={{ marginLeft: `${idx * 60}px` }}
-                                        title="Inserted word (not in story)"
-                                      >
-                                        +{insertedWord}
-                                      </span>
-                                    ))}
-                                  </span>
-                                )}
                               </span>
+                              
+                              {/* Show repeated words as separate word boxes AFTER this word */}
+                              {!isSpecialChar && repeatedWords.has(realWordIndex) && showMiscueColors && repeatedWords.get(realWordIndex)!.map((repeatedWord, idx) => (
+                                <span
+                                  key={`repeat-${realWordIndex}-${idx}`}
+                                  className="inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative bg-blue-50 text-blue-900 border-2 border-blue-400 font-semibold"
+                                  style={{
+                                    textDecoration: 'underline',
+                                    textDecorationColor: '#2563eb',
+                                    textDecorationThickness: '2px',
+                                    textDecorationStyle: 'solid'
+                                  }}
+                                  title={`Repeated word: "${repeatedWord}"`}
+                                >
+                                  {repeatedWord}
+                                </span>
+                              ))}
+                              </React.Fragment>
                             );
                           })}
                         </p>

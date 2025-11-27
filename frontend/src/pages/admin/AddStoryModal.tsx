@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import type { Story } from '../../types/Story';
 import Swal from 'sweetalert2'; // Import Swal for validation messages
 
 interface AddStoryModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (storyData: Pick<Story, 'title' | 'description' | 'language'>, file: File) => Promise<void>;
+  onSave: (storyData: Pick<Story, 'title' | 'description' | 'language' | 'fontSize' | 'textAlign' | 'lineHeight'>, file: File) => Promise<void>;
   targetGradeSet?: { grade: '3' | '4' | '5' | '6', set: 'A' | 'B' | 'C' | 'D' } | null;
   defaultLanguage?: 'english' | 'tagalog';
 }
@@ -27,8 +27,9 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [manualContent, setManualContent] = useState('');
-  const [textAlign, setTextAlign] = useState<'left' | 'center' | 'right' | 'justify'>('left');
+  const [textAlign, setTextAlign] = useState<'left' | 'center' | 'right' | 'justify'>('justify'); // Default to justify for DepEd format
   const [fontSize, setFontSize] = useState<number>(14);
+  const contentEditableRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -41,7 +42,7 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
       setIsSaving(false);
       setIsDragOver(false);
       setManualContent('');
-      setTextAlign('left');
+      setTextAlign('justify'); // Reset to justify (DepEd format)
       setFontSize(14);
     } else {
       // Set language when modal opens
@@ -88,26 +89,7 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
     }
   };
 
-  // Handle Tab key press in textarea to insert spaces (like Word)
-  const handleTextareaKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Tab') {
-      e.preventDefault(); // Prevent default tab behavior (focus change)
-      
-      const textarea = e.currentTarget;
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      const tabSpaces = '    '; // 4 spaces for tab indent
-      
-      // Insert tab spaces at cursor position
-      const newValue = manualContent.substring(0, start) + tabSpaces + manualContent.substring(end);
-      setManualContent(newValue);
-      
-      // Set cursor position after the inserted spaces
-      setTimeout(() => {
-        textarea.selectionStart = textarea.selectionEnd = start + tabSpaces.length;
-      }, 0);
-    }
-  };
+
 
   const handleSubmit = async () => {
     if (!title || !language) {
@@ -138,6 +120,12 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
 
     setIsSaving(true);
     try {
+      // Debug: Log the manual content to verify spaces are preserved
+      if (inputMode === 'manual') {
+        console.log('📝 Manual content first 100 chars:', JSON.stringify(manualContent.substring(0, 100)));
+        console.log('📝 Manual content length:', manualContent.length);
+      }
+      
       const fileToUpload = inputMode === 'manual' 
         ? new File([new Blob([manualContent], { type: 'text/plain' })], `${title}.txt`, { type: 'text/plain' })
         : selectedFile!;
@@ -147,6 +135,9 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
           title,
           description: description.trim() || `A ${language} story for reading assessment.`,
           language,
+          fontSize,
+          textAlign,
+          lineHeight: 1.8
         },
         fileToUpload
       );
@@ -249,7 +240,7 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
     >
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl p-6 max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl p-8 max-h-[95vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-6">
           <button
             onClick={() => setInputMode('selection')}
@@ -297,7 +288,7 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Story PDF</label>
                 <div
-                  className={`relative w-full h-[300px] rounded-lg border-2 border-dashed transition-colors ${isDragOver
+                  className={`relative w-full h-[400px] rounded-lg border-2 border-dashed transition-colors ${isDragOver
                     ? 'border-blue-400 bg-blue-50'
                     : selectedFile
                       ? 'border-green-400 bg-green-50'
@@ -440,7 +431,7 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
                             ? 'bg-white text-green-600 shadow-sm' 
                             : 'text-gray-600 hover:text-gray-800'
                         }`}
-                        title="Justify"
+                        title="Justify (DepEd Format)"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
@@ -449,23 +440,57 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
                     </div>
                   </div>
                 </div>
-                <textarea
-                  id="manualContent"
-                  value={manualContent}
-                  onChange={(e) => setManualContent(e.target.value)}
-                  onKeyDown={handleTextareaKeyDown}
-                  placeholder="Type or paste your story content here..."
-                  className="w-full h-[300px] px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-400 resize-none"
-                  style={{ 
-                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                    textAlign: textAlign,
-                    fontSize: `${fontSize}px`,
-                    lineHeight: '1.6'
-                  }}
-                />
-                <p className="text-xs text-gray-500 mt-2">
-                  {manualContent.trim().split(/\s+/).filter(w => w).length} words
-                </p>
+                <div className="w-full h-[400px] rounded-lg border border-gray-300 overflow-y-auto bg-gray-50">
+                  <textarea
+                    ref={contentEditableRef}
+                    value={manualContent}
+                    onChange={(e) => setManualContent(e.target.value)}
+                    onKeyDown={(e) => {
+                      // Handle Tab key for indentation
+                      if (e.key === 'Tab') {
+                        e.preventDefault();
+                        const textarea = e.currentTarget;
+                        const start = textarea.selectionStart;
+                        const end = textarea.selectionEnd;
+                        
+                        // Insert 4 spaces (standard tab width) at cursor position
+                        const newValue = 
+                          manualContent.substring(0, start) + 
+                          '    ' + // 4 spaces for tab
+                          manualContent.substring(end);
+                        
+                        setManualContent(newValue);
+                        
+                        // Move cursor after the inserted spaces
+                        setTimeout(() => {
+                          textarea.selectionStart = textarea.selectionEnd = start + 4;
+                        }, 0);
+                      }
+                    }}
+                    placeholder="Type or paste your story content here..."
+                    className="min-h-full w-full mx-auto max-w-4xl px-16 py-8 bg-white focus:outline-none resize-none border-none"
+                    style={{ 
+                      fontFamily: 'Georgia, "Times New Roman", serif',
+                      textAlign: 'left', // Always left-align in textarea to preserve leading spaces
+                      fontSize: `${fontSize}px`,
+                      lineHeight: '1.8',
+                      whiteSpace: 'pre-wrap',
+                      wordWrap: 'break-word',
+                      boxShadow: '0 0 10px rgba(0,0,0,0.1)',
+                      height: '100%',
+                      tabSize: 4 // Set tab size to 4 spaces
+                    }}
+                  />
+                </div>
+                <div className="flex items-center justify-between mt-2">
+                  <p className="text-xs text-gray-500">
+                    {manualContent.trim().split(/\s+/).filter(w => w).length} words
+                  </p>
+                  <p className="text-xs text-gray-500 flex items-center gap-1">
+                    <kbd className="px-2 py-0.5 bg-gray-200 rounded text-xs font-mono">Tab</kbd>
+                    <span>to indent paragraphs</span>
+                  </p>
+                </div>
               </div>
             )}
         </div>

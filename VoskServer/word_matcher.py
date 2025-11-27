@@ -58,6 +58,33 @@ def calculate_similarity(word1: str, word2: str) -> float:
     return SequenceMatcher(None, word1, word2).ratio()
 
 
+def is_reversal(spoken: str, expected: str) -> bool:
+    """
+    Check if spoken word is a reversal of expected word.
+    
+    A reversal occurs when letters are reversed:
+    - "was" → "saw"
+    - "on" → "no"
+    - "pot" → "top"
+    
+    Args:
+        spoken: Word that was spoken
+        expected: Expected word
+        
+    Returns:
+        True if spoken is the reverse of expected
+    """
+    spoken_norm = normalize_word(spoken)
+    expected_norm = normalize_word(expected)
+    
+    # Check if spoken is the reverse of expected
+    # Must be at least 2 characters to be a meaningful reversal
+    if len(spoken_norm) >= 2 and len(expected_norm) >= 2:
+        return spoken_norm == expected_norm[::-1]
+    
+    return False
+
+
 def check_pronunciation_match(spoken: str, expected: str, language: str = "english", allow_mishearings: bool = True) -> bool:
     """
     Check if spoken word matches expected word using pronunciation dictionaries.
@@ -171,33 +198,29 @@ def match_word(
             "details": f"Correct: '{spoken_word}' matches '{expected_word}'"
         }
     
-    # INSERTION DETECTION: Check if spoken word matches a FUTURE word (not current)
-    # This indicates the child inserted an extra word
-    # Example: Story "naglalakad sa", Child "naglalakad doon sa"
-    #   - "doon" doesn't match "sa" (expected)
-    #   - But if next spoken word will be "sa", then "doon" is an insertion
-    # Since we process one word at a time, we check if spoken word matches
-    # a word that's NOT at the current position (within reasonable range)
-    insertion_check_range = 2  # Check next 2 positions
-    for i in range(1, min(insertion_check_range + 1, len(expected_words) - current_position)):
-        future_word = expected_words[current_position + i]
-        if check_pronunciation_match(spoken_word, future_word, language, allow_mishearings=False):
-            # Spoken word matches a future word (not current)
-            # This could be insertion OR omission
-            # To distinguish: if i==1, it's likely insertion (child added word before current)
-            # if i>1, it's likely omission (child skipped words)
-            if i == 1:
-                # Spoken word matches NEXT expected word
-                # This suggests current word was skipped OR an insertion happened
-                # Mark as INSERTION (child added extra word)
-                return {
-                    "match_type": "insertion",
-                    "advance": False,  # Don't advance - we haven't matched current word yet
-                    "new_position": current_position,
-                    "miscue_count": 1,
-                    "inserted_word": spoken_word,
-                    "details": f"Insertion: '{spoken_word}' inserted before '{expected_word}'"
-                }
+    # INSERTION DETECTION DISABLED: Was causing false positives when children read quickly
+    # Example: Child says "Si Brownie ay" quickly, system incorrectly marked "ay" as insertion
+    # Now we only detect insertions through omission logic (if word matches future position)
+    
+    # TRANSPOSITION DETECTION: Check if spoken word matches the NEXT word
+    # If it does, this might be a transposition (word order swap)
+    # We need to wait for the following word to confirm
+    # NOTE: This is called from match_word, not process_word, so we can't set state here
+    # We return a special result that process_word will handle
+    if current_position + 1 < len(expected_words):
+        next_word = expected_words[current_position + 1]
+        if check_pronunciation_match(spoken_word, next_word, language, allow_mishearings=False):
+            # Spoken word matches NEXT expected word - possible transposition!
+            print(f"   🔄 TRANSPOSITION POSSIBLE: '{spoken_word}' matches next word '{next_word}', expecting '{expected_word}' next")
+            return {
+                "match_type": "transposition_pending",
+                "advance": False,  # Don't advance yet - need to confirm with next word
+                "new_position": current_position,
+                "miscue_count": 0,  # Don't count yet - wait for confirmation
+                "transposed_word": spoken_word,
+                "expected_word": expected_word,
+                "details": f"Transposition pending: '{spoken_word}' matches next word, waiting for '{expected_word}'"
+            }
     
     # CONSERVATIVE SEARCH: Check if spoken word matches nearby words only
     # This prevents jumping to repeated words later in the story
@@ -207,7 +230,8 @@ def match_word(
     look_behind_range = 5  # Look 5 words back (handles delayed words from Vosk buffering)
     
     # Check ahead (WITHOUT mishearings to prevent false matches)
-    for i in range(1, min(look_ahead_range + 1, len(expected_words) - current_position)):
+    # Skip i=1 since we already checked for transposition above
+    for i in range(2, min(look_ahead_range + 1, len(expected_words) - current_position)):
         future_word = expected_words[current_position + i]
         if check_pronunciation_match(spoken_word, future_word, language, allow_mishearings=False):
             # Found the spoken word ahead - mark as omission
@@ -234,6 +258,18 @@ def match_word(
                 "miscue_count": 0,
                 "details": f"Delayed word: '{spoken_word}' from position -{i} (Vosk buffering delay)"
             }
+    
+    # Check for REVERSAL first (before similarity check)
+    # Reversal: letters are reversed (e.g., "was" → "saw", "on" → "no")
+    if is_reversal(spoken_word, expected_word):
+        return {
+            "match_type": "reversal",
+            "advance": True,
+            "new_position": current_position + 1,
+            "miscue_count": 1,
+            "similarity": 0.0,  # Reversal is a specific type of error
+            "details": f"Reversal: '{spoken_word}' is reverse of '{expected_word}'"
+        }
     
     # Calculate similarity for mispronunciation vs substitution
     similarity = calculate_similarity(spoken_norm, expected_norm)
@@ -288,13 +324,21 @@ class WordMatcherSession:
             "mispronunciation": 0,
             "omission": 0,
             "substitution": 0,
-            "insertion": 0
+            "insertion": 0,
+            "repetition": 0,
+            "selfCorrection": 0,
+            "reversal": 0,
+            "transposition": 0
         }
         self.recent_words = []  # Track recent spoken words for insertion detection
         self.max_recent_words = 5  # Keep last 5 words
         self.words_read = 0
         self.pending_word = None  # Track pending word for insertion detection
         self.session_started = False  # Track if we've found the first word
+        self.last_spoken_word = None  # Track last spoken word for repetition detection
+        self.last_match_result = None  # Track last match result for self-correction detection
+        self.transposition_pending = False  # Track if we're expecting a transposition confirmation
+        self.transposition_first_word = None  # The first word of the transposition pair
     
     def process_word(self, spoken_word: str) -> Dict:
         """
@@ -339,42 +383,256 @@ class WordMatcherSession:
                     "details": f"Waiting for first word '{self.expected_words[0]}', ignoring '{spoken_word}'"
                 }
         
-        # INSERTION DETECTION: Check BEFORE matching
-        # If we have a pending unmatched word and current word matches expected,
-        # then the previous word was an insertion
-        if hasattr(self, 'pending_word') and self.pending_word:
-            # We have a pending word that didn't match
-            # Check if current word matches the expected word
-            if check_pronunciation_match(spoken_word, expected_word, self.language):
-                # Current word matches! The pending word was an INSERTION
-                prev_word = self.pending_word
-                print(f"   ⚠️ INSERTION DETECTED: '{prev_word}' inserted before '{expected_word}'")
-                self.miscue_types["insertion"] += 1
+        # TRANSPOSITION CONFIRMATION: Check if we're expecting the second word of a transposition
+        if self.transposition_pending and self.transposition_first_word is not None:
+            # We detected a transposition - now check if current word completes it
+            # The current word should match the PREVIOUS expected word
+            previous_expected = self.expected_words[self.current_position]
+            if check_pronunciation_match(spoken_word, previous_expected, self.language):
+                # CONFIRMED! This is a transposition
+                print(f"   ✅ TRANSPOSITION CONFIRMED: '{self.transposition_first_word}' and '{spoken_word}' swapped")
+                
+                # Clear transposition state
+                self.transposition_pending = False
+                first_word = self.transposition_first_word
+                self.transposition_first_word = None
+                
+                # Update position - we've now read both words (in wrong order)
+                self.current_position += 2
+                self.words_read += 2
                 self.total_miscues += 1
+                self.miscue_types["transposition"] += 1
                 
-                # Clear pending word
-                self.pending_word = None
+                # Update last spoken word
+                self.last_spoken_word = spoken_word
                 
-                # Add current word to buffer
+                # Add to recent words
                 self.recent_words.append(spoken_word)
                 if len(self.recent_words) > self.max_recent_words:
                     self.recent_words.pop(0)
                 
-                # Advance position since current word matches
-                self.current_position += 1
-                self.words_read += 1
-                
-                # Return insertion result for previous word
-                return {
-                    "match_type": "insertion",
+                # Return transposition result
+                transposition_result = {
+                    "match_type": "transposition",
                     "advance": True,
                     "new_position": self.current_position,
                     "miscue_count": 1,
-                    "inserted_word": prev_word,
-                    "details": f"Insertion: '{prev_word}' inserted before '{expected_word}'"
+                    "first_word": first_word,
+                    "second_word": spoken_word,
+                    "details": f"Transposition: '{first_word}' and '{spoken_word}' swapped"
                 }
+                
+                # Add session state
+                transposition_result["session_state"] = {
+                    "current_position": self.current_position,
+                    "words_read": self.words_read,
+                    "total_miscues": self.total_miscues,
+                    "miscue_types": self.miscue_types.copy(),
+                    "progress": f"{self.current_position}/{len(self.expected_words)}"
+                }
+                
+                return transposition_result
+            else:
+                # Not a transposition - treat first word as substitution
+                print(f"   ❌ TRANSPOSITION FAILED: '{spoken_word}' doesn't match expected '{previous_expected}'")
+                self.transposition_pending = False
+                self.transposition_first_word = None
+                # Continue processing current word normally
         
-        # Match the word
+        # REPETITION DETECTION: Check if the same word is spoken twice in a row
+        # This must be checked BEFORE other logic to catch immediate repetitions
+        if self.last_spoken_word is not None:
+            if check_pronunciation_match(spoken_word, self.last_spoken_word, self.language):
+                # Same word spoken twice - this is a REPETITION
+                print(f"   🔁 REPETITION DETECTED: '{spoken_word}' repeated")
+                
+                # Update last spoken word
+                self.last_spoken_word = spoken_word
+                
+                # Add to recent words
+                self.recent_words.append(spoken_word)
+                if len(self.recent_words) > self.max_recent_words:
+                    self.recent_words.pop(0)
+                
+                # Return repetition result (don't advance position)
+                repetition_result = {
+                    "match_type": "repetition",
+                    "advance": False,  # Don't advance - word was already read
+                    "new_position": self.current_position,
+                    "miscue_count": 1,
+                    "repeated_word": spoken_word,
+                    "details": f"Repetition: '{spoken_word}' repeated"
+                }
+                
+                # Update miscue count
+                self.total_miscues += 1
+                self.miscue_types["repetition"] += 1
+                
+                # Add session state
+                repetition_result["session_state"] = {
+                    "current_position": self.current_position,
+                    "words_read": self.words_read,
+                    "total_miscues": self.total_miscues,
+                    "miscue_types": self.miscue_types.copy(),
+                    "progress": f"{self.current_position}/{len(self.expected_words)}"
+                }
+                
+                return repetition_result
+        
+        # SELF-CORRECTION DETECTION: Check if previous word was wrong and current word is correct
+        # This detects when a student says a wrong word then immediately corrects it
+        if self.last_match_result is not None:
+            # Check if last result was a miscue (substitution or mispronunciation)
+            if self.last_match_result.get("match_type") in ["substitution", "mispronunciation"]:
+                # Check if current word matches the PREVIOUS expected word (the one they got wrong)
+                previous_position = self.current_position - 1
+                if previous_position >= 0:
+                    previous_expected = self.expected_words[previous_position]
+                    if check_pronunciation_match(spoken_word, previous_expected, self.language):
+                        # Student corrected their mistake! This is SELF-CORRECTION
+                        print(f"   ✅ SELF-CORRECTION DETECTED: Corrected '{previous_expected}' after saying '{self.last_match_result.get('spoken_word', 'unknown')}'")
+                        
+                        # Update last spoken word
+                        self.last_spoken_word = spoken_word
+                        
+                        # Add to recent words
+                        self.recent_words.append(spoken_word)
+                        if len(self.recent_words) > self.max_recent_words:
+                            self.recent_words.pop(0)
+                        
+                        # Return self-correction result (don't advance - word was already counted)
+                        self_correction_result = {
+                            "match_type": "selfCorrection",
+                            "advance": False,  # Don't advance - correcting previous word
+                            "new_position": self.current_position,
+                            "miscue_count": 0,  # Self-correction is NOT counted as a miscue (it's a positive behavior)
+                            "corrected_word": spoken_word,
+                            "original_miscue": self.last_match_result.get("match_type"),
+                            "details": f"Self-correction: Corrected '{previous_expected}'"
+                        }
+                        
+                        # Track self-correction (for reporting, but don't add to total miscues)
+                        self.miscue_types["selfCorrection"] += 1
+                        
+                        # Add session state
+                        self_correction_result["session_state"] = {
+                            "current_position": self.current_position,
+                            "words_read": self.words_read,
+                            "total_miscues": self.total_miscues,
+                            "miscue_types": self.miscue_types.copy(),
+                            "progress": f"{self.current_position}/{len(self.expected_words)}"
+                        }
+                        
+                        # Clear last match result to prevent double detection
+                        self.last_match_result = None
+                        
+                        return self_correction_result
+        
+        # INSERTION DETECTION: Use pending word logic to detect insertions
+        # When a word doesn't match, hold it as "pending" and wait for the next word
+        # If the next word matches the expected word, the pending word was an insertion
+        # If the next word doesn't match, the pending word was a substitution
+        
+        # Check if we have a pending word from the previous call
+        if self.pending_word is not None:
+            # We have a pending word - check if current word matches expected
+            if check_pronunciation_match(spoken_word, expected_word, self.language):
+                # Current word matches! But first check if this is a SELF-CORRECTION
+                # Self-correction: pending word was wrong, current word corrects it
+                # Example: "malaki... isang" where "isang" is expected
+                
+                # Check if current word matches the EXPECTED word (the one pending word failed to match)
+                # If yes, this is self-correction, not insertion
+                if self.current_position > 0:
+                    # The pending word was trying to match the current expected word
+                    # Now the student said the correct word - this is SELF-CORRECTION!
+                    print(f"   ✅ SELF-CORRECTION DETECTED: Said '{self.pending_word}' then corrected to '{spoken_word}'")
+                    
+                    # Return self-correction result
+                    self_correction_result = {
+                        "match_type": "selfCorrection",
+                        "advance": True,  # Advance because they got it right eventually
+                        "new_position": self.current_position + 1,
+                        "miscue_count": 0,  # Self-correction is positive, not counted as miscue
+                        "corrected_word": spoken_word,
+                        "wrong_word": self.pending_word,
+                        "details": f"Self-correction: Said '{self.pending_word}' then corrected to '{spoken_word}'"
+                    }
+                    
+                    # Clear pending word
+                    self.pending_word = None
+                    
+                    # Update state
+                    self.current_position = self_correction_result["new_position"]
+                    self.words_read += 1
+                    self.miscue_types["selfCorrection"] += 1
+                    # Note: Don't increment total_miscues - self-correction is positive!
+                    
+                    # Update last spoken word
+                    self.last_spoken_word = spoken_word
+                    
+                    # Add to recent words
+                    self.recent_words.append(spoken_word)
+                    if len(self.recent_words) > self.max_recent_words:
+                        self.recent_words.pop(0)
+                    
+                    # Add session state
+                    self_correction_result["session_state"] = {
+                        "current_position": self.current_position,
+                        "words_read": self.words_read,
+                        "total_miscues": self.total_miscues,
+                        "miscue_types": self.miscue_types.copy(),
+                        "progress": f"{self.current_position}/{len(self.expected_words)}"
+                    }
+                    
+                    return self_correction_result
+                
+                # Not self-correction, it's an INSERTION
+                print(f"   ✅ INSERTION CONFIRMED: '{self.pending_word}' inserted before '{expected_word}'")
+                
+                # Return insertion result for the pending word
+                insertion_result = {
+                    "match_type": "insertion",
+                    "advance": True,  # Advance position because we found the expected word
+                    "new_position": self.current_position + 1,
+                    "miscue_count": 1,
+                    "inserted_word": self.pending_word,
+                    "details": f"Insertion: '{self.pending_word}' inserted before '{expected_word}'"
+                }
+                
+                # Clear pending word
+                self.pending_word = None
+                
+                # Update state
+                self.current_position = insertion_result["new_position"]
+                self.words_read += 1
+                self.total_miscues += 1
+                self.miscue_types["insertion"] += 1
+                
+                # Add to recent words
+                self.recent_words.append(spoken_word)
+                if len(self.recent_words) > self.max_recent_words:
+                    self.recent_words.pop(0)
+                
+                # Add session state
+                insertion_result["session_state"] = {
+                    "current_position": self.current_position,
+                    "words_read": self.words_read,
+                    "total_miscues": self.total_miscues,
+                    "miscue_types": self.miscue_types.copy(),
+                    "progress": f"{self.current_position}/{len(self.expected_words)}"
+                }
+                
+                return insertion_result
+            else:
+                # Current word doesn't match either - pending word was a SUBSTITUTION
+                print(f"   ⚠️ SUBSTITUTION CONFIRMED: '{self.pending_word}' substituted for '{self.expected_words[self.current_position - 1]}'")
+                
+                # The pending word was a substitution, now process current word normally
+                self.pending_word = None
+                # Continue to process current word below
+        
+        # Match the current word
         result = match_word(
             spoken_word,
             expected_word,
@@ -383,45 +641,44 @@ class WordMatcherSession:
             self.language
         )
         
-        # INSERTION DETECTION: If word doesn't match and isn't found nearby,
-        # mark it as pending and DON'T advance position
-        # Wait for next word to see if it matches the expected word
-        if result["match_type"] in ["substitution", "mispronunciation"]:
-            # Check if this word matches any nearby expected words
-            matches_nearby = False
-            check_range = range(max(0, self.current_position - 2), min(len(self.expected_words), self.current_position + 3))
-            for i in check_range:
-                if i != self.current_position and check_pronunciation_match(spoken_word, self.expected_words[i], self.language):
-                    matches_nearby = True
-                    break
+        # Check for TRANSPOSITION PENDING - set state and wait for next word
+        if result["match_type"] == "transposition_pending":
+            # Set transposition pending state
+            self.transposition_pending = True
+            self.transposition_first_word = spoken_word
+            print(f"   ⏸️ TRANSPOSITION PENDING: '{spoken_word}' - waiting for next word to confirm")
             
-            if not matches_nearby:
-                # Word doesn't match current or nearby words
-                # This could be an insertion - hold it as pending
-                if not hasattr(self, 'pending_word'):
-                    self.pending_word = None
-                self.pending_word = spoken_word
-                
-                # Don't advance position - wait for next word
-                return {
-                    "match_type": "pending",
-                    "advance": False,
-                    "new_position": self.current_position,
-                    "miscue_count": 0,
-                    "details": f"Pending: '{spoken_word}' doesn't match '{expected_word}', waiting for next word"
-                }
+            return {
+                "match_type": "pending",
+                "advance": False,
+                "new_position": self.current_position,
+                "miscue_count": 0,
+                "details": f"Transposition pending: waiting for next word"
+            }
         
-        # Clear pending word if we got a match or omission
-        if hasattr(self, 'pending_word'):
-            # If we had a pending word but current word is not a match,
-            # treat the pending word as a substitution
-            if self.pending_word and result["match_type"] != "correct":
-                print(f"   ⚠️ Treating pending word '{self.pending_word}' as substitution")
-                self.miscue_types["substitution"] += 1
-                self.total_miscues += 1
-                self.current_position += 1
-                self.words_read += 1
-            self.pending_word = None
+        # Check if word doesn't match - make it pending for insertion detection
+        if result["match_type"] in ["substitution", "mispronunciation"]:
+            # Word doesn't match - hold it as pending
+            print(f"   ⏸️ PENDING: '{spoken_word}' doesn't match '{expected_word}' - waiting for next word")
+            self.pending_word = spoken_word
+            
+            return {
+                "match_type": "pending",
+                "advance": False,
+                "new_position": self.current_position,
+                "miscue_count": 0,
+                "details": f"Pending: '{spoken_word}' doesn't match '{expected_word}', waiting for next word"
+            }
+        
+        # Word matched or is an omission - process normally
+        self.pending_word = None
+        
+        # Update last spoken word for repetition detection
+        self.last_spoken_word = spoken_word
+        
+        # Store result with spoken word for self-correction detection
+        result["spoken_word"] = spoken_word
+        self.last_match_result = result.copy()
         
         # Add to recent words buffer
         self.recent_words.append(spoken_word)

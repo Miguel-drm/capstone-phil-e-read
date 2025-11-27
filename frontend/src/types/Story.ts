@@ -14,6 +14,10 @@ export interface Story {
   storySet?: 'A' | 'B' | 'C' | 'D'; // Track which set this story belongs to
   hasPdf?: boolean; // Indicates if the story has PDF data available
   isActive?: boolean;
+  // Formatting metadata
+  fontSize?: number;
+  textAlign?: 'left' | 'center' | 'right' | 'justify';
+  lineHeight?: number;
   createdAt?: Date;
   updatedAt?: Date;
 }

@@ -32,6 +32,11 @@ export const mongoStoryService = {
         // For text files (manual input), use the file content directly as text
         console.log('Processing text file for manual story input');
         extractedText = file.toString('utf8');
+        
+        // Debug: Log the first 100 characters to verify spaces are preserved
+        console.log('📝 Backend received text (first 100 chars):', JSON.stringify(extractedText.substring(0, 100)));
+        console.log('📝 Backend text length:', extractedText.length);
+        
         // Don't upload text files to GridFS, just store the text content
       } else {
         // For PDF files, upload to GridFS and extract text
