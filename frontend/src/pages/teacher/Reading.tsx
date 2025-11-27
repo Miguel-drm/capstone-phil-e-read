@@ -176,80 +176,197 @@ const Reading: React.FC = () => {
   const handleScheduleSession = async () => {
     try {
       const { value: formValues } = await Swal.fire({
-        title: 'Create Reading Session',
-        html: `
-          <div class="flex gap-6 p-4">
-            <!-- Left side - Form (50% width) -->
-            <div class="w-1/2 text-left">
-            <div class="mb-6">
-              <label class="block text-sm font-medium text-gray-700 mb-2">Session Title</label>
-              <input 
-                id="session-title" 
-                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
-                placeholder="e.g., Individual Reading - Emma"
-              >
+        title: `
+          <div class="flex items-center justify-center gap-3 mb-4">
+            <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
+              <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+              </svg>
             </div>
-            <div class="mb-6">
-              <label class="block text-sm font-medium text-gray-700 mb-2">Select Story</label>
-              <select 
-                id="session-story" 
-                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">Select a story</option>
-                ${stories.map(story => `
-                  <option value="${story.title}" data-url="${story.pdfUrl}">${story.title}</option>
-                `).join('')}
-              </select>
-            </div>
-            <div class="mb-6">
-              <label class="block text-sm font-medium text-gray-700 mb-2">Class/Grade</label>
-              <div class="relative">
-              <select 
-                id="session-grade" 
-                  class="w-full appearance-none border border-gray-300 rounded-lg px-3 py-2 pr-10 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-              >
-                <option value="">Select a class</option>
-                ${grades.map(grade => `
-                  <option value="${grade.id}">${grade.name}</option>
-                `).join('')}
-              </select>
-                <span class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500">
-                  <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                    <path fillRule="evenodd" d="M10 12a1 1 0 01-.707-.293l-4-4a1 1 0 111.414-1.414L10 9.586l3.293-3.293a1 1 0 111.414 1.414l-4 4A1 1 0 0110 12z" clipRule="evenodd" />
-                  </svg>
-                </span>
-              </div>
-            </div>
-            </div>
-            
-            <!-- Right side - Students (50% width) -->
-            <div class="w-1/2">
-              <h3 class="text-lg font-semibold text-gray-700 mb-2">Select Student</h3>
-              <div class="relative mb-3">
-                <input id="student-search" placeholder="Search student..." class="w-full px-3 py-2 pl-10 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white" />
-                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <svg class="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                  </svg>
-                </div>
-              </div>
-              <div id="student-display" class="space-y-2 max-h-72 overflow-auto border border-gray-200 rounded-md p-2">
-                <p class="text-sm text-gray-500 italic text-center">Choose a class to list students</p>
-              </div>
-              <div class="mt-2 text-xs text-gray-500">Only one student can be selected for an individual reading session.</div>
+            <div class="text-left">
+              <h2 class="text-2xl font-bold text-gray-900">Create Reading Session</h2>
+              <p class="text-sm text-gray-500 mt-1">Set up a new individual reading assessment</p>
             </div>
           </div>
         `,
+        html: `
+          <div class="text-left px-2">
+            <!-- Progress Steps -->
+            <div class="mb-8 bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 rounded-xl p-5 border border-blue-100">
+              <div class="flex items-center justify-between">
+                <div class="flex flex-col items-center flex-1">
+                  <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-md">
+                    1
+                  </div>
+                  <span class="mt-2 text-xs font-semibold text-gray-700">Session Info</span>
+                </div>
+                <div class="flex-1 h-1 bg-gradient-to-r from-blue-300 to-purple-300 mx-2 rounded-full"></div>
+                <div class="flex flex-col items-center flex-1">
+                  <div class="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-purple-600 text-white flex items-center justify-center font-bold text-sm shadow-md">
+                    2
+                  </div>
+                  <span class="mt-2 text-xs font-semibold text-gray-700">Select Story</span>
+                </div>
+                <div class="flex-1 h-1 bg-gradient-to-r from-purple-300 to-green-300 mx-2 rounded-full"></div>
+                <div class="flex flex-col items-center flex-1">
+                  <div class="w-10 h-10 rounded-full bg-gradient-to-br from-green-500 to-green-600 text-white flex items-center justify-center font-bold text-sm shadow-md">
+                    3
+                  </div>
+                  <span class="mt-2 text-xs font-semibold text-gray-700">Choose Student</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Two Column Layout -->
+            <div class="grid grid-cols-2 gap-6 mb-6">
+              <!-- Left Column -->
+              <div class="space-y-6">
+                <!-- Session Title -->
+                <div class="bg-white rounded-xl border-2 border-gray-200 p-5 hover:border-blue-300 transition-all duration-200 shadow-sm">
+                  <label class="flex items-center gap-2 text-sm font-bold text-gray-800 mb-3">
+                    <div class="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                      <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </div>
+                    <span>Session Title</span>
+                  </label>
+                  <input 
+                    id="session-title" 
+                    class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base transition-all" 
+                    placeholder="e.g., Individual Reading - Emma"
+                  >
+                  <p class="mt-2 text-xs text-gray-500">Give your session a descriptive name</p>
+                </div>
+
+                <!-- Story Selection -->
+                <div class="bg-white rounded-xl border-2 border-gray-200 p-5 hover:border-purple-300 transition-all duration-200 shadow-sm">
+                  <label class="flex items-center gap-2 text-sm font-bold text-gray-800 mb-3">
+                    <div class="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center">
+                      <svg class="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                      </svg>
+                    </div>
+                    <span>Select Story</span>
+                  </label>
+                  <select 
+                    id="session-story" 
+                    class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-base bg-white transition-all"
+                  >
+                    <option value="">Choose a story...</option>
+                    ${stories.map(story => `
+                      <option value="${story.title}" data-url="${story.pdfUrl}">📖 ${story.title}</option>
+                    `).join('')}
+                  </select>
+                  <p class="mt-2 text-xs text-gray-500">Select the reading material for this session</p>
+                </div>
+
+                <!-- Class Selection -->
+                <div class="bg-white rounded-xl border-2 border-gray-200 p-5 hover:border-green-300 transition-all duration-200 shadow-sm">
+                  <label class="flex items-center gap-2 text-sm font-bold text-gray-800 mb-3">
+                    <div class="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
+                      <svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                      </svg>
+                    </div>
+                    <span>Class/Grade</span>
+                  </label>
+                  <select 
+                    id="session-grade" 
+                    class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 text-base bg-white transition-all"
+                  >
+                    <option value="">Select a class...</option>
+                    ${grades.map(grade => `
+                      <option value="${grade.id}">${grade.name}</option>
+                    `).join('')}
+                  </select>
+                  <p class="mt-2 text-xs text-gray-500">Choose the class to load students from</p>
+                </div>
+              </div>
+
+              <!-- Right Column - Student Selection -->
+              <div class="bg-gradient-to-br from-gray-50 to-blue-50 rounded-xl border-2 border-gray-200 p-5 shadow-sm">
+                <div class="flex items-center justify-between mb-4">
+                  <label class="flex items-center gap-2 text-sm font-bold text-gray-800">
+                    <div class="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center">
+                      <svg class="w-4 h-4 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                    </div>
+                    <span>Select Student</span>
+                  </label>
+                  <div id="student-count-display" class="px-3 py-1 bg-white rounded-full border border-gray-300 text-xs font-semibold text-gray-600">
+                    0 students
+                  </div>
+                </div>
+
+                <!-- Search Bar -->
+                <div class="relative mb-4">
+                  <input 
+                    id="student-search" 
+                    placeholder="Search student by name..." 
+                    class="w-full px-4 py-3 pl-11 border-2 border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white transition-all" 
+                  />
+                  <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                  </div>
+                </div>
+
+                <!-- Student List -->
+                <div id="student-display" class="space-y-2 max-h-80 overflow-y-auto bg-white rounded-lg border-2 border-gray-200 p-4 custom-scrollbar">
+                  <div class="flex flex-col items-center justify-center py-12 text-gray-400">
+                    <svg class="w-16 h-16 mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                    <p class="text-sm font-medium">No students available</p>
+                    <p class="text-xs mt-1">Select a class to view students</p>
+                  </div>
+                </div>
+
+                <!-- Info Note -->
+                <div class="mt-4 flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <svg class="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                  </svg>
+                  <p class="text-xs text-blue-800 leading-relaxed">
+                    <span class="font-semibold">Individual Session:</span> Only one student can be selected for this reading assessment.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <style>
+              .custom-scrollbar::-webkit-scrollbar {
+                width: 8px;
+              }
+              .custom-scrollbar::-webkit-scrollbar-track {
+                background: #f1f5f9;
+                border-radius: 4px;
+              }
+              .custom-scrollbar::-webkit-scrollbar-thumb {
+                background: #cbd5e1;
+                border-radius: 4px;
+              }
+              .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+                background: #94a3b8;
+              }
+            </style>
+          </div>
+        `,
         showCancelButton: true,
-        confirmButtonText: 'Start Session',
+        confirmButtonText: '<span class="flex items-center gap-2"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg> Start Session</span>',
         cancelButtonText: 'Cancel',
         focusConfirm: false,
-        backdrop: 'rgba(0,0,0,0.6)',
+        backdrop: 'rgba(0,0,0,0.7)',
+        width: '1100px',
         customClass: {
-          popup: 'rounded-lg shadow-xl w-full max-w-6xl',
-          title: 'text-xl font-semibold text-gray-900',
-          confirmButton: 'bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md',
-          cancelButton: 'bg-white hover:bg-gray-50 text-gray-700 font-medium py-2 px-4 rounded-md border border-gray-300'
+          popup: 'rounded-2xl shadow-2xl',
+          title: 'text-xl font-semibold text-gray-900 border-b border-gray-200 pb-4',
+          htmlContainer: 'overflow-visible',
+          confirmButton: 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-3 px-6 rounded-lg shadow-lg transition-all duration-200 transform hover:scale-105',
+          cancelButton: 'bg-white hover:bg-gray-100 text-gray-700 font-semibold py-3 px-6 rounded-lg border-2 border-gray-300 transition-all duration-200'
         },
         didOpen: () => {
           const gradeSelect = document.getElementById('session-grade') as HTMLSelectElement;
@@ -258,21 +375,42 @@ const Reading: React.FC = () => {
           let currentStudents: { id?: string; name: string }[] = [];
 
           const render = (list: typeof currentStudents) => {
+            const countDisplay = document.getElementById('student-count-display');
+            if (countDisplay) {
+              countDisplay.innerHTML = `${list.length} student${list.length !== 1 ? 's' : ''}`;
+            }
+
             studentDisplay.innerHTML = list.length
               ? `
-                <div class="space-y-1">
-                  ${list.map(s => `
-                    <label class=\"flex items-center justify-between gap-3 px-3 py-2 rounded-md hover:bg-blue-50 cursor-pointer\">
-                      <div class=\"flex items-center gap-2\">
-                        <input type=\"radio\" name=\"selected-student\" value=\"${s.id || s.name}\" class=\"accent-blue-600\" />
-                        <span class=\"text-sm text-gray-800\">${s.name}</span>
+                <div class="space-y-2">
+                  ${list.map((s) => `
+                    <label class="flex items-center gap-3 px-4 py-3 rounded-lg border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50 cursor-pointer transition-all duration-200 group">
+                      <input type="radio" name="selected-student" value="${s.id || s.name}" class="w-4 h-4 text-blue-600 focus:ring-2 focus:ring-blue-500" />
+                      <div class="flex items-center gap-3 flex-1">
+                        <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-white font-bold text-sm shadow-md">
+                          ${s.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div class="flex-1">
+                          <p class="text-sm font-semibold text-gray-800 group-hover:text-blue-700">${s.name}</p>
+                          <p class="text-xs text-gray-500">Student ID: ${s.id || 'N/A'}</p>
+                        </div>
                       </div>
+                      <svg class="w-5 h-5 text-gray-300 group-hover:text-blue-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                      </svg>
                     </label>
                   `).join('')}
                 </div>
-                <div class="mt-2 text-xs text-gray-600">Total: ${list.length} student${list.length !== 1 ? 's' : ''}</div>
               `
-              : '<p class="text-sm text-gray-500 italic text-center">No students in this class</p>';
+              : `
+                <div class="flex flex-col items-center justify-center py-12 text-gray-400">
+                  <svg class="w-16 h-16 mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                  <p class="text-sm font-medium">No students found</p>
+                  <p class="text-xs mt-1">Try selecting a different class</p>
+                </div>
+              `;
           };
 
           if (gradeSelect && studentDisplay) {
@@ -290,7 +428,19 @@ const Reading: React.FC = () => {
                 }
               } else {
                 currentStudents = [];
-                studentDisplay.innerHTML = '<p class="text-sm text-gray-500 italic">Select a class to view students</p>';
+                const countDisplay = document.getElementById('student-count-display');
+                if (countDisplay) {
+                  countDisplay.innerHTML = '0 students';
+                }
+                studentDisplay.innerHTML = `
+                  <div class="flex flex-col items-center justify-center py-12 text-gray-400">
+                    <svg class="w-16 h-16 mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                    <p class="text-sm font-medium">No students available</p>
+                    <p class="text-xs mt-1">Select a class to view students</p>
+                  </div>
+                `;
               }
             });
           }
