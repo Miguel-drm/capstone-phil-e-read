@@ -1497,10 +1497,10 @@ const ReadingSessionPage: React.FC = () => {
                               <span
                                 className={
                                   isSpecialChar
-                                    ? 'inline-block mr-3 mb-2 px-3 py-2 rounded font-serif text-2xl text-gray-400 bg-transparent pointer-events-none select-none not-allowed'
-                                    : `inline-block mr-3 mb-2 px-3 py-2 rounded font-serif text-2xl transition-all duration-200 ` +
+                                    ? 'inline-block mr-3 mb-3 px-3 py-2 rounded font-serif text-2xl text-gray-400 bg-transparent pointer-events-none select-none not-allowed'
+                                    : `inline-block mr-3 mb-3 px-3 py-2 rounded font-serif text-2xl transition-colors duration-200 ` +
                                       (isCurrentWord
-                                        ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold shadow-lg scale-110 animate-pulse'
+                                        ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold shadow-lg'
                                         : isRecognized
                                         ? 'bg-green-100 text-green-900 border-2 border-green-300'
                                         : 'bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer')
@@ -1514,7 +1514,7 @@ const ReadingSessionPage: React.FC = () => {
                               {insertionsAfter.map((insertedWord, idx) => (
                                 <span
                                   key={`insertion-${paragraphIndex}-${wordIndex}-${idx}`}
-                                  className="inline-block mr-3 mb-2 px-3 py-2 rounded font-serif text-2xl transition-all duration-200 bg-cyan-100 text-cyan-900 border-2 border-cyan-400"
+                                  className="inline-block mr-3 mb-3 px-3 py-2 rounded font-serif text-2xl bg-cyan-100 text-cyan-900 border-2 border-cyan-400"
                                   title={`Inserted word: "${insertedWord}" (not in story)`}
                                 >
                                   {insertedWord}

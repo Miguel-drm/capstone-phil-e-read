@@ -4586,7 +4586,7 @@ const ReadingSessionPage: React.FC = () => {
                                 {!isSpecialChar && insertedWords.has(realWordIndex) && showMiscueColors && insertedWords.get(realWordIndex)!.map((insertedWord, idx) => (
                                   <span
                                     key={`insert-${realWordIndex}-${idx}`}
-                                    className="inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative bg-cyan-100 text-cyan-900 border-2 border-cyan-400 font-semibold"
+                                    className="inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative bg-cyan-100 text-cyan-900 border-2 border-cyan-400 font-semibold"
                                     title={`Inserted word: "${insertedWord}" (not in story)`}
                                   >
                                     {insertedWord}
@@ -4600,8 +4600,8 @@ const ReadingSessionPage: React.FC = () => {
                                   ref={isCurrent ? currentWordRef : null}
                                   className={
                                     isSpecialChar
-                                      ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"
-                                      : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative ` +
+                                      ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"
+                                      : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative ` +
                                       (isCurrent
                                         ? "bg-yellow-400 text-black font-extrabold shadow-2xl z-10 border-4 border-yellow-600"
                                         : miscueType && showMiscueColors
@@ -4616,21 +4616,19 @@ const ReadingSessionPage: React.FC = () => {
                                   isCurrent
                                     ? {
                                       boxShadow: "0 4px 16px rgba(234, 179, 8, 0.8), 0 0 0 4px rgba(234, 179, 8, 0.3)",
-                                      transform: "scale(1.15)",
-                                      transition: "all 0.3s ease-in-out",
-                                      animation: "pulse 1.5s ease-in-out infinite"
+                                      transition: "background-color 0.2s ease-in-out, color 0.2s ease-in-out, border-color 0.2s ease-in-out"
                                     }
                                     : miscueType
                                       ? {
                                         ...getMiscueMarkingStyle(miscueType),
-                                        transition: "all 0.2s ease-in-out"
+                                        transition: "background-color 0.2s ease-in-out, color 0.2s ease-in-out"
                                       }
                                       : isRead
                                         ? {
-                                          transition: "all 0.2s ease-in-out"
+                                          transition: "background-color 0.2s ease-in-out, color 0.2s ease-in-out"
                                         }
                                         : {
-                                          transition: "all 0.2s ease-in-out"
+                                          transition: "background-color 0.2s ease-in-out, color 0.2s ease-in-out"
                                         }
                                 }
                               >
@@ -4748,7 +4746,7 @@ const ReadingSessionPage: React.FC = () => {
                               {!isSpecialChar && repeatedWords.has(realWordIndex) && showMiscueColors && repeatedWords.get(realWordIndex)!.map((repeatedWord, idx) => (
                                 <span
                                   key={`repeat-${realWordIndex}-${idx}`}
-                                  className="inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative bg-blue-50 text-blue-900 border-2 border-blue-400 font-semibold"
+                                  className="inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative bg-blue-50 text-blue-900 border-2 border-blue-400 font-semibold"
                                   style={{
                                     textDecoration: 'underline',
                                     textDecorationColor: '#2563eb',
