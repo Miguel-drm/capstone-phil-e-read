@@ -468,6 +468,52 @@ const ReadingSessionPage: React.FC = () => {
               }));
               console.log(`✅ Word ${wordIndex} ("${realWords[wordIndex]}") marked as self-correction (was "${wrongWord}", corrected to "${correctedWord}")`);
               break;
+              
+            case 'reversal':
+              // Mark as reversal (pink background, correct word above)
+              // Student reversed the letters (e.g., "was" → "saw")
+              setWordMiscues(prev => new Map(prev).set(wordIndex, 'reversal'));
+              setWordMarkings(prev => new Map(prev).set(wordIndex, {
+                type: 'reversal',
+                marking: `Write correct word above reversed word`,
+                spokenWord: word,
+                correctWord: realWords[wordIndex] || ''
+              }));
+              console.log(`⚠️ Word ${wordIndex} marked as reversal: "${word}" (should be "${realWords[wordIndex]}")`);
+              break;
+              
+            case 'transposition':
+              // Mark as transposition (purple, curved line connecting the two words)
+              // Student swapped word order (e.g., "big red" → "red big")
+              const firstWord = msg.match_result.first_word || '';
+              const secondWord = msg.match_result.second_word || '';
+              
+              // Mark BOTH words involved in the transposition
+              // wordIndex-1 is the first word, wordIndex is the second word
+              const firstWordIndex = wordIndex - 1;
+              
+              if (firstWordIndex >= 0) {
+                // Mark first word
+                setWordMiscues(prev => new Map(prev).set(firstWordIndex, 'transposition'));
+                setWordMarkings(prev => new Map(prev).set(firstWordIndex, {
+                  type: 'transposition',
+                  marking: `Use transpositional symbol (curved line)`,
+                  spokenWord: firstWord,
+                  correctWord: realWords[firstWordIndex] || ''
+                }));
+                
+                // Mark second word
+                setWordMiscues(prev => new Map(prev).set(wordIndex, 'transposition'));
+                setWordMarkings(prev => new Map(prev).set(wordIndex, {
+                  type: 'transposition',
+                  marking: `Use transpositional symbol (curved line)`,
+                  spokenWord: secondWord,
+                  correctWord: realWords[wordIndex] || ''
+                }));
+                
+                console.log(`⚠️ Transposition detected: "${firstWord}" and "${secondWord}" swapped (words ${firstWordIndex} and ${wordIndex})`);
+              }
+              break;
           }
           
           // Update metrics from backend (source of truth)
