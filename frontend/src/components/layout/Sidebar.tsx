@@ -72,6 +72,9 @@ const Sidebar: React.FC<SidebarProps> = ({
           { path: '/admin/isr', label: 'ISR Records', icon: 'isr' },
         ] as { path: string; label: string; icon: string }[];
 
+        // Note: Reports and Administrative Reports are intentionally hidden from the admin sidebar
+        // Routes exist at /admin/reports and /admin/administrative-reports but are not shown in navigation
+
         items.push(
           { path: '/admin/resources', label: 'Resources', icon: 'resources' },
           { path: '/admin/vosk-monitor', label: 'Vosk Monitor', icon: 'vosk-monitor' },
