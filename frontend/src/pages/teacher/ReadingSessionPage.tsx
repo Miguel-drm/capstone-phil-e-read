@@ -4492,7 +4492,7 @@ const ReadingSessionPage: React.FC = () => {
                                 className={
                                   isSpecialChar
                                     ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"
-                                    : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl transition-all duration-300 ease-in-out relative ` +
+                                    : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative ` +
                                     (isCurrent
                                       ? "bg-yellow-400 text-black font-extrabold shadow-2xl z-10 border-4 border-yellow-600"
                                       : miscueType && showMiscueColors
