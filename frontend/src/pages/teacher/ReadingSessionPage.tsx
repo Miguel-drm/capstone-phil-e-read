@@ -413,15 +413,25 @@ const ReadingSessionPage: React.FC = () => {
               
             case 'insertion':
               // Mark as insertion (cyan caret with word above)
+              // Insertion should be placed BEFORE the current word (between previous and current)
               const insertedWord = msg.match_result.inserted_word || word;
-              setWordMiscues(prev => new Map(prev).set(wordIndex, 'insertion'));
-              setWordMarkings(prev => new Map(prev).set(wordIndex, {
-                type: 'insertion',
-                marking: `Use caret (^) to show where word was inserted`,
-                spokenWord: insertedWord,
-                correctWord: realWords[wordIndex] || ''
-              }));
-              console.log(`⚠️ Word ${wordIndex} marked as insertion: "${insertedWord}"`);
+              const insertionPosition = wordIndex; // Position where insertion happened (before this word)
+              
+              // Add to insertedWords map to show as separate box BEFORE this word
+              setInsertedWords(prev => {
+                const newMap = new Map(prev);
+                const existing = newMap.get(insertionPosition) || [];
+                newMap.set(insertionPosition, [...existing, insertedWord]);
+                return newMap;
+              });
+              
+              console.log(`⚠️ Insertion detected: "${insertedWord}" before word ${wordIndex} ("${realWords[wordIndex]}")`);
+              
+              // IMPORTANT: The current word (at wordIndex) should still be marked as CORRECT
+              // because the child DID read it correctly - they just added an extra word before it
+              // The insertion is tracked separately in insertedWords map
+              setRecognizedWords(prev => new Set(prev).add(wordIndex));
+              console.log(`✅ Word ${wordIndex} ("${realWords[wordIndex]}") marked correct (after insertion)`);
               break;
           }
           
@@ -4426,7 +4436,7 @@ const ReadingSessionPage: React.FC = () => {
                                 mispronunciation: 'bg-red-50 text-red-900 border border-red-200', // Light red, underlined
                                 omission: 'bg-orange-50 text-orange-900 border border-orange-200', // Light orange, circled
                                 substitution: 'bg-yellow-50 text-yellow-900 border border-yellow-200', // Light yellow, underlined
-                                insertion: 'bg-cyan-50 text-cyan-900 border border-cyan-200', // Light cyan, caret shown
+                                insertion: '', // Don't color story word - inserted word shown separately
                                 repetition: 'bg-blue-50 text-blue-900 border border-blue-200', // Light blue, underlined
                                 transposition: 'bg-purple-50 text-purple-900 border border-purple-200', // Light purple, curved line
                                 reversal: 'bg-pink-50 text-pink-900 border border-pink-200', // Light pink, word above
@@ -4486,23 +4496,37 @@ const ReadingSessionPage: React.FC = () => {
                             const marking = !isSpecialChar ? wordMarkings.get(realWordIndex) : undefined;
 
                             return (
-                              <span
-                                key={`${paragraphIndex}-${wordIndex}`}
-                                ref={isCurrent ? currentWordRef : null}
-                                className={
-                                  isSpecialChar
-                                    ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"
-                                    : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative ` +
-                                    (isCurrent
-                                      ? "bg-yellow-400 text-black font-extrabold shadow-2xl z-10 border-4 border-yellow-600"
-                                      : miscueType && showMiscueColors
-                                        ? `${getMiscueColor(miscueType)} font-semibold`
-                                        : recognizedWords.has(realWordIndex)
-                                          ? "bg-green-100 text-green-800 font-bold shadow-lg border-2 border-green-400"
-                                          : realWordIndex < currentWordIndex
-                                            ? "bg-white text-gray-800 font-normal border border-gray-200"
-                                            : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
-                                }
+                              <React.Fragment key={`${paragraphIndex}-${wordIndex}`}>
+                                {/* Show inserted words as separate word boxes BEFORE this word */}
+                                {!isSpecialChar && insertedWords.has(realWordIndex) && showMiscueColors && insertedWords.get(realWordIndex)!.map((insertedWord, idx) => (
+                                  <span
+                                    key={`insert-${realWordIndex}-${idx}`}
+                                    className="inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative bg-cyan-100 text-cyan-900 border-2 border-cyan-400 font-semibold"
+                                    title={`Inserted word: "${insertedWord}" (not in story)`}
+                                  >
+                                    {insertedWord}
+                                    {/* Caret at bottom pointing up to show insertion */}
+                                    <span className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-cyan-600 text-2xl font-bold leading-none">^</span>
+                                  </span>
+                                ))}
+                                
+                                {/* The actual story word */}
+                                <span
+                                  ref={isCurrent ? currentWordRef : null}
+                                  className={
+                                    isSpecialChar
+                                      ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"
+                                      : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-1 sm:mb-2 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative ` +
+                                      (isCurrent
+                                        ? "bg-yellow-400 text-black font-extrabold shadow-2xl z-10 border-4 border-yellow-600"
+                                        : miscueType && showMiscueColors
+                                          ? `${getMiscueColor(miscueType)} font-semibold`
+                                          : recognizedWords.has(realWordIndex)
+                                            ? "bg-green-100 text-green-800 font-bold shadow-lg border-2 border-green-400"
+                                            : realWordIndex < currentWordIndex
+                                              ? "bg-white text-gray-800 font-normal border border-gray-200"
+                                              : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
+                                  }
                                 style={
                                   isCurrent
                                     ? {
@@ -4633,23 +4657,8 @@ const ReadingSessionPage: React.FC = () => {
                                     )}
                                   </>
                                 )}
-
-                                {/* Show inserted words as floating badges after this word - ONLY after session completes */}
-                                {!isSpecialChar && insertedWords.has(realWordIndex) && showMiscueColors && (
-                                  <span className="relative">
-                                    {insertedWords.get(realWordIndex)!.map((insertedWord, idx) => (
-                                      <span
-                                        key={`insert-${realWordIndex}-${idx}`}
-                                        className="absolute left-0 top-[-20px] bg-cyan-600 text-white text-xs px-2 py-0.5 rounded shadow-lg whitespace-nowrap z-20"
-                                        style={{ marginLeft: `${idx * 60}px` }}
-                                        title="Inserted word (not in story)"
-                                      >
-                                        +{insertedWord}
-                                      </span>
-                                    ))}
-                                  </span>
-                                )}
                               </span>
+                              </React.Fragment>
                             );
                           })}
                         </p>

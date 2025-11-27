@@ -315,10 +315,61 @@ class WordMatcherSession:
                     "details": f"Waiting for first word '{self.expected_words[0]}', ignoring '{spoken_word}'"
                 }
         
-        # SIMPLIFIED INSERTION DETECTION: Disabled pending word logic
-        # Process words immediately without holding them as "pending"
+        # INSERTION DETECTION: Use pending word logic to detect insertions
+        # When a word doesn't match, hold it as "pending" and wait for the next word
+        # If the next word matches the expected word, the pending word was an insertion
+        # If the next word doesn't match, the pending word was a substitution
         
-        # Match the word
+        # Check if we have a pending word from the previous call
+        if self.pending_word is not None:
+            # We have a pending word - check if current word matches expected
+            if check_pronunciation_match(spoken_word, expected_word, self.language):
+                # Current word matches! The pending word was an INSERTION
+                print(f"   ✅ INSERTION CONFIRMED: '{self.pending_word}' inserted before '{expected_word}'")
+                
+                # Return insertion result for the pending word
+                insertion_result = {
+                    "match_type": "insertion",
+                    "advance": True,  # Advance position because we found the expected word
+                    "new_position": self.current_position + 1,
+                    "miscue_count": 1,
+                    "inserted_word": self.pending_word,
+                    "details": f"Insertion: '{self.pending_word}' inserted before '{expected_word}'"
+                }
+                
+                # Clear pending word
+                self.pending_word = None
+                
+                # Update state
+                self.current_position = insertion_result["new_position"]
+                self.words_read += 1
+                self.total_miscues += 1
+                self.miscue_types["insertion"] += 1
+                
+                # Add to recent words
+                self.recent_words.append(spoken_word)
+                if len(self.recent_words) > self.max_recent_words:
+                    self.recent_words.pop(0)
+                
+                # Add session state
+                insertion_result["session_state"] = {
+                    "current_position": self.current_position,
+                    "words_read": self.words_read,
+                    "total_miscues": self.total_miscues,
+                    "miscue_types": self.miscue_types.copy(),
+                    "progress": f"{self.current_position}/{len(self.expected_words)}"
+                }
+                
+                return insertion_result
+            else:
+                # Current word doesn't match either - pending word was a SUBSTITUTION
+                print(f"   ⚠️ SUBSTITUTION CONFIRMED: '{self.pending_word}' substituted for '{self.expected_words[self.current_position - 1]}'")
+                
+                # The pending word was a substitution, now process current word normally
+                self.pending_word = None
+                # Continue to process current word below
+        
+        # Match the current word
         result = match_word(
             spoken_word,
             expected_word,
@@ -327,12 +378,22 @@ class WordMatcherSession:
             self.language
         )
         
-        # DISABLED PENDING LOGIC: Process words immediately without waiting
-        # The pending logic was causing false insertions when children read quickly
-        # Example: Child says "Si Brownie ay" quickly, system would mark "ay" as insertion
-        # Now we process each word immediately as correct/mispronunciation/substitution
+        # Check if word doesn't match - make it pending for insertion detection
+        if result["match_type"] in ["substitution", "mispronunciation"]:
+            # Word doesn't match - hold it as pending
+            print(f"   ⏸️ PENDING: '{spoken_word}' doesn't match '{expected_word}' - waiting for next word")
+            self.pending_word = spoken_word
+            
+            return {
+                "match_type": "pending",
+                "advance": False,
+                "new_position": self.current_position,
+                "miscue_count": 0,
+                "details": f"Pending: '{spoken_word}' doesn't match '{expected_word}', waiting for next word"
+            }
         
-        # No pending word logic - process immediately
+        # Word matched or is an omission - process normally
+        self.pending_word = None
         
         # Add to recent words buffer
         self.recent_words.append(spoken_word)
