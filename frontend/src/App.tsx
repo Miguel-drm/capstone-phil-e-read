@@ -101,9 +101,18 @@ const App: React.FC = () => {
 
                     <Route path="reports" element={<TeacherReports />} />
                     <Route path="profile/*" element={<Profile />} />
-                    <Route path="reading-session/:sessionId" element={<ReadingSessionPage />} />
                   </Routes>
                 </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          
+          {/* Teacher Reading Session - Full screen without sidebar */}
+          <Route
+            path="/teacher/reading-session/:sessionId"
+            element={
+              <ProtectedRoute allowedRoles={['teacher']}>
+                <ReadingSessionPage />
               </ProtectedRoute>
             }
           />
@@ -138,7 +147,6 @@ const App: React.FC = () => {
                     <Route path="children" element={<MyChildrenPage />} />
                     <Route path="reading" element={<ReadingPractice />} />
                     <Route path="reading-practice" element={<ReadingPractice />} />
-                    <Route path="reading-session/:sessionId" element={<ParentReadingSessionPage />} />
                     <Route path="notifications" element={<ParentNotifications />} />
                     <Route path="progress" element={<ProgressPage />} />
                     <Route path="reports" element={<ReportsPage />} />
@@ -146,6 +154,16 @@ const App: React.FC = () => {
                     {/* Add more parent routes here */}
                   </Routes>
                 </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          
+          {/* Parent Reading Session - Full screen without sidebar */}
+          <Route
+            path="/parent/reading-session/:sessionId"
+            element={
+              <ProtectedRoute allowedRoles={['parent']}>
+                <ParentReadingSessionPage />
               </ProtectedRoute>
             }
           />
