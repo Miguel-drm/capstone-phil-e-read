@@ -225,11 +225,7 @@ const ReadingPractice: React.FC = () => {
             <h1 className="text-2xl sm:text-3xl font-bold text-blue-900 tracking-tight flex items-center gap-2">
               <i className="fas fa-book-reader text-blue-400"></i> Reading Practice
             </h1>
-            <p className="mt-1 text-sm text-gray-500">
-              {children.length > 0 
-                ? `Stories for ${children.map(c => c.name).join(', ')} (Grade ${children.map(c => c.grade).filter((v, i, a) => a.indexOf(v) === i).join(', ')})`
-                : 'Choose a story to practice reading with your child'}
-            </p>
+            <p className="mt-1 text-sm text-gray-500">Choose a story to practice reading with your child</p>
           </div>
           <div className="flex items-center gap-3">
             <InfoButton title="About Reading Practice" tooltipText="About">

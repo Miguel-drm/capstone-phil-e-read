@@ -51,8 +51,8 @@ const ChildrenOverviewWidget: React.FC<{
             <UsersIcon className="h-6 w-6 text-blue-600" />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">Children Overview</h3>
-            <p className="text-sm text-gray-500">Active</p>
+            <h3 className="text-2xl font-semibold text-gray-900">Children Overview</h3>
+            <p className="text-lg text-gray-500">Active</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -65,67 +65,67 @@ const ChildrenOverviewWidget: React.FC<{
         <div className="group relative overflow-hidden bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-xl p-4 transition-all hover:shadow-sm">
           <div className="absolute -right-4 -top-4 w-16 h-16 rounded-full bg-blue-200/40 blur-xl group-hover:scale-110 transition-transform" />
           <div className="relative">
-            <div className="text-sm font-medium text-blue-900 mb-1">Total Children</div>
+            <div className="text-lg font-medium text-blue-900 mb-1">Total Children</div>
             {isLoading ? (
               <div className="h-8 bg-blue-200 rounded animate-pulse"></div>
             ) : (
-              <div className="text-2xl font-bold text-blue-900">
+              <div className="text-3xl font-bold text-blue-900">
                 {stats?.total || 0}
               </div>
             )}
-            <div className="text-xs text-blue-700">Registered</div>
+            <div className="text-base text-blue-700">Registered</div>
           </div>
         </div>
 
         <div className="group relative overflow-hidden bg-gradient-to-br from-green-50 to-green-100 border border-green-200 rounded-xl p-4 transition-all hover:shadow-sm">
           <div className="absolute -right-4 -top-4 w-16 h-16 rounded-full bg-green-200/40 blur-xl group-hover:scale-110 transition-transform" />
           <div className="relative">
-            <div className="text-sm font-medium text-green-900 mb-1">Active Students</div>
+            <div className="text-lg font-medium text-green-900 mb-1">Active Students</div>
             {isLoading ? (
               <div className="h-8 bg-green-200 rounded animate-pulse"></div>
             ) : (
-              <div className="text-2xl font-bold text-green-900">
+              <div className="text-3xl font-bold text-green-900">
                 {stats?.active || 0}
               </div>
             )}
-            <div className="text-xs text-green-700">Currently enrolled</div>
+            <div className="text-base text-green-700">Currently enrolled</div>
           </div>
         </div>
 
         <div className="group relative overflow-hidden bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 rounded-xl p-4 transition-all hover:shadow-sm">
           <div className="absolute -right-4 -top-4 w-16 h-16 rounded-full bg-purple-200/40 blur-xl group-hover:scale-110 transition-transform" />
           <div className="relative">
-            <div className="text-sm font-medium text-purple-900 mb-1">Avg. Reading Level</div>
+            <div className="text-lg font-medium text-purple-900 mb-1">Avg. Reading Level</div>
             {isLoading ? (
               <div className="h-8 bg-purple-200 rounded animate-pulse"></div>
             ) : (
-              <div className="text-2xl font-bold text-purple-900">
+              <div className="text-3xl font-bold text-purple-900">
                 {stats?.avgLevel || 'N/A'}
               </div>
             )}
-            <div className="text-xs text-purple-700">Current level</div>
+            <div className="text-base text-purple-700">Current level</div>
           </div>
         </div>
 
         <div className="group relative overflow-hidden bg-gradient-to-br from-orange-50 to-orange-100 border border-orange-200 rounded-xl p-4 transition-all hover:shadow-sm">
           <div className="absolute -right-4 -top-4 w-16 h-16 rounded-full bg-orange-200/40 blur-xl group-hover:scale-110 transition-transform" />
           <div className="relative">
-            <div className="text-sm font-medium text-orange-900 mb-1">Avg. Performance</div>
+            <div className="text-lg font-medium text-orange-900 mb-1">Avg. Performance</div>
             {isLoading ? (
               <div className="h-8 bg-orange-200 rounded animate-pulse"></div>
             ) : (
-              <div className="text-2xl font-bold text-orange-900">
+              <div className="text-3xl font-bold text-orange-900">
                 {stats?.avgPerf || 0}%
               </div>
             )}
-            <div className="text-xs text-orange-700">Overall progress</div>
+            <div className="text-base text-orange-700">Overall progress</div>
           </div>
         </div>
       </div>
 
       <div className="mt-6 pt-4 border-t border-gray-100">
-        <div className="text-xs text-gray-500 flex items-center gap-1">
-          <ClockIcon className="h-3 w-3" />
+        <div className="text-base text-gray-500 flex items-center gap-1">
+          <ClockIcon className="h-4 w-4" />
           Last updated: {formatDateHuman(new Date())}
         </div>
       </div>
@@ -191,21 +191,21 @@ const ChildCard = memo(({ child }: { child: Student }) => {
           {child.name?.[0] || '?'}
         </div>
         <div>
-          <div className="font-semibold text-gray-900 text-lg">{child.name}</div>
-          <div className="text-xs text-gray-500">{child.grade}</div>
+          <div className="font-semibold text-gray-900 text-2xl">{child.name}</div>
+          <div className="text-base text-gray-500">{child.grade}</div>
         </div>
       </div>
 
       <div className="relative flex flex-col gap-1 mt-2">
-        <div className="text-sm flex items-center gap-2">
+        <div className="text-lg flex items-center gap-2">
           <span className="font-medium text-gray-700">Reading Level:</span>
-          <span className="px-2 py-0.5 rounded-full bg-gray-50 border border-gray-200 text-xs text-gray-700">
+          <span className="px-2 py-0.5 rounded-full bg-gray-50 border border-gray-200 text-base text-gray-700">
             {child.readingLevel || 'N/A'}
           </span>
         </div>
-        <div className="text-sm flex items-center gap-2">
+        <div className="text-lg flex items-center gap-2">
           <span className="font-medium text-gray-700">Performance:</span>
-          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${child.performance === 'Excellent' ? 'bg-green-100 text-green-700' :
+          <span className={`px-2 py-0.5 rounded-full text-base font-semibold ${child.performance === 'Excellent' ? 'bg-green-100 text-green-700' :
             child.performance === 'Good' ? 'bg-blue-100 text-blue-700' :
               'bg-yellow-100 text-yellow-800'
             }`}>
@@ -219,18 +219,18 @@ const ChildCard = memo(({ child }: { child: Student }) => {
               e.stopPropagation();
               navigate('/parent/reading', { state: { childId: child.id, childName: child.name } });
             }}
-            className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg text-white bg-blue-600 hover:bg-blue-700"
+            className="inline-flex items-center gap-2 px-4 py-2 text-base rounded-lg text-white bg-blue-600 hover:bg-blue-700"
           >
-            <BookOpenIcon className="h-4 w-4" /> Practice
+            <BookOpenIcon className="h-5 w-5" /> Practice
           </button>
           <button
             onClick={(e) => {
               e.stopPropagation();
               navigate('/parent/progress', { state: { childId: child.id } });
             }}
-            className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg text-blue-700 bg-white border border-blue-200 hover:bg-blue-50"
+            className="inline-flex items-center gap-2 px-4 py-2 text-base rounded-lg text-blue-700 bg-white border border-blue-200 hover:bg-blue-50"
           >
-            <ChartBarIcon className="h-4 w-4" /> Progress
+            <ChartBarIcon className="h-5 w-5" /> Progress
           </button>
         </div>
       </div>
@@ -405,10 +405,10 @@ const ParentDashboard: React.FC = () => {
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 border border-gray-100">
         <div className="px-6 py-6 sm:px-8 sm:py-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-extrabold text-blue-900 mb-2">
+            <h2 className="text-3xl font-extrabold text-blue-900 mb-2">
               Welcome back, {currentUser?.displayName?.split(' ')[0] || 'Parent'}!
             </h2>
-            <p className="text-sm text-blue-700 mt-1">
+            <p className="text-lg text-blue-700 mt-1">
               See how your children are growing as readers and start new learning adventures.
             </p>
           </div>
@@ -483,8 +483,8 @@ const ParentDashboard: React.FC = () => {
           {/* Children Cards */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-                <UsersIcon className="h-5 w-5 text-gray-600" />
+              <h2 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
+                <UsersIcon className="h-6 w-6 text-gray-600" />
                 Your Children
               </h2>
               <button
@@ -505,8 +505,8 @@ const ParentDashboard: React.FC = () => {
           {/* Progress Charts */}
           <div className="space-y-6">
             <div>
-              <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-                <ChartBarIcon className="h-5 w-5 text-gray-600" />
+              <h2 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
+                <ChartBarIcon className="h-6 w-6 text-gray-600" />
                 Your Child's Learning Journey
               </h2>
             </div>
