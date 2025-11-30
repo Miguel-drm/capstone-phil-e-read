@@ -9,20 +9,86 @@ import {
 } from '@heroicons/react/24/outline';
 import ParentLoader from '../../components/parent/ParentLoader';
 import { formatDateHuman } from '@/utils/date';
+import { readingSessionService } from '@/services/readingSessionService';
+import { useAuth } from '@/contexts/AuthContext';
+import InfoButton from '@/components/common/InfoButton';
+import { studentService, type Student } from '@/services/studentService';
 
 const ReadingPractice: React.FC = () => {
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
   const [stories, setStories] = useState<Story[]>([]);
   const [storiesLoading, setStoriesLoading] = useState(true);
   const [storiesError, setStoriesError] = useState<string | null>(null);
+  const [children, setChildren] = useState<Student[]>([]);
+  const [childrenLoading, setChildrenLoading] = useState(true);
+
+  // Load parent's children
+  const loadChildren = useCallback(async () => {
+    if (!currentUser) return;
+    
+    try {
+      setChildrenLoading(true);
+      const fetchedChildren = await studentService.getStudentsByParent(currentUser.uid);
+      setChildren(fetchedChildren);
+    } catch (error) {
+      console.error('Error loading children:', error);
+    } finally {
+      setChildrenLoading(false);
+    }
+  }, [currentUser]);
 
   const loadStories = useCallback(async () => {
     try {
       setStoriesLoading(true);
       setStoriesError(null);
       const fetchedStories = await UnifiedStoryService.getInstance().getStories({});
+      
+      console.log('📚 Total stories fetched:', fetchedStories.length);
+      console.log('👶 Children:', children);
+      
+      // Get unique grade levels from children
+      // Extract just the grade number from formats like "Grade 4 - Athena" or "4"
+      const childGrades = new Set(
+        children.map(child => {
+          const gradeStr = String(child.grade).trim();
+          // Extract number from "Grade 4 - Athena" format
+          const match = gradeStr.match(/Grade\s+(\d+)/i) || gradeStr.match(/^(\d+)/);
+          return match ? match[1] : gradeStr;
+        })
+      );
+      console.log('🎓 Child grades (extracted):', Array.from(childGrades));
+      
+      // If no children, show all stories
+      if (childGrades.size === 0) {
+        console.log('⚠️ No children found - showing all stories');
+        setStories(fetchedStories.map(story => ({
+          ...story,
+          _id: story._id?.toString(),
+          createdBy: story.createdBy?.toString?.() ?? story.createdBy,
+          language: story.language as 'english' | 'tagalog',
+          pdfUrl: story._id ? UnifiedStoryService.getInstance().getStoryPdfUrl(story._id) : undefined
+        })));
+        return;
+      }
+      
+      // Filter stories based on children's grade levels
+      const filteredStories = fetchedStories.filter(story => {
+        if (!story.grade) {
+          console.log(`📖 Story "${story.title}" - No grade, skipping`);
+          return false;
+        }
+        
+        const storyGrade = String(story.grade).trim();
+        const matches = childGrades.has(storyGrade);
+        console.log(`📖 Story "${story.title}" - Grade: "${storyGrade}" - ${matches ? '✅ MATCH' : '❌ NO MATCH'}`);
+        return matches;
+      });
+      
+      console.log('✅ Filtered stories:', filteredStories.length, 'out of', fetchedStories.length);
+      
       // Map IStory[] to Story[] to ensure type compatibility and add pdfUrl
-      setStories(fetchedStories.map(story => ({
+      setStories(filteredStories.map(story => ({
         ...story,
         _id: story._id?.toString(),
         createdBy: story.createdBy?.toString?.() ?? story.createdBy,
@@ -36,17 +102,66 @@ const ReadingPractice: React.FC = () => {
     } finally {
       setStoriesLoading(false);
     }
-  }, []);
+  }, [children]);
 
-  // Load stories on component mount
+  // Load children first, then stories
   useEffect(() => {
-    loadStories();
-  }, [loadStories]);
+    loadChildren();
+  }, [loadChildren]);
+
+  // Load stories when children data is available
+  useEffect(() => {
+    if (!childrenLoading) {
+      loadStories();
+    }
+  }, [childrenLoading, loadStories]);
 
   const handleStartPractice = async (story: Story) => {
     try {
-      // Navigate to practice session with story ID
-      navigate(`/parent/reading-practice/${story._id}`);
+      if (!currentUser) {
+        await Swal.fire({
+          icon: 'error',
+          title: 'Authentication Required',
+          text: 'Please log in to start a practice session.',
+        });
+        return;
+      }
+
+      // Show loading indicator
+      Swal.fire({
+        title: 'Starting Practice Session...',
+        text: 'Please wait',
+        allowOutsideClick: false,
+        didOpen: () => {
+          Swal.showLoading();
+        }
+      });
+
+      // Create a practice session
+      // For parent practice, we'll use a placeholder student (the parent's child)
+      // You may want to add a child selection dialog here
+      const sessionData = {
+        title: story.title,
+        book: story._id || '',
+        gradeId: story.grade || '3',
+        students: [
+          {
+            id: 'practice-student',
+            name: 'Practice Student'
+          }
+        ],
+        status: 'pending' as const,
+        teacherId: currentUser.uid,
+        storyUrl: story.pdfUrl || '',
+        pdfPublicId: story._id
+      };
+
+      const sessionId = await readingSessionService.createSession(sessionData);
+      
+      Swal.close();
+      
+      // Navigate to the reading session page with the created session ID
+      navigate(`/parent/reading-session/${sessionId}`);
     } catch (error) {
       console.error('Error starting practice:', error);
       await Swal.fire({
@@ -110,10 +225,32 @@ const ReadingPractice: React.FC = () => {
             <h1 className="text-2xl sm:text-3xl font-bold text-blue-900 tracking-tight flex items-center gap-2">
               <i className="fas fa-book-reader text-blue-400"></i> Reading Practice
             </h1>
-            <p className="mt-1 text-sm text-gray-500">Choose a story to practice reading with your child</p>
+            <p className="mt-1 text-sm text-gray-500">
+              {children.length > 0 
+                ? `Stories for ${children.map(c => c.name).join(', ')} (Grade ${children.map(c => c.grade).filter((v, i, a) => a.indexOf(v) === i).join(', ')})`
+                : 'Choose a story to practice reading with your child'}
+            </p>
           </div>
-          <div className="flex items-center gap-2 text-xs text-gray-500">
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
+          <div className="flex items-center gap-3">
+            <InfoButton title="About Reading Practice" tooltipText="About">
+              <p className="flex items-start gap-2">
+                <span className="text-blue-500 mt-0.5">•</span>
+                <span>Practice reading with your child using interactive stories</span>
+              </p>
+              <p className="flex items-start gap-2">
+                <span className="text-blue-500 mt-0.5">•</span>
+                <span>Track reading progress and identify areas for improvement</span>
+              </p>
+              <p className="flex items-start gap-2">
+                <span className="text-blue-500 mt-0.5">•</span>
+                <span>Support both English and Tagalog language stories</span>
+              </p>
+              <p className="flex items-start gap-2">
+                <span className="text-blue-500 mt-0.5">•</span>
+                <span>Practice sessions are for learning and don't affect official records</span>
+              </p>
+            </InfoButton>
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 border border-gray-200 text-xs text-gray-500">
               Updated {formatDateHuman(new Date())}
             </span>
           </div>
@@ -121,12 +258,20 @@ const ReadingPractice: React.FC = () => {
 
         {/* Stories Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-          {storiesLoading ? (
+          {childrenLoading || storiesLoading ? (
             <ParentLoader label="Loading stories..." />
           ) : storiesError ? (
             <div className="col-span-full text-center py-10 text-red-500">{storiesError}</div>
+          ) : children.length === 0 ? (
+            <div className="col-span-full text-center py-10 text-gray-500">
+              <p className="mb-2">No children found in your account.</p>
+              <p className="text-sm">Please contact your child's teacher to link your account.</p>
+            </div>
           ) : stories.length === 0 ? (
-            <div className="col-span-full text-center py-10 text-gray-500">No stories available for practice.</div>
+            <div className="col-span-full text-center py-10 text-gray-500">
+              <p className="mb-2">No stories available for your child's grade level.</p>
+              <p className="text-sm">Grade levels: {children.map(c => c.grade).filter((v, i, a) => a.indexOf(v) === i).join(', ')}</p>
+            </div>
           ) : (
             stories.map((story) => (
               <div key={story._id} className="bg-white rounded-xl shadow-md border border-blue-50 overflow-hidden flex flex-col h-full hover:shadow-lg transition-shadow">
@@ -140,13 +285,20 @@ const ReadingPractice: React.FC = () => {
                     <h3 className="text-base md:text-lg font-semibold text-blue-900 break-words leading-snug flex-1 min-w-0">
                       {story.title}
                     </h3>
-                    <span className={`px-2 py-1 text-xs font-semibold rounded-full flex-shrink-0 ${
-                      story.language === 'tagalog' 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-blue-100 text-blue-800'
-                    }`}>
-                      {story.language || 'English'}
-                    </span>
+                    <div className="flex flex-col gap-1 flex-shrink-0">
+                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                        story.language === 'tagalog' 
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-blue-100 text-blue-800'
+                      }`}>
+                        {story.language || 'English'}
+                      </span>
+                      {story.grade && (
+                        <span className="px-2 py-1 text-xs font-semibold rounded-full bg-purple-100 text-purple-800">
+                          Grade {story.grade}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <p className="text-sm text-gray-500 mb-4 break-words flex-grow">
                     {story.description || 'No description available'}
@@ -175,19 +327,6 @@ const ReadingPractice: React.FC = () => {
           )}
         </div>
 
-        {/* Practice Info */}
-        <div className="mt-8 bg-blue-50 border border-blue-200 rounded-xl p-6">
-          <h3 className="text-lg font-semibold text-blue-900 mb-3 flex items-center gap-2">
-            <i className="fas fa-info-circle text-blue-500"></i>
-            About Reading Practice
-          </h3>
-          <div className="text-sm text-blue-800 space-y-2">
-            <p>• Practice reading with your child using interactive stories</p>
-            <p>• Track reading progress and identify areas for improvement</p>
-            <p>• Support both English and Tagalog language stories</p>
-            <p>• Practice sessions are for learning and don't affect official records</p>
-          </div>
-        </div>
       </div>
     </div>
   );

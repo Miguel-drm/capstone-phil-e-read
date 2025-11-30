@@ -138,7 +138,7 @@ const App: React.FC = () => {
                     <Route path="children" element={<MyChildrenPage />} />
                     <Route path="reading" element={<ReadingPractice />} />
                     <Route path="reading-practice" element={<ReadingPractice />} />
-                    <Route path="reading-practice/:storyId" element={<ParentReadingSessionPage />} />
+                    <Route path="reading-session/:sessionId" element={<ParentReadingSessionPage />} />
                     <Route path="notifications" element={<ParentNotifications />} />
                     <Route path="progress" element={<ProgressPage />} />
                     <Route path="reports" element={<ReportsPage />} />

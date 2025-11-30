@@ -1,646 +1,4905 @@
-import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { readingSessionService, type ReadingSession } from '../../services/readingSessionService';
-import { UnifiedStoryService } from '../../services/UnifiedStoryService';
-import type { Story } from '../../types/Story';
-import { BookOpenIcon, UserIcon, MicrophoneIcon, StopIcon } from '@heroicons/react/24/outline';
-import Swal from 'sweetalert2';
-import { useAuth } from '../../contexts/AuthContext';
-import { studentService, type Student } from '../../services/studentService';
-import * as pdfjsLib from 'pdfjs-dist';
-import type { TextItem } from 'pdfjs-dist/types/src/display/api';
-import 'pdfjs-dist/build/pdf.worker.entry';
-import ParentLoader from '../../components/parent/ParentLoader';
+import React, { useEffect, useState, useRef, useMemo } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import {
+  readingSessionService,
+  type ReadingSession,
+} from "@/services/readingSessionService";
+import { UnifiedStoryService } from "@/services/UnifiedStoryService";
+import type { Story } from "@/types/Story";
+import {
+  ArrowLeftIcon,
+  XCircleIcon,
+  ChartBarIcon,
+  MicrophoneIcon,
+} from "@heroicons/react/24/outline";
+import * as pdfjsLib from "pdfjs-dist";
+import type { TextItem } from "pdfjs-dist/types/src/display/api";
+import "pdfjs-dist/build/pdf.worker.entry";
+import {
+  calculateOralReadingScore,
+  calculateReadingSpeedWPM,
+  formatElapsedTime,
+} from "@/utils/readingMetrics";
+import { studentService } from "@/services/studentService";
+import Swal from "sweetalert2";
+// import { doubleMetaphone } from "double-metaphone"; // Disabled - server handles pronunciation matching
+import { isrResultService } from "@/services/ISRresultService";
+import { useAuth } from "@/contexts/AuthContext";
+import { getUserProfile } from "@/services/authService";
 
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
-const ParentReadingSessionPage: React.FC = () => {
-  const [storyText, setStoryText] = useState<string>('');
-  const { sessionId, storyId } = useParams<{ sessionId?: string; storyId?: string }>();
-  const navigate = useNavigate();
-  const location = useLocation();
+const ReadingSessionPage: React.FC = () => {
   const { currentUser } = useAuth();
-  const [currentSession, setCurrentSession] = useState<ReadingSession | null>(null);
+  const [storyText, setStoryText] = useState<string>("");
+  const { sessionId } = useParams<{ sessionId: string }>();
+  const navigate = useNavigate();
+  const [currentStory, setCurrentStory] = useState<Story | null>(null);
+  const [currentSession, setCurrentSession] = useState<ReadingSession | null>(
+    null
+  );
   const [isLoading, setIsLoading] = useState(true);
-  const [allStories, setAllStories] = useState<Story[]>([]);
-  // Recording & metrics (aligned with teacher UI)
+  const [error, setError] = useState<string | null>(null);
+
+  const [currentWordIndex, setCurrentWordIndex] = useState<number>(0);
+  const [words, setWords] = useState<string[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
-  // Remove transcript state to satisfy unused warnings (we only need derived metrics)
-  const [wordsRead, setWordsRead] = useState(0);
-  const [readingSpeedWPM, setReadingSpeedWPM] = useState(0);
-  const [currentWordIndex, setCurrentWordIndex] = useState(0);
-  const [miscues, setMiscues] = useState(0);
-  const [totalWords, setTotalWords] = useState(0);
-  const [words, setWords] = useState<string[]>([]);
-  const recognitionRef = React.useRef<any>(null);
-  const timerRef = React.useRef<NodeJS.Timeout | null>(null);
-  const [isChildPickerOpen, setIsChildPickerOpen] = useState(false);
-  const [isStoryPickerOpen, setIsStoryPickerOpen] = useState(false);
-  const [storyQuery, setStoryQuery] = useState('');
-
-  // Get child data from navigation state
-  const { childName: childNameFromNav, childId: childIdFromNav } = location.state || {};
-  const [children, setChildren] = useState<Student[]>([]);
-  const [selectedChild, setSelectedChild] = useState<{ id: string; name: string } | null>(childNameFromNav ? { id: childIdFromNav || '', name: childNameFromNav } : null);
-
+  const [pdfContent, setPdfContent] = useState<string>("");
+  const [isLoadingPdf, setIsLoadingPdf] = useState(false); // used in PDF fetch display logic
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  
+  // Countdown modal state
+  const [showCountdown, setShowCountdown] = useState(false);
+  const [countdown, setCountdown] = useState(5);
+  
+  // Track if session has been started (to show Complete button)
+  const [hasStarted, setHasStarted] = useState(false);
+  
+  // Countdown effect - preload Vosk connection during countdown
   useEffect(() => {
-    const init = async () => {
-      try {
-        setIsLoading(true);
-        const stories = await UnifiedStoryService.getInstance().getStories({});
-        setAllStories(stories);
-        // Load parent's children for selection in practice mode
-        if (currentUser?.uid) {
-          try {
-            const kids = await studentService.getStudentsByParent(currentUser.uid);
-            setChildren(kids);
-            if (!selectedChild && kids.length === 1) {
-              setSelectedChild({ id: kids[0].id || '', name: kids[0].name });
-            }
-          } catch (e) { }
-        }
-
-        if (sessionId) {
-          // Session mode
-          const sessionData = await readingSessionService.getSessionById(sessionId);
-          if (!sessionData) throw new Error('Session not found');
-          setCurrentSession(sessionData);
-          const story = stories.find((s: Story) => s._id === sessionData.book || s.title === sessionData.book);
-          if (story?._id) {
-            const fullStory = await UnifiedStoryService.getInstance().getStoryById(story._id);
-            if (fullStory?.textContent) {
-              const text = fullStory.textContent.trim();
-              setStoryText(text);
-              setTotalWords(text.split(/\s+/).filter(Boolean).length);
-            }
-          }
-        } else if (storyId) {
-          // Practice mode with story ID
-          console.log('Loading story for practice mode, storyId:', storyId);
-          const fullStory = await UnifiedStoryService.getInstance().getStoryById(storyId);
-          console.log('Full story loaded:', fullStory);
-          console.log('Story textContent:', fullStory?.textContent);
-
-          if (fullStory) {
-            setCurrentSession({
-              pdfPublicId: null,
-              title: fullStory.title || 'Practice Reading',
-              book: fullStory._id || storyId,
-              gradeId: 'parent',
-              students: [],
-              status: 'in-progress',
-              teacherId: '',
-              storyUrl: '',
-            } as ReadingSession);
-
-            // Try to use textContent first
-            if (fullStory.textContent && fullStory.textContent.trim()) {
-              const text = fullStory.textContent.trim();
-              console.log('✅ Using story textContent, length:', text.length);
-              setStoryText(text);
-              setTotalWords(text.split(/\s+/).filter(Boolean).length);
-            } else {
-              // Fallback: Extract text from PDF
-              console.log('⚠️ No textContent, attempting PDF extraction...');
-              try {
-                const pdfUrl = UnifiedStoryService.getInstance().getStoryPdfUrl(storyId);
-                const response = await fetch(pdfUrl);
-                const pdfArrayBuffer = await response.arrayBuffer();
-
-                const loadingTask = pdfjsLib.getDocument({
-                  data: pdfArrayBuffer,
-                  cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
-                  cMapPacked: true,
-                });
-
-                const pdf = await loadingTask.promise;
-                const textParts: string[] = [];
-
-                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-                  const page = await pdf.getPage(pageNum);
-                  const textContent = await page.getTextContent();
-                  const pageText = textContent.items
-                    .filter((item): item is TextItem => 'str' in item)
-                    .map((item) => item.str)
-                    .join(' ');
-                  textParts.push(pageText);
-                }
-
-                const extractedText = textParts.join('\n\n').trim();
-                if (extractedText) {
-                  console.log('✅ PDF text extracted successfully, length:', extractedText.length);
-                  setStoryText(extractedText);
-                  setTotalWords(extractedText.split(/\s+/).filter(Boolean).length);
-                } else {
-                  console.error('❌ PDF extraction failed - no text found');
-                  setStoryText('');
-                  setTotalWords(0);
-                }
-              } catch (pdfError) {
-                console.error('❌ PDF extraction error:', pdfError);
-                setStoryText('');
-                setTotalWords(0);
-              }
-            }
-          } else {
-            console.error('Failed to load story with ID:', storyId);
-          }
-        } else {
-          // Practice mode (no session, no story). Ensure basic session object so UI renders.
-          setCurrentSession({
-            pdfPublicId: null,
-            title: 'Practice Reading',
-            book: 'TBD',
-            gradeId: 'parent',
-            students: [],
-            status: 'in-progress',
-            teacherId: '',
-            storyUrl: '',
-          } as ReadingSession);
-        }
-      } catch (e: any) {
-        console.error('Init failed:', e?.message || e);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    init();
-  }, [sessionId, storyId, currentUser?.uid]);
-
-  // Split story text into words for highlighting
-  useEffect(() => {
-    if (storyText && storyText.trim()) {
-      const wordArray = storyText.trim().split(/\s+/).filter(Boolean);
-      setWords(wordArray);
+    if (showCountdown && countdown > 0) {
+      const timer = setTimeout(() => {
+        setCountdown(countdown - 1);
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else if (showCountdown && countdown === 0) {
+      // Countdown finished, start recording
+      setShowCountdown(false);
+      startRecordingAfterCountdown();
+      setCountdown(5); // Reset for next time
     }
-  }, [storyText]);
+  }, [showCountdown, countdown]);
+  
+  // Check Vosk connection status during countdown
+  useEffect(() => {
+    if (showCountdown && countdown === 5 && words.length > 0) {
+      // Check if Vosk is already connected from preload
+      const isConnected = voskSocketRef.current && voskSocketRef.current.readyState === WebSocket.OPEN;
+      if (isConnected) {
+        console.log('✅ [Teacher] Vosk already connected - ready to start!');
+      } else {
+        console.log('⏳ [Teacher] Vosk still connecting...');
+        // Try to connect if not already connected
+        preloadVoskConnection();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCountdown, countdown]);
 
-  const handleGoBack = () => {
-    navigate('/parent/reading');
+  // Audio recording state
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+
+  // Audio and speech recognition refs
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const scriptNodeRef = useRef<ScriptProcessorNode | null>(null);
+  const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const voskSocketRef = useRef<WebSocket | null>(null);
+  const voskReconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const voskReconnectAttemptsRef = useRef<number>(0);
+  const voskFinalTranscriptRef = useRef<string>(""); // Accumulate final results
+  const voskConnectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const voskHeartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [transcript, setTranscript] = useState("");
+  const [voskStatus, setVoskStatus] = useState<
+    "disconnected" | "connecting" | "connected"
+  >("disconnected");
+  const [wordsRead, setWordsRead] = useState(0);
+  const [storyLanguage, setStoryLanguage] = useState<"english" | "tagalog">(
+    "english"
+  );
+  const [storyVocabulary, setStoryVocabulary] = useState<Set<string>>(new Set());
+  // Audio processing, speech detection, and pronunciation matching now handled server-side
+
+  // Track which words have been correctly recognized (for green highlighting)
+  const [recognizedWords, setRecognizedWords] = useState<Set<number>>(new Set());
+
+  // Refs for auto-scrolling to current word
+  const currentWordRef = useRef<HTMLSpanElement>(null);
+  const storyContentRef = useRef<HTMLDivElement>(null);
+  // Derived metrics are calculated from elapsed time and transcript
+
+  // ============================================================================
+  // PRONUNCIATION MATCHING REMOVED - Now handled by server
+  // The server's word recognition enhancer handles all pronunciation matching
+  // Frontend focuses on displaying server results and basic vocabulary filtering
+  // ============================================================================
+
+  // REMOVED: TAGALOG_PRONUNCIATION_DICTIONARY - Server handles pronunciation matching
+  // REMOVED: buildStoryPronunciationMap - Server handles pronunciation variants
+  // Frontend now only does basic vocabulary validation (word in story or not)
+
+  // ============================================================================
+  // VOSK CONNECTION MANAGEMENT
+  // ============================================================================
+
+  /**
+   * Clean up all Vosk-related resources including WebSocket, audio nodes, and timers.
+   * This function ensures proper cleanup to prevent memory leaks and resource conflicts.
+   */
+  const cleanupVosk = () => {
+    // Clear all timeouts and intervals
+    if (voskReconnectTimeoutRef.current) {
+      clearTimeout(voskReconnectTimeoutRef.current);
+      voskReconnectTimeoutRef.current = null;
+    }
+    if (voskConnectionTimeoutRef.current) {
+      clearTimeout(voskConnectionTimeoutRef.current);
+      voskConnectionTimeoutRef.current = null;
+    }
+    if (voskHeartbeatIntervalRef.current) {
+      clearInterval(voskHeartbeatIntervalRef.current);
+      voskHeartbeatIntervalRef.current = null;
+    }
+
+    // Disconnect audio nodes
+    try {
+      scriptNodeRef.current?.disconnect();
+    } catch { }
+    try {
+      sourceNodeRef.current?.disconnect();
+    } catch { }
+
+    // Stop all audio tracks
+    try {
+      const stream = sourceNodeRef.current?.mediaStream;
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+    } catch { }
+
+    // Close audio context
+    try {
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close();
+      }
+    } catch { }
+
+    // Close WebSocket
+    try {
+      if (voskSocketRef.current) {
+        voskSocketRef.current.close(1000, "Cleanup");
+      }
+    } catch { }
+
+    // Clear refs
+    scriptNodeRef.current = null;
+    sourceNodeRef.current = null;
+    audioContextRef.current = null;
+    voskSocketRef.current = null;
   };
 
-  // Recording controls with Web Speech API
+  /**
+   * Attempt to reconnect to Vosk with exponential backoff.
+   * Implements retry logic with increasing delays between attempts.
+   */
+  const attemptVoskReconnect = (startVoskFn: (isReconnect: boolean) => Promise<void>) => {
+    // Maximum reconnection attempts to prevent infinite loops
+    const MAX_RECONNECT_ATTEMPTS = 5;
+    
+    if (voskReconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+      console.error(`❌ Maximum reconnection attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Stopping reconnection.`);
+      setVoskStatus("disconnected");
+      cleanupVosk();
+      setIsRecording(false);
+      alert(
+        `Unable to connect to speech recognition service after ${MAX_RECONNECT_ATTEMPTS} attempts.\n\n` +
+        `Please check:\n` +
+        `1. Is the Vosk server running? (Local: ws://localhost:2700 or Railway)\n` +
+        `2. Is your internet connection working?\n` +
+        `3. Try refreshing the page and starting again.`
+      );
+      return;
+    }
+
+    if (voskReconnectTimeoutRef.current) {
+      clearTimeout(voskReconnectTimeoutRef.current);
+    }
+
+    voskReconnectAttemptsRef.current += 1;
+    const delay = Math.min(1000 * Math.pow(2, voskReconnectAttemptsRef.current - 1), 10000);
+
+    console.log(`🔄 Attempting Vosk reconnect (attempt ${voskReconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS}) in ${delay}ms...`);
+    setVoskStatus("connecting");
+
+    voskReconnectTimeoutRef.current = setTimeout(() => {
+      if (isRecording && !isPaused && voskReconnectAttemptsRef.current <= MAX_RECONNECT_ATTEMPTS) {
+        cleanupVosk();
+        startVoskFn(true);
+      }
+    }, delay);
+  };
+
+  /**
+   * Initialize microphone access with optimal audio settings for Vosk.
+   * Returns a MediaStream configured for speech recognition.
+   */
+  const initializeMicrophone = async (): Promise<MediaStream> => {
+    try {
+      // Vosk works best with minimal audio processing
+      return await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          sampleRate: 48000,
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false
+        },
+      });
+    } catch (error) {
+      // Fallback to default settings if constraints are not supported
+      return await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          sampleRate: 48000
+        },
+      });
+    }
+  };
+
+  /**
+   * Create and configure audio context with audio processing nodes.
+   * Sets up the audio pipeline for downsampling and sending to Vosk.
+   */
+  const setupAudioContext = async (stream: MediaStream): Promise<{
+    context: AudioContext;
+    source: MediaStreamAudioSourceNode;
+    processor: ScriptProcessorNode;
+  }> => {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
+
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+    }
+
+    const src = ctx.createMediaStreamSource(stream);
+    // Smaller buffer (2048) = faster processing, lower latency for real-time recognition
+    const script = ctx.createScriptProcessor(2048, 1, 1);
+
+    return { context: ctx, source: src, processor: script };
+  };
+
+  // Audio processing is now handled server-side
+  // Frontend just sends raw Float32 audio data
+
+  /**
+   * Set up WebSocket message handlers for Vosk recognition results.
+   * Processes both final and partial recognition results with vocabulary validation.
+   */
+  const setupVoskMessageHandlers = (ws: WebSocket) => {
+    ws.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+
+        // Handle server error messages (e.g., model not available)
+        if (msg.error) {
+          console.error(`❌ Server error: ${msg.error}`);
+          if (msg.available_models) {
+            console.error(`   Available models: ${msg.available_models.join(", ")}`);
+            console.error(`   Requested language: ${msg.requested_language}`);
+            
+            // Show user-friendly error
+            const availableModels = msg.available_models.join(" or ");
+            const requestedLang = msg.requested_language === "english" ? "English" : "Tagalog";
+            alert(
+              `${requestedLang} model is not available on the server.\n\n` +
+              `Available models: ${availableModels}\n\n` +
+              `Please:\n` +
+              `1. Use a story in ${availableModels} language, or\n` +
+              `2. Start the server with the ${requestedLang.toLowerCase()} model loaded.\n\n` +
+              `To load both models, run: cd VoskServer && python download_huggingface_model.py`
+            );
+          }
+          cleanupVosk();
+          setVoskStatus("disconnected");
+          setIsRecording(false);
+          return;
+        }
+
+        // Handle grammar constraint confirmation from server
+        if (msg.status === "grammar_applied") {
+          console.log(`✅ Server confirmed grammar constraint: ${msg.word_count} words`);
+          return;
+        }
+
+        // DEBUGGING: Log all Vosk messages to diagnose recognition issues
+        if (msg.text || msg.partial) {
+          console.log('📨 Vosk message:', {
+            text: msg.text || '(none)',
+            partial: msg.partial || '(none)',
+            result: msg.result || '(none)'
+          });
+        }
+
+        // NEW: Handle backend word matching results
+        if (msg.match_result) {
+          const { match_type, new_position, details, session_state } = msg.match_result;
+          const metrics = msg.metrics;
+          const word = msg.text;
+          
+          console.log(`🎯 Backend match: ${match_type} - ${details}`);
+          
+          // Update position from backend
+          if (session_state) {
+            setCurrentWordIndex(session_state.current_position);
+            console.log(`🟡 Position updated to ${session_state.current_position}`);
+          }
+          
+          // Mark word based on match type
+          const wordIndex = new_position - 1;  // Position before advance
+          
+          switch (match_type) {
+            case 'waiting_for_start':
+              // Ignore - waiting for first word
+              console.log(`⏳ Waiting for story to start, ignoring word`);
+              // Don't mark anything - session hasn't started yet
+              return;  // Don't update anything
+              
+            case 'pending':
+              // Word is pending - waiting to see if next word matches
+              // This could be an insertion
+              console.log(`⏸️ Word pending: "${word}" - waiting for next word`);
+              return;  // Don't mark anything yet
+              
+            case 'correct':
+              // Mark as correct (green)
+              setRecognizedWords(prev => new Set(prev).add(wordIndex));
+              console.log(`✅ Word ${wordIndex} marked correct`);
+              break;
+              
+            case 'omission':
+              // Mark as omitted (orange circle)
+              setWordMiscues(prev => new Map(prev).set(wordIndex, 'omission'));
+              setWordMarkings(prev => new Map(prev).set(wordIndex, {
+                type: 'omission',
+                marking: `Circle omitted word`,
+                spokenWord: '',
+                correctWord: realWords[wordIndex]
+              }));
+              console.log(`⚠️ Word ${wordIndex} marked as omission`);
+              break;
+              
+            case 'mispronunciation':
+              // Mark as mispronounced (red underline)
+              setWordMiscues(prev => new Map(prev).set(wordIndex, 'mispronunciation'));
+              setWordMarkings(prev => new Map(prev).set(wordIndex, {
+                type: 'mispronunciation',
+                marking: `Underline and write phonetic spelling above`,
+                spokenWord: word,
+                correctWord: realWords[wordIndex]
+              }));
+              console.log(`⚠️ Word ${wordIndex} marked as mispronunciation`);
+              break;
+              
+            case 'substitution':
+              // Mark as substituted (yellow underline)
+              setWordMiscues(prev => new Map(prev).set(wordIndex, 'substitution'));
+              setWordMarkings(prev => new Map(prev).set(wordIndex, {
+                type: 'substitution',
+                marking: `Underline and write substituted word above`,
+                spokenWord: word,
+                correctWord: realWords[wordIndex]
+              }));
+              console.log(`⚠️ Word ${wordIndex} marked as substitution`);
+              break;
+              
+            case 'insertion':
+              // Mark as insertion (cyan caret with word above)
+              // Insertion should be placed BEFORE the current word (between previous and current)
+              const insertedWord = msg.match_result.inserted_word || word;
+              const insertionPosition = wordIndex; // Position where insertion happened (before this word)
+              
+              // Add to insertedWords map to show as separate box BEFORE this word
+              setInsertedWords(prev => {
+                const newMap = new Map(prev);
+                const existing = newMap.get(insertionPosition) || [];
+                newMap.set(insertionPosition, [...existing, insertedWord]);
+                return newMap;
+              });
+              
+              console.log(`⚠️ Insertion detected: "${insertedWord}" before word ${wordIndex} ("${realWords[wordIndex]}")`);
+              
+              // IMPORTANT: The current word (at wordIndex) should still be marked as CORRECT
+              // because the child DID read it correctly - they just added an extra word before it
+              // The insertion is tracked separately in insertedWords map
+              setRecognizedWords(prev => new Set(prev).add(wordIndex));
+              console.log(`✅ Word ${wordIndex} ("${realWords[wordIndex]}") marked correct (after insertion)`);
+              break;
+              
+            case 'repetition':
+              // Mark as repetition (blue underline)
+              // The word was repeated - show it as a separate box AFTER the original word
+              const repeatedWord = msg.match_result.repeated_word || word;
+              
+              // Add to repeatedWords map to show as separate box with blue underline
+              setRepeatedWords(prev => {
+                const newMap = new Map(prev);
+                const existing = newMap.get(wordIndex) || [];
+                newMap.set(wordIndex, [...existing, repeatedWord]);
+                return newMap;
+              });
+              
+              console.log(`⚠️ Repetition detected: "${repeatedWord}" repeated after word ${wordIndex}`);
+              break;
+              
+            case 'selfCorrection':
+              // Mark as self-correction (green 'S' above)
+              // Student corrected their own mistake - this is POSITIVE behavior
+              const correctedWord = msg.match_result.corrected_word || word;
+              const wrongWord = msg.match_result.wrong_word || '';
+              
+              // Mark the CURRENT word (the one that was corrected) with self-correction
+              // The student said the wrong word first, then corrected to this word
+              setWordMiscues(prev => new Map(prev).set(wordIndex, 'selfCorrection'));
+              setWordMarkings(prev => new Map(prev).set(wordIndex, {
+                type: 'selfCorrection',
+                marking: `Write 'S' above self-corrected word`,
+                spokenWord: correctedWord,
+                correctWord: realWords[wordIndex] || '',
+                wrongWord: wrongWord  // Track what they said wrong first
+              }));
+              console.log(`✅ Word ${wordIndex} ("${realWords[wordIndex]}") marked as self-correction (was "${wrongWord}", corrected to "${correctedWord}")`);
+              break;
+              
+            case 'reversal':
+              // Mark as reversal (pink background, correct word above)
+              // Student reversed the letters (e.g., "was" → "saw")
+              setWordMiscues(prev => new Map(prev).set(wordIndex, 'reversal'));
+              setWordMarkings(prev => new Map(prev).set(wordIndex, {
+                type: 'reversal',
+                marking: `Write correct word above reversed word`,
+                spokenWord: word,
+                correctWord: realWords[wordIndex] || ''
+              }));
+              console.log(`⚠️ Word ${wordIndex} marked as reversal: "${word}" (should be "${realWords[wordIndex]}")`);
+              break;
+              
+            case 'transposition':
+              // Mark as transposition (purple, curved line connecting the two words)
+              // Student swapped word order (e.g., "big red" → "red big")
+              const firstWord = msg.match_result.first_word || '';
+              const secondWord = msg.match_result.second_word || '';
+              
+              // Mark BOTH words involved in the transposition
+              // wordIndex-1 is the first word, wordIndex is the second word
+              const firstWordIndex = wordIndex - 1;
+              
+              if (firstWordIndex >= 0) {
+                // Mark first word
+                setWordMiscues(prev => new Map(prev).set(firstWordIndex, 'transposition'));
+                setWordMarkings(prev => new Map(prev).set(firstWordIndex, {
+                  type: 'transposition',
+                  marking: `Use transpositional symbol (curved line)`,
+                  spokenWord: firstWord,
+                  correctWord: realWords[firstWordIndex] || ''
+                }));
+                
+                // Mark second word
+                setWordMiscues(prev => new Map(prev).set(wordIndex, 'transposition'));
+                setWordMarkings(prev => new Map(prev).set(wordIndex, {
+                  type: 'transposition',
+                  marking: `Use transpositional symbol (curved line)`,
+                  spokenWord: secondWord,
+                  correctWord: realWords[wordIndex] || ''
+                }));
+                
+                console.log(`⚠️ Transposition detected: "${firstWord}" and "${secondWord}" swapped (words ${firstWordIndex} and ${wordIndex})`);
+              }
+              break;
+          }
+          
+          // Update metrics from backend (source of truth)
+          if (metrics) {
+            console.log(`📊 Metrics: WPM=${metrics.wpm}, Accuracy=${metrics.oral_reading_score}%, Words=${metrics.words_read}, Miscues=${metrics.total_miscues}`);
+            
+            setWordsRead(metrics.words_read);
+            setMiscues(metrics.total_miscues);
+            
+            if (metrics.miscue_types) {
+              setMiscueTypes(metrics.miscue_types);
+            }
+            
+            setServerMetrics({
+              wpm: metrics.wpm,
+              accuracy: metrics.accuracy,
+              oralReadingScore: metrics.oral_reading_score,
+              wordsRead: metrics.words_read,
+              totalMiscues: metrics.total_miscues
+            });
+          }
+          
+          return;  // Exit early - backend handled everything
+        }
+        
+        // FALLBACK: Old format (for backward compatibility)
+        if (msg.text && msg.text.trim()) {
+          const originalText = msg.text.trim();
+          console.log(`🎯 Vosk recognized (final - old format): "${originalText}"`);
+          
+          const filteredText = filterThroughVocabulary(originalText, storyVocabulary);
+
+          if (filteredText) {
+            console.log(`✅ Vocabulary filter: Accepted "${filteredText}"`);
+            voskFinalTranscriptRef.current += (voskFinalTranscriptRef.current ? " " : "") + filteredText;
+            setTranscript(voskFinalTranscriptRef.current);
+          }
+        } else if (msg.partial && msg.partial.trim()) {
+          const originalPartial = msg.partial.trim();
+          console.log(`🎯 Vosk recognized (partial): "${originalPartial}"`);
+          // Partial results are no longer displayed in UI
+        }
+      } catch (error) {
+        console.error("Failed to process Vosk recognition result:", error);
+      }
+    };
+  };
+
+  /**
+   * Set up WebSocket error and close handlers with reconnection logic.
+   * Provides user-friendly error messages and automatic reconnection.
+   */
+  const setupVoskConnectionHandlers = (
+    ws: WebSocket,
+    isReconnect: boolean,
+    startVoskFn: (isReconnect: boolean) => Promise<void>
+  ) => {
+    ws.onerror = (error) => {
+      console.error("Speech recognition connection error:", error);
+
+      // attemptVoskReconnect now handles the max attempts check internally
+        attemptVoskReconnect(startVoskFn);
+    };
+
+    ws.onclose = (event) => {
+      setVoskStatus("disconnected");
+      const wsUrl = ws.url || "unknown";
+
+      if (voskHeartbeatIntervalRef.current) {
+        clearInterval(voskHeartbeatIntervalRef.current);
+        voskHeartbeatIntervalRef.current = null;
+      }
+
+      // Detailed close code analysis
+      const closeCodeMessages: { [key: number]: string } = {
+        1000: "Normal closure",
+        1001: "Going away (server restarting)",
+        1002: "Protocol error",
+        1003: "Unsupported data type",
+        1006: "Abnormal closure (connection refused/unreachable)",
+        1007: "Invalid data",
+        1008: "Policy violation",
+        1009: "Message too large",
+        1011: "Internal server error",
+        1012: "Service restart",
+        1013: "Try again later",
+        1014: "Bad gateway",
+        1015: "TLS handshake failure"
+      };
+
+      const closeMessage = closeCodeMessages[event.code] || `Unknown code: ${event.code}`;
+      const closeReason = event.reason || closeMessage;
+      
+      console.warn(`🔴 WebSocket closed:`);
+      console.warn(`   URL: ${wsUrl}`);
+      console.warn(`   Code: ${event.code} (${closeMessage})`);
+      console.warn(`   Reason: ${closeReason}`);
+      console.warn(`   Was clean: ${event.wasClean}`);
+
+      // Provide specific guidance based on close code
+      if (event.code === 1006) {
+        console.error(`❌ Abnormal closure (1006) - Common causes:`);
+        console.error(`   1. Railway service is not running or crashed`);
+        console.error(`   2. Service is sleeping (free tier) - wait 30-60 seconds`);
+        console.error(`   3. Wrong URL or service name`);
+        console.error(`   4. Network/firewall blocking WebSocket connections`);
+        console.error(`   5. Railway proxy not configured for WebSocket`);
+      } else if (event.code === 1008) {
+        console.error(`❌ Policy violation (1008) - Service rejected connection`);
+        if (closeReason && closeReason.includes("model not loaded")) {
+          console.error(`   💡 The requested language model is not available on the server.`);
+          console.error(`   💡 Available models: Check server logs or use a different language.`);
+          console.error(`   💡 To fix: Download the model or start server with both models loaded.`);
+          
+          // Show user-friendly alert if not a reconnect attempt
+          if (!isReconnect && isRecording) {
+            const requestedLang = storyLanguage === "english" ? "English" : "Tagalog";
+            alert(
+              `The ${requestedLang} speech recognition model is not available on the server.\n\n` +
+              `Please:\n` +
+              `1. Switch to a story in the available language, or\n` +
+              `2. Start the server with the ${requestedLang.toLowerCase()} model loaded.\n\n` +
+              `To load models: cd VoskServer && python download_huggingface_model.py`
+            );
+            setIsRecording(false);
+          }
+        } else {
+          console.error(`   Check Railway logs for specific error message`);
+        }
+      } else if (event.code === 1011) {
+        console.error(`❌ Internal server error (1011) - Service crashed`);
+        console.error(`   Check Railway logs for crash details`);
+      }
+
+      // Only attempt reconnect if recording is active and it wasn't a clean close
+      if (isRecording && !isPaused && event.code !== 1000) {
+        // attemptVoskReconnect now handles the max attempts check internally
+        attemptVoskReconnect(startVoskFn);
+      } else if (event.code === 1000) {
+        // Clean close - don't reconnect
+        console.log("✅ Connection closed cleanly (code 1000)");
+        cleanupVosk();
+        setVoskStatus("disconnected");
+      } else if (!isRecording || isPaused) {
+        // Not recording or paused - don't reconnect
+        console.log("⏸️ Not reconnecting: recording stopped or paused");
+        cleanupVosk();
+        setVoskStatus("disconnected");
+      }
+    };
+  };
+
+  // ============================================================================
+  // END VOSK CONNECTION MANAGEMENT
+  // ============================================================================
+
+  // Detailed miscue tracking (Phil-IRI format) - Following DepEd Table 4 Rules
+  const [miscues, setMiscues] = useState(0); // Total miscues
+  const [miscueTypes, setMiscueTypes] = useState({
+    mispronunciation: 0,  // Maling Bigkas - Count as 1 error every mispronunciation (dialectal variations not counted)
+    omission: 0,          // Pagkakaltas - Count as one error a word or phrase omitted
+    substitution: 0,      // Pagpapalit - Count as one error every substitution
+    insertion: 0,         // Pagsisisingit - Count a word or phrase inserted as one error
+    repetition: 0,        // Pag-uulit - Count as one error every word or phrase repeated
+    transposition: 0,     // Pagpapalit ng Lugar - Count as one error every transposition made
+    reversal: 0,          // Paglilipat - Count as one error every reversal made
+    selfCorrection: 0     // Self-Correction - Don't count as error (marked with 'S')
+  });
+
+  // Track miscues per word for visual highlighting - Following DepEd Phil-IRI marking system
+  type MiscueType = 'mispronunciation' | 'omission' | 'substitution' | 'insertion' | 'repetition' | 'transposition' | 'reversal' | 'selfCorrection';
+  const [wordMiscues, setWordMiscues] = useState<Map<number, MiscueType>>(new Map());
+
+  // Track marking annotations for each word (following DepEd Table 4)
+  const [wordMarkings, setWordMarkings] = useState<Map<number, {
+    type: MiscueType;
+    marking: string; // The actual marking (underline, circle, caret, etc.)
+    spokenWord?: string; // What the child actually said
+    correctWord: string; // What should have been said
+    wrongWord?: string; // For self-correction: what they said wrong first
+  }>>(new Map());
+
+  // Track inserted words (extra words child said) with their position
+  const [insertedWords, setInsertedWords] = useState<Map<number, string[]>>(new Map());
+  
+  // Track repeated words (words said twice) with their position
+  const [repeatedWords, setRepeatedWords] = useState<Map<number, string[]>>(new Map());
+
+
+
+  // Server-calculated metrics (backend is source of truth)
+  const [serverMetrics, setServerMetrics] = useState<{
+    wpm?: number;
+    accuracy?: number;
+    oralReadingScore?: number;
+    wordsRead?: number;
+    totalMiscues?: number;
+  }>({});
+
+  // ============================================================================
+  // FAST READING OPTIMIZATION: Reading Speed Tracking
+  // ============================================================================
+  const [matchTimestamps, setMatchTimestamps] = useState<number[]>([]);
+  const [currentReadingSpeed, setCurrentReadingSpeed] = useState<number>(0); // words per second
+  
+  // Calculate reading speed from recent matches
+  const calculateReadingSpeed = () => {
+    if (matchTimestamps.length < 2) return 0;
+    
+    // Use last 10 matches for speed calculation
+    const recentMatches = matchTimestamps.slice(-10);
+    const timeSpan = recentMatches[recentMatches.length - 1] - recentMatches[0];
+    
+    if (timeSpan === 0) return 0;
+    
+    const wordsPerSecond = (recentMatches.length - 1) / (timeSpan / 1000);
+    return wordsPerSecond;
+  };
+  
+  // Get optimal buffer size based on reading speed
+  const getOptimalBufferSize = (wordsPerSecond: number) => {
+    if (wordsPerSecond < 2) return 15;  // Slow reading
+    if (wordsPerSecond < 4) return 25;  // Normal reading
+    if (wordsPerSecond < 6) return 35;  // Fast reading
+    return 50;  // Very fast reading (5-10 words/sec)
+  };
+
+  // Real-time Oral Reading Score (Accuracy) - use server value if available
+  const oralReadingScore = useMemo(() => {
+    // Prefer server-calculated score (more accurate)
+    if (serverMetrics.oralReadingScore !== undefined) {
+      return serverMetrics.oralReadingScore.toFixed(1);
+    }
+    // Fallback to client calculation
+    if (words.length === 0) return "0.0";
+    const score = calculateOralReadingScore(wordsRead, miscues, words.length);
+    return score.toFixed(1);
+  }, [serverMetrics.oralReadingScore, wordsRead, miscues, words.length]);
+
+  // Real-time Reading Speed (WPM) - use server value if available
+  const readingSpeedWPM = useMemo(() => {
+    // Prefer server-calculated WPM (more accurate)
+    if (serverMetrics.wpm !== undefined && serverMetrics.wpm > 0) {
+      return serverMetrics.wpm.toString();
+    }
+    // Fallback to client calculation
+    return elapsedTime > 0
+      ? calculateReadingSpeedWPM(wordsRead, elapsedTime).toString()
+      : "0";
+  }, [serverMetrics.wpm, wordsRead, elapsedTime]);
+
+  // Helper: Convert numbers to words (0-100)
+  const numberToWord = (num: string): string => {
+    const numberMap: { [key: string]: string } = {
+      '0': 'zero', '1': 'one', '2': 'two', '3': 'three', '4': 'four',
+      '5': 'five', '6': 'six', '7': 'seven', '8': 'eight', '9': 'nine',
+      '10': 'ten', '11': 'eleven', '12': 'twelve', '13': 'thirteen',
+      '14': 'fourteen', '15': 'fifteen', '16': 'sixteen', '17': 'seventeen',
+      '18': 'eighteen', '19': 'nineteen', '20': 'twenty', '30': 'thirty',
+      '40': 'forty', '50': 'fifty', '60': 'sixty', '70': 'seventy',
+      '80': 'eighty', '90': 'ninety', '100': 'hundred'
+    };
+    return numberMap[num] || num;
+  };
+
+  // Helper: Normalize text for comparison (lowercase, convert numbers to words, remove punctuation)
+  const normalize = (text: string | undefined | null) => {
+    if (!text) return '';
+    let normalized = text.toLowerCase().replace(/[^\w\s]/g, '').trim();
+    // Convert standalone numbers to words
+    normalized = normalized.replace(/\b\d+\b/g, (match) => numberToWord(match));
+    return normalized;
+  };
+
+  // Helper: Check if a word contains any alphanumeric character
+  const isWordAlphanumeric = (word: string) => /[a-zA-Z0-9]/.test(word);
+
+  // Helper: Extract all readable words (alphanumeric only) from text, skipping punctuation/symbols
+  function extractWordsFromText(text: string): string[] {
+    // This regex matches words including contractions (e.g., "It's", "don't", "I'll")
+    // \b\w+(?:'\w+)?\b matches: word boundary + word chars + optional apostrophe + more word chars
+    return text.match(/\b\w+(?:'\w+)?\b/g) || [];
+  }
+
+  // Helper: Detect if a word is likely English (for language validation)
+  function isLikelyEnglishWord(word: string): boolean {
+    const normalized = normalize(word);
+
+    // Common English-only patterns
+    const englishPatterns = [
+      /^(th|wh|sh|ch|ph)/i,  // English consonant clusters at start
+      /ing$/i,                // -ing ending (rare in Tagalog)
+      /tion$/i,               // -tion ending (English)
+      /ness$/i,               // -ness ending (English)
+      /ful$/i,                // -ful ending (English)
+      /less$/i,               // -less ending (English)
+      /ment$/i,               // -ment ending (English)
+    ];
+
+    // Check if word matches English patterns
+    const hasEnglishPattern = englishPatterns.some(pattern => pattern.test(normalized));
+
+    // Common English function words
+    // NOTE: Removed "may" because it's also a common Tagalog word (meaning "there is/has")
+    const englishFunctionWords = [
+      'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+      'of', 'with', 'by', 'from', 'up', 'about', 'into', 'through', 'during',
+      'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
+      'do', 'does', 'did', 'will', 'would', 'should', 'could', 'might',
+      'can', 'must', 'shall', 'this', 'that', 'these', 'those'
+    ];
+
+    return hasEnglishPattern || englishFunctionWords.includes(normalized);
+  }
+
+  // Helper: Detect if a word is likely Tagalog (for language validation)
+  function isLikelyTagalogWord(word: string): boolean {
+    const normalized = normalize(word);
+
+    // Common Tagalog patterns
+    const tagalogPatterns = [
+      /^(ng|mga|ka|pa|na|ba|po)/i,  // Tagalog particles/prefixes
+      /ng$/i,                         // -ng ending (very common in Tagalog)
+      /an$/i,                         // -an ending (common in Tagalog)
+      /in$/i,                         // -in ending (Tagalog verb form)
+      /ay$/i,                         // -ay ending (Tagalog)
+    ];
+
+    // Check if word matches Tagalog patterns
+    const hasTagalogPattern = tagalogPatterns.some(pattern => pattern.test(normalized));
+
+    // Common Tagalog function words
+    const tagalogFunctionWords = [
+      'ang', 'ng', 'sa', 'mga', 'ay', 'na', 'pa', 'ba', 'po', 'opo',
+      'ako', 'ikaw', 'siya', 'kami', 'tayo', 'kayo', 'sila',
+      'ko', 'mo', 'niya', 'namin', 'natin', 'ninyo', 'nila',
+      'ito', 'iyan', 'iyon', 'dito', 'diyan', 'doon',
+      'may', 'mayroon', 'meron'  // Added: "may" is Tagalog (there is/has)
+    ];
+
+    return hasTagalogPattern || tagalogFunctionWords.includes(normalized);
+  }
+
+  // Levenshtein distance implementation
+  function levenshtein(a: string, b: string): number {
+    if (a === b) return 0;
+    if (!a.length) return b.length;
+    if (!b.length) return a.length;
+    const v0 = Array(b.length + 1).fill(0);
+    const v1 = Array(b.length + 1).fill(0);
+    for (let i = 0; i <= b.length; i++) v0[i] = i;
+    for (let i = 0; i < a.length; i++) {
+      v1[0] = i + 1;
+      for (let j = 0; j < b.length; j++) {
+        const cost = a[i] === b[j] ? 0 : 1;
+        v1[j + 1] = Math.min(v1[j] + 1, v0[j + 1] + 1, v0[j] + cost);
+      }
+      for (let j = 0; j <= b.length; j++) v0[j] = v1[j];
+    }
+    return v1[b.length];
+  }
+
+  /**
+   * Universal pronunciation matching for children's reading.
+   * Handles common patterns globally without hardcoding specific words.
+   * LANGUAGE-AWARE: Prevents cross-language false matches (e.g., English words in Tagalog stories)
+   */
+  function isWordMatch(spokenWord: string, expectedWord: string, checkLanguage: boolean = false): boolean {
+    const normSpoken = normalize(spokenWord);
+    const normExpected = normalize(expectedWord);
+    if (!normSpoken || !normExpected) return false;
+
+    // LANGUAGE VALIDATION: Only check when explicitly requested (for current expected word)
+    // This prevents excessive warnings when checking against all story words
+    if (checkLanguage) {
+      // If reading Tagalog story, reject English words that don't match Tagalog expected words
+      if (storyLanguage === 'tagalog') {
+        const spokenIsEnglish = isLikelyEnglishWord(normSpoken);
+        const expectedIsTagalog = isLikelyTagalogWord(normExpected);
+
+        // If child said an English word but expected word is clearly Tagalog, reject
+        if (spokenIsEnglish && expectedIsTagalog && normSpoken !== normExpected) {
+          console.log(`⚠️ Language mismatch: Child said English word "${spokenWord}" in Tagalog story (expected Tagalog: "${expectedWord}")`);
+          return false;
+        }
+      }
+
+      // REVERSE: If reading English story, reject Tagalog words that don't match English expected words
+      if (storyLanguage === 'english') {
+        const spokenIsTagalog = isLikelyTagalogWord(normSpoken);
+        const expectedIsEnglish = isLikelyEnglishWord(normExpected);
+
+        // If child said a Tagalog word but expected word is clearly English, reject
+        if (spokenIsTagalog && expectedIsEnglish && normSpoken !== normExpected) {
+          console.log(`⚠️ Language mismatch: Child said Tagalog word "${spokenWord}" in English story (expected English: "${expectedWord}")`);
+          return false;
+        }
+      }
+    }
+
+    // Exact match
+    if (normSpoken === normExpected) return true;
+
+    // CRITICAL: Prevent false matches between completely different words
+    // Block known false positives
+    const falsePositivePairs = [
+      ['isang', 'asong'],
+      ['asong', 'isang'],
+      ['may', 'ay'],
+      ['ay', 'may'],
+    ];
+
+    for (const [word1, word2] of falsePositivePairs) {
+      if (normSpoken === word1 && normExpected === word2) {
+        return false;
+      }
+    }
+
+    // UNIVERSAL PATTERN 1: Dropped -ed endings (for ANY word)
+    // "carved" accepts "carve", "carv"
+    if (normExpected.endsWith('ed')) {
+      const root = normExpected.slice(0, -2); // Remove 'ed'
+      const rootE = normExpected.slice(0, -1); // Remove 'd' only
+      if (normSpoken === root || normSpoken === rootE || normSpoken === root + 't') {
+        return true;
+      }
+    }
+
+    // UNIVERSAL PATTERN 2: Dropped -ing endings
+    // "walking" accepts "walk", "walkin"
+    if (normExpected.endsWith('ing')) {
+      const root = normExpected.slice(0, -3);
+      if (normSpoken === root || normSpoken === normExpected.slice(0, -1)) {
+        return true;
+      }
+    }
+
+    // UNIVERSAL PATTERN 2B: Added -ing endings (reverse)
+    // "shiny" accepts "shining", "walk" accepts "walking"
+    if (normSpoken.endsWith('ing')) {
+      const spokenRoot = normSpoken.slice(0, -3);
+      // Check if spoken root matches expected word
+      // Also handle y→i transformation: "shiny" → "shining" (shin + ing)
+      if (spokenRoot === normExpected || spokenRoot + 'y' === normExpected || spokenRoot + 'e' === normExpected) {
+        console.log(`✓ -ing variation match: "${spokenWord}" (root: "${spokenRoot}") matches "${expectedWord}"`);
+        return true;
+      }
+    }
+
+    // UNIVERSAL PATTERN 3: Dropped -s/-es endings (plurals/verbs)
+    // "looks" accepts "look", "takes" accepts "take"
+    if (normExpected.endsWith('s') && normExpected.length > 2) {
+      const root = normExpected.slice(0, -1);
+      const rootEs = normExpected.endsWith('es') ? normExpected.slice(0, -2) : null;
+      if (normSpoken === root || (rootEs && normSpoken === rootEs)) {
+        return true;
+      }
+    }
+
+    // REMOVED: Pronunciation map - Server handles all pronunciation matching
+    // Frontend now only does basic similarity matching for word highlighting
+    // The server's word recognition enhancer handles pronunciation variants and prevents jumping
+
+    // CRITICAL: Prevent false matches between completely different words
+    // Check first letter - must match to prevent false positives like "kalsada" vs "kailangan"
+    if (normSpoken[0] !== normExpected[0]) {
+      return false;
+    }
+
+    // Calculate similarity metrics
+    const distance = levenshtein(normSpoken, normExpected);
+    const maxLength = Math.max(normSpoken.length, normExpected.length);
+    const minLength = Math.min(normSpoken.length, normExpected.length);
+    const similarity = 1 - (distance / maxLength);
+
+    // Length difference check - words should be similar length
+    const lengthDiff = Math.abs(normSpoken.length - normExpected.length);
+    const lengthRatio = minLength / maxLength;
+    
+    // STRICT: Reject words that differ by more than 2 characters in length
+    // This prevents "kalsada" (8 chars) from matching "kailangan" (9 chars)
+    if (lengthDiff > 2) {
+      return false;
+    }
+
+    // SPECIAL CASE: Common Vosk mishearings for very short words
+    // "the" is often misheard as "a" and vice versa
+    const commonMishearings: { [key: string]: string[] } = {
+      'a': ['the', 'uh', 'ah', 'ay'],
+      'the': ['a', 'da', 'de'],
+      'i': ['eye', 'aye'],
+      'to': ['too', 'two']
+    };
+    
+    if (commonMishearings[normExpected]?.includes(normSpoken)) {
+      console.debug(`✓ Common mishearing: "${normSpoken}" accepted for "${normExpected}"`);
+      return true;
+    }
+
+    // For single character words (like "a"), be very lenient
+    if (normExpected.length === 1) {
+      // Accept if first character matches or phonetically similar
+      if (normSpoken.length === 1 || normSpoken.length === 2) {
+        return similarity >= 0.5;  // Very lenient for single chars
+      }
+    }
+
+    // For very short words (2-3 chars), be more lenient
+    if (normExpected.length <= 3) {
+      // Reduced from 85% to 70% for better recognition
+      const matches = lengthDiff <= 1 && similarity >= 0.70;
+      if ((normSpoken === 'in' && normExpected === 'when') || (normSpoken === 'when' && normExpected === 'in')) {
+        console.log(`   Checking short word (<=3): similarity=${(similarity * 100).toFixed(0)}%, lengthDiff=${lengthDiff}, threshold=70%, matches=${matches}`);
+      }
+      return matches;
+    }
+
+    // For short words (4 chars), be more lenient - reduced from 90% to 75%
+    // This helps with words like "heard" vs "hear"
+    if (normExpected.length === 4) {
+      // Allow max 1 character difference
+      if (lengthDiff <= 1 && similarity >= 0.75) {
+        return true;
+      }
+    }
+
+    // For 5-char words, reduced from 95% to 80% for better recognition
+    // Still prevents false matches like "isang" vs "asong" (80% similar, same length)
+    if (normExpected.length === 5) {
+      // Must be same length or 1 char difference
+      if (lengthDiff <= 1 && similarity >= 0.80) {
+        return true;
+      }
+    }
+
+    // For 6-8 char words, require 95%+ similarity AND length ratio > 0.90
+    // This prevents false matches like "kalsada" (8) vs "kailangan" (9)
+    if (normExpected.length >= 6 && normExpected.length <= 8) {
+      if (lengthRatio >= 0.90 && similarity >= 0.95 && lengthDiff <= 1) {
+        return true;
+      }
+    }
+    
+    // For 9+ char words, require 95%+ similarity AND same length or 1 char difference
+    if (normExpected.length >= 9) {
+      if (lengthDiff <= 1 && similarity >= 0.95) {
+        return true;
+      }
+    }
+
+    // Double Metaphone phonetic match for longer words
+    // BUT: Require minimum word length to avoid false positives with short words
+    // "in" should NOT match "when" even if phonetically similar
+    // DISABLED: Phonetic matching can cause false positives like "kalsada" vs "kailangan"
+    // Server handles pronunciation matching, frontend should only do exact/strict similarity
+    // if (normSpoken.length >= 5 && normExpected.length >= 5) {
+    //   const [primary1, secondary1] = doubleMetaphone(normSpoken);
+    //   const [primary2, secondary2] = doubleMetaphone(normExpected);
+    //
+    //   // Check if any phonetic codes match
+    //   if (primary1 === primary2 ||
+    //     (secondary1 && secondary1 === secondary2) ||
+    //     (secondary1 && secondary1 === primary2) ||
+    //     (primary1 === secondary2)) {
+    //     // Additional validation: words should be similar length (within 1 character)
+    //     // This prevents "isang" from matching "asong"
+    //     if (Math.abs(normSpoken.length - normExpected.length) <= 1) {
+    //       return true;
+    //     }
+    //   }
+    // }
+
+    // For longer words (8+ chars), require exact match or very high similarity
+    // STRICT: Only allow 1 character difference with 95%+ similarity
+    // This prevents "kalsada" (8) from matching "kailangan" (9) - they're completely different
+    if (maxLength >= 8) {
+      if (distance <= 1 && similarity >= 0.95 && lengthDiff <= 1) {
+          return true;
+        }
+      // Reject if similarity is too low or length difference is too large
+      return false;
+    }
+
+    // For medium words (5-7 chars), only allow exact match or very high similarity
+    // No fuzzy matching to prevent false positives like "isang" vs "asong"
+    // Server handles pronunciation matching, frontend should be strict
+
+    if ((normSpoken === 'in' && normExpected === 'when') || (normSpoken === 'when' && normExpected === 'in')) {
+      console.log(`   ✗ No match found - returning false`);
+    }
+
+    return false;
+  }
+
+  // Helper: Split text into display words and normalized words, and mark if each is alphanumeric
+  const splitAndNormalizeWords = (text: string) => {
+    const displayWords = text.split(/\s+/).filter(Boolean);
+    const normalizedWords = displayWords.map(normalize);
+    const isAlphanumeric = displayWords.map(isWordAlphanumeric);
+    return { displayWords, normalizedWords, isAlphanumeric };
+  };
+
+  /**
+   * Extract vocabulary from story text for vocabulary-constrained recognition.
+   * Returns a Set of normalized words for efficient O(1) lookup.
+   * Includes word variations (plurals, past tense, gerunds) to handle children's speech patterns.
+   */
+  const extractVocabulary = (text: string): Set<string> => {
+    const vocabulary = new Set<string>();
+
+    // Extract all words including contractions (e.g., "It's", "don't", "I'll")
+    const words = text.match(/\b\w+(?:'\w+)?\b/g) || [];
+
+    // Common phonetic variants to help Vosk accuracy
+    const phoneticVariants: { [key: string]: string[] } = {
+      'when': ['wen', 'wen', 'whn'],
+      'the': ['da', 'de', 'thee', 'thuh'],
+      'a': ['uh', 'ay', 'ah'],
+      'she': ['shee', 'shi'],
+      'he': ['hee', 'hi'],
+      'heard': ['herd', 'hurd'],
+      'rooster': ['roosta', 'ruster'],
+      'crow': ['cro', 'krow']
+    };
+
+    for (const word of words) {
+      const normalized = normalize(word);
+      if (!normalized) continue;
+
+      // Add the base word (always)
+      vocabulary.add(normalized);
+
+      // Add phonetic variants if available
+      if (phoneticVariants[normalized]) {
+        phoneticVariants[normalized].forEach(variant => vocabulary.add(variant));
+      }
+
+      // Contraction variations (useful for both languages)
+      if (normalized.includes("'")) {
+        vocabulary.add(normalized.replace("'", ''));
+      }
+      
+      // Add common morphological variations
+      if (normalized.length > 3) {
+        vocabulary.add(normalized + 's');    // Plurals
+        vocabulary.add(normalized + 'ed');   // Past tense
+        vocabulary.add(normalized + 'ing');  // Gerunds
+      }
+    }
+
+    return vocabulary;
+  };
+
+  /**
+   * Detect the primary language of the story based on vocabulary analysis.
+   * Uses existing isLikelyEnglishWord and isLikelyTagalogWord functions.
+   * Returns 'english' or 'tagalog', defaulting to 'english' if inconclusive.
+   */
+  const detectStoryLanguage = (vocabulary: Set<string>): 'english' | 'tagalog' => {
+    let englishCount = 0;
+    let tagalogCount = 0;
+
+    // Count words that match English vs Tagalog patterns
+    for (const word of vocabulary) {
+      if (isLikelyEnglishWord(word)) {
+        englishCount++;
+      }
+      if (isLikelyTagalogWord(word)) {
+        tagalogCount++;
+      }
+    }
+
+    // Return the language with more matches
+    // Default to English if counts are equal or both are zero
+    if (tagalogCount > englishCount) {
+      return 'tagalog';
+    }
+    return 'english';
+  };
+
+  // REMOVED: buildStoryPronunciationMap - Server handles pronunciation matching
+  // The server's word recognition enhancer handles all pronunciation variants
+
+  /**
+   * Filter recognized text through vocabulary validation.
+   * STRICT MODE: Only accepts words from the current story.
+   * 
+   * Blocks:
+   * - Random words not in the story
+   * - Background noise and filler words
+   * - Off-topic speech
+   * - English words (when reading Tagalog story)
+   * 
+   * Accepts:
+   * - Exact matches from story
+   * - Pronunciation variants (tau → tao, kumaen → kumain)
+   * - Morphological variants (asong → aso, kumain → kain)
+   * - Compound word parts (lakad from naglalakad)
+   * 
+   * Returns filtered text with only valid story words.
+   */
+  const filterThroughVocabulary = (text: string, vocabulary: Set<string>): string => {
+    if (!text || !vocabulary || vocabulary.size === 0) {
+      return text;
+    }
+
+    // Split text into words
+    const words = text.split(/\s+/).filter(Boolean);
+
+    // CHILD-FRIENDLY FILTERING: Accept exact matches + close pronunciation variants
+    // Optimized for children who may mispronounce words
+    const validWords = words.filter(word => {
+      // Reject very short words (likely noise)
+      if (word.length < 2) return false;
+
+      // Reject if contains mostly non-letters (noise/gibberish)
+      const letterCount = (word.match(/[a-zA-Z]/g) || []).length;
+      if (letterCount < word.length * 0.7) return false; // At least 70% letters
+
+      const normalized = normalize(word);
+
+      // Reject <unk> and other Vosk artifacts
+      if (normalized === 'unk' || normalized.includes('<') || normalized.includes('>')) {
+        return false;
+      }
+
+      // Strategy 1: Exact match in vocabulary
+      if (vocabulary.has(normalized)) {
+        return true;
+      }
+
+      // Strategy 2: Check with pronunciation variants using isWordMatch
+      // This handles child mispronunciations like "tau" for "tao", "kumaen" for "kumain"
+      for (const vocabWord of vocabulary) {
+        if (isWordMatch(word, vocabWord, false)) {
+          return true;
+        }
+      }
+
+      // Strategy 3: STRICT fuzzy matching for child pronunciation only
+      // Only for words that are VERY similar (80%+) and same length
+      // This prevents "gurong" from matching "tulong" or "ano" from matching "ang"
+      for (const vocabWord of vocabulary) {
+        // Skip if length difference is too large (child won't drop/add 3+ letters)
+        if (Math.abs(normalized.length - vocabWord.length) > 2) {
+          continue;
+        }
+
+        const distance = levenshtein(normalized, vocabWord);
+        const maxLength = Math.max(normalized.length, vocabWord.length);
+        const similarity = maxLength > 0 ? (1 - (distance / maxLength)) * 100 : 0;
+
+        // STRICT: 80% similarity + must share first letter (prevents "ano" → "ang")
+        const sameFirstLetter = normalized[0] === vocabWord[0];
+
+        if (similarity >= 80 && sameFirstLetter) {
+          console.log(`🎯 Fuzzy match: "${normalized}" ≈ "${vocabWord}" (${similarity.toFixed(0)}% similar)`);
+          return true;
+        }
+      }
+
+      return false;
+    });
+
+    // If no words passed the filter, return empty string
+    if (validWords.length === 0) {
+      return "";
+    }
+
+    return validWords.join(" ");
+  };
+
+
+
+  // Start recording and speech recognition
   const handleStartRecording = () => {
-    if (!selectedChild) {
-      void handleChooseStudent();
+    if (currentSession?.status === "completed") {
+      alert("This session is already completed. Recording is disabled.");
       return;
     }
+    // Show countdown modal first
+    setShowCountdown(true);
+    setCountdown(5);
+  };
 
-    if (!storyText || storyText.trim().length === 0) {
-      Swal.fire('No Story', 'Please select a story with text content first.', 'warning');
+  // Preload Vosk connection (called during loading or countdown)
+  const preloadVoskConnection = async () => {
+    console.log('🔄 [Teacher] preloadVoskConnection called - storyLanguage:', storyLanguage, 'words:', words.length);
+    
+    const useVosk = storyLanguage === 'tagalog' || storyLanguage === 'english';
+    if (!useVosk) {
+      console.log('⚠️ [Teacher] Not using Vosk - language:', storyLanguage);
       return;
     }
+    
+    // Prevent duplicate connections
+    if (voskSocketRef.current && voskSocketRef.current.readyState === WebSocket.OPEN) {
+      console.log('✅ [Teacher] Vosk already connected - skipping preload');
+      return;
+    }
+    
+    // Close any existing connection that's not open
+    if (voskSocketRef.current) {
+      try {
+        voskSocketRef.current.close();
+      } catch (e) {
+        console.warn('[Teacher] Error closing existing Vosk connection:', e);
+      }
+    }
+    
+    // Helper to get WebSocket URLs
+    const getLocalWsUrl = (lang: string) => {
+      const normalizedLang = (lang === "tl" || lang === "tagalog") ? "tagalog" : "english";
+      return `ws://localhost:2700/?lang=${normalizedLang}`;
+    };
+    
+    const getRailwayWsUrl = (lang: string) => {
+      const env = (import.meta as any)?.env || {};
+      const railwayUrl = env.VITE_VOSK_WS_URL || "wss://philiready-websocket-production.up.railway.app";
+      const normalizedLang = (lang === "tl" || lang === "tagalog") ? "tagalog" : "english";
+      return `${railwayUrl}?lang=${normalizedLang}`;
+    };
+    
+    // Try local server first, then Railway
+    const localUrl = getLocalWsUrl(storyLanguage);
+    const railwayUrl = getRailwayWsUrl(storyLanguage);
+    
+    console.log('🔍 [Teacher] Checking local Vosk server:', localUrl);
+    setVoskStatus('connecting');
+    
+    // Try local server first with quick timeout
+    const tryLocalServer = () => {
+      return new Promise<WebSocket>((resolve, reject) => {
+        const ws = new WebSocket(localUrl);
+        ws.binaryType = 'arraybuffer';
+        
+        const timeout = setTimeout(() => {
+          ws.close();
+          reject(new Error('Local server timeout'));
+        }, 2000); // 2 second timeout for local
+        
+        ws.onopen = () => {
+          clearTimeout(timeout);
+          console.log('✅ [Teacher] Connected to LOCAL Vosk server');
+          resolve(ws);
+        };
+        
+        ws.onerror = () => {
+          clearTimeout(timeout);
+          ws.close();
+          reject(new Error('Local server not available'));
+        };
+      });
+    };
+    
+    // Try Railway server
+    const tryRailwayServer = () => {
+      return new Promise<WebSocket>((resolve, reject) => {
+        console.log('🌐 [Teacher] Trying Railway Vosk server:', railwayUrl);
+        const ws = new WebSocket(railwayUrl);
+        ws.binaryType = 'arraybuffer';
+        
+        const timeout = setTimeout(() => {
+          ws.close();
+          reject(new Error('Railway server timeout'));
+        }, 5000); // 5 second timeout for Railway
+        
+        ws.onopen = () => {
+          clearTimeout(timeout);
+          console.log('✅ [Teacher] Connected to RAILWAY Vosk server');
+          resolve(ws);
+        };
+        
+        ws.onerror = () => {
+          clearTimeout(timeout);
+          ws.close();
+          reject(new Error('Railway server not available'));
+        };
+      });
+    };
+    
+    try {
+      // Try local first
+      let ws: WebSocket;
+      try {
+        ws = await tryLocalServer();
+        console.log('🏠 [Teacher] Using LOCAL Vosk server');
+      } catch (localError) {
+        console.log('⚠️ [Teacher] Local server not available, trying Railway...');
+        ws = await tryRailwayServer();
+        console.log('☁️ [Teacher] Using RAILWAY Vosk server');
+      }
+      
+      voskSocketRef.current = ws;
+      ws.binaryType = 'arraybuffer';
+      
+      // Connection already established, set up handlers
+      setVoskStatus('connected');
+      
+      // Send story vocabulary for server-side filtering
+      if (words.length > 0) {
+        const vocabulary = Array.from(new Set(words.map((w: string) => w.toLowerCase())));
+        ws.send(JSON.stringify({
+          config: {
+            vocabulary: vocabulary,
+            expected_words: words.map((w: string) => w.toLowerCase())
+          }
+        }));
+        console.log(`📚 [Teacher] Sent vocabulary: ${vocabulary.length} unique words`);
+      }
+      
+      ws.onerror = (error) => {
+        console.warn('⚠️ [Teacher] Vosk connection error:', error);
+        setVoskStatus('disconnected');
+      };
+      
+      ws.onclose = () => {
+        console.log('🔌 [Teacher] Vosk connection closed');
+        setVoskStatus('disconnected');
+      };
+      
+      // Handle messages (word matching results)
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          
+          if (msg.match_result) {
+            const { match_type, new_position, details } = msg.match_result;
+            const metrics = msg.metrics;
+            const word = msg.text;
+            
+            console.log(`🎯 [Teacher] Backend match: ${match_type} - ${details}`);
+            
+            if (new_position !== undefined) {
+              setCurrentWordIndex(new_position);
+            }
+            
+            switch (match_type) {
+              case 'correct':
+                const correctWordIndex = new_position - 1;
+                setRecognizedWords(prev => new Set(prev).add(correctWordIndex));
+                break;
+                
+              case 'insertion':
+                const insertedWord = msg.match_result.inserted_word || word;
+                const insertionWordIndex = new_position - 1;
+                setRecognizedWords(prev => {
+                  const newSet = new Set(prev);
+                  newSet.add(insertionWordIndex);
+                  return newSet;
+                });
+                setInsertedWords((prev: Map<number, string[]>) => {
+                  const newMap = new Map(prev);
+                  const existing = newMap.get(insertionWordIndex) || [];
+                  newMap.set(insertionWordIndex, [...existing, insertedWord]);
+                  return newMap;
+                });
+                break;
+            }
+            
+            if (metrics) {
+              setWordsRead(metrics.words_read);
+              setMiscues(metrics.total_miscues);
+            }
+          }
+        } catch {}
+      };
+      
+    } catch (error) {
+      console.error('❌ [Teacher] Failed to connect to both local and Railway Vosk servers:', error);
+      setVoskStatus('disconnected');
+      voskSocketRef.current = null;
+    }
+  };
 
+  // Actual recording start after countdown
+  const startRecordingAfterCountdown = () => {
     setIsRecording(true);
     setIsPaused(false);
+    setHasStarted(true); // Mark that session has started
+    setTranscript("");
+    voskFinalTranscriptRef.current = ""; // Reset Vosk transcript accumulator
     setWordsRead(0);
-    setReadingSpeedWPM(0);
+    // reset derived metrics
     setElapsedTime(0);
+    setAudioBlob(null);
+    setAudioUrl(null);
     setCurrentWordIndex(0);
-    setMiscues(0);
+    voskReconnectAttemptsRef.current = 0; // Reset reconnect attempts
+    
+    // Clear all word markings from previous session
+    setWordMiscues(new Map());
+    setWordMarkings(new Map());
+    setInsertedWords(new Map());
+    setRecognizedWords(new Set());
 
-    // Start timer
-    const startTime = Date.now();
-    timerRef.current = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      setElapsedTime(elapsed);
-
-      // Calculate reading speed
-      if (elapsed > 0) {
-        const wpm = Math.round((wordsRead / elapsed) * 60);
-        setReadingSpeedWPM(wpm);
-      }
-    }, 1000);
-
-    // Initialize Web Speech API
-    const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-    if (!SpeechRecognitionAPI) {
-      Swal.fire('Not Supported', 'Speech recognition is not supported in this browser. Please use Chrome or Edge.', 'error');
-      setIsRecording(false);
-      if (timerRef.current) clearInterval(timerRef.current);
-      return;
+    // --- MediaRecorder ---
+    // Note: MediaRecorder failure is non-blocking - speech recognition will still work
+    if (navigator.mediaDevices && window.MediaRecorder) {
+      navigator.mediaDevices
+        .getUserMedia({ audio: true })
+        .then((stream) => {
+          const mediaRecorder = new MediaRecorder(stream);
+          mediaRecorderRef.current = mediaRecorder;
+          const audioChunks: BlobPart[] = [];
+          mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) audioChunks.push(e.data);
+          };
+          mediaRecorder.onstop = () => {
+            const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+            setAudioBlob(audioBlob);
+            setAudioUrl(URL.createObjectURL(audioBlob));
+          };
+          mediaRecorder.start();
+        })
+        .catch((error) => {
+          // MediaRecorder failed, but don't block speech recognition
+          console.warn("MediaRecorder failed (audio recording disabled):", error);
+          // Don't set isRecording(false) - allow speech recognition to proceed
+        });
+    } else {
+      console.warn("MediaRecorder not supported in this browser. Speech recognition will still work.");
+      // Don't stop recording - speech recognition can still work
     }
 
-    const recognition = new SpeechRecognitionAPI();
-    recognitionRef.current = recognition;
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = currentSession?.book && allStories.find((s: Story) => s._id === currentSession.book)?.language === 'tagalog' ? 'tl-PH' : 'en-US';
+    // Use Vosk for both Tagalog and English stories
+    const useVosk = storyLanguage === "tagalog" || storyLanguage === "english";
+    if (useVosk) {
+      try {
+        // WebSocket URL selection with local server fallback
+        // Priority: 1. Local server (ws://localhost:2700) 2. Railway (deployed)
+        // Can be configured via environment variables:
+        // - VITE_VOSK_WS_URL_TAGALOG: Tagalog WebSocket URL
+        // - VITE_VOSK_WS_URL_ENGLISH: English WebSocket URL
+        // - VITE_VOSK_LOCAL_PORT: Local server port (default: 2700)
+        const getVoskWsUrl = async (lang: string): Promise<string> => {
+          const env = (import.meta as any)?.env || {};
+          
+          // Helper to ensure URL has proper format (with / before query params)
+          const formatWsUrl = (baseUrl: string, language: string) => {
+            // Remove trailing slash if present, then add /?lang=...
+            const cleanUrl = baseUrl.replace(/\/$/, '');
+            return `${cleanUrl}/?lang=${language}`;
+          };
+          
+          // Get local server port (default: 2700)
+          const localPort = env.VITE_VOSK_LOCAL_PORT || "2700";
+          const localUrl = `ws://localhost:${localPort}`;
+          
+          // Get Railway URLs
+          // Single Railway deployment handles both languages via ?lang= parameter
+          const getRailwayUrl = (language: string) => {
+            // Use environment variable if set, otherwise use default Railway URL
+            const railwayUrl = env.VITE_VOSK_WS_URL || "wss://philiready-websocket-production.up.railway.app";
+            
+            // Normalize language parameter
+            const normalizedLang = (language === "tl" || language === "tagalog") ? "tagalog" : "english";
+            
+            return formatWsUrl(railwayUrl, normalizedLang);
+          };
+          
+          // Try local server first (quick test with 2 second timeout)
+          const testLocalConnection = (): Promise<boolean> => {
+            return new Promise((resolve) => {
+              const testUrl = formatWsUrl(localUrl, lang);
+              console.log(`🔍 Test connection URL: ${testUrl} (lang=${lang})`);
+              const testWs = new WebSocket(testUrl);
+              const timeout = setTimeout(() => {
+                testWs.close();
+                resolve(false);
+              }, 2000); // 2 second timeout for local server
+              
+              testWs.onopen = () => {
+                clearTimeout(timeout);
+                testWs.close();
+                resolve(true);
+              };
+              
+              testWs.onerror = () => {
+                clearTimeout(timeout);
+                resolve(false);
+              };
+            });
+          };
+          
+          // Test local server first (priority: local > Railway)
+          console.log(`🔍 Testing local Vosk server at ${localUrl}...`);
+          const isLocalAvailable = await testLocalConnection();
+          
+          if (isLocalAvailable) {
+            const localWsUrl = formatWsUrl(localUrl, lang);
+            console.log(`✅ Local Vosk server is running and ready!`);
+            console.log(`   Using: ${localWsUrl}`);
+            console.log(`   Status: Connected to local server (port ${localPort})`);
+            return localWsUrl;
+          } else {
+            const railwayUrl = getRailwayUrl(lang);
+            console.log(`⚠️ Local Vosk server not available at ${localUrl}`);
+            console.log(`   Falling back to Railway deployment: ${railwayUrl}`);
+            console.log(`   💡 To use local server, start it with: cd VoskServer && python server.py`);
+            return railwayUrl;
+          }
+        };
+        
+        const startVosk = async (isReconnect: boolean = false) => {
+          const wsUrl = await getVoskWsUrl(storyLanguage);
+          const isLocal = wsUrl.startsWith('ws://localhost:');
 
-    let currentIndex = 0;
+          
+          if (isLocal) {
+            console.log(`🎯 Using LOCAL Vosk server for ${storyLanguage} recognition`);
+          } else {
+            console.log(`🌐 Using RAILWAY Vosk server for ${storyLanguage} recognition`);
+          }
+          
+          if (!isReconnect) {
+            voskReconnectAttemptsRef.current = 0;
+            voskFinalTranscriptRef.current = "";
+          }
 
-    recognition.onresult = (event: any) => {
-      let interimTranscript = '';
-      let finalTranscript = '';
+          try {
+            // Initialize microphone
+            const stream = await initializeMicrophone();
 
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalTranscript += transcript + ' ';
-        } else {
-          interimTranscript += transcript;
-        }
-      }
+            // Setup audio context and processing nodes
+            const { context: ctx, source: src, processor: script } = await setupAudioContext(stream);
+            audioContextRef.current = ctx;
+            sourceNodeRef.current = src;
+            scriptNodeRef.current = script;
 
-      // Process recognized words
-      if (finalTranscript) {
-        const spokenWords = finalTranscript.toLowerCase().trim().split(/\s+/);
-        const storyWords = words.map(w => w.toLowerCase().replace(/[^\w\s]/g, ''));
+            // Connect audio nodes immediately (before WebSocket connection)
+            // This ensures audio processing starts regardless of WebSocket state
+            src.connect(script);
+            script.connect(ctx.destination);
+            
+            // Ensure audio context is running
+            if (ctx.state === 'suspended') {
+              await ctx.resume();
+            }
+            console.log('✅ Audio nodes connected - microphone is active');
 
-        spokenWords.forEach(spokenWord => {
-          const cleanSpoken = spokenWord.replace(/[^\w]/g, '');
-          if (cleanSpoken && currentIndex < storyWords.length) {
-            const expectedWord = storyWords[currentIndex].replace(/[^\w]/g, '');
+            setVoskStatus("connecting");
 
-            if (cleanSpoken === expectedWord || cleanSpoken.includes(expectedWord) || expectedWord.includes(cleanSpoken)) {
-              // Correct word
-              currentIndex++;
-              setCurrentWordIndex(currentIndex);
-              setWordsRead(currentIndex);
+            // Connection timeout - shorter for local, longer for Railway (may need time to wake up)
+            const connectionTimeout = isLocal ? 5000 : 20000; // 5s for local, 20s for Railway
+            const connectionStartTime = Date.now();
+            
+            if (isLocal) {
+              console.log(`🔌 Connecting to LOCAL server: ${wsUrl}`);
+              console.log(`   Timeout: ${connectionTimeout}ms (local connection should be fast)`);
             } else {
-              // Miscue
-              setMiscues(prev => prev + 1);
+              console.log(`🔌 Connecting to RAILWAY server: ${wsUrl}`);
+              console.log(`   Timeout: ${connectionTimeout}ms (Railway may need time to wake up)`);
+            }
+            console.log(`🌐 Service: ${storyLanguage === "english" ? "English" : "Tagalog"} Vosk WebSocket`);
+            
+            // Pre-connection diagnostic
+            const urlObj = new URL(wsUrl);
+            console.log(`📋 Diagnostic Info:`);
+            console.log(`   - Host: ${urlObj.hostname}`);
+            console.log(`   - Protocol: ${urlObj.protocol}`);
+            console.log(`   - Language: ${urlObj.searchParams.get("lang") || "not specified"}`);
+            
+            // Monitor connection state periodically
+            const stateCheckInterval = setInterval(() => {
+              if (voskSocketRef.current) {
+                const state = voskSocketRef.current.readyState;
+                const elapsed = ((Date.now() - connectionStartTime) / 1000).toFixed(1);
+                const stateNames: { [key: number]: string } = { 0: "CONNECTING", 1: "OPEN", 2: "CLOSING", 3: "CLOSED" };
+                const stateName = stateNames[state] || `UNKNOWN(${state})`;
+                
+                if (state === 0) { // Still connecting
+                  console.log(`⏳ Still connecting... (${elapsed}s) - State: ${stateName}`);
+                } else if (state === 1) { // Open
+                  clearInterval(stateCheckInterval);
+                  console.log(`✅ Connection opened in ${elapsed}s`);
+                } else if (state === 3) { // Closed
+                  clearInterval(stateCheckInterval);
+                  console.warn(`❌ Connection closed before timeout (${elapsed}s) - State: ${stateName}`);
+                }
+              }
+            }, 2000); // Check every 2 seconds
+
+            // Create WebSocket connection with error handling
+            let ws: WebSocket;
+            try {
+              ws = new WebSocket(wsUrl);
+            voskSocketRef.current = ws;
+            ws.binaryType = "arraybuffer";
+            } catch (error) {
+              clearInterval(stateCheckInterval);
+              console.error("❌ Failed to create WebSocket:", error);
+              setVoskStatus("disconnected");
+              throw error;
+            }
+            
+            // Connection timeout handler
+            voskConnectionTimeoutRef.current = setTimeout(() => {
+              clearInterval(stateCheckInterval);
+              
+              if (voskSocketRef.current?.readyState !== WebSocket.OPEN) {
+                const state = voskSocketRef.current?.readyState;
+                const elapsed = ((Date.now() - connectionStartTime) / 1000).toFixed(1);
+                const stateNames: { [key: number]: string } = { 0: "CONNECTING", 1: "OPEN", 2: "CLOSING", 3: "CLOSED" };
+                const stateName = state !== undefined ? (stateNames[state] || `UNKNOWN(${state})`) : "UNKNOWN";
+                
+                console.error(`⏱️ Vosk connection timeout after ${elapsed}s (state: ${stateName})`);
+                console.error(`   URL: ${wsUrl}`);
+                
+                // Provide specific troubleshooting based on state
+                if (state === 0) { // Still CONNECTING
+                  console.error(`❌ Connection timed out while still connecting. Possible causes:`);
+                  console.error(`   1. Railway service is sleeping (free tier) - first connection takes 30-60s`);
+                  console.error(`   2. Service is not responding - check Railway dashboard`);
+                  console.error(`   3. Network/firewall blocking WebSocket connections`);
+                  console.error(`   4. Railway proxy issue - service may need restart`);
+                } else if (state === 3) { // CLOSED
+                  console.error(`❌ Connection closed before timeout. Possible causes:`);
+                  console.error(`   1. Railway service is not running - check Railway dashboard`);
+                  console.error(`   2. Service crashed - check Railway logs for errors`);
+                  console.error(`   3. Environment variables not set - verify SERVICE_LANGUAGE=${storyLanguage}`);
+                  console.error(`   4. Wrong URL - verify service name in Railway`);
+                }
+                
+                if (voskSocketRef.current) {
+                  voskSocketRef.current.close();
+                }
+                setVoskStatus("disconnected");
+                attemptVoskReconnect(startVosk);
+              } else {
+                clearInterval(stateCheckInterval);
+              }
+            }, connectionTimeout);
+
+            ws.onopen = () => {
+              if (voskConnectionTimeoutRef.current) {
+                clearTimeout(voskConnectionTimeoutRef.current);
+                voskConnectionTimeoutRef.current = null;
+              }
+              
+              // Clear state check interval
+              clearInterval(stateCheckInterval);
+
+              voskReconnectAttemptsRef.current = 0;
+              setVoskStatus("connected");
+              const connectionTime = ((Date.now() - connectionStartTime) / 1000).toFixed(2);
+              console.log(`✅ WebSocket connected successfully to ${wsUrl} (took ${connectionTime}s)`);
+
+              // ACCURACY: Send vocabulary and expected words to server for accurate filtering and metrics
+              if (storyVocabulary.size > 0) {
+                const vocabularyList = Array.from(storyVocabulary);
+                // Send original words (with case) for backend matching
+                const expectedWordsList = realWords;  // Keep original case for backend
+
+                // Enhanced config with vocabulary and expected words for BACKEND WORD MATCHING
+                const config1 = JSON.stringify({
+                  config: {
+                    words: true,
+                    max_alternatives: 0,
+                    grammar: vocabularyList,  // Send story vocabulary to Vosk (if supported)
+                    vocabulary: vocabularyList,  // For server-side filtering
+                    expected_words: expectedWordsList  // For BACKEND word matching (original case)
+                  }
+                });
+
+                console.log(`🎯 Vosk configured with GRAMMAR CONSTRAINT + SERVER-SIDE FILTERING`);
+                console.log(`📝 Sending ${vocabularyList.length} story words to Vosk`);
+                console.log(`📝 Sending ${expectedWordsList.length} expected words for accuracy calculation`);
+                console.log(`📝 Vocabulary sample (first 20):`, vocabularyList.slice(0, 20).join(', '));
+
+                // Send config
+                try {
+                  ws.send(config1);
+                  console.log('✓ Sent Vosk config with grammar constraint + server-side filtering');
+                } catch (e) {
+                  console.warn('Failed to send config:', e);
+                }
+              }
+
+              // Send audio format configuration to server
+              try {
+                const audioConfig = JSON.stringify({
+                  audio_format: {
+                    format: "Float32",
+                    sample_rate: ctx.sampleRate || 48000,
+                    channels: 1
+                  }
+                });
+                ws.send(audioConfig);
+                console.log(`✓ Sent audio format: Float32 @ ${ctx.sampleRate}Hz`);
+              } catch (e) {
+                console.warn('Failed to send audio format config:', e);
+              }
+
+              // Start heartbeat
+              voskHeartbeatIntervalRef.current = setInterval(() => {
+                if (ws.readyState === WebSocket.OPEN) {
+                  try {
+                    ws.send(new ArrayBuffer(0));
+                  } catch (e) {
+                    console.warn("Heartbeat send failed:", e);
+                    attemptVoskReconnect(startVosk);
+                  }
+                }
+              }, 30000);
+
+              // Simplified audio processing - just send raw Float32 audio to server
+              // Server handles downsampling, format conversion, and speech detection
+              let audioChunkCount = 0;
+              script.onaudioprocess = (e: AudioProcessingEvent) => {
+                try {
+                    audioChunkCount++;
+                    
+                    if (ws.readyState === WebSocket.OPEN) {
+                    const channel = e.inputBuffer.getChannelData(0);
+                    
+                    // AUDIO AMPLIFICATION: Moderate boost for accuracy (1.5x amplification)
+                    // Reduced from 2x to minimize noise and maximize Vosk accuracy
+                    const amplifiedChannel = new Float32Array(channel.length);
+                    const amplificationFactor = 1.5;
+                    
+                    for (let i = 0; i < channel.length; i++) {
+                      // Amplify but prevent clipping (keep between -1.0 and 1.0)
+                      amplifiedChannel[i] = Math.max(-1.0, Math.min(1.0, channel[i] * amplificationFactor));
+                    }
+                    
+                    // Check audio levels every 50 chunks
+                    if (audioChunkCount % 50 === 0) {
+                      const maxLevel = Math.max(...Array.from(amplifiedChannel).map(Math.abs));
+                      const avgLevel = Array.from(amplifiedChannel).reduce((sum, val) => sum + Math.abs(val), 0) / amplifiedChannel.length;
+                      console.log(`📊 Audio chunk ${audioChunkCount}: max=${maxLevel.toFixed(4)}, avg=${avgLevel.toFixed(4)}, amplified=2x`);
+                      
+                      if (maxLevel > 0.001) {
+                        console.log(`🎤 Audio amplified for quiet voices`);
+                      }
+                    }
+                    
+                    // Send amplified audio - server will handle processing
+                    ws.send(amplifiedChannel.buffer);
+                    } else if (ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
+                      attemptVoskReconnect(startVosk);
+                  }
+                } catch (error) {
+                  console.warn("Error sending audio:", error);
+                }
+              };
+              // Audio nodes already connected earlier - no need to reconnect here
+            };
+
+            setupVoskMessageHandlers(ws);
+            setupVoskConnectionHandlers(ws, isReconnect, startVosk);
+
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "Unknown error";
+            console.error("Failed to initialize speech recognition:", errorMessage, error);
+            cleanupVosk();
+            setVoskStatus("disconnected");
+
+            if (!isReconnect) {
+              // Provide specific error messages based on error type
+              if (errorMessage.includes("Permission denied") || errorMessage.includes("NotAllowedError")) {
+                alert("Microphone access denied. Please allow microphone access in your browser settings and try again.");
+              } else if (errorMessage.includes("NotFoundError") || errorMessage.includes("DevicesNotFoundError")) {
+                alert("No microphone found. Please connect a microphone and try again.");
+              } else {
+                alert("Failed to start speech recognition. Please check your microphone and try again.");
+              }
+              setIsRecording(false);
             }
           }
+        };
+
+
+        // Start Vosk
+        startVosk().catch((error) => {
+          const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          console.error("Failed to start speech recognition service:", errorMessage, error);
+          alert("Unable to start speech recognition. Please check your internet connection and microphone, then try again.");
+          setIsRecording(false);
         });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        console.error("Failed to initialize speech recognition:", errorMessage, error);
+        alert("Unable to initialize speech recognition. Please refresh the page and try again.");
+        setIsRecording(false);
       }
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error('Speech recognition error:', event.error);
-      if (event.error === 'no-speech') {
-        // Restart recognition
-        try {
-          recognition.start();
-        } catch (e) {
-          console.log('Recognition already started');
-        }
-      }
-    };
-
-    recognition.onend = () => {
-      if (isRecording && !isPaused) {
-        // Restart if still recording
-        try {
-          recognition.start();
-        } catch (e) {
-          console.log('Recognition restart failed');
-        }
-      }
-    };
-
-    try {
-      recognition.start();
-    } catch (e) {
-      console.error('Failed to start recognition:', e);
-      Swal.fire('Error', 'Failed to start speech recognition. Please try again.', 'error');
-      setIsRecording(false);
-      if (timerRef.current) clearInterval(timerRef.current);
-    }
-
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognitionRef.current = recognition;
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
-      let runningTranscript = '';
-      recognition.onresult = (event: any) => {
-        let interim = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) runningTranscript += event.results[i][0].transcript + ' ';
-          else interim += event.results[i][0].transcript;
-        }
-        const text = (runningTranscript + interim).trim();
-        // transcript kept internal to compute metrics only
-
-        // Rough words read based on matching prefix words of story
-        const storyWords = (storyText || '').split(/\s+/).map(w => w.toLowerCase());
-        const spokenWords = text.split(/\s+/).map(w => w.toLowerCase()).filter(Boolean);
-        let idx = 0;
-        for (let i = 0; i < spokenWords.length && idx < storyWords.length; i++) {
-          if (spokenWords[i] === storyWords[idx]) idx++;
-        }
-        setWordsRead(idx);
-        setCurrentWordIndex(idx);
-        setReadingSpeedWPM(elapsedTime > 0 ? Math.round(idx / (elapsedTime / 60)) : 0);
-        setMiscues(Math.max(0, spokenWords.length - idx));
-      };
-      recognition.onerror = (e: any) => {
-        if (e.error !== 'no-speech') alert('Speech recognition error: ' + e.error);
-      };
-      recognition.start();
     }
   };
 
-  // optional pause/resume removed from simplified UI
+
+
+  // Handle Vosk language switching - reconnect with new language if needed
+  useEffect(() => {
+    // If Vosk is connected and language changes, reconnect with new language
+    if (voskSocketRef.current && voskSocketRef.current.readyState === WebSocket.OPEN && isRecording && !isPaused) {
+      console.log(`🔄 Language changed to ${storyLanguage}, reconnecting Vosk with new language...`);
+      cleanupVosk();
+      voskFinalTranscriptRef.current = ""; // Reset transcript
+      voskReconnectAttemptsRef.current = 0;
+
+      // Small delay before reconnecting to ensure cleanup completes
+      setTimeout(async () => {
+        if (isRecording && !isPaused) {
+          // Use same fallback logic as main Vosk initialization
+          const getVoskWsUrl = async (lang: string): Promise<string> => {
+            const env = (import.meta as any)?.env || {};
+            
+            const formatWsUrl = (baseUrl: string, language: string) => {
+              const cleanUrl = baseUrl.replace(/\/$/, '');
+              return `${cleanUrl}/?lang=${language}`;
+            };
+            
+            const localPort = env.VITE_VOSK_LOCAL_PORT || "2700";
+            const localUrl = `ws://localhost:${localPort}`;
+            
+            const getRailwayUrl = (language: string) => {
+              if (language === "tagalog" || language === "tl") {
+                const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
+                if (tagalogUrl) {
+                  return formatWsUrl(tagalogUrl, "tagalog");
+                }
+                return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
+              } else if (language === "english" || language === "en") {
+                const englishUrl = env.VITE_VOSK_WS_URL_ENGLISH;
+                if (englishUrl) {
+                  return formatWsUrl(englishUrl, "english");
+                }
+                return formatWsUrl("wss://philiready-websocket-english.up.railway.app", "english");
+              }
+              const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
+              if (tagalogUrl) {
+                return formatWsUrl(tagalogUrl, "tagalog");
+              }
+              return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
+            };
+            
+            const testLocalConnection = (): Promise<boolean> => {
+              return new Promise((resolve) => {
+                const testWs = new WebSocket(formatWsUrl(localUrl, lang));
+                const timeout = setTimeout(() => {
+                  testWs.close();
+                  resolve(false);
+                }, 2000);
+                
+                testWs.onopen = () => {
+                  clearTimeout(timeout);
+                  testWs.close();
+                  resolve(true);
+                };
+                
+                testWs.onerror = () => {
+                  clearTimeout(timeout);
+                  resolve(false);
+                };
+              });
+            };
+            
+            // Test local server first (priority: local > Railway)
+            console.log(`🔍 Testing local Vosk server at ${localUrl}...`);
+            const isLocalAvailable = await testLocalConnection();
+            
+            if (isLocalAvailable) {
+              const localWsUrl = formatWsUrl(localUrl, lang);
+              console.log(`✅ Local Vosk server is running and ready!`);
+              console.log(`   Using: ${localWsUrl}`);
+              console.log(`   Status: Connected to local server (port ${localPort})`);
+              return localWsUrl;
+            } else {
+              const railwayUrl = getRailwayUrl(lang);
+              console.log(`⚠️ Local Vosk server not available at ${localUrl}`);
+              console.log(`   Falling back to Railway deployment: ${railwayUrl}`);
+              console.log(`   💡 To use local server, start it with: cd VoskServer && python server.py`);
+              return railwayUrl;
+            }
+          };
+          
+          const wsUrl = await getVoskWsUrl(storyLanguage);
+          const isLocal = wsUrl.startsWith('ws://localhost:');
+          
+          if (isLocal) {
+            console.log(`🎯 Reconnecting to LOCAL Vosk server for ${storyLanguage} recognition`);
+          } else {
+            console.log(`🌐 Reconnecting to RAILWAY Vosk server for ${storyLanguage} recognition`);
+          }
+
+          // Restart Vosk with new language (using improved audio settings)
+          const startVosk = async () => {
+            try {
+              // Use same improved audio settings as main Vosk initialization
+              let stream: MediaStream;
+              try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                  audio: {
+                    channelCount: 1,
+                    sampleRate: 48000,
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false
+                  },
+                });
+              } catch (error) {
+                stream = await navigator.mediaDevices.getUserMedia({
+                  audio: {
+                    channelCount: 1,
+                    sampleRate: 48000
+                  },
+                });
+              }
+
+              const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
+              if (ctx.state === 'suspended') {
+                await ctx.resume();
+              }
+
+              audioContextRef.current = ctx;
+              const src = ctx.createMediaStreamSource(stream);
+              sourceNodeRef.current = src;
+              // Smaller buffer (2048) = faster processing, lower latency for real-time recognition
+              const script = ctx.createScriptProcessor(2048, 1, 1);
+              scriptNodeRef.current = script;
+
+              // Connect audio nodes immediately (before WebSocket connection)
+              src.connect(script);
+              script.connect(ctx.destination);
+              
+              // Ensure audio context is running (already done above, but double-check)
+              if (ctx.state === 'suspended') {
+                await ctx.resume();
+              }
+              console.log('✅ Audio nodes connected (reconnect) - microphone is active');
+
+              // Audio processing now handled server-side
+
+              setVoskStatus("connecting");
+              const ws = new WebSocket(wsUrl);
+              voskSocketRef.current = ws;
+              ws.binaryType = "arraybuffer";
+
+              ws.onopen = () => {
+                voskReconnectAttemptsRef.current = 0;
+                setVoskStatus("connected");
+
+                // Send vocabulary constraint to Vosk for 100% accurate word recognition
+                if (storyVocabulary.size > 0) {
+                  const vocabularyList = Array.from(storyVocabulary);
+
+                  // Try multiple Vosk configuration formats for compatibility
+                  const config1 = JSON.stringify({
+                    config: {
+                      words: true,
+                      max_alternatives: 0,
+                      grammar: vocabularyList
+                    }
+                  });
+
+                  const config2 = JSON.stringify({
+                    config: {
+                      sample_rate: 16000,
+                      words: true,
+                      max_alternatives: 0,
+                      word_list: vocabularyList
+                    }
+                  });
+
+                  console.log(`🎯 Sending ${vocabularyList.length} story words to Vosk as grammar constraint (reconnect)`);
+                  console.log(`📝 Vocabulary sample (first 20):`, vocabularyList.slice(0, 20).join(', '));
+
+                  try {
+                    ws.send(config1);
+                    console.log('✓ Sent grammar config format 1 (reconnect)');
+                  } catch (e) {
+                    console.warn('Failed to send config1:', e);
+                  }
+
+                  try {
+                    ws.send(config2);
+                    console.log('✓ Sent word_list config format 2 (reconnect)');
+                  } catch (e) {
+                    console.warn('Failed to send config2:', e);
+                  }
+                }
+
+                voskHeartbeatIntervalRef.current = setInterval(() => {
+                  if (ws.readyState === WebSocket.OPEN) {
+                    try {
+                      ws.send(new ArrayBuffer(0));
+                    } catch (e) {
+                      console.warn("Heartbeat send failed:", e);
+                    }
+                  }
+                }, 30000);
+
+                // Send audio format configuration to server
+                  try {
+                  const audioConfig = JSON.stringify({
+                    audio_format: {
+                      format: "Float32",
+                      sample_rate: ctx.sampleRate || 48000,
+                      channels: 1
+                    }
+                  });
+                  ws.send(audioConfig);
+                  console.log(`✓ Sent audio format: Float32 @ ${ctx.sampleRate}Hz`);
+                } catch (e) {
+                  console.warn('Failed to send audio format config:', e);
+                }
+
+                // Simplified audio processing - just send raw Float32 audio to server
+                // Server handles downsampling, format conversion, and speech detection
+                let audioChunkCount = 0;
+                script.onaudioprocess = (e: AudioProcessingEvent) => {
+                  try {
+                      audioChunkCount++;
+                      // Log every 100 chunks to verify audio is being processed
+                      if (audioChunkCount % 100 === 0) {
+                        console.log(`📊 Audio processing active (reconnect): ${audioChunkCount} chunks processed`);
+                      }
+                      
+                      if (ws.readyState === WebSocket.OPEN) {
+                      const channel = e.inputBuffer.getChannelData(0);
+                      
+                      // AUDIO AMPLIFICATION: Moderate boost for accuracy (1.5x amplification)
+                      // Reduced from 3x to minimize noise and maximize Vosk accuracy
+                      const amplifiedChannel = new Float32Array(channel.length);
+                      const amplificationFactor = 1.5;
+                      
+                      for (let i = 0; i < channel.length; i++) {
+                        amplifiedChannel[i] = Math.max(-1.0, Math.min(1.0, channel[i] * amplificationFactor));
+                      }
+                      
+                      // Send amplified audio - server will handle processing
+                      ws.send(amplifiedChannel.buffer);
+                      }
+                  } catch (error) {
+                    console.warn("Error sending audio:", error);
+                  }
+                };
+                // Audio nodes already connected earlier - no need to reconnect here
+              };
+
+              ws.onmessage = (evt) => {
+                try {
+                  const msg = JSON.parse(evt.data);
+                  if (msg.text && msg.text.trim()) {
+                    // Filter through vocabulary validation
+                    const filteredText = filterThroughVocabulary(msg.text.trim(), storyVocabulary);
+
+                    // Only update transcript if we have valid words
+                    if (filteredText) {
+                      voskFinalTranscriptRef.current += (voskFinalTranscriptRef.current ? " " : "") + filteredText;
+                      setTranscript(voskFinalTranscriptRef.current);
+                    }
+                  } else if (msg.partial && msg.partial.trim()) {
+                    // Partial results are no longer displayed in UI
+                  }
+                } catch (error) {
+                  console.warn("Error parsing Vosk message:", error);
+                }
+              };
+
+              ws.onerror = () => {
+                setVoskStatus("disconnected");
+                console.warn("Vosk reconnection failed after language change");
+              };
+
+              ws.onclose = () => {
+                setVoskStatus("disconnected");
+              };
+            } catch (error) {
+              console.warn("Failed to reconnect Vosk with new language:", error);
+              setVoskStatus("disconnected");
+            }
+          };
+
+          startVosk();
+        }
+      }, 100);
+    }
+  }, [storyLanguage]);
+
+  // Stop recording and speech recognition
   const handleStopRecording = async () => {
     try {
       setIsRecording(false);
       setIsPaused(false);
 
-      // Stop timer
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-
-      // Stop speech recognition
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-        recognitionRef.current = null;
-      }
-
-      // Show results
-      const accuracy = totalWords > 0 ? Math.round(((wordsRead - miscues) / totalWords) * 100) : 0;
-      const wpm = elapsedTime > 0 ? Math.round((wordsRead / elapsedTime) * 60) : 0;
-
-      await Swal.fire({
-        title: 'Reading Practice Complete!',
-        html: `
-          <div class="text-left space-y-2">
-            <p><strong>Words Read:</strong> ${wordsRead} / ${totalWords}</p>
-            <p><strong>Reading Speed:</strong> ${wpm} WPM</p>
-            <p><strong>Miscues:</strong> ${miscues}</p>
-            <p><strong>Accuracy:</strong> ${accuracy}%</p>
-            <p><strong>Time:</strong> ${Math.floor(elapsedTime / 60)}:${(elapsedTime % 60).toString().padStart(2, '0')}</p>
-          </div>
-        `,
-        icon: accuracy >= 80 ? 'success' : 'info',
-        confirmButtonText: 'Great Job!'
-      });
-
-      // Reset for next practice
-      setWordsRead(0);
-      setMiscues(0);
-      setElapsedTime(0);
-      setReadingSpeedWPM(0);
-      setCurrentWordIndex(0);
-
-    } catch (e) {
-      console.error('Error stopping recording:', e);
-    }
-  };
-
-  // Timer is now handled in handleStartRecording with timerRef
-
-  const formatElapsed = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-  // Choose student for practice (modal toggle)
-  const handleChooseStudent = async () => {
-    if (children.length === 0) {
-      await Swal.fire('No children found', 'Please link a child in My Children.', 'info');
-      return;
-    }
-    setIsChildPickerOpen(true);
-  };
-
-  // Choose story handler (works for practice and session modes)
-  const handleChooseStory = async () => {
-    setIsStoryPickerOpen(true);
-  };
-
-  const applyChosenStory = async (story: Story) => {
-    try {
-      if (sessionId) {
-        await readingSessionService.updateSession(sessionId, { book: story._id || story.title, status: 'in-progress' });
-      }
-      setCurrentSession((prev) => prev ? { ...prev, book: story._id || story.title, status: 'in-progress' } : prev);
-      if (story._id) {
-        const fullStory = await UnifiedStoryService.getInstance().getStoryById(story._id);
-        if (fullStory?.textContent) {
-          const text = fullStory.textContent.trim();
-          setStoryText(text);
-          setTotalWords(text.split(/\s+/).filter(Boolean).length);
+      // Stop MediaRecorder
+      if (mediaRecorderRef.current) {
+        try {
+          mediaRecorderRef.current.stop();
+          mediaRecorderRef.current.stream
+            .getTracks()
+            .forEach((track) => track.stop());
+        } catch (error) {
+          console.warn("Error stopping media recorder:", error);
         }
       }
-      setIsStoryPickerOpen(false);
-      await Swal.fire({ icon: 'success', title: 'Story selected', timer: 900, showConfirmButton: false });
-    } catch (e) {
-      await Swal.fire('Error', 'Failed to select story. Please try again.', 'error');
+
+      // Cleanup Vosk (includes all cleanup logic)
+      cleanupVosk();
+
+      // Reset Vosk state
+      voskFinalTranscriptRef.current = "";
+      voskReconnectAttemptsRef.current = 0;
+
+      // ============================================================================
+      // DEPED RULE: Mark all remaining unread words as OMISSION
+      // ============================================================================
+      // When the session ends, any words that were not read should be marked as omissions
+      // Gray words = skipped/unread = Omission according to DepEd Phil-IRI marking system
+      const realWords = words.filter(w => /\w+/.test(w)); // Filter out punctuation
+      const lastReadIndex = currentWordIndex; // Current position when stopped
+      
+      console.log(`📋 Session stopped at word ${lastReadIndex} of ${realWords.length}`);
+      console.log(`📋 Marking remaining ${realWords.length - lastReadIndex} unread words as omissions...`);
+      
+      // Mark all words from current position to end as omissions
+      for (let i = lastReadIndex; i < realWords.length; i++) {
+        // Skip if already marked with a miscue
+        if (wordMiscues.has(i) || recognizedWords.has(i)) {
+          continue;
+        }
+        
+        // Mark as omission
+        if (!countedMiscuePositionsRef.current.has(i)) {
+          countedMiscuePositionsRef.current.add(i);
+          setMiscues(prev => prev + 1);
+          setMiscueTypes(prev => ({ ...prev, omission: prev.omission + 1 }));
+          setWordMiscues(prev => new Map(prev).set(i, 'omission'));
+          setWordMarkings(prev => new Map(prev).set(i, {
+            type: 'omission',
+            marking: `Circle omitted word`,
+            spokenWord: '',
+            correctWord: realWords[i]
+          }));
+          console.log(`⭕ Word ${i} "${realWords[i]}" marked as omission (unread at session end)`);
+        }
+      }
+      
+      console.log(`✅ Marked all unread words as omissions per DepEd rules`);
+
+      // If Tagalog story, optionally send audio to backend Whisper for better transcription
+      const enableServerTranscribe =
+        (import.meta as any)?.env?.VITE_ENABLE_SERVER_TRANSCRIBE === "true";
+      if (audioBlob && storyLanguage === "tagalog" && enableServerTranscribe) {
+        try {
+          const form = new FormData();
+          form.append("audio", audioBlob, "audio.webm");
+          form.append("language", "fil");
+          const resp = await fetch("/api/transcribe", {
+            method: "POST",
+            body: form,
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data?.text) {
+              setTranscript(data.text);
+            }
+          } else {
+            console.warn("Server transcription service unavailable");
+          }
+        } catch (e) {
+          console.warn("Unable to connect to transcription service:", e);
+        }
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      console.error("Error stopping recording:", errorMessage, error);
+      alert("An error occurred while stopping the recording. Your progress has been saved.");
     }
   };
 
-  if (isLoading) {
-    return <ParentLoader label="Loading session..." fullScreen size="lg" />;
-  }
+  // Wait for MediaRecorder to finalize audio (audioBlob/audioUrl set) with timeout
+  const waitForAudioFinalization = async (
+    timeoutMs: number = 2000
+  ): Promise<void> => {
+    if (!isRecording && (audioBlob || audioUrl)) return;
+    await new Promise<void>((resolve) => {
+      const start = Date.now();
+      const interval = setInterval(() => {
+        const done =
+          !!audioBlob || !!audioUrl || Date.now() - start > timeoutMs;
+        if (done) {
+          clearInterval(interval);
+          resolve();
+        }
+      }, 100);
+    });
+  };
 
-  if (!currentSession) {
+
+
+  // Update elapsed time as time passes
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isRecording && !isPaused) {
+      interval = setInterval(() => {
+        setElapsedTime((prev: number) => prev + 1);
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isRecording, isPaused]);
+
+  const loadPdfContent = async (pdfUrl: string) => {
+    try {
+      setIsLoadingPdf(true);
+      setPdfError(null);
+
+      const response = await fetch(pdfUrl);
+      if (!response.ok) {
+        // Try to get error details from response
+        let errorMessage = `Failed to fetch PDF: ${response.statusText}`;
+        try {
+          const errorData = await response.json();
+          if (errorData.error) {
+            errorMessage = `PDF Error: ${errorData.error}`;
+          }
+        } catch (parseError) {
+          // If we can't parse JSON, use the status text
+          console.warn("Could not parse error response:", parseError);
+        }
+        throw new Error(errorMessage);
+      }
+
+      // Get the PDF as an array buffer
+      const pdfArrayBuffer = await response.arrayBuffer();
+
+      // Check if we received valid PDF data (should start with %PDF-)
+      const firstBytes = new Uint8Array(pdfArrayBuffer.slice(0, 5));
+      const header = new TextDecoder().decode(firstBytes);
+      if (!header.startsWith("%PDF-")) {
+        throw new Error("Invalid PDF data: Missing PDF header");
+      }
+
+      // Load the PDF using PDF.js
+      try {
+        const loadingTask = pdfjsLib.getDocument({
+          data: pdfArrayBuffer,
+          cMapUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/",
+          cMapPacked: true,
+        });
+
+        const pdf = await loadingTask.promise;
+
+        let fullText = "";
+        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+          const page = await pdf.getPage(pageNum);
+          const textContent = await page.getTextContent();
+          const pageText = textContent.items
+            .filter((item): item is TextItem => "str" in item)
+            .map((item) => item.str)
+            .join(" ");
+          fullText += pageText + "\n\n";
+        }
+
+        setPdfContent(fullText);
+
+        // Split content into words and update state
+        const wordArray = fullText
+          .split(/\s+/)
+          .filter((word: string) => word.length > 0);
+        setWords(wordArray);
+      } catch (pdfError) {
+        console.error("Error processing PDF:", pdfError);
+        throw pdfError;
+      }
+    } catch (error) {
+      setPdfError(
+        error instanceof Error ? error.message : "Failed to load PDF"
+      );
+      throw error;
+    } finally {
+      setIsLoadingPdf(false);
+    }
+  };
+
+  useEffect(() => {
+    const fetchSession = async () => {
+      if (!sessionId) {
+        console.error("No session ID provided");
+        setError("No session ID provided");
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+
+        const sessionData = await readingSessionService.getSessionById(
+          sessionId
+        );
+
+        if (!sessionData) {
+          throw new Error("Session not found");
+        }
+
+        setCurrentSession(sessionData);
+
+        // Get all stories
+        const stories = await UnifiedStoryService.getInstance().getStories({});
+
+        // Extract story by _id or title for compatibility
+        const story = stories.find(
+          (s: Story) =>
+            s._id === sessionData.book || s.title === sessionData.book
+        );
+
+        if (!story || !story._id) {
+          throw new Error("Story not found");
+        }
+
+        try {
+          // Get the full story details
+          const fullStory =
+            await UnifiedStoryService.getInstance().getStoryById(story._id);
+
+          if (!fullStory) {
+            throw new Error("Failed to fetch story details");
+          }
+
+          // Store current story for ISR result saving
+          setCurrentStory(fullStory);
+
+          // Set story language for speech recognition - automatically detect from story
+          if (fullStory.language) {
+            // Normalize language value (handle case variations)
+            const normalizedLang = String(fullStory.language).toLowerCase().trim();
+
+            // Map story language to internal format
+            let internalLanguage: "english" | "tagalog" = "english"; // Default
+
+            if (normalizedLang === "tagalog" || normalizedLang === "filipino") {
+              internalLanguage = "tagalog";
+            } else if (normalizedLang === "english") {
+              internalLanguage = "english";
+            } else {
+              // Unknown language value, default to english
+              console.warn(`Unknown story language value: "${fullStory.language}", defaulting to English`);
+              internalLanguage = "english";
+            }
+
+            console.log('📖 [Teacher] Setting story language:', internalLanguage, '(from:', fullStory.language, ')');
+            setStoryLanguage(internalLanguage);
+          } else {
+            // Default to English if no language is specified
+            console.log('📖 [Teacher] Setting default story language: english');
+            setStoryLanguage("english");
+          }
+
+          // Set text content first (this is what we want to display)
+          if (
+            fullStory.textContent &&
+            fullStory.textContent.trim().length > 0
+          ) {
+            // Don't trim the text to preserve leading/trailing whitespace for proper formatting
+            setStoryText(fullStory.textContent);
+            const wordArray = fullStory.textContent
+              .split(/\s+/)
+              .filter((word: string) => word.length > 0);
+            console.log('📖 [Teacher] Setting words:', wordArray.length, 'words');
+            setWords(wordArray);
+
+            // Extract vocabulary for vocabulary-constrained recognition
+            const vocabulary = extractVocabulary(fullStory.textContent);
+            setStoryVocabulary(vocabulary);
+
+            // Pronunciation matching now handled by server
+            console.log(`📚 Story loaded: ${vocabulary.size} vocabulary words, language: ${fullStory.language || 'auto-detect'}`);
+
+            // Detect story language based on vocabulary
+            const detectedLanguage = detectStoryLanguage(vocabulary);
+
+            // Only override the language if it wasn't already set from story metadata
+            // This allows manual language setting to take precedence
+            if (!fullStory.language) {
+              setStoryLanguage(detectedLanguage);
+            }
+          }
+
+          // Try to load PDF content only if the story has a PDF
+          if (fullStory.hasPdf) {
+            try {
+              const pdfUrl = UnifiedStoryService.getInstance().getStoryPdfUrl(
+                story._id
+              );
+              await loadPdfContent(pdfUrl);
+            } catch (pdfError) {
+              console.warn(
+                "PDF loading failed, but text content is available:",
+                pdfError
+              );
+              // Don't throw error here since we have text content
+              // Set a flag to indicate PDF failed
+              setPdfError(
+                pdfError instanceof Error
+                  ? pdfError.message
+                  : "PDF loading failed"
+              );
+            }
+          } else {
+            // Story doesn't have a PDF, set a friendly message
+            setPdfError("This story doesn't have a PDF file. Reading session will use text content only.");
+          }
+        } catch (error) {
+          console.error("Error fetching story content:", error);
+          if (error instanceof Error) {
+            throw new Error(`Failed to load story content: ${error.message}`);
+          } else {
+            throw new Error("Failed to load story content: Unknown error");
+          }
+        }
+      } catch (error: any) {
+        console.error("Error details:", {
+          message: error.message,
+          code: error.code,
+          stack: error.stack,
+          response: error.response?.data,
+        });
+        setError(error.message);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchSession();
+  }, [sessionId]);
+  
+  // Preload Vosk connection as soon as we have story data (even during loading)
+  useEffect(() => {
+    console.log('🔍 [Teacher] Preload useEffect triggered - words:', words.length, 'storyLanguage:', storyLanguage, 'isLoading:', isLoading);
+    
+    // Start preloading as soon as we have words and language (don't wait for loading to finish)
+    if (words.length > 0 && storyLanguage) {
+      console.log('📚 [Teacher] Story data available - preloading Vosk connection NOW (during loading)...');
+      preloadVoskConnection();
+    } else {
+      console.log('⏳ [Teacher] Waiting for story data - words:', words.length, 'language:', storyLanguage);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [words.length, storyLanguage]);
+
+  const handleGoBack = () => {
+    navigate(-1);
+  };
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isRecording && !isPaused) {
+      interval = setInterval(() => {
+        setElapsedTime((prev: number) => prev + 1);
+      }, 1000);
+    }
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [isRecording, isPaused]);
+
+  // const [isAlphanumericArr, setIsAlphanumericArr] = useState<boolean[]>([]);
+  useEffect(() => {
+    if (storyText && storyText.trim().length > 0) {
+      const { displayWords } = splitAndNormalizeWords(storyText);
+      setWords(displayWords);
+    } else if (pdfContent && pdfContent.trim().length > 0) {
+      const { displayWords } = splitAndNormalizeWords(pdfContent);
+      setWords(displayWords);
+    }
+  }, [storyText, pdfContent]);
+
+  // State for real words (for matching/highlighting)
+  const [realWords, setRealWords] = useState<string[]>([]);
+
+  // When loading storyText/pdfContent, extract real words for matching
+  useEffect(() => {
+    let text = "";
+    if (storyText && storyText.trim().length > 0) {
+      text = storyText;
+    } else if (pdfContent && pdfContent.trim().length > 0) {
+      text = pdfContent;
+    }
+    if (text) {
+      setRealWords(extractWordsFromText(text));
+
+      // Extract vocabulary for vocabulary-constrained recognition
+      const vocabulary = extractVocabulary(text);
+      setStoryVocabulary(vocabulary);
+
+      // Detect story language (but don't override if already set from database)
+      const detectedLanguage = detectStoryLanguage(vocabulary);
+      
+      // Only use auto-detection as fallback - database language takes precedence
+      // This is handled in the main useEffect where story is loaded
+      console.log(`📚 Story loaded: ${vocabulary.size} vocabulary words, detected language: ${detectedLanguage}`);
+    } else {
+      setRealWords([]);
+      setStoryVocabulary(new Set());
+    }
+  }, [storyText, pdfContent]);
+
+  // Optimized word matching with memoization and caching
+  const lastTranscriptRef = useRef<string>("");
+  const lastProcessedIndexRef = useRef<number>(-1);
+  const matchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastMiscueWordRef = useRef<string>(""); // Track last miscue to avoid duplicates
+  const processedTranscriptWordsRef = useRef<number>(0); // Track how many transcript words we've processed
+  const countedMiscuePositionsRef = useRef<Set<number>>(new Set()); // Track which word positions have been counted
+
+  // Cache for similarity calculations to avoid redundant computations
+  const similarityCache = useRef<Map<string, number>>(new Map());
+
+  // Memoized function to calculate similarity with caching
+  const getCachedSimilarity = useMemo(() => {
+    return (word1: string, word2: string): number => {
+      const key = `${word1}|${word2}`;
+      const reverseKey = `${word2}|${word1}`;
+
+      // Check cache
+      if (similarityCache.current.has(key)) {
+        return similarityCache.current.get(key)!;
+      }
+      if (similarityCache.current.has(reverseKey)) {
+        return similarityCache.current.get(reverseKey)!;
+      }
+
+      // Calculate and cache
+      const norm1 = normalize(word1);
+      const norm2 = normalize(word2);
+      const distance = levenshtein(norm1, norm2);
+      const maxLength = Math.max(norm1.length, norm2.length);
+      const similarity = maxLength > 0 ? 1 - (distance / maxLength) : 0;
+
+      similarityCache.current.set(key, similarity);
+
+      // Limit cache size to prevent memory issues
+      if (similarityCache.current.size > 1000) {
+        const firstKey = similarityCache.current.keys().next().value;
+        if (firstKey) {
+          similarityCache.current.delete(firstKey);
+        }
+      }
+
+      return similarity;
+    };
+  }, []);
+
+  // Stuck detection: Track how long we've been on the same word
+  const stuckTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastWordIndexRef = useRef<number>(-1);
+  const stuckStartTimeRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (!transcript || !realWords.length || currentWordIndex >= realWords.length) return;
+
+    // Process if transcript changed OR if we moved to a new word
+    const transcriptChanged = transcript !== lastTranscriptRef.current;
+    const indexChanged = currentWordIndex !== lastProcessedIndexRef.current;
+
+    if (!transcriptChanged && !indexChanged) return;
+
+    lastTranscriptRef.current = transcript;
+    lastProcessedIndexRef.current = currentWordIndex;
+
+    // Reset stuck timer when word changes
+    if (currentWordIndex !== lastWordIndexRef.current) {
+      lastWordIndexRef.current = currentWordIndex;
+      stuckStartTimeRef.current = Date.now();
+
+      if (stuckTimerRef.current) {
+        clearTimeout(stuckTimerRef.current);
+      }
+
+      // DISABLED AUTO-ADVANCE: Causing too many false omissions
+      // The omission detection in the main matching logic (line 2777) is more accurate
+      // because it checks if the child has read 2+ words ahead, not just time-based
+      // 
+      // Previous issue: Child struggles with "lungga" for 7 seconds -> auto-advance marks as omission
+      // Better approach: Only mark omission when child clearly reads the NEXT word (already implemented below)
+      //
+      // If we need auto-advance in the future, increase timeout to 15+ seconds and add better checks
+    }
+
+    // Clear any pending match check
+    if (matchTimeoutRef.current) {
+      clearTimeout(matchTimeoutRef.current);
+    }
+
+    // ZERO DELAY RECOGNITION: 5ms delay - absolute minimum to avoid interim results
+    // User requirement: "if i say 'bata' the mic heard instant get the 'bata' word with 0 delay"
+    matchTimeoutRef.current = setTimeout(() => {
+      // STRICT FILTERING: Only process real words (2+ chars, mostly letters)
+      const transcriptWords = transcript.split(/\s+/).filter(word => {
+        if (!word || word.length < 2) return false; // Reject noise/single chars
+        const letterCount = (word.match(/[a-zA-Z]/g) || []).length;
+        return letterCount >= word.length * 0.7; // At least 70% letters
+      });
+
+      if (transcriptWords.length === 0) return;
+
+      // ADAPTIVE BUFFER: Adjust buffer size based on reading speed
+      // Fast readers need larger buffers to prevent losing words
+      const readingSpeed = calculateReadingSpeed();
+      const optimalBufferSize = getOptimalBufferSize(readingSpeed);
+      
+      if (transcriptWords.length > optimalBufferSize) {
+        console.log(`⚡ ADAPTIVE TRIM: Reading speed ${readingSpeed.toFixed(1)} words/sec → buffer size ${optimalBufferSize}`);
+        console.log(`   Keeping last ${optimalBufferSize} words (had ${transcriptWords.length})`);
+        const trimmedWords = transcriptWords.slice(-optimalBufferSize);
+        voskFinalTranscriptRef.current = trimmedWords.join(' ');
+        setTranscript(trimmedWords.join(' '));
+        // Don't reset processedTranscriptWordsRef - let it track naturally
+      }
+
+      const expectedWord = realWords[currentWordIndex];
+
+      console.log(`🎤 Full transcript: "${transcript}"`);
+      console.log(`📝 Expected word: "${expectedWord}" at index ${currentWordIndex}`);
+
+      // INSTANT RECOGNITION: Check if the last word is a partial match (word being spoken)
+      // This provides instant feedback as the child speaks
+      if (transcriptWords.length > 0) {
+        const lastWord = transcriptWords[transcriptWords.length - 1];
+        const normLastWord = normalize(lastWord);
+        const normExpected = normalize(expectedWord);
+
+        // Check if last word is the start of expected word (partial match)
+        if (normExpected.startsWith(normLastWord) && normLastWord.length >= 3) {
+          console.log(`⚡ PARTIAL MATCH: "${lastWord}" is start of "${expectedWord}" - waiting for completion...`);
+          // Don't advance yet, but this helps with instant visual feedback
+        }
+
+        // CHILD-FRIENDLY: Check if expected word starts with last word (e.g., "aso" for "asong")
+        // This catches cases where child drops the ending - lowered to 60% for children
+        // CRITICAL: Only match if this is the FIRST word in transcript (most recent)
+        // This prevents false matches from older words
+        const isFirstWord = transcriptWords.indexOf(lastWord) === 0;
+        if (isFirstWord && normExpected.startsWith(normLastWord) && normLastWord.length >= 2) {
+          const similarity = normLastWord.length / normExpected.length;
+          if (similarity >= 0.60) {  // CHILD-FRIENDLY: 60% of the word (was 75%)
+            console.log(`⚡ NEAR-COMPLETE MATCH: "${lastWord}" is 60%+ of "${expectedWord}" - accepting!`);
+
+            // Mark this word as recognized (for green highlighting)
+            setRecognizedWords(prev => new Set(prev).add(currentWordIndex));
+
+            // Increment wordsRead since word was recognized
+            setWordsRead(prev => Math.min(prev + 1, words.length));
+            console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)}`);
+
+            // Move yellow highlight to next word
+            const newIndex = currentWordIndex + 1;
+            setCurrentWordIndex(newIndex);
+            console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex}`);
+
+            // Remove the first word (matched) and keep remaining words
+            const remainingWords = transcriptWords.slice(1); // Remove first word
+            voskFinalTranscriptRef.current = remainingWords.join(' ');
+            setTranscript(remainingWords.join(' '));
+            processedTranscriptWordsRef.current = 0;
+            console.log(`🧹 Removed near-complete match "${lastWord}", kept ${remainingWords.length} remaining words: [${remainingWords.join(', ')}]`);
+
+            return;
+          }
+        }
+      }
+
+      // ULTRA-FAST: Check ALL words in transcript for matches (not just first)
+      // Process multiple words in one go for jet-speed recognition
+      console.log(`🔎 Checking ALL ${transcriptWords.length} words in transcript: [${transcriptWords.join(', ')}]`);
+
+      // ADAPTIVE MATCHING: Use fuzzy matching for fast reading
+      const isFastReading = currentReadingSpeed > 4; // More than 4 words per second
+      let wordsMatched = 0;
+      let currentTranscriptIndex = 0;
+      const matchedWordIndices: number[] = []; // Track all matched word indices
+      const insertedWords: Array<{word: string, position: number}> = []; // Track insertions during matching
+      
+      if (isFastReading && transcriptWords.length >= 3) {
+        console.log(`⚡ FAST READING: Using fuzzy sequence matching for ${transcriptWords.length} words`);
+        
+        // Try to match each transcript word to nearby story words (within 3 positions)
+        for (let i = 0; i < transcriptWords.length && currentWordIndex + wordsMatched < realWords.length; i++) {
+          const spokenWord = transcriptWords[i];
+          let foundMatch = false;
+          
+          // Check current position and next 2 positions
+          for (let offset = 0; offset <= 2 && currentWordIndex + wordsMatched + offset < realWords.length; offset++) {
+            const expectedWord = realWords[currentWordIndex + wordsMatched + offset];
+            
+            if (isWordMatch(spokenWord, expectedWord, true)) {
+              console.log(`✅ FUZZY MATCH #${wordsMatched + 1}: "${spokenWord}" = "${expectedWord}" (offset: ${offset})`);
+              
+              // If offset > 0, we skipped some words (but don't mark as omission during fast reading)
+              if (offset > 0) {
+                console.log(`   ⚠️ Skipped ${offset} word(s) during fast reading - not marking as omission yet`);
+              }
+              
+              matchedWordIndices.push(currentWordIndex + wordsMatched + offset);
+              wordsMatched += offset + 1;
+              foundMatch = true;
+              break;
+            }
+          }
+          
+          if (!foundMatch) {
+            // No match found, stop processing
+            break;
+          }
+        }
+      } else {
+        // Normal sequential matching for slow/normal reading
+        while (currentTranscriptIndex < transcriptWords.length && currentWordIndex + wordsMatched < realWords.length) {
+          const spokenWord = transcriptWords[currentTranscriptIndex];
+          const expectedWordToMatch = realWords[currentWordIndex + wordsMatched];
+          
+          if (isWordMatch(spokenWord, expectedWordToMatch, true)) {
+            console.log(`✅ MATCH #${wordsMatched + 1}: "${spokenWord}" = "${expectedWordToMatch}"`);
+            
+            // Track this matched word index
+            matchedWordIndices.push(currentWordIndex + wordsMatched);
+            
+            wordsMatched++;
+            currentTranscriptIndex++;
+          } else {
+            // INSERTION DETECTION: Check if this is an inserted word
+            // Word doesn't match expected word - might be insertion
+            // Check if next transcript word matches current expected word
+            // Pattern: transcript has "word1 INSERTION word2", story has "word1 word2"
+            if (currentTranscriptIndex + 1 < transcriptWords.length) {
+              const nextSpokenWord = transcriptWords[currentTranscriptIndex + 1];
+              
+              if (isWordMatch(nextSpokenWord, expectedWordToMatch, true)) {
+                // Next spoken word matches current expected word!
+                // This means current spoken word is an INSERTION
+                console.log(`⚠️ INSERTION DETECTED: "${spokenWord}" inserted before "${expectedWordToMatch}"`);
+                insertedWords.push({
+                  word: spokenWord,
+                  position: currentWordIndex + wordsMatched
+                });
+                
+                // Skip the inserted word and continue matching
+                currentTranscriptIndex++;
+                continue;
+              }
+            }
+            
+            // No match and not an insertion, stop trying to match more words
+            break;
+          }
+        }
+      }
+
+      if (wordsMatched > 0) {
+        console.log(`🚀 MATCHED ${wordsMatched} WORDS IN SEQUENCE!`);
+        
+        // Mark ALL matched words as recognized (green highlighting) in ONE state update
+        setRecognizedWords(prev => {
+          const newSet = new Set(prev);
+          matchedWordIndices.forEach(idx => newSet.add(idx));
+          return newSet;
+        });
+        console.log(`✅ Marked ${matchedWordIndices.length} words as CORRECT: indices [${matchedWordIndices.join(', ')}]`);
+        
+        // FAST READING: Track match timestamps for reading speed calculation
+        const now = Date.now();
+        setMatchTimestamps(prev => {
+          const updated = [...prev];
+          // Add timestamp for each matched word
+          for (let i = 0; i < wordsMatched; i++) {
+            updated.push(now);
+          }
+          // Keep only last 20 timestamps
+          return updated.slice(-20);
+        });
+        
+        // Update current reading speed
+        const newSpeed = calculateReadingSpeed();
+        setCurrentReadingSpeed(newSpeed);
+        if (newSpeed > 0) {
+          console.log(`📊 Reading speed: ${newSpeed.toFixed(1)} words/second`);
+        }
+        
+        // Process detected insertions
+        if (insertedWords.length > 0) {
+          console.log(`🔍 Processing ${insertedWords.length} insertions detected during matching`);
+          
+          for (const insertion of insertedWords) {
+            const position = insertion.position;
+            
+            if (!countedMiscuePositionsRef.current.has(position)) {
+              countedMiscuePositionsRef.current.add(position);
+              setMiscues(prev => prev + 1);
+              setMiscueTypes(prev => ({ ...prev, insertion: prev.insertion + 1 }));
+              
+              setWordMarkings(prev => new Map(prev).set(position, {
+                type: 'insertion',
+                marking: `Use caret (^) to show where word was inserted and write above: "${insertion.word}"`,
+                spokenWord: insertion.word,
+                correctWord: realWords[position] || ''
+              }));
+              
+              console.log(`⚠️ INSERTION MARKED: "${insertion.word}" at position ${position}`);
+            }
+          }
+        }
+        
+        // Update wordsRead
+        setWordsRead(prev => Math.min(prev + wordsMatched, words.length));
+        
+        // Move yellow highlight forward by number of matched words
+        const newIndex = currentWordIndex + wordsMatched;
+        setCurrentWordIndex(newIndex);
+        console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex} (+${wordsMatched} words)`);
+        console.log(`📊 Words Read incremented to ${Math.min(wordsRead + wordsMatched, words.length)}`);
+
+        // Reset and mark as processed
+        lastMiscueWordRef.current = "";
+
+        // Remove matched words from transcript
+        const remainingWords = transcriptWords.slice(wordsMatched);
+        voskFinalTranscriptRef.current = remainingWords.join(' ');
+        setTranscript(remainingWords.join(' '));
+        processedTranscriptWordsRef.current = 0;
+        console.log(`🧹 Removed ${wordsMatched} matched words, kept ${remainingWords.length} remaining words: [${remainingWords.join(', ')}]`);
+
+        // NO cooldown - allow continuous processing for fast readers
+        console.log("✅ Matches detected, keeping audio processing active");
+
+        return; // Exit early
+      } else {
+        console.log(`   ✗ "${expectedWord}" NOT found in transcript`);
+
+        // PRIORITY CHECK: Split-word match (check BEFORE omission detection)
+        // Example: Child says "aso pa" for "asong" - this is a mispronunciation, NOT an omission
+        let foundSplitWordMatch = false;
+        if (transcriptWords.length >= 2) {
+          for (let i = 0; i < transcriptWords.length - 1; i++) {
+            const word1 = transcriptWords[i];
+            const word2 = transcriptWords[i + 1];
+            const combinedSpoken = normalize(word1 + word2);
+            const normalizedExpected = normalize(expectedWord);
+            const similarity = getCachedSimilarity(combinedSpoken, normalizedExpected);
+
+            // Also check with space
+            const combinedWithSpace = normalize(word1 + " " + word2);
+            const similarityWithSpace = getCachedSimilarity(combinedWithSpace, normalizedExpected);
+            const bestSimilarity = Math.max(similarity, similarityWithSpace);
+
+            // CHILD-FRIENDLY: Increase threshold to 65% to reduce false positives
+            // The 55% threshold was causing "niya sa" to repeatedly match "niyang"
+            if (bestSimilarity >= 0.65) {
+              console.log(`✅ SPLIT-WORD DETECTED! "${word1} ${word2}" = "${expectedWord}" (${(bestSimilarity * 100).toFixed(0)}% similar) - NOT an omission`);
+              foundSplitWordMatch = true;
+              break;
+            }
+          }
+        }
+
+        // SKIP-AHEAD DETECTION: Check if child skipped this word and read a future word
+        // Example: Story is "May isang asong", child says "May asong" (skipped "isang")
+        // ENHANCED: Check up to 5 words ahead to catch multiple skipped words
+        // STRICT: Only check the LAST 2 words spoken (most recent) to avoid false positives
+        // SAFETY: Only enable after child has read at least 1 word to prevent false omissions at start
+        // CRITICAL: Skip this check if we found a split-word match (to prevent false omissions)
+        // ADAPTIVE: During fast reading (>4 words/sec), be more lenient to avoid false omissions
+        const hasStartedReading = wordsRead > 0 || currentWordIndex > 0;
+        const isFastReading = currentReadingSpeed > 4;
+        const shouldCheckOmission = !isFastReading || (Date.now() - (matchTimestamps[matchTimestamps.length - 1] || 0) > 1500);
+        
+        if (transcriptWords.length > 0 && currentWordIndex < realWords.length - 1 && hasStartedReading && !foundSplitWordMatch && shouldCheckOmission) {
+          if (isFastReading) {
+            console.log(`⚡ FAST READING MODE: Being lenient with omission detection (${currentReadingSpeed.toFixed(1)} words/sec)`);
+          }
+          // Check the LAST 5 words (most recent) to catch skip-ahead
+          // Increased from 2 to 5 to handle cases where child reads multiple words ahead
+          const recentWordsToCheck = transcriptWords.slice(-5);
+
+          // Check up to 5 words ahead in the story
+          const maxLookAhead = Math.min(5, realWords.length - currentWordIndex - 1);
+          let foundFutureWordAt = -1;
+          let matchedFutureWord = '';
+
+          for (let i = 1; i <= maxLookAhead; i++) {
+            const futureExpectedWord = realWords[currentWordIndex + i];
+
+            // Check if any recent word matches this future word
+            const foundMatch = recentWordsToCheck.some(w => {
+              const normSpoken = normalize(w);
+              const normFuture = normalize(futureExpectedWord);
+              if (normSpoken === normFuture) return true;
+
+              // Also check similarity (strict threshold)
+              const distance = levenshtein(normSpoken, normFuture);
+              const maxLength = Math.max(normSpoken.length, normFuture.length);
+              const similarity = 1 - (distance / maxLength);
+              return similarity >= 0.90; // Strict threshold
+            });
+
+            if (foundMatch) {
+              foundFutureWordAt = i;
+              matchedFutureWord = futureExpectedWord;
+              break; // Found the first future word match
+            }
+          }
+
+          if (foundFutureWordAt > 0) {
+            // Child skipped one or more words!
+            // Mark the CURRENT word as omission (the first skipped word)
+            if (!countedMiscuePositionsRef.current.has(currentWordIndex)) {
+              const skippedCount = foundFutureWordAt; // Number of words skipped
+              const futureWordPosition = currentWordIndex + foundFutureWordAt;
+
+              console.log(`⚠️ OMISSION DETECTED! Child skipped "${expectedWord}" (position ${currentWordIndex}) and jumped to "${matchedFutureWord}" (position ${futureWordPosition})`);
+              console.log(`   → Skipped ${skippedCount} word(s) - DepEd Rule: Circle omitted word`);
+
+              countedMiscuePositionsRef.current.add(currentWordIndex);
+              setMiscues(prev => prev + 1);
+              setMiscueTypes(prev => ({ ...prev, omission: prev.omission + 1 }));
+              setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'omission'));
+              setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
+                type: 'omission',
+                marking: `Circle omitted word: "${expectedWord}"`,
+                spokenWord: '',
+                correctWord: expectedWord
+              }));
+
+              // Increment wordsRead for the omitted word (child skipped it, but it counts as attempted)
+              setWordsRead(prev => Math.min(prev + 1, words.length));
+              console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)} (omission counted)`);
+
+              // AUTO-ADVANCE: Move yellow highlight to where the child actually is
+              // CRITICAL FIX: Advance to futureWordPosition (where child jumped to), not just +1
+              // This prevents marking the landing word as omission
+              // Example: Child at "na", skips "naglalakad", says "sa"
+              //   - Mark "naglalakad" as omission ✅
+              //   - Advance to "sa" (futureWordPosition) ✅
+              //   - Don't mark "sa" as omission ✅
+              const newIndex = futureWordPosition;
+              setCurrentWordIndex(newIndex);
+              console.log(`⚠️ Omission marked - auto-advancing yellow highlight from ${currentWordIndex} to ${newIndex} (where child is)`);
+              
+              // Mark the landing word as recognized (child said it correctly)
+              setRecognizedWords(prev => new Set(prev).add(futureWordPosition));
+              console.log(`✅ Marked word ${futureWordPosition} "${matchedFutureWord}" as recognized (landing word after skip)`);
+              
+              // Clear transcript to prevent re-processing
+              voskFinalTranscriptRef.current = "";
+              setTranscript("");
+              processedTranscriptWordsRef.current = 0;
+            } else {
+              console.log(`⚠️ Omission already marked for word "${expectedWord}" at index ${currentWordIndex} - skipping duplicate`);
+              
+              // CRITICAL FIX: Clear transcript even for duplicate omissions
+              // Otherwise transcript accumulates and causes runaway processing
+              voskFinalTranscriptRef.current = "";
+              setTranscript("");
+              processedTranscriptWordsRef.current = 0;
+              console.log(`🧹 Cleared accumulated transcript to prevent runaway processing`);
+            }
+
+            return; // Exit to allow state update to trigger re-render
+          }
+        }
+      }
+
+      // JET-SPEED: Check RECENT words (last 3 words only - reduced from 5)
+      // This reduces fuzzy matching overhead while still catching fast readers
+      const recentWordsCount = Math.min(3, transcriptWords.length);
+      const recentWords = transcriptWords.slice(-recentWordsCount);
+
+      // Also track NEW words for miscue detection
+      const newWordsStart = processedTranscriptWordsRef.current;
+      const newWords = transcriptWords.slice(newWordsStart);
+
+      console.log(`🔍 Checking ${recentWords.length} RECENT words: [${recentWords.join(', ')}]`);
+      if (newWords.length > 0) {
+        console.log(`   (${newWords.length} are NEW from position ${newWordsStart})`);
+      }
+
+      // If no recent words, don't process
+      if (recentWords.length === 0) return;
+
+      // Use recentWords for matching (to catch fast readers)
+      // But use newWords for miscue detection (to avoid counting same word multiple times)
+      const wordsToCheck = recentWords;
+      const wordsForMiscueDetection = newWords; // ONLY check NEW words, never fall back to recentWords
+
+      // AUTO-ADVANCE REMOVED: matched and wordsAdvanced variables no longer used
+      // let matched = false;
+      // let wordsAdvanced = 0;
+
+      // Process each spoken word sequentially - no skipping allowed
+      for (const spokenWord of wordsToCheck) {
+        const normalizedSpoken = normalize(spokenWord);
+        const normalizedExpected = normalize(expectedWord);
+
+        // First check: exact word match (with language validation)
+        // CRITICAL: Only match if this is the FIRST word in recent words (most recent)
+        // This prevents false matches from older words in the transcript
+        const isFirstRecentWord = wordsToCheck.indexOf(spokenWord) === 0;
+        if (isFirstRecentWord && isWordMatch(spokenWord, expectedWord, true)) {
+          console.log(`✅ MATCH! "${spokenWord}" = "${expectedWord}" - recognized as first word`);
+          
+          // Mark this word as recognized
+          setRecognizedWords(prev => new Set(prev).add(currentWordIndex));
+          
+          // Increment wordsRead since word was recognized
+          setWordsRead(prev => Math.min(prev + 1, words.length));
+          
+          // Move highlight to next word
+          const newIndex = currentWordIndex + 1;
+          setCurrentWordIndex(newIndex);
+          console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex}`);
+          console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)}`);
+          
+          // Remove matched word from transcript
+          const wordIndex = transcriptWords.indexOf(spokenWord);
+          if (wordIndex >= 0) {
+            const remainingWords = transcriptWords.slice(wordIndex + 1);
+            voskFinalTranscriptRef.current = remainingWords.join(' ');
+            setTranscript(remainingWords.join(' '));
+            processedTranscriptWordsRef.current = 0;
+            console.log(`🧹 Removed matched word "${spokenWord}", kept ${remainingWords.length} remaining words`);
+          }
+          
+          return; // Exit early to prevent further processing
+        }
+
+        // Check if multiple spoken words combine to form the expected word
+        // Example: "panda sal" should match "pandesal", "lungga ng" should match "lunggang"
+        if (wordsToCheck.length >= 2) {
+          const currentIdx = wordsToCheck.indexOf(spokenWord);
+          if (currentIdx >= 0 && currentIdx < wordsToCheck.length - 1) {
+            const nextSpokenWord = wordsToCheck[currentIdx + 1];
+            const combinedSpoken = normalize(spokenWord + nextSpokenWord);
+            const similarity = getCachedSimilarity(combinedSpoken, normalizedExpected);
+
+            // Also check with space (for words like "lungga ng" -> "lunggang")
+            const combinedWithSpace = normalize(spokenWord + " " + nextSpokenWord);
+            const similarityWithSpace = getCachedSimilarity(combinedWithSpace, normalizedExpected);
+            const bestSimilarity = Math.max(similarity, similarityWithSpace);
+
+            // CHILD-FRIENDLY: Increase threshold to 70% and auto-advance for better UX
+            // Children often split words naturally, we should accept and move forward
+            if (bestSimilarity >= 0.70) {
+              console.log(`✅ SPLIT-WORD MATCH! "${spokenWord} ${nextSpokenWord}" = "${expectedWord}" (${(bestSimilarity * 100).toFixed(0)}% similar)`);
+              console.log(`   This is a mispronunciation where child split the word into parts`);
+
+              // Count as mispronunciation
+              if (!countedMiscuePositionsRef.current.has(currentWordIndex)) {
+                countedMiscuePositionsRef.current.add(currentWordIndex);
+                setMiscues(prev => prev + 1);
+                setMiscueTypes(prev => ({ ...prev, mispronunciation: prev.mispronunciation + 1 }));
+                setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'mispronunciation'));
+                setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
+                  type: 'mispronunciation',
+                  marking: `Underline "${expectedWord}" and write phonetic spelling "${spokenWord} ${nextSpokenWord}" above`,
+                  spokenWord: `${spokenWord} ${nextSpokenWord}`,
+                  correctWord: expectedWord
+                }));
+              }
+
+              // Increment wordsRead - child read the word (split into parts)
+              setWordsRead(prev => Math.min(prev + 1, words.length));
+              console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)} (split-word match)`);
+
+              // Mark this word as recognized (for green highlighting)
+              setRecognizedWords(prev => new Set(prev).add(currentWordIndex));
+
+              // Move yellow highlight to next word
+              const newIndex = currentWordIndex + 1;
+              setCurrentWordIndex(newIndex);
+              console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex} after split-word match`);
+
+              // Clear transcript to prevent re-matching
+              voskFinalTranscriptRef.current = "";
+              setTranscript("");
+              processedTranscriptWordsRef.current = 0;
+              console.log("🧹 Cleared transcript after split-word match");
+
+              return; // Exit early
+            }
+          }
+        }
+
+        // Second check: compound word (child said multiple words together)
+        // Example: "henoticed" from "he" + "noticed", "loski" from "lost" + "key"
+
+        // Check if this word contains the current expected word AND the next word
+        if (currentWordIndex + 1 < realWords.length) {
+          const nextExpectedWord = realWords[currentWordIndex + 1];
+          const normalizedExpected = normalize(expectedWord);
+          const normalizedNext = normalize(nextExpectedWord);
+
+          // JET-SPEED: Simplified compound check - only exact concat and high similarity
+          const concatenated = normalizedExpected + normalizedNext;
+          const isExactConcat = normalizedSpoken === concatenated;
+          
+          // Only calculate similarity if not exact match (saves CPU)
+          const similarity = isExactConcat ? 1.0 : getCachedSimilarity(normalizedSpoken, concatenated);
+          const isHighSimilarity = similarity >= 0.85;
+
+          // REMOVED: containsBothInOrder, isMediumSimilarity, isBlend checks for speed
+          // These were causing excessive CPU usage with minimal benefit
+
+          // Match only if exact or very similar (85%+)
+          if (isExactConcat || isHighSimilarity) {
+            console.log(`✅ COMPOUND MATCH! "${spokenWord}" = "${expectedWord}" + "${nextExpectedWord}" - but not auto-advancing`);
+            // AUTO-ADVANCE REMOVED: Teacher must manually advance
+            // wordsAdvanced = 2;
+            // matched = true;
+
+            // Remove the compound word and keep remaining words
+            const compoundWordIndex = wordsToCheck.indexOf(spokenWord);
+            if (compoundWordIndex >= 0) {
+              const remainingWords = transcriptWords.slice(compoundWordIndex + 1);
+              voskFinalTranscriptRef.current = remainingWords.join(' ');
+              setTranscript(remainingWords.join(' '));
+              processedTranscriptWordsRef.current = 0;
+              console.log(`🧹 Removed compound word, kept ${remainingWords.length} remaining words`);
+            } else {
+              voskFinalTranscriptRef.current = "";
+              setTranscript("");
+              processedTranscriptWordsRef.current = 0;
+            }
+
+            break;
+          }
+        }
+
+        // Third check: 3-word compound (very fast reading)
+        // Example: "henoticedsome" from "he" + "noticed" + "something"
+        // AUTO-ADVANCE REMOVED: matched variable no longer used
+        if (currentWordIndex + 2 < realWords.length) {
+          const nextWord1 = realWords[currentWordIndex + 1];
+          const nextWord2 = realWords[currentWordIndex + 2];
+          const concatenated3 = normalize(expectedWord) + normalize(nextWord1) + normalize(nextWord2);
+          const similarity3 = getCachedSimilarity(normalizedSpoken, concatenated3);
+
+          if (similarity3 >= 0.75 || normalizedSpoken === concatenated3) { // Lowered from 0.80 to 0.75
+            console.log(`✅ 3-WORD COMPOUND MATCH! "${spokenWord}" = "${expectedWord}" + "${nextWord1}" + "${nextWord2}" - but not auto-advancing`);
+            // AUTO-ADVANCE REMOVED: Teacher must manually advance
+            // wordsAdvanced = 3;
+            // matched = true;
+
+            // Clear transcript and reset Vosk
+
+            if (voskSocketRef.current && voskSocketRef.current.readyState === WebSocket.OPEN) {
+              try {
+                voskSocketRef.current.send(JSON.stringify({ eof: 1 }));
+                console.log("🧹 Cleared transcript and reset Vosk after 3-word compound match (30ms cooldown)");
+              } catch (e) {
+                console.log("🧹 Cleared transcript after 3-word compound match");
+              }
+            }
+
+            break;
+          }
+        }
+      }
+
+      // AUTO-ADVANCE REMOVED: All advancement logic disabled
+      // if (matched && wordsAdvanced > 0) {
+      //   const newIndex = currentWordIndex + wordsAdvanced;
+      //   setCurrentWordIndex(newIndex);
+      //   setWordsRead(newIndex);
+
+      //   // AGGRESSIVE CLEAR: Completely clear transcript after match
+      //   processedTranscriptWordsRef.current = 0;
+      //   voskFinalTranscriptRef.current = "";
+      //   setTranscript("");
+
+      //   // Note: Cooldown and Vosk reset already handled in the match blocks above
+      //   // This avoids duplicate cooldowns
+      // } else {
+      // NO MATCH - Advanced miscue detection (7 types)
+      console.log(`❌ No match found in recent words`);
+
+      // Omission detection now handled by priority skip-ahead logic above
+      let foundFutureWord = false;
+
+      // 2-7. Other miscue types - analyze RECENT words (not just new ones)
+      // CRITICAL FIX: Use wordsToCheck instead of newWords to catch all miscues
+      // This ensures we detect miscues even if the word was already in the transcript
+      if (!foundFutureWord && wordsToCheck.length > 0) {
+
+        // 4. INSERTION - Child added extra words that DON'T match ANY story word
+        // STRICT: Only count words that are truly extra and not fragments of nearby words
+        // CRITICAL: Skip insertion check if we already counted a miscue for this position
+        const alreadyCountedMiscue = countedMiscuePositionsRef.current.has(currentWordIndex);
+
+        if (newWords.length > 0 && !alreadyCountedMiscue) {
+          console.log(`🔍 INSERTION CHECK: Analyzing ${newWords.length} new words: [${newWords.join(', ')}]`);
+          let insertionCount = 0;
+          const insertedWordsList: string[] = [];
+
+          for (const word of newWords) {
+            const normalizedWord = normalize(word);
+            console.log(`   Checking word: "${word}" (normalized: "${normalizedWord}")`);
+
+
+            // CRITICAL FIX: Check if word matches EXPECTED word at current position
+            // Not just ANY word in the story
+            // Example: Story "naglalakad sa" → Child "naglalakad doon sa"
+            //   "doon" doesn't match "sa" (expected word) → INSERTION
+            const expectedWord = realWords[currentWordIndex];
+            const matchesExpectedWord = isWordMatch(word, expectedWord);
+            
+            // Also check if it matches the NEXT expected word (might be reading ahead)
+            const nextExpectedWord = currentWordIndex + 1 < realWords.length ? realWords[currentWordIndex + 1] : '';
+            const matchesNextWord = nextExpectedWord && isWordMatch(word, nextExpectedWord);
+            
+            // Only skip insertion if it matches current or next expected word
+            const matchesAnyStoryWord = matchesExpectedWord || matchesNextWord;
+            
+            console.log(`   Expected: "${expectedWord}", Next: "${nextExpectedWord}"`);
+            console.log(`   Matches expected position: ${matchesAnyStoryWord}`);
+
+            // ENHANCED CHECK: Is this word a fragment/compound of ANY story words?
+            // Check both nearby words AND all story words for compounds
+            let isLikelyFragment = false;
+
+            // First check: nearby words (current position ± 5 words)
+            for (let i = 0; i <= 5 && currentWordIndex + i < realWords.length; i++) {
+              const nearbyWord = normalize(realWords[currentWordIndex + i]);
+              // If the "inserted" word is contained in a nearby story word, it's likely a fragment
+              if (nearbyWord.includes(normalizedWord) || normalizedWord.includes(nearbyWord)) {
+                isLikelyFragment = true;
+                console.log(`   ℹ️ "${word}" is likely a fragment of nearby word "${realWords[currentWordIndex + i]}" - not counting as insertion`);
+                break;
+              }
+
+              // COMPOUND CHECK: Check if this "inserted" word is a compound of two nearby words
+              if (currentWordIndex + i + 1 < realWords.length) {
+                const nextNearbyWord = normalize(realWords[currentWordIndex + i + 1]);
+                const compound = nearbyWord + nextNearbyWord;
+                if (normalizedWord === compound || compound.includes(normalizedWord) || normalizedWord.includes(compound)) {
+                  isLikelyFragment = true;
+                  console.log(`   ℹ️ "${word}" is likely a compound of "${realWords[currentWordIndex + i]}" + "${realWords[currentWordIndex + i + 1]}" - not counting as insertion`);
+                  break;
+                }
+              }
+            }
+
+            // Second check: ALL story words for compound matches (e.g., "aman" = "a" + "man")
+            // This catches cases where speech recognition joins words that appear anywhere in the story
+            if (!isLikelyFragment) {
+              for (let i = 0; i < realWords.length - 1; i++) {
+                const word1 = normalize(realWords[i]);
+                const word2 = normalize(realWords[i + 1]);
+                const compound = word1 + word2;
+
+                // Check if the "inserted" word is a compound of ANY two consecutive story words
+                if (normalizedWord === compound) {
+                  isLikelyFragment = true;
+                  console.log(`   ℹ️ "${word}" is a compound of story words "${realWords[i]}" + "${realWords[i + 1]}" (positions ${i} and ${i + 1}) - not counting as insertion`);
+                  break;
+                }
+
+                // Also check high similarity (90%+) for speech recognition errors
+                const similarity = getCachedSimilarity(normalizedWord, compound);
+                if (similarity >= 0.90) {
+                  isLikelyFragment = true;
+                  console.log(`   ℹ️ "${word}" is ${(similarity * 100).toFixed(0)}% similar to compound "${realWords[i]} ${realWords[i + 1]}" - not counting as insertion`);
+                  break;
+                }
+              }
+            }
+
+            // Third check: Check if word is a compound of ANY two story words (not necessarily consecutive)
+            // This catches "aman" from "a" (position 8) + "man" (position 15)
+            if (!isLikelyFragment && normalizedWord.length >= 4) {
+              for (let i = 0; i < realWords.length; i++) {
+                for (let j = i + 1; j < Math.min(i + 10, realWords.length); j++) {
+                  const word1 = normalize(realWords[i]);
+                  const word2 = normalize(realWords[j]);
+                  const compound = word1 + word2;
+
+                  if (normalizedWord === compound) {
+                    isLikelyFragment = true;
+                    console.log(`   ℹ️ "${word}" is a compound of non-consecutive story words "${realWords[i]}" (pos ${i}) + "${realWords[j]}" (pos ${j}) - not counting as insertion`);
+                    break;
+                  }
+                }
+                if (isLikelyFragment) break;
+              }
+            }
+
+            // Only count as insertion if:
+            // 1. Word doesn't match any story word
+            // 2. Word is NOT a fragment of nearby words
+            // 3. Word is not a pure filler sound (um, uh, ah)
+            // 4. Word has at least 2 characters
+            // RELAXED: Allow common words like "the", "a", "and" as insertions
+            // RELAXED: Reduced minimum length from 4 to 2 characters
+            const pureFillerSounds = ['um', 'uh', 'ah', 'eh', 'hmm', 'mm'];
+            const isPureFillerSound = pureFillerSounds.includes(normalizedWord);
+
+            if (!matchesAnyStoryWord && !isLikelyFragment && !isPureFillerSound && word.length >= 2 && /[a-z]/i.test(word)) {
+              insertionCount++;
+              insertedWordsList.push(word);
+              console.log(`⚠️ INSERTION! Child added extra word: "${word}" (not in story)`);
+            } else if (matchesAnyStoryWord) {
+              console.log(`   ℹ️ "${word}" matches a story word - not counting as insertion`);
+            } else if (isLikelyFragment) {
+              console.log(`   ℹ️ "${word}" is a fragment - not counting as insertion`);
+            } else if (isPureFillerSound) {
+              console.log(`   ℹ️ "${word}" is a filler sound - not counting as insertion`);
+            } else if (word.length < 2) {
+              console.log(`   ℹ️ "${word}" is too short - not counting as insertion`);
+            }
+          }
+
+          if (insertionCount > 0) {
+            // Mark this position as counted to prevent double-counting
+            countedMiscuePositionsRef.current.add(currentWordIndex);
+
+            setMiscues(prev => prev + insertionCount);
+            setMiscueTypes(prev => ({ ...prev, insertion: prev.insertion + insertionCount }));
+
+            // Track inserted words at current position with DepEd marking
+            setInsertedWords(prev => {
+              const newMap = new Map(prev);
+              const existing = newMap.get(currentWordIndex) || [];
+              newMap.set(currentWordIndex, [...existing, ...insertedWordsList]);
+              return newMap;
+            });
+
+            // Add DepEd marking for insertion
+            setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
+              type: 'insertion',
+              marking: `Use caret (^) to show where word was inserted and write above: "${insertedWordsList.join(', ')}"`,
+              spokenWord: insertedWordsList.join(' '),
+              correctWord: realWords[currentWordIndex] || ''
+            }));
+
+            // CRITICAL: Check if the expected word is also in the recent words
+            // If yes, log it but don't auto-advance
+            const expectedWordFound = wordsToCheck.some(w => isWordMatch(w, expectedWord));
+            if (expectedWordFound) {
+              console.log(`✓ Expected word "${expectedWord}" found after insertion - but not auto-advancing`);
+              // AUTO-ADVANCE REMOVED: Teacher must manually advance
+              // const newIndex = currentWordIndex + 1;
+              // setCurrentWordIndex(newIndex);
+              // setWordsRead(newIndex);
+              return; // Don't process further miscues for this word
+            }
+          }
+        }
+
+        // 5. REPETITION - Detect when child repeats words or phrases
+        // DepEd Rule: Count as one error every word or phrase repeated. Underline the portion repeated.
+        // CRITICAL FIX: Use recentWords instead of wordsForMiscueDetection to catch repetitions
+        // wordsForMiscueDetection only contains NEW words, so it misses when someone repeats a word they just said
+
+        if (recentWords.length >= 2) {
+          // Method 1: Check if last 2 consecutive words are identical (e.g., "the the", "wanted wanted")
+          const lastTwo = recentWords.slice(-2);
+          const normalizedLast1 = normalize(lastTwo[0]);
+          const normalizedLast2 = normalize(lastTwo[1]);
+
+          if (normalizedLast1 === normalizedLast2 && normalizedLast1.length > 0) {
+            // CRITICAL FIX: Find which story word was repeated and mark THAT position
+            // Don't mark currentWordIndex - mark the word that was actually repeated!
+
+            // Find which story word matches the repeated word
+            let repeatedWordIndex = -1;
+            for (let i = Math.max(0, currentWordIndex - 3); i <= currentWordIndex && i < realWords.length; i++) {
+              if (isWordMatch(lastTwo[0], realWords[i])) {
+                repeatedWordIndex = i;
+                break;
+              }
+            }
+
+            // If we found the repeated word in the story, mark it
+            if (repeatedWordIndex >= 0) {
+              const alreadyCountedRepetition = wordMiscues.get(repeatedWordIndex) === 'repetition';
+
+              if (!alreadyCountedRepetition) {
+                console.log(`⚠️ REPETITION! Child repeated "${lastTwo[0]}" (story word #${repeatedWordIndex}: "${realWords[repeatedWordIndex]}") - DepEd Rule: Underline repeated portion`);
+                setMiscues(prev => prev + 1);
+                setMiscueTypes(prev => ({ ...prev, repetition: prev.repetition + 1 }));
+                setWordMiscues(prev => new Map(prev).set(repeatedWordIndex, 'repetition'));
+                setWordMarkings(prev => new Map(prev).set(repeatedWordIndex, {
+                  type: 'repetition',
+                  marking: `Underline repeated portion: "${lastTwo[0]}"`,
+                  spokenWord: `${lastTwo[0]} ${lastTwo[1]}`,
+                  correctWord: realWords[repeatedWordIndex]
+                }));
+
+                // Mark this transcript position as processed to avoid double-counting
+                processedTranscriptWordsRef.current = transcriptWords.length;
+                return; // Don't count as other miscue types
+              }
+            }
+          }
+
+          // Method 2: Check if child is re-reading a word CONSECUTIVELY
+          // Example: Child reads "the the" or "wanted wanted" (said twice IN A ROW)
+          // This should ONLY trigger for consecutive repetitions, not words that appear multiple times in the story
+          if (recentWords.length >= 2) {
+            const lastWord = recentWords[recentWords.length - 1];
+            const secondLastWord = recentWords[recentWords.length - 2];
+            const normalizedLast = normalize(lastWord);
+            const normalizedSecondLast = normalize(secondLastWord);
+
+            // Check if the last two words are the same (CONSECUTIVE repetition)
+            if (normalizedLast === normalizedSecondLast && normalizedLast.length > 0) {
+              // Find which story word was repeated
+              let repeatedWordIndex = -1;
+              for (let i = Math.max(0, currentWordIndex - 3); i <= currentWordIndex && i < realWords.length; i++) {
+                if (isWordMatch(lastWord, realWords[i])) {
+                  repeatedWordIndex = i;
+                  break;
+                }
+              }
+
+              if (repeatedWordIndex >= 0) {
+                const alreadyCountedRepetition = wordMiscues.get(repeatedWordIndex) === 'repetition';
+
+                if (!alreadyCountedRepetition) {
+                  console.log(`⚠️ REPETITION! Child said "${lastWord}" twice in a row (story word #${repeatedWordIndex}: "${realWords[repeatedWordIndex]}") - DepEd Rule: Underline repeated portion`);
+                  setMiscues(prev => prev + 1);
+                  setMiscueTypes(prev => ({ ...prev, repetition: prev.repetition + 1 }));
+                  setWordMiscues(prev => new Map(prev).set(repeatedWordIndex, 'repetition'));
+                  setWordMarkings(prev => new Map(prev).set(repeatedWordIndex, {
+                    type: 'repetition',
+                    marking: `Underline repeated word: "${lastWord}" (said twice in a row)`,
+                    spokenWord: `${lastWord} ${lastWord}`,
+                    correctWord: realWords[repeatedWordIndex]
+                  }));
+
+                  // Mark this transcript position as processed
+                  processedTranscriptWordsRef.current = transcriptWords.length;
+                  return;
+                }
+              }
+            }
+          }
+
+          // Method 3: Check for phrase repetition (2 words repeated CONSECUTIVELY)
+          // Example: "in the in the" (phrase said twice in a row)
+          // BUT: Ignore if the phrase naturally appears in the story (e.g., "gutom na gutom na")
+          if (recentWords.length >= 4) {
+            const lastFour = recentWords.slice(-4);
+            const firstPair = normalize(lastFour[0]) + ' ' + normalize(lastFour[1]);
+            const secondPair = normalize(lastFour[2]) + ' ' + normalize(lastFour[3]);
+
+            if (firstPair === secondPair && firstPair.length > 0) {
+              // Check if this phrase pattern exists in the story
+              // Look for the phrase appearing multiple times in the upcoming story words
+              let isValidPhraseRepetition = false;
+              const lookAheadRange = 8; // Check next 8 words in story
+
+              // Count how many times the phrase appears in the upcoming story
+              let phraseCountInStory = 0;
+              for (let i = Math.max(0, currentWordIndex - 2); i < Math.min(currentWordIndex + lookAheadRange, realWords.length - 1); i++) {
+                if (isWordMatch(lastFour[0], realWords[i]) && isWordMatch(lastFour[1], realWords[i + 1])) {
+                  phraseCountInStory++;
+                }
+              }
+
+              // If the phrase appears 2+ times in the story, it's valid
+              if (phraseCountInStory >= 2) {
+                isValidPhraseRepetition = true;
+                console.log(`   ℹ️ Phrase "${lastFour[0]} ${lastFour[1]}" repeated twice is valid - appears ${phraseCountInStory} times in story`);
+              }
+
+              if (!isValidPhraseRepetition) {
+                // CRITICAL FIX: Find which story word position the phrase starts at
+                let repeatedPhraseIndex = -1;
+                for (let i = Math.max(0, currentWordIndex - 3); i <= currentWordIndex && i < realWords.length - 1; i++) {
+                  if (isWordMatch(lastFour[0], realWords[i]) && isWordMatch(lastFour[1], realWords[i + 1])) {
+                    repeatedPhraseIndex = i;
+                    break;
+                  }
+                }
+
+                if (repeatedPhraseIndex >= 0) {
+                  const alreadyCountedRepetition = wordMiscues.get(repeatedPhraseIndex) === 'repetition';
+
+                  if (!alreadyCountedRepetition) {
+                    console.log(`⚠️ REPETITION! Child repeated phrase "${lastFour[0]} ${lastFour[1]}" (story position #${repeatedPhraseIndex}) - DepEd Rule: Underline repeated portion`);
+                    setMiscues(prev => prev + 1);
+                    setMiscueTypes(prev => ({ ...prev, repetition: prev.repetition + 1 }));
+                    setWordMiscues(prev => new Map(prev).set(repeatedPhraseIndex, 'repetition'));
+                    setWordMarkings(prev => new Map(prev).set(repeatedPhraseIndex, {
+                      type: 'repetition',
+                      marking: `Underline repeated phrase: "${lastFour[0]} ${lastFour[1]}"`,
+                      spokenWord: `${lastFour[0]} ${lastFour[1]} ${lastFour[2]} ${lastFour[3]}`,
+                      correctWord: `${realWords[repeatedPhraseIndex]} ${realWords[repeatedPhraseIndex + 1]}`
+                    }));
+
+                    // Mark this transcript position as processed
+                    processedTranscriptWordsRef.current = transcriptWords.length;
+                    return;
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // OPTIMIZED: Only analyze the LAST NEW word for substitution/mispronunciation
+        // This prevents counting the same word multiple times
+        // CRITICAL FIX: Use wordsForMiscueDetection instead of wordsToCheck
+        // This ensures we only check NEW words, not old words that were already processed
+        if (wordsForMiscueDetection.length === 0) return;
+
+        const lastWord = wordsForMiscueDetection[wordsForMiscueDetection.length - 1];
+        const isActualWord = lastWord.length >= 3; // Raised from 2 to 3 to filter noise
+        const miscueKey = `${currentWordIndex}-${lastWord}`; // Unique key for this miscue
+
+        // CRITICAL: Check if this word position already has been counted (using ref for immediate check)
+        const alreadyCounted = countedMiscuePositionsRef.current.has(currentWordIndex);
+
+        // Only count if it's a new miscue (not already counted)
+        if (isActualWord && !isWordMatch(lastWord, expectedWord) && lastMiscueWordRef.current !== miscueKey && !alreadyCounted) {
+          // Mark this position as counted IMMEDIATELY to prevent duplicates
+          countedMiscuePositionsRef.current.add(currentWordIndex);
+          const normSpoken = normalize(lastWord);
+          const normExpected = normalize(expectedWord);
+
+          // 7. REVERSAL - Letters/words reversed (DepEd Rule: Count as one error every reversal made)
+          const isReversal = normSpoken === normExpected.split('').reverse().join('') ||
+            (normSpoken === 'saw' && normExpected === 'was') ||
+            (normSpoken === 'was' && normExpected === 'saw') ||
+            (normSpoken === 'on' && normExpected === 'no') ||
+            (normSpoken === 'no' && normExpected === 'on') ||
+            (normSpoken === 'bad' && normExpected === 'dab') ||
+            (normSpoken === 'dab' && normExpected === 'bad');
+
+          if (isReversal) {
+            console.log(`⚠️ REVERSAL! Child said "${lastWord}" (reversed "${expectedWord}") - DepEd Rule: Write correct word above`);
+            setMiscues(prev => prev + 1);
+            setMiscueTypes(prev => ({ ...prev, reversal: prev.reversal + 1 }));
+            setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'reversal'));
+            setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
+              type: 'reversal',
+              marking: `Write "${expectedWord}" above "${lastWord}"`,
+              spokenWord: lastWord,
+              correctWord: expectedWord
+            }));
+            lastMiscueWordRef.current = miscueKey;
+            return;
+          }
+
+          // 6. TRANSPOSITION - Word order changed (DepEd Rule: Count as one error every transposition made)
+          // Use transpositional symbol over and under the letters or words transposed
+          const isNewWord = newWords.includes(lastWord);
+
+          if (isNewWord && wordsForMiscueDetection.length >= 2) {
+            // Check if they said the NEXT word before the current word
+            if (currentWordIndex + 1 < realWords.length) {
+              const nextExpectedWord = realWords[currentWordIndex + 1];
+              const secondLastWord = wordsForMiscueDetection[wordsForMiscueDetection.length - 2];
+
+              // Pattern: They said word[i+1] then word[i] (swapped order)
+              if (isWordMatch(secondLastWord, nextExpectedWord) && isWordMatch(lastWord, expectedWord)) {
+                console.log(`⚠️ TRANSPOSITION! Child swapped "${expectedWord}" and "${nextExpectedWord}" - DepEd Rule: Use transpositional symbol`);
+                setMiscues(prev => prev + 1);
+                setMiscueTypes(prev => ({ ...prev, transposition: prev.transposition + 1 }));
+                setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'transposition'));
+                setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
+                  type: 'transposition',
+                  marking: `Transpositional symbol over "${expectedWord}" and "${nextExpectedWord}"`,
+                  spokenWord: `${secondLastWord} ${lastWord}`,
+                  correctWord: `${expectedWord} ${nextExpectedWord}`
+                }));
+                lastMiscueWordRef.current = miscueKey;
+                return;
+              }
+            }
+
+            // Don't count saying a previous word as transposition - it's likely repetition or re-reading
+          }
+
+          // 2. MISPRONUNCIATION vs 3. SUBSTITUTION - Following DepEd Phil-IRI rules
+          const similarity = getCachedSimilarity(lastWord, expectedWord);
+
+          // Check for self-correction first (DepEd Rule: Don't count self-correction as error)
+          // Pattern: child says wrong word then corrects themselves
+          if (wordsForMiscueDetection.length >= 2) {
+            const previousWord = wordsForMiscueDetection[wordsForMiscueDetection.length - 2];
+            if (isWordMatch(lastWord, expectedWord) && !isWordMatch(previousWord, expectedWord)) {
+              console.log(`✓ SELF-CORRECTION! Child corrected "${previousWord}" to "${lastWord}" - DepEd Rule: Mark with 'S', don't count as error`);
+              setMiscueTypes(prev => ({ ...prev, selfCorrection: prev.selfCorrection + 1 }));
+              setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'selfCorrection'));
+              setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
+                type: 'selfCorrection',
+                marking: `Write 'S' above self-corrected word`,
+                spokenWord: `${previousWord} → ${lastWord}`,
+                correctWord: expectedWord
+              }));
+
+              // AUTO-ADVANCE REMOVED: Teacher must manually advance
+              // const newIndex = currentWordIndex + 1;
+              // setCurrentWordIndex(newIndex);
+              // setWordsRead(newIndex);
+              processedTranscriptWordsRef.current = transcriptWords.length;
+              return;
+            }
+          }
+
+          // CRITICAL FIX: If isWordMatch considers it correct (accent/pronunciation variation),
+          // do NOT mark as mispronunciation or substitution at all!
+          // DepEd Rule: Dialectal variations should not be counted as errors
+          if (isWordMatch(lastWord, expectedWord)) {
+            console.log(`✓ Dialectal variation accepted: "${lastWord}" for "${expectedWord}" - DepEd Rule: Don't count dialectal variations`);
+            // Don't count as miscue - it's an acceptable pronunciation
+            return;
+          }
+
+          // Calculate similarity to determine miscue type
+          // DepEd Guidelines:
+          // - Mispronunciation: Similar sounding word (75%+ similarity)
+          // - Substitution: Different word entirely (<75% similarity)
+
+          // SPECIAL CASE: Check if spoken word is just the expected word with ending dropped
+          // Example: "aso" for "asong", "bata" for "batang"
+          // This is very common in Tagalog and should be treated as mispronunciation, not substitution
+          const normalizedSpoken = normalize(lastWord);
+          const normalizedExpected = normalize(expectedWord);
+          const isDroppedEnding = normalizedExpected.startsWith(normalizedSpoken) &&
+            normalizedSpoken.length >= 3 &&
+            normalizedSpoken.length / normalizedExpected.length >= 0.6;
+
+          if (isDroppedEnding) {
+            // Treat as mispronunciation (dropped ending) instead of substitution
+            console.log(`⚠️ MISPRONUNCIATION (dropped ending)! Child said "${lastWord}" instead of "${expectedWord}" - DepEd Rule: Underline and write phonetic spelling above`);
+            setMiscues(prev => prev + 1);
+            setMiscueTypes(prev => ({ ...prev, mispronunciation: prev.mispronunciation + 1 }));
+            setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'mispronunciation'));
+            setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
+              type: 'mispronunciation',
+              marking: `Underline "${expectedWord}" and write phonetic spelling "${lastWord}" above (dropped ending)`,
+              spokenWord: lastWord,
+              correctWord: expectedWord
+            }));
+
+            // Increment wordsRead - child read the word (with mispronunciation)
+            setWordsRead(prev => Math.min(prev + 1, words.length));
+            console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)} (mispronunciation counted)`);
+            
+            // AUTO-ADVANCE: Move yellow highlight to next word after mispronunciation
+            const newIndex = currentWordIndex + 1;
+            setCurrentWordIndex(newIndex);
+            console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex} (mispronunciation auto-advance)`);
+            
+            // Clear transcript to prevent false matches
+            const isFirstWord = transcriptWords.indexOf(lastWord) === 0;
+            if (isFirstWord) {
+              voskFinalTranscriptRef.current = "";
+              setTranscript("");
+              processedTranscriptWordsRef.current = 0;
+              console.log(`🧹 Cleared transcript after mispronunciation`);
+            }
+            
+            processedTranscriptWordsRef.current = transcriptWords.length;
+          } else if (similarity >= 0.75) {
+            // Very similar (75%+) - MISPRONUNCIATION
+            // DepEd Rule: Count as 1 error every mispronunciation
+            // Marking: Underline text, write phonetic spelling above
+            console.log(`⚠️ MISPRONUNCIATION! Child said "${lastWord}" instead of "${expectedWord}" (${(similarity * 100).toFixed(0)}% similar) - DepEd Rule: Underline and write phonetic spelling above`);
+            setMiscues(prev => prev + 1);
+            setMiscueTypes(prev => ({ ...prev, mispronunciation: prev.mispronunciation + 1 }));
+            setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'mispronunciation'));
+            setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
+              type: 'mispronunciation',
+              marking: `Underline "${expectedWord}" and write phonetic spelling "${lastWord}" above`,
+              spokenWord: lastWord,
+              correctWord: expectedWord
+            }));
+
+            // Increment wordsRead - child read the word (with mispronunciation)
+            setWordsRead(prev => Math.min(prev + 1, words.length));
+            console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)} (mispronunciation counted)`);
+            
+            // AUTO-ADVANCE: Move yellow highlight to next word after mispronunciation
+            const newIndex = currentWordIndex + 1;
+            setCurrentWordIndex(newIndex);
+            console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex} (mispronunciation auto-advance)`);
+            
+            // Clear transcript to prevent false matches (only if first word)
+            const isFirstWord = transcriptWords.indexOf(lastWord) === 0;
+            if (isFirstWord) {
+              voskFinalTranscriptRef.current = "";
+              setTranscript("");
+              processedTranscriptWordsRef.current = 0;
+              console.log(`🧹 Cleared transcript after mispronunciation`);
+            }
+
+            // Mark this word as processed so it won't be reused for next expected word
+            processedTranscriptWordsRef.current = transcriptWords.length;
+          } else {
+            // Different word (<75% similarity) - SUBSTITUTION
+            // DepEd Rule: Count as 1 error every substitution
+            // Marking: Underline text, write substituted word above
+
+            // EXCEPTION: Check if the spoken word matches a nearby story word
+            // This could be reading ahead/behind, not a true substitution
+            const nearbyRange = 3; // Check 3 words before and after
+            const startIdx = Math.max(0, currentWordIndex - nearbyRange);
+            const endIdx = Math.min(realWords.length, currentWordIndex + nearbyRange + 1);
+            const nearbyWords = realWords.slice(startIdx, endIdx);
+
+            const matchesNearbyWord = nearbyWords.some(nearbyWord => isWordMatch(lastWord, nearbyWord));
+
+            if (matchesNearbyWord) {
+              console.log(`✓ Word "${lastWord}" matches a nearby story word, likely reading ahead/behind - not counting as substitution`);
+              // This is likely a transposition or the child reading ahead/behind
+              return;
+            }
+
+            // True substitution - completely different word
+            console.log(`⚠️ SUBSTITUTION! Child said "${lastWord}" instead of "${expectedWord}" (${(similarity * 100).toFixed(0)}% similar) - DepEd Rule: Underline and write substituted word above`);
+            setMiscues(prev => prev + 1);
+            setMiscueTypes(prev => ({ ...prev, substitution: prev.substitution + 1 }));
+            setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'substitution'));
+            setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
+              type: 'substitution',
+              marking: `Underline "${expectedWord}" and write substituted word "${lastWord}" above`,
+              spokenWord: lastWord,
+              correctWord: expectedWord
+            }));
+
+            // CRITICAL: Increment wordsRead even for substitutions
+            // The child DID read a word (just the wrong one), so it counts toward words read
+            // The miscue is tracked separately
+            setWordsRead(prev => Math.min(prev + 1, words.length));
+            console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)} (substitution counted)`);
+
+            // AUTO-ADVANCE: Move yellow highlight to next word after substitution
+            // This allows reading to continue naturally while tracking the error
+            const newIndex = currentWordIndex + 1;
+            setCurrentWordIndex(newIndex);
+            console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex} (substitution auto-advance)`);
+
+            // CRITICAL FIX: Always clear the transcript after substitution
+            // Without this, the transcript keeps accumulating and the same word
+            // gets matched against every subsequent expected word, causing runaway advancement
+            voskFinalTranscriptRef.current = "";
+            setTranscript("");
+            processedTranscriptWordsRef.current = 0;
+            console.log(`🧹 Cleared transcript after substitution to prevent runaway matching`);
+            
+            return; // Exit early to prevent further processing
+          }
+
+          lastMiscueWordRef.current = miscueKey;
+        }
+      }
+
+      // AUTO-ADVANCE REMOVED: matched variable no longer used
+      // Reset miscue tracking when word advances
+      // if (matched) {
+      //   lastMiscueWordRef.current = "";
+      // }
+
+      // Mark these words as processed
+      processedTranscriptWordsRef.current = transcriptWords.length;
+    }, 5); // 5ms delay - ZERO DELAY recognition (absolute minimum for stability)
+
+    return () => {
+      if (matchTimeoutRef.current) {
+        clearTimeout(matchTimeoutRef.current);
+      }
+    };
+  }, [transcript, realWords, currentWordIndex]);
+
+  // Reset miscues at the start of each session
+  useEffect(() => {
+    setMiscues(0);
+    setMiscueTypes({
+      mispronunciation: 0,
+      omission: 0,
+      substitution: 0,
+      insertion: 0,
+      repetition: 0,
+      transposition: 0,
+      reversal: 0,
+      selfCorrection: 0
+    });
+    setWordsRead(0);
+    setCurrentWordIndex(0);
+    setWordMiscues(new Map());
+    setWordMarkings(new Map());
+    setInsertedWords(new Map());
+    setRecognizedWords(new Set()); // Reset recognized words
+    processedTranscriptWordsRef.current = 0;
+    lastMiscueWordRef.current = "";
+    countedMiscuePositionsRef.current.clear(); // Reset counted positions
+  }, [sessionId]);
+
+  // Cleanup Vosk on component unmount
+  useEffect(() => {
+    return () => {
+      cleanupVosk();
+    };
+  }, []);
+
+  const [studentNames, setStudentNames] = useState<{ [id: string]: string }>(
+    {}
+  );
+
+  // Extract student names from currentSession (students now contains both id and name)
+  useEffect(() => {
+    if (!currentSession?.students) return;
+
+    // If students is an array of objects with id and name, use them directly
+    const names: { [id: string]: string } = {};
+    currentSession.students.forEach((student) => {
+      // Handle both old format (string[]) and new format ({id, name}[])
+      if (typeof student === 'string') {
+        // Old format: just ID, fetch name
+        names[student] = student; // Temporary, will be fetched below
+      } else if (student && typeof student === 'object' && 'id' in student && 'name' in student) {
+        // New format: object with id and name
+        names[student.id] = student.name;
+      }
+    });
+
+    // For old format strings, try to fetch names (backward compatibility)
+    const idsToFetch = currentSession.students
+      .filter(s => typeof s === 'string')
+      .map(s => s as string);
+
+    if (idsToFetch.length > 0) {
+      Promise.all(
+        idsToFetch.map(async (id) => {
+          try {
+            const student = await studentService.getStudent(id);
+            if (student && student.name) {
+              names[id] = student.name;
+            } else {
+              names[id] = id; // Fallback to ID if name not found
+            }
+          } catch (e) {
+            names[id] = id; // Fallback to ID on error
+          }
+        })
+      ).then(() => setStudentNames(names));
+    } else {
+      setStudentNames(names);
+    }
+  }, [currentSession]);
+
+
+
+  // Auto-scroll to current word when it changes
+  useEffect(() => {
+    if (currentWordRef.current && storyContentRef.current && isRecording) {
+      const wordElement = currentWordRef.current;
+      const container = storyContentRef.current;
+
+      // Calculate position relative to container
+      const wordRect = wordElement.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+
+      // Check if word is outside visible area
+      const isAboveView = wordRect.top < containerRect.top;
+      const isBelowView = wordRect.bottom > containerRect.bottom;
+
+      if (isAboveView || isBelowView) {
+        // Smooth scroll to center the word in view
+        const scrollOffset = wordElement.offsetTop - container.offsetTop - (container.clientHeight / 2) + (wordRect.height / 2);
+        container.scrollTo({
+          top: scrollOffset,
+          behavior: 'smooth'
+        });
+      }
+    }
+  }, [currentWordIndex, isRecording]);
+
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-red-600">Failed to load reading session</p>
-          <button
-            onClick={handleGoBack}
-            className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-          >
-            Go Back
-          </button>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading session...</p>
         </div>
       </div>
     );
   }
 
+  if (!currentSession) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        {isLoading ? (
+          <div className="flex items-center justify-center h-screen">
+            <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
+          </div>
+        ) : !currentSession ? (
+          <div className="flex flex-col items-center justify-center h-screen">
+            <p className="text-red-600">Failed to load reading session</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            >
+              Retry
+            </button>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  const isCompleted = (currentSession?.status as any) === "completed";
+
+  // Function to save ISR result to MongoDB
+  const saveISRResult = async (
+    studentId: string,
+    studentName: string
+  ) => {
+    try {
+      // Validate required fields
+      if (!studentId || studentId.trim() === "") {
+        throw new Error("Student ID is required to save ISR result");
+      }
+
+      if (!currentSession || !currentStory) {
+        console.warn("Cannot save ISR result: missing session or story data");
+        return;
+      }
+
+      // Get teacher information
+      let teacherName = "Teacher";
+      let schoolName = "";
+      try {
+        const profile = await getUserProfile();
+        teacherName = profile?.displayName || profile?.email || "Teacher";
+        schoolName = profile?.school || "";
+      } catch (error) {
+        console.warn("Could not fetch teacher profile:", error);
+      }
+
+      // Format reading time (convert seconds to "M:SS minuto")
+      const formatReadingTime = (seconds: number): string => {
+        const minutes = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${minutes}:${secs.toString().padStart(2, "0")} minuto`;
+      };
+
+      // Calculate word reading score percentage
+      const calculateWordReadingScore = (): number => {
+        if (words.length === 0) return 0;
+        const correctWords = wordsRead - miscues;
+        const percentage = (correctWords / words.length) * 100;
+        return Math.max(0, Math.min(100, percentage)); // Clamp between 0-100
+      };
+
+      // Determine word reading level based on score
+      const getWordReadingLevel = (score: number): "Independent" | "Instructional" | "Frustration" => {
+        if (score >= 95) return "Independent";
+        if (score >= 90) return "Instructional";
+        return "Frustration";
+      };
+
+      // Determine comprehension level (default to Frustration since quiz comes later)
+      const getComprehensionLevel = (): "Independent" | "Instructional" | "Frustration" => {
+        // Quiz data not available yet, default to Frustration
+        return "Frustration";
+      };
+
+      // Get story set (A, B, C, or D) - default to 'A' if not available
+      const getStorySet = (): "A" | "B" | "C" | "D" => {
+        const storySet = (currentStory as any)?.storySet || (currentStory as any)?.set || "A";
+        if (["A", "B", "C", "D"].includes(storySet)) {
+          return storySet as "A" | "B" | "C" | "D";
+        }
+        return "A";
+      };
+
+      // Get story level (reading level)
+      const getStoryLevel = (): string => {
+        return (currentStory as any)?.readingLevel || (currentStory as any)?.level || "4";
+      };
+
+      // Use the actual tracked miscue types from the reading session
+      const miscueBreakdown = {
+        mispronunciation: miscueTypes.mispronunciation || 0,
+        omission: miscueTypes.omission || 0,
+        substitution: miscueTypes.substitution || 0,
+        insertion: miscueTypes.insertion || 0,
+        repetition: miscueTypes.repetition || 0,
+        transposition: miscueTypes.transposition || 0,
+        reversal: miscueTypes.reversal || 0,
+        totalMiscues: miscues,
+      };
+
+      const wordReadingScore = calculateWordReadingScore();
+      const wordReadingLevel = getWordReadingLevel(wordReadingScore);
+
+      // Map story language to ISR language format
+      const isrLanguage: "English" | "Filipino" =
+        storyLanguage === "tagalog" ? "Filipino" : "English";
+
+      // Get student grade/section if available
+      let gradeSection = "";
+      try {
+        const student = await studentService.getStudent(studentId);
+        if (student?.grade) {
+          gradeSection = student.grade;
+        }
+      } catch (error) {
+        console.warn("Could not fetch student grade:", error);
+      }
+
+      // Validate teacherId
+      const teacherIdValue = currentSession.teacherId || currentUser?.uid;
+      if (!teacherIdValue || teacherIdValue.trim() === "") {
+        throw new Error("Teacher ID is required to save ISR result");
+      }
+
+      // Create ISR result data matching MongoDB document structure
+      const isrResultData = {
+        studentId: studentId.trim(), // Ensure it's a valid string
+        studentName: studentName.trim(),
+        teacherId: teacherIdValue.trim(),
+        teacherName: teacherName.trim(),
+        gradeSection: gradeSection || undefined, // Use undefined instead of empty string
+        school: schoolName || undefined, // Use undefined instead of empty string
+        formTitle: "Phil-IRI Form 3A",
+        language: isrLanguage,
+        sessionId: sessionId && sessionId.trim() !== "" ? sessionId.trim() : undefined, // Optional field
+        sessionTitle: currentSession.title || undefined,
+        book: currentSession.book || currentStory.title || undefined,
+        testId: undefined, // Optional - can be added later when quiz is completed
+        testName: undefined, // Optional - can be added later when quiz is completed
+        assessmentDate: new Date(),
+        partA: {
+          readingTime: formatReadingTime(elapsedTime),
+          readingRate: parseInt(readingSpeedWPM) || 0,
+          correctAnswers: 0, // Quiz comes later
+          percentage: 0, // Quiz comes later
+          comprehensionLevel: getComprehensionLevel(),
+          answers: [], // Quiz answers come later
+        },
+        partB: {
+          wordReading: {
+            selection: currentSession.book || currentStory.title || "",
+            level: getStoryLevel(),
+            set: getStorySet(),
+          },
+          miscues: miscueBreakdown,
+          wordsInPassage: words.length,
+          wordReadingScore: wordReadingScore,
+          wordReadingLevel: wordReadingLevel,
+        },
+      };
+
+      // Save to MongoDB
+      await isrResultService.createISRResult(isrResultData);
+    } catch (error) {
+      console.error("Error saving ISR result to MongoDB:", error);
+      throw error; // Re-throw to show error to user
+    }
+  };
+
+  // Retry/Reset reading session
+  const handleRetrySession = () => {
+    // Stop any ongoing recording
+    if (isRecording) {
+      handleStopRecording();
+    }
+    
+    // Reset all session state
+    setCurrentWordIndex(0);
+    setWordsRead(0);
+    setMiscues(0);
+    setMiscueTypes({ omission: 0, substitution: 0, insertion: 0, mispronunciation: 0, repetition: 0, transposition: 0, reversal: 0, selfCorrection: 0 });
+    setElapsedTime(0);
+    setTranscript('');
+    setRecognizedWords(new Set());
+    setWordMiscues(new Map());
+    setWordMarkings(new Map());
+    setInsertedWords(new Map());
+    setAudioBlob(null);
+    setAudioUrl(null);
+    setIsRecording(false);
+    setHasStarted(false);
+    
+    // Show confirmation
+    Swal.fire({
+      icon: 'success',
+      title: 'Session Reset!',
+      text: 'You can start a new reading session now.',
+      timer: 2000,
+      showConfirmButton: false
+    });
+  };
+
+  const handleCompleteSession = async () => {
+    if (!sessionId || !currentSession) return;
+
+    try {
+      // If recording is active, stop and wait for audio to finalize
+      if (isRecording) {
+        await handleStopRecording();
+        await waitForAudioFinalization(2500);
+      }
+
+      // Update session status to completed
+      await readingSessionService.updateSessionStatus(sessionId, "completed");
+
+      // Save ISR results to MongoDB for each student
+      for (const student of currentSession.students) {
+        // Handle both old format (string[]) and new format ({id, name}[])
+        let studentId: string;
+        let studentName: string;
+
+        if (typeof student === 'string') {
+          // Old format: just ID
+          studentId = student;
+          studentName = studentNames[studentId] || studentId;
+        } else if (student && typeof student === 'object' && 'id' in student && 'name' in student) {
+          // New format: object with id and name
+          studentId = student.id;
+          studentName = student.name;
+        } else {
+          console.warn('Invalid student format:', student);
+          continue;
+        }
+
+        try {
+          await saveISRResult(studentId, studentName);
+          console.log(`Session completed for student: ${studentName} (${studentId})`);
+        } catch (error) {
+          console.error(`Failed to save ISR result for ${studentName}:`, error);
+        }
+
+
+      }
+
+      // Update local state
+      setCurrentSession({
+        ...currentSession,
+        status: "completed",
+      });
+
+      // Show SweetAlert2 success popup
+      await Swal.fire({
+        icon: "success",
+        title: "Session Completed!",
+        text: "All data has been saved successfully.",
+        confirmButtonText: "OK",
+      });
+
+      // Optionally navigate back to sessions list
+      // navigate('/teacher/reading');
+    } catch (error) {
+      console.error("Failed to complete session:", error);
+      alert("Failed to complete session. Please try again.");
+    }
+  };
+
+
+
+  // Helper to check if a word index matches the current word
+  function isWordCurrent(realWordIndex: number): boolean {
+    return realWordIndex === currentWordIndex;
+  }
+
+  // Helper to check if a word has been read/recognized (either advanced past it OR recognized it)
+  function isWordRead(realWordIndex: number): boolean {
+    return realWordIndex < currentWordIndex || recognizedWords.has(realWordIndex);
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-100 flex flex-col -mt-8 sm:-mt-10 -mx-4 sm:-mx-8 pb-4">
-      {/* Header (no Back button) */}
-      <header className="w-full pt-4 sm:pt-6 pb-4 px-4 sm:px-8">
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-extrabold text-blue-900 drop-shadow-sm">
-            {currentSession.title}
-          </h1>
-          <span className="px-4 py-2 rounded-full text-sm font-semibold shadow bg-blue-100 text-blue-700">
-            Parent View
-          </span>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-100 flex flex-col">
+      {/* Title */}
+      <header className="w-full px-4 sm:px-8 pt-4 sm:pt-8 pb-6 sm:pb-8 relative z-50 bg-gradient-to-br from-blue-50 via-white to-purple-100">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
+            <button
+              onClick={handleGoBack}
+              className="inline-flex items-center px-3 py-2 text-sm sm:text-base font-semibold text-blue-700 bg-white border border-blue-200 rounded-lg hover:bg-blue-50 transition-all duration-200 shadow-sm z-50 relative min-h-[44px] min-w-[44px] touch-manipulation"
+              title="Back"
+            >
+              <ArrowLeftIcon className="h-4 w-4 sm:h-5 sm:w-5 mr-1 sm:mr-2" />
+              <span className="hidden sm:inline">Back</span>
+            </button>
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-blue-900 truncate">
+              {currentSession?.title || "Reading Session"}
+            </h1>
+          </div>
         </div>
       </header>
 
-      {/* Main Content (replicate teacher layout) */}
-      <section className="w-full mb-6 flex flex-col lg:flex-row gap-8 px-4 sm:px-8">
+
+
+      {/* Story Content + Progress Side by Side */}
+      <section className="w-full px-4 pt-6 sm:px-8 mb-6 flex flex-col lg:flex-row gap-4 lg:gap-8 relative z-10">
         {/* Story Content */}
         <div className="flex-1">
-          <div className="relative bg-white/80 rounded-3xl shadow-xl border border-blue-100 p-10 overflow-hidden max-h-[48rem]">
-            {/* Progress bar */}
-            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 rounded-t-3xl" style={{ width: `${Math.min((currentWordIndex / Math.max(totalWords, 1)) * 100, 100)}%` }}></div>
-            <div className="mb-8 flex items-center justify-between">
-              <h3 className="text-2xl font-bold text-blue-900 flex items-center gap-2">
-                <BookOpenIcon className="h-7 w-7 text-blue-500" /> Story Content
-              </h3>
-              <div className="flex items-center gap-6 text-lg text-blue-700">
-                <span>{totalWords} words</span>
-                <span>•</span>
-                <span>{(storyText || '').split('\n\n').filter(p => p.trim().length > 0).length} paragraphs</span>
-                <span>•</span>
-                <button onClick={handleChooseStudent} className="px-3 py-1.5 rounded-md bg-indigo-600 text-white text-sm hover:bg-indigo-700">Choose Child</button>
+          <div className="relative bg-white/80 rounded-2xl lg:rounded-3xl border border-blue-100 p-4 sm:p-6 lg:p-10 overflow-hidden max-h-[40rem] lg:max-h-[48rem]">
+            {/* Progress Bar */}
+            <div
+              className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 rounded-t-3xl animate-pulse"
+              style={{
+                width: `${Math.min(
+                  (currentWordIndex / words.length) * 100,
+                  100
+                )}%`,
+              }}
+            ></div>
+            {/* Metrics Row - Horizontal Layout */}
+            <div className="mb-4 sm:mb-6 lg:mb-8">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-3">
+                {/* Words Read */}
+                <div className="rounded-lg bg-blue-100 p-3 flex flex-col items-center">
+                  <span className="text-blue-700 font-bold text-xs sm:text-sm">
+                    Words Read
+                  </span>
+                  <span className="text-xl sm:text-2xl font-extrabold text-blue-700 mt-1">
+                    {Math.min(wordsRead, words.length)}
+                  </span>
+                </div>
+
+                {/* Oral Reading Score */}
+                <div className="rounded-lg bg-yellow-100 p-3 flex flex-col items-center">
+                  <span className="text-yellow-700 font-bold text-xs sm:text-sm">
+                    Oral Reading Score
+                  </span>
+                  <span className="text-xl sm:text-2xl font-extrabold text-yellow-700 mt-1">
+                    {oralReadingScore}%
+                  </span>
+                </div>
+
+                {/* Reading Speed */}
+                <div className="rounded-lg bg-green-100 p-3 flex flex-col items-center">
+                  <span className="text-green-700 font-bold text-xs sm:text-sm">
+                    Reading Speed
+                  </span>
+                  <span className="text-xl sm:text-2xl font-extrabold text-green-700 mt-1">
+                    {readingSpeedWPM} WPM
+                  </span>
+                </div>
+
+                {/* Elapsed */}
+                <div className="rounded-lg bg-purple-100 p-3 flex flex-col items-center">
+                  <span className="text-purple-700 font-bold text-xs sm:text-sm">
+                    Elapsed
+                  </span>
+                  <span className="text-xl sm:text-2xl font-extrabold text-purple-700 mt-1">
+                    {formatElapsedTime(elapsedTime)}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-3 text-sm text-blue-700">
+                <span>{words.length} words</span>
+                {isLoadingPdf && <span className="hidden sm:inline">•</span>}
+                {isLoadingPdf && <span>Loading PDF…</span>}
               </div>
             </div>
-            <div className="max-h-[38rem] overflow-y-auto custom-scrollbar prose prose-xl prose-blue bg-white/60 rounded-xl p-8 shadow-inner text-[1.35rem] leading-relaxed tracking-wide">
-              {storyText ? (
-                storyText.split('\n\n').filter(p => p.trim().length > 0).map((paragraph, paragraphIndex, paragraphs) => (
-                  <div key={paragraphIndex} className="mb-8 last:mb-0">
-                    <p className="text-gray-800 leading-relaxed flex flex-wrap gap-y-3">
-                      {paragraph.trim().split(/\s+/).map((word, wordIndex) => {
-                        const globalWordIndex = paragraphs
-                          .slice(0, paragraphIndex)
-                          .reduce((acc, p) => acc + p.trim().split(/\s+/).length, 0) + wordIndex;
-                        const isCurrent = currentWordIndex === globalWordIndex;
-                        return (
-                          <span
-                            key={`${paragraphIndex}-${wordIndex}`}
-                            className={
-                              `inline-block mr-3 mb-2 px-3 py-2 rounded font-serif text-2xl transition-all duration-200 ` +
-                              (isCurrent
-                                ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold shadow-lg scale-110'
-                                : 'bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700')
+            <div
+              ref={storyContentRef}
+              className="max-h-[20rem] sm:max-h-[30rem] lg:max-h-[38rem] overflow-y-auto custom-scrollbar prose prose-sm sm:prose-base lg:prose-xl prose-blue bg-white/60 rounded-lg sm:rounded-xl p-4 sm:p-6 lg:p-8 text-sm sm:text-base lg:text-[1.35rem] leading-relaxed tracking-wide"
+            >
+              {storyText || pdfContent ? (
+                (storyText ? storyText : pdfContent)
+                  .split("\n\n")
+                  .filter((p) => p.trim().length > 0)
+                  .map((paragraph, paragraphIndex, paragraphs) => {
+                    // Detect leading whitespace before trimming
+                    const leadingMatch = paragraph.match(/^(\s+)/);
+                    const leadingSpaces = leadingMatch ? leadingMatch[1] : '';
+                    
+                    // Debug: Log ALL paragraphs to see which have spaces
+                    console.log(`Paragraph ${paragraphIndex}:`, JSON.stringify(paragraph.substring(0, 50)));
+                    console.log(`  Leading spaces: ${leadingSpaces.length}`);
+                    
+                    const wordsInParagraph = paragraph.trim().split(/\s+/);
+                    // Calculate the starting real word index for this paragraph
+                    const paragraphStartIndex = paragraphs
+                      .slice(0, paragraphIndex)
+                      .reduce((acc, p) => {
+                        const paraWords = p.trim().split(/\s+/);
+                        return acc + paraWords.filter(w => /\w+/.test(w)).length;
+                      }, 0);
+
+                    return (
+                      <div
+                        key={paragraphIndex}
+                        className="mb-4 sm:mb-6 lg:mb-8 last:mb-0"
+                      >
+                        <p 
+                          className="text-gray-800 leading-relaxed flex flex-wrap gap-y-1 sm:gap-y-2 lg:gap-y-3" 
+                          style={{ 
+                            whiteSpace: 'pre-wrap'
+                          }}
+                        >
+                          {leadingSpaces && leadingSpaces.length > 0 && (
+                            <span 
+                              style={{ 
+                                width: `${leadingSpaces.length * 1}ch`,
+                                minWidth: `${leadingSpaces.length * 1}ch`,
+                                flexShrink: 0,
+                                display: 'inline-block'
+                              }}
+                              title={`Indent: ${leadingSpaces.length} spaces`}
+                            />
+                          )}
+                          {wordsInParagraph.map((word, wordIndex) => {
+                            const isSpecialChar = !/\w+/.test(word);
+
+                            // Calculate real word index (only count alphanumeric words)
+                            let realWordIndex = -1;
+                            if (!isSpecialChar) {
+                              let count = 0;
+                              for (let i = 0; i <= wordIndex; i++) {
+                                if (/\w+/.test(wordsInParagraph[i])) {
+                                  if (i === wordIndex) {
+                                    realWordIndex = paragraphStartIndex + count;
+                                    break;
+                                  }
+                                  count++;
+                                }
+                              }
                             }
-                          >
-                            {word}
-                          </span>
-                        );
-                      })}
-                    </p>
-                  </div>
-                ))
-              ) : currentSession?.book && currentSession.book !== 'TBD' ? (
-                <div className="text-center py-16">
-                  <div className="mx-auto w-28 h-28 rounded-full bg-yellow-50 border border-yellow-200 flex items-center justify-center shadow-inner">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-14 h-14 text-yellow-500">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                    </svg>
-                  </div>
-                  <p className="mt-4 text-yellow-800 font-semibold">Story text not available</p>
-                  <p className="text-sm text-yellow-700 mt-2">This story only has a PDF version.</p>
-                  <p className="text-xs text-yellow-600 mt-1">Please contact your teacher to add text content for reading practice.</p>
-                </div>
+
+                            const isCurrent = !isSpecialChar && isWordCurrent(realWordIndex);
+                            const isRead = !isSpecialChar && isWordRead(realWordIndex);
+                            const miscueType = !isSpecialChar ? wordMiscues.get(realWordIndex) : undefined;
+
+                            // Hide all miscue colors while recording - only show AFTER Complete button is clicked
+                            const showMiscueColors = isCompleted || (!isRecording && wordsRead > 0);
+
+                            // Color mapping for miscue types - Balanced: DepEd format + color coding for visibility
+                            const getMiscueColor = (type: MiscueType | undefined) => {
+                              if (!type || !showMiscueColors) return null; // Hide during recording
+                              const colors = {
+                                mispronunciation: 'bg-red-50 text-red-900 border border-red-200', // Light red, underlined
+                                omission: 'bg-orange-50 text-orange-900 border border-orange-200', // Light orange, circled
+                                substitution: 'bg-yellow-50 text-yellow-900 border border-yellow-200', // Light yellow, underlined
+                                insertion: '', // Don't color story word - inserted word shown separately
+                                repetition: 'bg-blue-50 text-blue-900 border border-blue-200', // Light blue, underlined
+                                transposition: 'bg-purple-50 text-purple-900 border border-purple-200', // Light purple, curved line
+                                reversal: 'bg-pink-50 text-pink-900 border border-pink-200', // Light pink, word above
+                                selfCorrection: 'bg-green-50 text-green-900 border border-green-200' // Light green for self-correction
+                              };
+                              return colors[type];
+                            };
+
+                            // Add DepEd marking indicators - Color-coded underlines for visibility
+                            const getMiscueMarkingStyle = (type: MiscueType | undefined) => {
+                              if (!type || !showMiscueColors) return {};
+
+                              const styles: { [key in MiscueType]: React.CSSProperties } = {
+                                mispronunciation: {
+                                  textDecoration: 'underline',
+                                  textDecorationColor: '#dc2626', // red-600
+                                  textDecorationThickness: '2px',
+                                  textDecorationStyle: 'solid'
+                                },
+                                omission: {
+                                  position: 'relative'
+                                  // Circle is rendered separately as overlay
+                                },
+                                substitution: {
+                                  textDecoration: 'underline',
+                                  textDecorationColor: '#ca8a04', // yellow-600
+                                  textDecorationThickness: '2px',
+                                  textDecorationStyle: 'solid'
+                                },
+                                insertion: {
+                                  position: 'relative'
+                                  // Caret is rendered separately
+                                },
+                                repetition: {
+                                  textDecoration: 'underline',
+                                  textDecorationColor: '#2563eb', // blue-600
+                                  textDecorationThickness: '2px',
+                                  textDecorationStyle: 'solid'
+                                },
+                                transposition: {
+                                  position: 'relative'
+                                  // Curved line is rendered separately
+                                },
+                                reversal: {
+                                  position: 'relative'
+                                  // No underline, just word above
+                                },
+                                selfCorrection: {
+                                  position: 'relative'
+                                  // No underline, just 'S' above
+                                }
+                              };
+                              return styles[type] || {};
+                            };
+
+                            // Get marking details for this word
+                            const marking = !isSpecialChar ? wordMarkings.get(realWordIndex) : undefined;
+
+                            return (
+                              <React.Fragment key={`${paragraphIndex}-${wordIndex}`}>
+                                {/* Show inserted words as separate word boxes BEFORE this word */}
+                                {!isSpecialChar && insertedWords.has(realWordIndex) && showMiscueColors && insertedWords.get(realWordIndex)!.map((insertedWord, idx) => (
+                                  <span
+                                    key={`insert-${realWordIndex}-${idx}`}
+                                    className="inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative bg-cyan-100 text-cyan-900 border-2 border-cyan-400 font-semibold"
+                                    title={`Inserted word: "${insertedWord}" (not in story)`}
+                                  >
+                                    {insertedWord}
+                                    {/* Caret at bottom pointing up to show insertion */}
+                                    <span className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-cyan-600 text-2xl font-bold leading-none">^</span>
+                                  </span>
+                                ))}
+                                
+                                {/* The actual story word */}
+                                <span
+                                  ref={isCurrent ? currentWordRef : null}
+                                  className={
+                                    isSpecialChar
+                                      ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"
+                                      : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative ` +
+                                      (isCurrent
+                                        ? "bg-transparent text-gray-900 font-extrabold z-10 border-4 border-yellow-400"
+                                        : miscueType && showMiscueColors
+                                          ? `${getMiscueColor(miscueType)} font-semibold`
+                                          : recognizedWords.has(realWordIndex) && showMiscueColors
+                                            ? "bg-green-100 text-green-800 font-bold shadow-lg border-2 border-green-400"
+                                            : realWordIndex < currentWordIndex
+                                              ? "bg-white text-gray-800 font-normal border border-gray-200"
+                                              : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
+                                  }
+                                style={
+                                  isCurrent
+                                    ? {
+                                      transition: "background-color 0.2s ease-in-out, color 0.2s ease-in-out, border-color 0.2s ease-in-out"
+                                    }
+                                    : miscueType
+                                      ? {
+                                        ...getMiscueMarkingStyle(miscueType),
+                                        transition: "background-color 0.2s ease-in-out, color 0.2s ease-in-out"
+                                      }
+                                      : isRead
+                                        ? {
+                                          transition: "background-color 0.2s ease-in-out, color 0.2s ease-in-out"
+                                        }
+                                        : {
+                                          transition: "background-color 0.2s ease-in-out, color 0.2s ease-in-out"
+                                        }
+                                }
+                              >
+                                {word}
+
+                                {/* DepEd Phil-IRI Table 4 Marking Annotations - Color-coded for visibility */}
+                                {!isSpecialChar && miscueType && showMiscueColors && marking && (
+                                  <>
+                                    {/* MISPRONUNCIATION: Italic phonetic spelling above, underlined word */}
+                                    {marking.type === 'mispronunciation' && (
+                                      <span
+                                        className="absolute left-0 -top-7 text-sm italic text-red-700 bg-red-100 px-2 py-0.5 rounded shadow-sm whitespace-nowrap z-20 border border-red-300"
+                                        style={{ fontFamily: 'cursive' }}
+                                        title="DepEd: Underline text and write phonetic spelling above"
+                                      >
+                                        {marking.spokenWord}
+                                      </span>
+                                    )}
+
+                                    {/* OMISSION: Circle around word */}
+                                    {marking.type === 'omission' && (
+                                      <span
+                                        className="absolute inset-0 border-2 border-orange-600 rounded-full z-10"
+                                        title="DepEd: Circle the omitted word"
+                                        style={{
+                                          width: 'calc(100% + 8px)',
+                                          height: 'calc(100% + 8px)',
+                                          left: '-4px',
+                                          top: '-4px'
+                                        }}
+                                      />
+                                    )}
+
+                                    {/* SUBSTITUTION: Italic substituted word above, underlined word */}
+                                    {marking.type === 'substitution' && (
+                                      <span
+                                        className="absolute left-0 -top-7 text-sm italic text-yellow-800 bg-yellow-100 px-2 py-0.5 rounded shadow-sm whitespace-nowrap z-20 border border-yellow-300"
+                                        style={{ fontFamily: 'cursive' }}
+                                        title="DepEd: Underline text and write substituted word above"
+                                      >
+                                        {marking.spokenWord}
+                                      </span>
+                                    )}
+
+                                    {/* INSERTION: Caret (^) after word + italic inserted word above */}
+                                    {/* DepEd Format: "the^ flowers" with "lovely" above the caret */}
+                                    {marking.type === 'insertion' && (
+                                      <>
+                                        {/* Caret positioned after the word (insertion point) */}
+                                        <span
+                                          className="absolute -right-2 top-1/2 transform -translate-y-1/2 text-2xl text-cyan-700 font-bold z-20"
+                                          title={`DepEd: Caret shows insertion point for "${marking.spokenWord}"`}
+                                          style={{ lineHeight: '1' }}
+                                        >
+                                          ^
+                                        </span>
+                                        {/* Inserted word(s) above the caret in italic */}
+                                        <span
+                                          className="absolute -right-2 -top-8 text-base italic text-cyan-900 bg-cyan-50 px-2 py-1 rounded shadow-md whitespace-nowrap z-20 border-2 border-cyan-400"
+                                          style={{ 
+                                            fontFamily: 'Georgia, serif',
+                                            fontStyle: 'italic',
+                                            fontWeight: '500'
+                                          }}
+                                          title={`Inserted: ${marking.spokenWord}`}
+                                        >
+                                          {marking.spokenWord}
+                                        </span>
+                                      </>
+                                    )}
+
+                                    {/* REPETITION: Underline the repeated portion */}
+                                    {marking.type === 'repetition' && (
+                                      <span
+                                        className="absolute left-0 -bottom-1 w-full border-b-2 border-blue-600 z-10"
+                                        title="DepEd: Underline the portion repeated"
+                                      />
+                                    )}
+
+                                    {/* TRANSPOSITION: Curved line connecting transposed words */}
+                                    {marking.type === 'transposition' && (
+                                      <span
+                                        className="absolute left-full ml-1 top-1/2 transform -translate-y-1/2 text-2xl text-purple-600 font-bold z-20"
+                                        title="DepEd: Use transpositional symbol"
+                                      >
+                                        ⌢
+                                      </span>
+                                    )}
+
+                                    {/* REVERSAL: Italic correct word above */}
+                                    {marking.type === 'reversal' && (
+                                      <span
+                                        className="absolute left-0 -top-7 text-sm italic text-pink-800 bg-pink-100 px-2 py-0.5 rounded shadow-sm whitespace-nowrap z-20 border border-pink-300"
+                                        style={{ fontFamily: 'cursive' }}
+                                        title="DepEd: Write correct word above"
+                                      >
+                                        {marking.correctWord}
+                                      </span>
+                                    )}
+
+                                    {/* SELF-CORRECTION: Simple 'S' above */}
+                                    {marking.type === 'selfCorrection' && (
+                                      <span
+                                        className="absolute left-0 -top-7 text-base font-bold text-green-700 bg-green-100 px-2 py-1 rounded-full shadow-sm z-20 border-2 border-green-500"
+                                        title="DepEd: Write S above self-corrected word"
+                                      >
+                                        S
+                                      </span>
+                                    )}
+                                  </>
+                                )}
+                              </span>
+                              
+                              {/* Show repeated words as separate word boxes AFTER this word */}
+                              {!isSpecialChar && repeatedWords.has(realWordIndex) && showMiscueColors && repeatedWords.get(realWordIndex)!.map((repeatedWord, idx) => (
+                                <span
+                                  key={`repeat-${realWordIndex}-${idx}`}
+                                  className="inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative bg-blue-50 text-blue-900 border-2 border-blue-400 font-semibold"
+                                  style={{
+                                    textDecoration: 'underline',
+                                    textDecorationColor: '#2563eb',
+                                    textDecorationThickness: '2px',
+                                    textDecorationStyle: 'solid'
+                                  }}
+                                  title={`Repeated word: "${repeatedWord}"`}
+                                >
+                                  {repeatedWord}
+                                </span>
+                              ))}
+                              </React.Fragment>
+                            );
+                          })}
+                        </p>
+                      </div>
+                    );
+                  })
               ) : (
                 <div className="text-center py-16">
-                  <div className="mx-auto w-28 h-28 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center shadow-inner">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-14 h-14 text-blue-400 animate-pulse">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 6v12m-6-6h12" />
+                  <div className="bg-gray-100 rounded-full w-24 h-24 mx-auto mb-6 flex items-center justify-center">
+                    <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                     </svg>
                   </div>
-                  <p className="mt-4 text-blue-800 font-semibold">No story selected</p>
-                  <p className="text-xs text-blue-600">Please go back and select a story from the Reading Practice page</p>
+                  <h3 className="text-xl font-semibold text-gray-700 mb-2">No Story Loaded</h3>
+                  <p className="text-gray-500 text-sm">Please select a story to begin the reading session</p>
                 </div>
               )}
             </div>
-          </div>
-        </div>
-
-        {/* Metrics Panel */}
-        <div className="w-full lg:w-64 flex-shrink-0">
-          <div className="flex flex-col gap-4">
-            <div className="rounded-xl bg-blue-100 shadow p-3 flex flex-col items-center">
-              <UserIcon className="h-6 w-6 text-blue-500 mb-1" />
-              <span className="text-blue-700 font-bold text-base">Students</span>
-              <span className="text-xs text-blue-700 mt-1">{(selectedChild?.name || childNameFromNav) || 'Not specified'}</span>
-            </div>
-            <div className="rounded-xl bg-blue-100 shadow p-3 flex flex-col items-center">
-              <span className="text-blue-700 font-bold text-base">Words Read</span>
-              <span className="text-xl font-extrabold text-blue-700 mt-1">{wordsRead}</span>
-            </div>
-            <div className="rounded-xl bg-red-100 shadow p-3 flex flex-col items-center">
-              <span className="text-red-700 font-bold text-base">Miscues</span>
-              <span className="text-xl font-extrabold text-red-700 mt-1">{miscues}</span>
-            </div>
-            <div className="rounded-xl bg-yellow-100 shadow p-3 flex flex-col items-center">
-              <span className="text-yellow-700 font-bold text-base">Oral Reading Score</span>
-              <span className="text-xl font-extrabold text-yellow-700 mt-1">{totalWords ? `${Math.round((wordsRead / totalWords) * 1000) / 10}%` : '0.0%'}</span>
-            </div>
-            <div className="rounded-xl bg-green-100 shadow p-3 flex flex-col items-center">
-              <span className="text-green-700 font-bold text-base">Reading Speed</span>
-              <span className="text-xl font-extrabold text-green-700 mt-1">{readingSpeedWPM} WPM</span>
-            </div>
-            <div className="rounded-xl bg-yellow-100 shadow p-3 flex flex-col items-center">
-              <span className="text-yellow-700 font-bold text-base">Elapsed</span>
-              <span className="text-xl font-extrabold text-yellow-700 mt-1">{formatElapsed(elapsedTime)}</span>
-            </div>
-            <div className="rounded-xl bg-indigo-100 shadow p-3 flex flex-col items-center">
-              <span className="text-indigo-700 font-bold text-base">Book</span>
-              <span className="text-sm font-semibold text-indigo-700 mt-1">{currentSession.book}</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Controls Section - single Read button */}
-      <section className="w-full px-4 sm:px-8 pb-8">
-        <div className="bg-white/80 rounded-3xl shadow-xl border border-blue-100 p-8 flex flex-col items-center gap-6">
-          <div className="flex items-center gap-4 mb-2">
-            <MicrophoneIcon className="h-7 w-7 text-blue-500" />
-            <h4 className="text-lg font-bold text-blue-900">Session Controls</h4>
-          </div>
-          <div className="flex flex-row flex-wrap justify-center gap-6 w-full">
-            {!isRecording ? (
-              <button
-                onClick={async () => { if (!selectedChild) { await handleChooseStudent(); } if (!storyText) { await handleChooseStory(); } handleStartRecording(); }}
-                className="flex items-center gap-2 px-10 py-4 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white text-xl font-bold shadow-lg hover:scale-105 hover:from-blue-600 hover:to-purple-600 transition-all duration-200"
-              >
-                <BookOpenIcon className="h-7 w-7" /> Read
-              </button>
-            ) : (
-              <button
-                onClick={handleStopRecording}
-                className="flex items-center gap-2 px-10 py-4 rounded-2xl bg-gradient-to-r from-red-500 to-pink-500 text-white text-xl font-bold shadow-lg hover:scale-105 transition-all duration-200"
-              >
-                <StopIcon className="h-7 w-7" /> Stop
-              </button>
+            {(pdfError || error) && !storyText && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/95 rounded-3xl shadow-xl z-10 p-8">
+                <div className="bg-red-50 rounded-full p-6 mb-6">
+                  <XCircleIcon className="h-20 w-20 text-red-500" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-800 mb-3">Unable to Load Story</h3>
+                <p className="text-gray-600 text-center max-w-md mb-2">
+                  We couldn't load the story content for this reading session.
+                </p>
+                <p className="text-sm text-gray-500 text-center max-w-md mb-6">
+                  This might be a temporary connection issue. Please try refreshing the page.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="px-8 py-3 bg-blue-600 text-white rounded-xl shadow-lg hover:bg-blue-700 transition-all font-semibold flex items-center gap-2"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Refresh Page
+                  </button>
+                  <button
+                    onClick={() => navigate('/teacher/reading')}
+                    className="px-8 py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 transition-all font-semibold"
+                  >
+                    Go Back
+                  </button>
+                </div>
+                {(pdfError || error) && (
+                  <details className="mt-6 text-xs text-gray-400 cursor-pointer">
+                    <summary className="hover:text-gray-600">Technical details</summary>
+                    <p className="mt-2 font-mono bg-gray-100 p-2 rounded">{pdfError || error}</p>
+                  </details>
+                )}
+              </div>
             )}
           </div>
         </div>
+
       </section>
 
-      {/* Child Picker Modal */}
-      {isChildPickerOpen && (
-        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center">
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 w-full max-w-md p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h4 className="text-lg font-semibold text-gray-900">Choose Child</h4>
-              <button onClick={() => setIsChildPickerOpen(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+
+
+      {/* Session Controls */}
+      {!isCompleted && (
+        <section className="w-full px-4 sm:px-8 pb-8 relative z-10">
+          <div className="bg-white/80 rounded-2xl lg:rounded-3xl border border-blue-100 p-4 sm:p-6 lg:p-8 flex flex-col items-center gap-4 sm:gap-6">
+            {/* Language selector + STT Provider/Vosk status badge */}
+            <div className="w-full flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 -mt-2 -mb-2">
+              {/* <div className="flex items-center gap-2">
+                <span className="text-xs sm:text-sm font-semibold text-blue-900">
+                  Story Language:
+                </span>
+                <span className="text-xs sm:text-sm px-2 py-1 text-blue-900 font-medium">
+                  Tagalog
+                </span>
+              </div> */}
+              <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+                {/* Status indicator dot only - no text */}
+                {(storyLanguage === "tagalog" || storyLanguage === "english") && (
+                  <span
+                    className={`w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full ${voskStatus === "connected"
+                      ? "bg-green-500"
+                      : voskStatus === "connecting"
+                        ? "bg-yellow-500 animate-pulse"
+                        : "bg-red-500"
+                      }`}
+                  ></span>
+                )}
+              </div>
             </div>
-            <div className="space-y-2 max-h-80 overflow-y-auto">
-              {children.map((c) => (
-                <button key={c.id} onClick={() => { setSelectedChild({ id: c.id || '', name: c.name }); setIsChildPickerOpen(false); }} className="w-full text-left px-3 py-2 rounded-lg border border-gray-100 hover:bg-blue-50">
-                  <div className="font-semibold text-gray-800">{c.name}</div>
-                  <div className="text-xs text-gray-500">{c.grade}</div>
+            <div className="flex items-center gap-2 sm:gap-4 mb-2">
+              <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 text-blue-500" />
+              <h4 className="text-base sm:text-lg font-bold text-blue-900">
+                Controls
+              </h4>
+            </div>
+            <div className="flex flex-row flex-wrap justify-center gap-3 sm:gap-4 lg:gap-6 w-full">
+              {!isRecording ? (
+                <div className="flex flex-col items-center gap-3 w-full">
+                  <button
+                    onClick={handleStartRecording}
+                    className="flex items-center justify-center gap-2 sm:gap-3 px-8 sm:px-12 lg:px-16 py-4 sm:py-5 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white text-lg sm:text-xl lg:text-2xl font-bold hover:scale-105 hover:from-blue-600 hover:to-purple-600 transition-all duration-200 shadow-lg"
+                  >
+                    <MicrophoneIcon className="h-7 w-7 sm:h-8 sm:w-8 lg:h-9 lg:w-9" />
+                    <span>Start</span>
+                  </button>
+                  <p className="text-sm text-gray-500 text-center">
+                    Click to begin recording the student's reading
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-3 w-full">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                    <span className="text-sm font-semibold text-red-600">Recording in Progress</span>
+                  </div>
+                </div>
+              )}
+              {!isCompleted && hasStarted && (
+                <button
+                  onClick={handleCompleteSession}
+                  className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-green-500 to-blue-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
+                  title="Finish"
+                >
+                  <ChartBarIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+                  <span>Finish</span>
                 </button>
-              ))}
+              )}
+              {isRecording && (
+                <button
+                  onClick={handleRetrySession}
+                  className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-yellow-500 to-orange-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
+                  title="Retry"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  <span>Retry</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
+
+      {/* Countdown Modal */}
+      {showCountdown && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm">
+          {/* Big Circular Container */}
+          <div className="relative w-[500px] h-[500px] sm:w-[600px] sm:h-[600px]">
+            {/* Background Circle with Gradient */}
+            <svg className="w-full h-full" viewBox="0 0 600 600">
+              <defs>
+                <linearGradient id="circleGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#60a5fa" />
+                  <stop offset="100%" stopColor="#2563eb" />
+                </linearGradient>
+              </defs>
+              {/* Main filled circle background */}
+              <circle
+                cx="300"
+                cy="300"
+                r="288"
+                fill="url(#circleGradient)"
+                className="drop-shadow-2xl"
+              />
+              {/* Progress ring background */}
+              <circle
+                cx="300"
+                cy="300"
+                r="270"
+                stroke="rgba(255, 255, 255, 0.3)"
+                strokeWidth="20"
+                fill="none"
+              />
+              {/* Animated progress ring */}
+              <circle
+                cx="300"
+                cy="300"
+                r="270"
+                stroke="white"
+                strokeWidth="20"
+                fill="none"
+                pathLength="100"
+                strokeDasharray="100"
+                strokeDashoffset={100 - ((5 - countdown) / 5) * 100}
+                strokeLinecap="butt"
+                transform="rotate(-90 300 300)"
+                className="transition-all duration-1000 ease-linear"
+              />
+            </svg>
+            
+            {/* Content inside circle */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-6">
+              {/* Countdown Number */}
+              <span className="text-[180px] sm:text-[220px] font-black text-white drop-shadow-2xl animate-pulse leading-none">
+                {countdown}
+              </span>
+              
+              {/* Instructions */}
+              <div className="space-y-4 px-12 text-center">
+                <h3 className="text-4xl sm:text-5xl font-black text-white drop-shadow-lg">
+                  Get Ready!
+                </h3>
+                <p className="text-3xl sm:text-4xl font-bold text-white/95 leading-tight">
+                  Read LOUD and CLEAR
+                </p>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Story Picker Modal */}
-      {isStoryPickerOpen && (
-        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center">
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 w-full max-w-2xl p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h4 className="text-lg font-semibold text-gray-900">Choose Story</h4>
-              <button onClick={() => setIsStoryPickerOpen(false)} className="text-gray-500 hover:text-gray-700">✕</button>
-            </div>
-            <div className="flex gap-2 mb-3">
-              <input value={storyQuery} onChange={(e) => setStoryQuery(e.target.value)} placeholder="Search stories..." className="flex-1 px-3 py-2 border border-gray-200 rounded-xl" />
-              <button onClick={() => setStoryQuery('')} className="px-3 py-2 text-sm rounded-xl border border-gray-200">Clear</button>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto">
-              {allStories
-                .filter(s => !storyQuery || s.title?.toLowerCase().includes(storyQuery.toLowerCase()))
-                .map((s) => (
-                  <button key={s._id || s.title} onClick={() => applyChosenStory(s)} className="text-left rounded-xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-4 hover:shadow">
-                    <div className="font-semibold text-gray-900 line-clamp-1">{s.title}</div>
-                    <div className="text-xs text-gray-500">{(s as any)?.language || 'English'}</div>
-                  </button>
-                ))}
-            </div>
-          </div>
-        </div>
-      )}
+
     </div>
   );
 };
 
-export default ParentReadingSessionPage;
+export default ReadingSessionPage;

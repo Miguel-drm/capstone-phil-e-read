@@ -2450,7 +2450,7 @@ const ReadingSessionPage: React.FC = () => {
             // Map story language to internal format
             let internalLanguage: "english" | "tagalog" = "english"; // Default
 
-            if (normalizedLang === "tagalog" || normalizedLang === "filipino" || normalizedLang === "none") {
+            if (normalizedLang === "tagalog" || normalizedLang === "filipino") {
               internalLanguage = "tagalog";
             } else if (normalizedLang === "english") {
               internalLanguage = "english";
@@ -2607,11 +2607,12 @@ const ReadingSessionPage: React.FC = () => {
       const vocabulary = extractVocabulary(text);
       setStoryVocabulary(vocabulary);
 
-      // Detect story language
+      // Detect story language (but don't override if already set from database)
       const detectedLanguage = detectStoryLanguage(vocabulary);
-      setStoryLanguage(detectedLanguage);
-
-      console.log(`📚 Story loaded: ${vocabulary.size} vocabulary words, language: ${detectedLanguage}`);
+      
+      // Only use auto-detection as fallback - database language takes precedence
+      // This is handled in the main useEffect where story is loaded
+      console.log(`📚 Story loaded: ${vocabulary.size} vocabulary words, detected language: ${detectedLanguage}`);
     } else {
       setRealWords([]);
       setStoryVocabulary(new Set());
@@ -4510,9 +4511,8 @@ const ReadingSessionPage: React.FC = () => {
                             const isRead = !isSpecialChar && isWordRead(realWordIndex);
                             const miscueType = !isSpecialChar ? wordMiscues.get(realWordIndex) : undefined;
 
-                            // Show miscue colors for omissions immediately (even during recording)
-                            // Show other miscue colors AFTER session is completed or stopped
-                            const showMiscueColors = isCompleted || (!isRecording && wordsRead > 0) || (miscueType === 'omission');
+                            // Hide all miscue colors while recording - only show AFTER Complete button is clicked
+                            const showMiscueColors = isCompleted || (!isRecording && wordsRead > 0);
 
                             // Color mapping for miscue types - Balanced: DepEd format + color coding for visibility
                             const getMiscueColor = (type: MiscueType | undefined) => {
@@ -4603,10 +4603,10 @@ const ReadingSessionPage: React.FC = () => {
                                       ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"
                                       : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative ` +
                                       (isCurrent
-                                        ? "bg-yellow-400 text-black font-extrabold shadow-2xl z-10 border-4 border-yellow-600"
+                                        ? "bg-transparent text-gray-900 font-extrabold z-10 border-4 border-yellow-400"
                                         : miscueType && showMiscueColors
                                           ? `${getMiscueColor(miscueType)} font-semibold`
-                                          : recognizedWords.has(realWordIndex)
+                                          : recognizedWords.has(realWordIndex) && showMiscueColors
                                             ? "bg-green-100 text-green-800 font-bold shadow-lg border-2 border-green-400"
                                             : realWordIndex < currentWordIndex
                                               ? "bg-white text-gray-800 font-normal border border-gray-200"
@@ -4615,7 +4615,6 @@ const ReadingSessionPage: React.FC = () => {
                                 style={
                                   isCurrent
                                     ? {
-                                      boxShadow: "0 4px 16px rgba(234, 179, 8, 0.8), 0 0 0 4px rgba(234, 179, 8, 0.3)",
                                       transition: "background-color 0.2s ease-in-out, color 0.2s ease-in-out, border-color 0.2s ease-in-out"
                                     }
                                     : miscueType
@@ -5104,14 +5103,14 @@ const ReadingSessionPage: React.FC = () => {
           <div className="bg-white/80 rounded-2xl lg:rounded-3xl border border-blue-100 p-4 sm:p-6 lg:p-8 flex flex-col items-center gap-4 sm:gap-6">
             {/* Language selector + STT Provider/Vosk status badge */}
             <div className="w-full flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 -mt-2 -mb-2">
-              <div className="flex items-center gap-2">
+              {/* <div className="flex items-center gap-2">
                 <span className="text-xs sm:text-sm font-semibold text-blue-900">
                   Story Language:
                 </span>
                 <span className="text-xs sm:text-sm px-2 py-1 text-blue-900 font-medium">
                   Tagalog
                 </span>
-              </div>
+              </div> */}
               <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
                 {/* Status indicator dot only - no text */}
                 {(storyLanguage === "tagalog" || storyLanguage === "english") && (

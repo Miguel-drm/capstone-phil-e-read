@@ -18,11 +18,12 @@ const EditStoryModal: React.FC<EditStoryModalProps> = ({ isOpen, onClose, onSave
 
   // Helper function to convert database language codes to form values
   const getFormLanguage = (dbLanguage: string | undefined): string => {
-    if (!dbLanguage) return 'english';
+    if (!dbLanguage || dbLanguage === 'none') return 'english';
     switch (dbLanguage) {
       case 'en':
         return 'english';
-      case 'none':
+      case 'tl':
+      case 'filipino':
         return 'tagalog';
       default:
         return dbLanguage;

@@ -275,9 +275,14 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Language
             </label>
-            <div className="w-full px-4 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700">
-              {language === 'english' ? 'English' : 'Tagalog'}
-            </div>
+            <select
+              value={language}
+              onChange={(e) => setLanguage(e.target.value as 'english' | 'tagalog')}
+              className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm bg-white"
+            >
+              <option value="english">English</option>
+              <option value="tagalog">Tagalog</option>
+            </select>
           </div>
         </div>
 
@@ -440,7 +445,7 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
                     </div>
                   </div>
                 </div>
-                <div className="w-full h-[400px] rounded-lg border border-gray-300 overflow-y-auto bg-gray-50">
+                <div className="w-full h-[400px] rounded-lg border border-gray-300 bg-gray-50 flex items-stretch justify-center px-8">
                   <textarea
                     ref={contentEditableRef}
                     value={manualContent}
@@ -468,7 +473,7 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
                       }
                     }}
                     placeholder="Type or paste your story content here..."
-                    className="min-h-full w-full mx-auto max-w-4xl px-16 py-8 bg-white focus:outline-none resize-none border-none"
+                    className="w-full h-full max-w-4xl px-12 py-6 bg-white focus:outline-none resize-none border-none rounded shadow-sm overflow-y-auto"
                     style={{ 
                       fontFamily: 'Georgia, "Times New Roman", serif',
                       textAlign: 'left', // Always left-align in textarea to preserve leading spaces
@@ -476,8 +481,6 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
                       lineHeight: '1.8',
                       whiteSpace: 'pre-wrap',
                       wordWrap: 'break-word',
-                      boxShadow: '0 0 10px rgba(0,0,0,0.1)',
-                      height: '100%',
                       tabSize: 4 // Set tab size to 4 spaces
                     }}
                   />
