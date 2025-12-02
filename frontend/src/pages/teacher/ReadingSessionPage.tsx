@@ -712,6 +712,7 @@ const ReadingSessionPage: React.FC = () => {
   const [useWebSpeech, setUseWebSpeech] = useState(false);
   const recognitionRef = useRef<any>(null); // Web Speech API recognition instance
   const [webSpeechStatus, setWebSpeechStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const shouldRestartWebSpeechRef = useRef<boolean>(false); // Track if we should auto-restart
 
   // Server-calculated metrics (backend is source of truth)
   const [serverMetrics, setServerMetrics] = useState<{
@@ -1387,6 +1388,7 @@ const ReadingSessionPage: React.FC = () => {
         
         // If we've had too many network errors, stop trying and suggest Vosk
         if (networkErrorCount >= MAX_NETWORK_ERRORS) {
+          shouldRestartWebSpeechRef.current = false; // Disable auto-restart
           setWebSpeechStatus('disconnected');
           setIsRecording(false);
           alert(
@@ -1401,10 +1403,12 @@ const ReadingSessionPage: React.FC = () => {
       } else if (event.error === 'aborted') {
         console.log('⚠️ Recognition aborted, will restart...');
       } else if (event.error === 'not-allowed') {
+        shouldRestartWebSpeechRef.current = false; // Disable auto-restart
         alert('Microphone access denied. Please allow microphone access and try again.');
         setIsRecording(false);
         setWebSpeechStatus('disconnected');
       } else if (event.error === 'service-not-allowed') {
+        shouldRestartWebSpeechRef.current = false; // Disable auto-restart
         alert('Web Speech API is not available. Please check your internet connection or try using Vosk instead.');
         setIsRecording(false);
         setWebSpeechStatus('disconnected');
@@ -1414,16 +1418,24 @@ const ReadingSessionPage: React.FC = () => {
     };
 
     recognition.onend = () => {
+      console.log('🔄 Web Speech API ended, checking if should restart...');
+      console.log(`   shouldRestart: ${shouldRestartWebSpeechRef.current}, networkErrors: ${networkErrorCount}/${MAX_NETWORK_ERRORS}`);
+      
       // Reset processed count when recognition ends
       processedWordCount = 0;
       setWebSpeechStatus('disconnected');
       
-      // Auto-restart if still recording AND we haven't hit the error limit
-      if (isRecording && !isPaused && useWebSpeech && networkErrorCount < MAX_NETWORK_ERRORS) {
+      // Auto-restart if we should be running AND we haven't hit the error limit
+      if (shouldRestartWebSpeechRef.current && networkErrorCount < MAX_NETWORK_ERRORS) {
         try {
-          setWebSpeechStatus('connecting');
-          recognition.start();
-          console.log('🔄 Web Speech API restarted');
+          // Small delay before restart to avoid rapid restart loops
+          setTimeout(() => {
+            if (shouldRestartWebSpeechRef.current) {
+              setWebSpeechStatus('connecting');
+              recognition.start();
+              console.log('✅ Web Speech API restarted');
+            }
+          }, 100);
         } catch (e) {
           console.warn('Recognition restart failed:', e);
           setWebSpeechStatus('disconnected');
@@ -1431,6 +1443,9 @@ const ReadingSessionPage: React.FC = () => {
       } else if (networkErrorCount >= MAX_NETWORK_ERRORS) {
         console.error('❌ Too many network errors, stopping Web Speech API');
         setWebSpeechStatus('disconnected');
+        shouldRestartWebSpeechRef.current = false;
+      } else {
+        console.log('⏹️ Not restarting - shouldRestart is false');
       }
     };
 
@@ -1682,6 +1697,7 @@ const ReadingSessionPage: React.FC = () => {
       // Use Web Speech API
       console.log('🎤 Starting Web Speech API for', storyLanguage);
       setWebSpeechStatus('connecting');
+      shouldRestartWebSpeechRef.current = true; // Enable auto-restart
       const recognition = initializeWebSpeech();
       if (recognition) {
         recognitionRef.current = recognition;
@@ -1691,11 +1707,13 @@ const ReadingSessionPage: React.FC = () => {
         } catch (error) {
           console.error('Failed to start Web Speech API:', error);
           setWebSpeechStatus('disconnected');
+          shouldRestartWebSpeechRef.current = false;
           alert('Failed to start Web Speech API. Please check microphone permissions and try again.');
           setIsRecording(false);
         }
       } else {
         setWebSpeechStatus('disconnected');
+        shouldRestartWebSpeechRef.current = false;
         setIsRecording(false);
       }
     } else {
@@ -2376,6 +2394,7 @@ const ReadingSessionPage: React.FC = () => {
       // Cleanup speech recognition
       if (useWebSpeech && recognitionRef.current) {
         try {
+          shouldRestartWebSpeechRef.current = false; // Disable auto-restart
           recognitionRef.current.stop();
           recognitionRef.current = null;
           setWebSpeechStatus('disconnected');
