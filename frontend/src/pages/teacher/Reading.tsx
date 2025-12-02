@@ -555,6 +555,56 @@ const Reading: React.FC = () => {
     navigate(`/teacher/reading-session/${sessionId}`);
   };
 
+  const handleDeleteSession = async (sessionId: string, studentName: string) => {
+    if (!sessionId) return;
+
+    const result = await Swal.fire({
+      title: 'Delete Reading Session?',
+      html: `Are you sure you want to delete the reading session for <strong>${studentName}</strong>?<br><br>This action cannot be undone.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#3085d6',
+      confirmButtonText: 'Yes, delete it',
+      cancelButtonText: 'Cancel',
+      customClass: {
+        confirmButton: 'bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg',
+        cancelButton: 'bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg'
+      }
+    });
+
+    if (result.isConfirmed) {
+      try {
+        await readingSessionService.deleteSession(sessionId);
+        
+        // Remove the session from local state
+        setReadingSessions(prev => prev.filter(session => session.id !== sessionId));
+        
+        // Also remove from sessionResults if it exists
+        setSessionResults(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(sessionId);
+          return newMap;
+        });
+
+        await Swal.fire({
+          icon: 'success',
+          title: 'Deleted!',
+          text: 'The reading session has been deleted.',
+          timer: 2000,
+          showConfirmButton: false
+        });
+      } catch (error) {
+        console.error('Error deleting session:', error);
+        await Swal.fire({
+          icon: 'error',
+          title: 'Error',
+          text: 'Failed to delete the reading session. Please try again.',
+        });
+      }
+    }
+  };
+
   const handleRefresh = async () => {
     if (!currentUser?.uid || isRefreshing) return;
     
@@ -690,7 +740,19 @@ const Reading: React.FC = () => {
                     <div key={session.id} className="bg-white rounded-xl shadow-md border border-blue-50 overflow-hidden flex flex-col h-full">
                       <div className="p-4 flex-grow flex flex-col">
                         <div className="flex items-center justify-between mb-1">
-                          <h3 className="text-lg font-semibold text-blue-900 line-clamp-1">{displayName}</h3>
+                          <h3 className="text-lg font-semibold text-blue-900 line-clamp-1 flex-1">{displayName}</h3>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteSession(session.id || '', displayName);
+                            }}
+                            className="ml-2 p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
+                            title="Delete session"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
                         </div>
                         <div className="mb-3">
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-blue-100 text-blue-700">{session.book}</span>
