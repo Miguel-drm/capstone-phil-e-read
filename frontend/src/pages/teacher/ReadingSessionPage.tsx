@@ -708,6 +708,11 @@ const ReadingSessionPage: React.FC = () => {
   // No Quiz Modal state
   const [showNoQuizModal, setShowNoQuizModal] = useState(false);
 
+  // Speech recognition provider toggle (Vosk vs Web Speech API)
+  const [useWebSpeech, setUseWebSpeech] = useState(false);
+  const recognitionRef = useRef<any>(null); // Web Speech API recognition instance
+  const [webSpeechStatus, setWebSpeechStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+
   // Server-calculated metrics (backend is source of truth)
   const [serverMetrics, setServerMetrics] = useState<{
     wpm?: number;
@@ -1303,6 +1308,135 @@ const ReadingSessionPage: React.FC = () => {
     setCountdown(5);
   };
 
+  // Initialize Web Speech API
+  const initializeWebSpeech = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    
+    if (!SpeechRecognition) {
+      alert('Web Speech API is not supported in your browser. Please use Chrome, Edge, or Safari.');
+      return null;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true; // Get interim results for faster response
+    recognition.lang = storyLanguage === 'tagalog' ? 'tl-PH' : 'en-US';
+    recognition.maxAlternatives = 1;
+
+    // Track what we've already processed to avoid duplicates
+    let processedWordCount = 0;
+    let networkErrorCount = 0;
+    const MAX_NETWORK_ERRORS = 3;
+
+    recognition.onstart = () => {
+      console.log('✅ Web Speech API started successfully');
+      setWebSpeechStatus('connected');
+      networkErrorCount = 0; // Reset error count on successful start
+    };
+
+    recognition.onresult = (event: any) => {
+      // Mark as connected when we start receiving results
+      setWebSpeechStatus('connected');
+      // Build the complete transcript from all final results
+      let fullTranscript = '';
+      
+      for (let i = 0; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          fullTranscript += event.results[i][0].transcript + ' ';
+        }
+      }
+      
+      if (fullTranscript.trim()) {
+        // Split into words
+        const allWords = fullTranscript.trim().split(/\s+/).filter(Boolean);
+        
+        // Only process NEW words (words we haven't seen before)
+        const newWords = allWords.slice(processedWordCount);
+        
+        if (newWords.length > 0) {
+          console.log(`🎤 Web Speech: ${newWords.length} new word(s): [${newWords.join(', ')}]`);
+          
+          // Process each new word
+          for (const word of newWords) {
+            const filteredWord = filterThroughVocabulary(word, storyVocabulary);
+            if (filteredWord) {
+              console.log(`✅ Accepted: "${filteredWord}"`);
+              // Add to transcript
+              voskFinalTranscriptRef.current += (voskFinalTranscriptRef.current ? " " : "") + filteredWord;
+              setTranscript(voskFinalTranscriptRef.current);
+            } else {
+              console.log(`❌ Rejected: "${word}" (not in vocabulary)`);
+            }
+          }
+          
+          // Update processed count
+          processedWordCount = allWords.length;
+        }
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error('Web Speech error:', event.error);
+      
+      if (event.error === 'no-speech') {
+        console.log('⚠️ No speech detected, continuing...');
+        // Don't show alert - this is normal during pauses
+      } else if (event.error === 'network') {
+        networkErrorCount++;
+        console.error(`❌ Network error #${networkErrorCount} - Web Speech API connection issue`);
+        
+        // If we've had too many network errors, stop trying and suggest Vosk
+        if (networkErrorCount >= MAX_NETWORK_ERRORS) {
+          setWebSpeechStatus('disconnected');
+          setIsRecording(false);
+          alert(
+            `Web Speech API is experiencing repeated network errors (${networkErrorCount} failures).\n\n` +
+            `This usually means:\n` +
+            `1. Web Speech API doesn't support this language well (Tagalog has limited support)\n` +
+            `2. Google's speech service is temporarily unavailable\n` +
+            `3. Your network connection is unstable\n\n` +
+            `Recommendation: Switch to Vosk for better reliability, especially for Tagalog.`
+          );
+        }
+      } else if (event.error === 'aborted') {
+        console.log('⚠️ Recognition aborted, will restart...');
+      } else if (event.error === 'not-allowed') {
+        alert('Microphone access denied. Please allow microphone access and try again.');
+        setIsRecording(false);
+        setWebSpeechStatus('disconnected');
+      } else if (event.error === 'service-not-allowed') {
+        alert('Web Speech API is not available. Please check your internet connection or try using Vosk instead.');
+        setIsRecording(false);
+        setWebSpeechStatus('disconnected');
+      } else {
+        console.error(`❌ Web Speech error: ${event.error}`);
+      }
+    };
+
+    recognition.onend = () => {
+      // Reset processed count when recognition ends
+      processedWordCount = 0;
+      setWebSpeechStatus('disconnected');
+      
+      // Auto-restart if still recording AND we haven't hit the error limit
+      if (isRecording && !isPaused && useWebSpeech && networkErrorCount < MAX_NETWORK_ERRORS) {
+        try {
+          setWebSpeechStatus('connecting');
+          recognition.start();
+          console.log('🔄 Web Speech API restarted');
+        } catch (e) {
+          console.warn('Recognition restart failed:', e);
+          setWebSpeechStatus('disconnected');
+        }
+      } else if (networkErrorCount >= MAX_NETWORK_ERRORS) {
+        console.error('❌ Too many network errors, stopping Web Speech API');
+        setWebSpeechStatus('disconnected');
+      }
+    };
+
+    return recognition;
+  };
+
   // Preload Vosk connection (called during loading or countdown)
   const preloadVoskConnection = async () => {
     console.log('🔄 [Teacher] preloadVoskConnection called - storyLanguage:', storyLanguage, 'words:', words.length);
@@ -1543,10 +1677,32 @@ const ReadingSessionPage: React.FC = () => {
       // Don't stop recording - speech recognition can still work
     }
 
-    // Use Vosk for both Tagalog and English stories
-    const useVosk = storyLanguage === "tagalog" || storyLanguage === "english";
-    if (useVosk) {
-      try {
+    // Choose speech recognition provider based on toggle
+    if (useWebSpeech) {
+      // Use Web Speech API
+      console.log('🎤 Starting Web Speech API for', storyLanguage);
+      setWebSpeechStatus('connecting');
+      const recognition = initializeWebSpeech();
+      if (recognition) {
+        recognitionRef.current = recognition;
+        try {
+          recognition.start();
+          console.log('✅ Web Speech API start requested');
+        } catch (error) {
+          console.error('Failed to start Web Speech API:', error);
+          setWebSpeechStatus('disconnected');
+          alert('Failed to start Web Speech API. Please check microphone permissions and try again.');
+          setIsRecording(false);
+        }
+      } else {
+        setWebSpeechStatus('disconnected');
+        setIsRecording(false);
+      }
+    } else {
+      // Use Vosk for both Tagalog and English stories
+      const useVosk = storyLanguage === "tagalog" || storyLanguage === "english";
+      if (useVosk) {
+        try {
         // WebSocket URL selection with local server fallback
         // Priority: 1. Local server (ws://localhost:2700) 2. Railway (deployed)
         // Can be configured via environment variables:
@@ -1905,7 +2061,8 @@ const ReadingSessionPage: React.FC = () => {
         setIsRecording(false);
       }
     }
-  };
+  }
+};
 
 
 
@@ -2216,10 +2373,22 @@ const ReadingSessionPage: React.FC = () => {
         }
       }
 
-      // Cleanup Vosk (includes all cleanup logic)
-      cleanupVosk();
+      // Cleanup speech recognition
+      if (useWebSpeech && recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+          recognitionRef.current = null;
+          setWebSpeechStatus('disconnected');
+          console.log('✅ Web Speech API stopped');
+        } catch (error) {
+          console.warn('Error stopping Web Speech API:', error);
+        }
+      } else {
+        // Cleanup Vosk (includes all cleanup logic)
+        cleanupVosk();
+      }
 
-      // Reset Vosk state
+      // Reset state
       voskFinalTranscriptRef.current = "";
       voskReconnectAttemptsRef.current = 0;
 
@@ -5103,17 +5272,57 @@ const ReadingSessionPage: React.FC = () => {
           <div className="bg-white/80 rounded-2xl lg:rounded-3xl border border-blue-100 p-4 sm:p-6 lg:p-8 flex flex-col items-center gap-4 sm:gap-6">
             {/* Language selector + STT Provider/Vosk status badge */}
             <div className="w-full flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 -mt-2 -mb-2">
-              {/* <div className="flex items-center gap-2">
+              {/* Speech Recognition Provider Toggle */}
+              <div className="flex items-center gap-3">
                 <span className="text-xs sm:text-sm font-semibold text-blue-900">
-                  Story Language:
+                  Speech Recognition:
                 </span>
-                <span className="text-xs sm:text-sm px-2 py-1 text-blue-900 font-medium">
-                  Tagalog
+                <button
+                  onClick={() => {
+                    if (isRecording) {
+                      alert('Please stop recording before switching speech recognition provider.');
+                      return;
+                    }
+                    
+                    // Warn about Tagalog support
+                    if (!useWebSpeech && storyLanguage === 'tagalog') {
+                      const confirmed = confirm(
+                        'Web Speech API has limited support for Tagalog and may not work reliably.\n\n' +
+                        'For best results with Tagalog stories, we recommend using Vosk.\n\n' +
+                        'Do you want to continue with Web Speech anyway?'
+                      );
+                      if (!confirmed) return;
+                    }
+                    
+                    setUseWebSpeech(!useWebSpeech);
+                  }}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    useWebSpeech ? 'bg-blue-600' : 'bg-gray-300'
+                  }`}
+                  disabled={isRecording}
+                  title={useWebSpeech 
+                    ? 'Web Speech API (requires internet, best for English)' 
+                    : 'Vosk (works offline, supports English & Tagalog)'}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      useWebSpeech ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+                <span className="text-xs sm:text-sm text-gray-700 font-medium">
+                  {useWebSpeech ? 'Web Speech' : 'Vosk'}
                 </span>
-              </div> */}
+                {useWebSpeech && (
+                  <span className="text-xs text-gray-500 italic">
+                    {storyLanguage === 'tagalog' ? '(limited Tagalog support)' : '(requires internet)'}
+                  </span>
+                )}
+              </div>
+              
               <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
-                {/* Status indicator dot only - no text */}
-                {(storyLanguage === "tagalog" || storyLanguage === "english") && (
+                {/* Status indicator dot - shows for both Vosk and Web Speech */}
+                {!useWebSpeech && (storyLanguage === "tagalog" || storyLanguage === "english") && (
                   <span
                     className={`w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full ${voskStatus === "connected"
                       ? "bg-green-500"
@@ -5121,6 +5330,18 @@ const ReadingSessionPage: React.FC = () => {
                         ? "bg-yellow-500 animate-pulse"
                         : "bg-red-500"
                       }`}
+                    title={`Vosk: ${voskStatus}`}
+                  ></span>
+                )}
+                {useWebSpeech && isRecording && (
+                  <span
+                    className={`w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full ${webSpeechStatus === "connected"
+                      ? "bg-green-500"
+                      : webSpeechStatus === "connecting"
+                        ? "bg-yellow-500 animate-pulse"
+                        : "bg-red-500"
+                      }`}
+                    title={`Web Speech: ${webSpeechStatus}`}
                   ></span>
                 )}
               </div>
