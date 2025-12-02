@@ -631,64 +631,75 @@ const Reading: React.FC = () => {
 
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex flex-col items-center py-2 sm:py-6">
-      <div className="w-full px-2 sm:px-4 md:px-6 lg:px-8 bg-white/90 rounded-2xl shadow-lg p-4 sm:p-8 border border-blue-100">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+      <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 py-6 sm:py-8">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8 border-b border-blue-100 pb-4">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-blue-900 tracking-tight flex items-center gap-2">
-              <i className="fas fa-book-reader text-blue-400"></i> Reading
-              {teacherGradeLevel && (
-                <span className="text-lg font-medium text-blue-600 bg-blue-50 px-3 py-1 rounded-full">
-                  Grade {teacherGradeLevel}
-                </span>
-              )}
-            </h1>
-            <p className="mt-1 text-sm text-gray-500">
-              {teacherGradeLevel 
-                ? `Manage reading sessions and explore Grade ${teacherGradeLevel} stories`
-                : 'Manage reading sessions and explore stories'
-              }
-            </p>
-          </div>
-          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-            <button
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              className="w-full sm:w-auto bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg shadow transition-all duration-200 flex items-center justify-center text-base gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Refresh data"
-            >
-              <i className={`fas fa-sync-alt ${isRefreshing ? 'animate-spin' : ''}`}></i>
-              <span className="hidden sm:inline">{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
-            </button>
-            <button
-              onClick={handleScheduleSession}
-              className="w-full sm:w-auto bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white font-semibold py-2 px-6 rounded-lg shadow transition-all duration-200 flex items-center justify-center text-base gap-2"
-            >
-              <i className="fas fa-plus"></i>
-              Start New Session
-            </button>
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8 mb-6">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
+                  <i className="fas fa-book-reader text-white text-xl"></i>
+                </div>
+                <div>
+                  <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                    Reading Sessions
+                  </h1>
+                  {teacherGradeLevel && (
+                    <span className="inline-flex items-center mt-1 text-sm font-semibold text-indigo-700 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-200">
+                      Grade {teacherGradeLevel}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <p className="text-slate-600 mt-2 text-sm sm:text-base">
+                {teacherGradeLevel 
+                  ? `Manage reading sessions and explore Grade ${teacherGradeLevel} stories`
+                  : 'Manage reading sessions and explore stories'
+                }
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+              <button
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl shadow-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Refresh data"
+              >
+                <i className={`fas fa-sync-alt ${isRefreshing ? 'animate-spin' : ''}`}></i>
+                <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+              </button>
+              <button
+                onClick={handleScheduleSession}
+                className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105"
+              >
+                <i className="fas fa-plus"></i>
+                <span>Start New Session</span>
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="border-b border-blue-100 mb-8">
-          <nav className="-mb-px flex space-x-8">
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-2 mb-6">
+          <nav className="flex space-x-2">
             <button
               onClick={() => setActiveTab('sessions')}
-              className={`py-3 px-1 border-b-2 font-semibold text-sm transition-all duration-150 ${activeTab === 'sessions'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-blue-700 hover:border-blue-300'
-                }`}
+              className={`flex-1 sm:flex-none px-6 py-3 rounded-xl font-semibold text-sm transition-all duration-200 ${
+                activeTab === 'sessions'
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
             >
               Active Sessions
             </button>
             <button
               onClick={() => setActiveTab('stories')}
-              className={`py-3 px-1 border-b-2 font-semibold text-sm transition-all duration-150 ${activeTab === 'stories'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-blue-700 hover:border-blue-300'
-                }`}
+              className={`flex-1 sm:flex-none px-6 py-3 rounded-xl font-semibold text-sm transition-all duration-200 ${
+                activeTab === 'stories'
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
             >
               Stories
             </button>
@@ -697,11 +708,24 @@ const Reading: React.FC = () => {
 
         {/* Content */}
         {activeTab === 'sessions' && (
-          <div className="pt-4 border-t border-blue-100">
+          <div>
             {readingSessions.length === 0 ? (
-              <div className="text-center py-10 text-gray-400 italic">No sessions found. Click + to add a session.</div>
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-12 text-center">
+                <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <i className="fas fa-book-open text-slate-400 text-3xl"></i>
+                </div>
+                <p className="text-slate-500 text-lg font-medium mb-2">No reading sessions yet</p>
+                <p className="text-slate-400 text-sm mb-6">Start a new session to begin tracking student progress</p>
+                <button
+                  onClick={handleScheduleSession}
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
+                >
+                  <i className="fas fa-plus"></i>
+                  <span>Create First Session</span>
+                </button>
+              </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 md:gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
                 {readingSessions.map((session) => {
                   // Get students for this session (with safety check)
                   // Handle both old format (string[]) and new format ({id, name}[])
@@ -737,16 +761,27 @@ const Reading: React.FC = () => {
                   const displayName = sessionStudents.length > 0 ? sessionStudents[0].name : 'No Student';
 
                   return (
-                    <div key={session.id} className="bg-white rounded-xl shadow-md border border-blue-50 overflow-hidden flex flex-col h-full">
-                      <div className="p-4 flex-grow flex flex-col">
-                        <div className="flex items-center justify-between mb-1">
-                          <h3 className="text-lg font-semibold text-blue-900 line-clamp-1 flex-1">{displayName}</h3>
+                    <div 
+                      key={session.id} 
+                      className="group bg-white rounded-2xl shadow-sm hover:shadow-xl border border-slate-200 hover:border-indigo-300 overflow-hidden flex flex-col h-full transition-all duration-300"
+                    >
+                      <div className="p-5 sm:p-6 flex-grow flex flex-col">
+                        {/* Header with student name and delete button */}
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-2">
+                              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-white font-bold text-sm shadow-md flex-shrink-0">
+                                {displayName.charAt(0).toUpperCase()}
+                              </div>
+                              <h3 className="text-lg font-bold text-slate-900 line-clamp-1 flex-1">{displayName}</h3>
+                            </div>
+                          </div>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               handleDeleteSession(session.id || '', displayName);
                             }}
-                            className="ml-2 p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
+                            className="ml-2 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200 flex-shrink-0 opacity-0 group-hover:opacity-100"
                             title="Delete session"
                           >
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -754,19 +789,51 @@ const Reading: React.FC = () => {
                             </svg>
                           </button>
                         </div>
-                        <div className="mb-3">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-blue-100 text-blue-700">{session.book}</span>
+
+                        {/* Story badge */}
+                        <div className="mb-4">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-blue-50 to-indigo-50 text-indigo-700 border border-indigo-200">
+                            <i className="fas fa-book text-indigo-600"></i>
+                            <span className="line-clamp-1">{session.book}</span>
+                          </span>
                         </div>
-                        <div className="mt-auto flex items-center justify-between">
-                          <span className={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${isSessionCompleted ? 'bg-green-100 text-green-800' : (session as any).status === 'in-progress' ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                            {isSessionCompleted ? 'Completed' : (session as any).status === 'in-progress' ? 'In Progress' : 'Pending'}
+
+                        {/* Status and action button */}
+                        <div className="mt-auto pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
+                          <span className={`inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold ${
+                            isSessionCompleted 
+                              ? 'bg-green-100 text-green-700 border border-green-200' 
+                              : (session as any).status === 'in-progress' 
+                                ? 'bg-blue-100 text-blue-700 border border-blue-200' 
+                                : 'bg-amber-100 text-amber-700 border border-amber-200'
+                          }`}>
+                            {isSessionCompleted ? (
+                              <>
+                                <i className="fas fa-check-circle mr-1.5"></i>
+                                Completed
+                              </>
+                            ) : (session as any).status === 'in-progress' ? (
+                              <>
+                                <i className="fas fa-spinner fa-spin mr-1.5"></i>
+                                In Progress
+                              </>
+                            ) : (
+                              <>
+                                <i className="fas fa-clock mr-1.5"></i>
+                                Pending
+                              </>
+                            )}
                           </span>
                           <button
                             onClick={() => handleOpenSession(session.id || '')}
-                            className={`inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${isSessionCompleted ? 'bg-green-500 text-white hover:bg-green-600' : 'bg-yellow-500 text-white hover:bg-yellow-600'}`}
+                            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 shadow-sm hover:shadow-md transform hover:scale-105 ${
+                              isSessionCompleted 
+                                ? 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white' 
+                                : 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white'
+                            }`}
                           >
-                            <span>Go to Session</span>
-                            <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <span>View</span>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                             </svg>
                           </button>
@@ -783,19 +850,30 @@ const Reading: React.FC = () => {
         {activeTab === 'stories' && (
           <div>
             {storiesLoading ? (
-              <TeacherLoader label="Loading stories..." />
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-12">
+                <TeacherLoader label="Loading stories..." />
+              </div>
             ) : storiesError ? (
-              <div className="text-center py-10 text-red-500">{storiesError}</div>
-            ) : stories.length === 0 ? (
-              <div className="text-center py-10">
-                <div className="text-gray-500 mb-2">
-                  {teacherGradeLevel 
-                    ? `No Grade ${teacherGradeLevel} stories available.`
-                    : 'No stories available.'
-                  }
+              <div className="bg-white rounded-2xl shadow-sm border border-red-200 p-12 text-center">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <i className="fas fa-exclamation-triangle text-red-600 text-2xl"></i>
                 </div>
+                <p className="text-red-600 font-semibold mb-2">Error Loading Stories</p>
+                <p className="text-slate-500 text-sm">{storiesError}</p>
+              </div>
+            ) : stories.length === 0 ? (
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-12 text-center">
+                <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <i className="fas fa-book text-slate-400 text-3xl"></i>
+                </div>
+                <p className="text-slate-600 font-semibold text-lg mb-2">
+                  {teacherGradeLevel 
+                    ? `No Grade ${teacherGradeLevel} stories available`
+                    : 'No stories available'
+                  }
+                </p>
                 {teacherGradeLevel && (
-                  <p className="text-sm text-gray-400">
+                  <p className="text-slate-400 text-sm">
                     Contact your administrator to add Grade {teacherGradeLevel} stories to the system.
                   </p>
                 )}
@@ -803,12 +881,14 @@ const Reading: React.FC = () => {
             ) : (
               <div className="space-y-8">
                 {/* English Stories Row */}
-                <div>
-                  <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                    <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                    </svg>
-                    English
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                  <h2 className="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-3">
+                    <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-md">
+                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                      </svg>
+                    </div>
+                    <span>English Stories</span>
                   </h2>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     {['A', 'B', 'C', 'D'].map((set) => {
@@ -820,35 +900,41 @@ const Reading: React.FC = () => {
                         return isEnglish && matchesSet;
                       });
                       return (
-                        <div key={`english-${set}`} className="bg-white rounded-xl shadow-md border border-blue-100 overflow-hidden">
-                          <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-4 text-center">
-                            <div className="w-16 h-16 mx-auto bg-white/20 rounded-full flex items-center justify-center mb-2">
+                        <div key={`english-${set}`} className="bg-gradient-to-br from-slate-50 to-white rounded-xl shadow-sm hover:shadow-lg border border-slate-200 hover:border-blue-300 overflow-hidden transition-all duration-300 group">
+                          <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-5 text-center">
+                            <div className="w-16 h-16 mx-auto bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mb-3 shadow-lg">
                               <span className="text-3xl font-bold text-white">{set}</span>
                             </div>
-                            <h3 className="text-white font-semibold text-lg">Set {set}</h3>
+                            <h3 className="text-white font-bold text-lg">Set {set}</h3>
                           </div>
                           {story ? (
-                            <div className="p-4">
-                              <div className="flex items-center gap-2 mb-2">
-                                <svg className="w-4 h-4 text-gray-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                                </svg>
-                                <h4 className="font-semibold text-gray-900 text-sm line-clamp-2">{story.title}</h4>
+                            <div className="p-5">
+                              <div className="flex items-start gap-3 mb-3">
+                                <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                  <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                                  </svg>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <h4 className="font-bold text-slate-900 text-sm line-clamp-2 mb-1">{story.title}</h4>
+                                  <p className="text-xs text-slate-500 line-clamp-2">{story.description || 'No description available'}</p>
+                                </div>
                               </div>
-                              <p className="text-xs text-gray-500 mb-3 line-clamp-2">{story.description || 'No description'}</p>
                               <button
                                 onClick={() => handleViewStoryDetails(story)}
-                                className="w-full bg-blue-50 hover:bg-blue-100 text-blue-700 py-2 px-3 rounded-lg text-sm font-medium transition-colors"
+                                className="w-full bg-gradient-to-r from-blue-50 to-indigo-50 hover:from-blue-100 hover:to-indigo-100 text-blue-700 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all duration-200 border border-blue-200 hover:border-blue-300"
                               >
                                 View Details
                               </button>
                             </div>
                           ) : (
-                            <div className="p-4 text-center">
-                              <svg className="w-12 h-12 mx-auto mb-2 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                              </svg>
-                              <p className="text-gray-400 text-sm">No story assigned</p>
+                            <div className="p-5 text-center">
+                              <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                                <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                                </svg>
+                              </div>
+                              <p className="text-slate-400 text-sm font-medium">No story assigned</p>
                             </div>
                           )}
                         </div>
@@ -858,12 +944,14 @@ const Reading: React.FC = () => {
                 </div>
 
                 {/* Filipino/Tagalog Stories Row */}
-                <div>
-                  <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                    <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                    </svg>
-                    Filipino
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                  <h2 className="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-3">
+                    <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-md">
+                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                      </svg>
+                    </div>
+                    <span>Filipino Stories</span>
                   </h2>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     {['A', 'B', 'C', 'D'].map((set) => {
@@ -875,35 +963,41 @@ const Reading: React.FC = () => {
                         return isTagalog && matchesSet;
                       });
                       return (
-                        <div key={`tagalog-${set}`} className="bg-white rounded-xl shadow-md border border-green-100 overflow-hidden">
-                          <div className="bg-gradient-to-br from-green-500 to-green-600 p-4 text-center">
-                            <div className="w-16 h-16 mx-auto bg-white/20 rounded-full flex items-center justify-center mb-2">
+                        <div key={`tagalog-${set}`} className="bg-gradient-to-br from-slate-50 to-white rounded-xl shadow-sm hover:shadow-lg border border-slate-200 hover:border-green-300 overflow-hidden transition-all duration-300 group">
+                          <div className="bg-gradient-to-br from-green-500 to-emerald-600 p-5 text-center">
+                            <div className="w-16 h-16 mx-auto bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mb-3 shadow-lg">
                               <span className="text-3xl font-bold text-white">{set}</span>
                             </div>
-                            <h3 className="text-white font-semibold text-lg">Set {set}</h3>
+                            <h3 className="text-white font-bold text-lg">Set {set}</h3>
                           </div>
                           {story ? (
-                            <div className="p-4">
-                              <div className="flex items-center gap-2 mb-2">
-                                <svg className="w-4 h-4 text-gray-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                                </svg>
-                                <h4 className="font-semibold text-gray-900 text-sm line-clamp-2">{story.title}</h4>
+                            <div className="p-5">
+                              <div className="flex items-start gap-3 mb-3">
+                                <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                  <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                                  </svg>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <h4 className="font-bold text-slate-900 text-sm line-clamp-2 mb-1">{story.title}</h4>
+                                  <p className="text-xs text-slate-500 line-clamp-2">{story.description || 'No description available'}</p>
+                                </div>
                               </div>
-                              <p className="text-xs text-gray-500 mb-3 line-clamp-2">{story.description || 'No description'}</p>
                               <button
                                 onClick={() => handleViewStoryDetails(story)}
-                                className="w-full bg-green-50 hover:bg-green-100 text-green-700 py-2 px-3 rounded-lg text-sm font-medium transition-colors"
+                                className="w-full bg-gradient-to-r from-green-50 to-emerald-50 hover:from-green-100 hover:to-emerald-100 text-green-700 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all duration-200 border border-green-200 hover:border-green-300"
                               >
                                 View Details
                               </button>
                             </div>
                           ) : (
-                            <div className="p-4 text-center">
-                              <svg className="w-12 h-12 mx-auto mb-2 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                              </svg>
-                              <p className="text-gray-400 text-sm">No story assigned</p>
+                            <div className="p-5 text-center">
+                              <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                                <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                                </svg>
+                              </div>
+                              <p className="text-slate-400 text-sm font-medium">No story assigned</p>
                             </div>
                           )}
                         </div>
