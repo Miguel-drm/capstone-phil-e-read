@@ -356,25 +356,60 @@ const Reading: React.FC = () => {
               countDisplay.innerHTML = `${list.length} student${list.length !== 1 ? 's' : ''}`;
             }
 
+            // Get selected story to check for existing sessions
+            const storySelect = document.getElementById('session-story') as HTMLSelectElement;
+            const selectedStory = storySelect?.value || '';
+
+            // Check which students already have sessions for the selected story
+            const studentsWithSessions = new Set<string>();
+            if (selectedStory) {
+              readingSessions.forEach(session => {
+                if (session.book === selectedStory && session.students) {
+                  session.students.forEach((student: any) => {
+                    const studentId = typeof student === 'string' ? student : student.id;
+                    if (studentId) {
+                      studentsWithSessions.add(studentId);
+                    }
+                  });
+                }
+              });
+            }
+
             studentDisplay.innerHTML = list.length
               ? `
                 <div class="space-y-1.5 sm:space-y-2">
-                  ${list.map((s) => `
-                    <label class="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50 cursor-pointer transition-all duration-200 group">
-                      <input type="radio" name="selected-student" value="${s.id || s.name}" class="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-600 focus:ring-2 focus:ring-blue-500" />
+                  ${list.map((s) => {
+                    const hasSession = studentsWithSessions.has(s.id || '');
+                    const isDisabled = hasSession;
+                    return `
+                    <label class="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg border-2 ${isDisabled ? 'border-gray-300 bg-gray-100 opacity-60 cursor-not-allowed' : 'border-gray-200 hover:border-blue-400 hover:bg-blue-50 cursor-pointer'} transition-all duration-200 group">
+                      <input 
+                        type="radio" 
+                        name="selected-student" 
+                        value="${s.id || s.name}" 
+                        class="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-600 focus:ring-2 focus:ring-blue-500" 
+                        ${isDisabled ? 'disabled' : ''}
+                      />
                       <div class="flex items-center gap-1.5 sm:gap-2 flex-1">
-                        <div class="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-white font-bold text-[10px] sm:text-xs shadow-md">
+                        <div class="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-br ${isDisabled ? 'from-gray-300 to-gray-400' : 'from-blue-400 to-indigo-500'} flex items-center justify-center text-white font-bold text-[10px] sm:text-xs shadow-md">
                           ${s.name.charAt(0).toUpperCase()}
                         </div>
                         <div class="flex-1 min-w-0">
-                          <p class="text-[10px] sm:text-xs font-semibold text-gray-800 group-hover:text-blue-700 truncate">${s.name}</p>
+                          <p class="text-[10px] sm:text-xs font-semibold ${isDisabled ? 'text-gray-500' : 'text-gray-800 group-hover:text-blue-700'} truncate">${s.name}</p>
+                          ${hasSession ? '<p class="text-[9px] sm:text-[10px] text-gray-500 italic">Already has session for this story</p>' : ''}
                         </div>
                       </div>
-                      <svg class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-300 group-hover:text-blue-500 transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                      </svg>
+                      ${isDisabled ? 
+                        `<svg class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                          <path fill-rule="evenodd" d="M13.477 14.89A6 6 0 015.11 6.524l8.367 8.368zm1.414-1.414L6.524 5.11a6 6 0 018.367 8.367zM18 10a8 8 0 11-16 0 8 8 0 0116 0z" clip-rule="evenodd" />
+                        </svg>` :
+                        `<svg class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-300 group-hover:text-blue-500 transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>`
+                      }
                     </label>
-                  `).join('')}
+                  `;
+                  }).join('')}
                 </div>
               `
               : `
@@ -389,6 +424,17 @@ const Reading: React.FC = () => {
           };
 
           if (gradeSelect && studentDisplay) {
+            // Listen for story selection changes to update disabled students
+            const storySelect = document.getElementById('session-story') as HTMLSelectElement;
+            if (storySelect) {
+              storySelect.addEventListener('change', () => {
+                // Re-render student list when story changes to update disabled states
+                if (currentStudents.length > 0) {
+                  render(currentStudents);
+                }
+              });
+            }
+
             gradeSelect.addEventListener('change', async (e) => {
               const gradeId = (e.target as HTMLSelectElement).value;
               if (gradeId) {
