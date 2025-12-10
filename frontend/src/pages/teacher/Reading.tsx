@@ -24,6 +24,7 @@ const Reading: React.FC = () => {
   const [teacherGradeLevel, setTeacherGradeLevel] = useState<string | null>(null);
   const [sessionResults, setSessionResults] = useState<Map<string, any[]>>(new Map());
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [selectedStoryFilter, setSelectedStoryFilter] = useState<string>('all');
 
   const loadSessions = useCallback(async () => {
     if (!currentUser?.uid) return;
@@ -726,30 +727,73 @@ const Reading: React.FC = () => {
           </div>
         </div>
 
-        {/* Tabs */}
+        {/* Tabs with Filter */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-2 mb-6">
-          <nav className="flex space-x-2">
-            <button
-              onClick={() => setActiveTab('sessions')}
-              className={`flex-1 sm:flex-none px-6 py-3 rounded-xl font-semibold text-sm transition-all duration-200 ${
-                activeTab === 'sessions'
-                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              Active Sessions
-            </button>
-            <button
-              onClick={() => setActiveTab('stories')}
-              className={`flex-1 sm:flex-none px-6 py-3 rounded-xl font-semibold text-sm transition-all duration-200 ${
-                activeTab === 'stories'
-                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              Stories
-            </button>
-          </nav>
+          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+            {/* Tabs */}
+            <nav className="flex space-x-2">
+              <button
+                onClick={() => setActiveTab('sessions')}
+                className={`px-6 py-3 rounded-xl font-semibold text-sm transition-all duration-200 ${
+                  activeTab === 'sessions'
+                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                Active Sessions
+              </button>
+              <button
+                onClick={() => setActiveTab('stories')}
+                className={`px-6 py-3 rounded-xl font-semibold text-sm transition-all duration-200 ${
+                  activeTab === 'stories'
+                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                Stories
+              </button>
+            </nav>
+
+            {/* Story Filter - Only show on Active Sessions tab */}
+            {activeTab === 'sessions' && readingSessions.length > 0 && (
+              <div className="flex items-center gap-3 w-full lg:w-auto">
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-600 whitespace-nowrap">
+                  <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                  </svg>
+                  <span>Filter by Story:</span>
+                </label>
+                <select
+                  value={selectedStoryFilter}
+                  onChange={(e) => setSelectedStoryFilter(e.target.value)}
+                  className="flex-1 lg:w-[280px] px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm bg-white transition-all"
+                >
+                  <option value="all">All Stories ({readingSessions.length} sessions)</option>
+                  {Array.from(new Set(readingSessions.map(s => s.book)))
+                    .sort()
+                    .map(storyTitle => {
+                      const count = readingSessions.filter(s => s.book === storyTitle).length;
+                      return (
+                        <option key={storyTitle} value={storyTitle}>
+                          {storyTitle} ({count})
+                        </option>
+                      );
+                    })}
+                </select>
+                {selectedStoryFilter !== 'all' && (
+                  <button
+                    onClick={() => setSelectedStoryFilter('all')}
+                    className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all"
+                    title="Clear filter"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Content */}
@@ -771,9 +815,12 @@ const Reading: React.FC = () => {
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-                {readingSessions.map((session) => {
-                  // Get students for this session (with safety check)
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+                  {readingSessions
+                    .filter(session => selectedStoryFilter === 'all' || session.book === selectedStoryFilter)
+                    .map((session) => {
+                    // Get students for this session (with safety check)
                   // Handle both old format (string[]) and new format ({id, name}[])
                   const sessionStudents = (session.students || []).map((student) => {
                     // If it's already the new format (object with id and name), use it directly
@@ -889,6 +936,29 @@ const Reading: React.FC = () => {
                   );
                 })}
               </div>
+              
+                {/* No Results Message */}
+                {readingSessions.filter(session => selectedStoryFilter === 'all' || session.book === selectedStoryFilter).length === 0 && selectedStoryFilter !== 'all' && (
+                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-12 text-center mt-6">
+                    <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg className="w-10 h-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <p className="text-slate-500 text-lg font-medium mb-2">No sessions found</p>
+                    <p className="text-slate-400 text-sm mb-6">No sessions match the selected story filter</p>
+                    <button
+                      onClick={() => setSelectedStoryFilter('all')}
+                      className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      <span>Show All Sessions</span>
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
