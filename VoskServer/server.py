@@ -8,14 +8,7 @@ import urllib.parse
 import websockets
 import numpy as np
 from vosk import Model, KaldiRecognizer
-from word_recognition_enhancer import (
-    WordRecognitionEnhancer, 
-    create_enhanced_recognizer,
-    match_pronunciation,
-    normalize_with_pronunciation,
-    get_word_variants
-)
-from word_matcher import WordMatcherSession
+from word_matcher import WordMatcherSession, check_pronunciation_match as match_pronunciation
 
 # Server accepts audio in multiple formats and handles processing server-side
 # Supported formats: Float32 (any sample rate), PCM16 (16kHz)
@@ -168,15 +161,22 @@ def process_audio_message(message: bytes, source_sample_rate: int = 48000, debug
 async def recognize(websocket, path, model):
     sample_rate = 16000
     # Create recognizer with words (for better accuracy) and partial words enabled
-    # Set max_alternatives to 0 for faster processing (we only need the best result)
+    # FAST SPEECH OPTIMIZATION: Configure Vosk for faster recognition
     recognizer = KaldiRecognizer(model, sample_rate)
     recognizer.SetWords(True)  # Enable word-level timestamps (can help with accuracy)
+    
+    # FAST SPEECH: Set max alternatives to 3 for better fast speech handling
+    # This allows Vosk to consider multiple hypotheses which helps with rapid speech
+    recognizer.SetMaxAlternatives(3)
+    
+    # FAST SPEECH: Enable partial results for faster feedback
+    # This is already enabled by default, but we're being explicit
+    recognizer.SetPartialWords(True)
     
     # DEBUG: Track audio chunks received
     audio_chunks_received = 0
     audio_bytes_received = 0
     
-    # Initialize word recognition enhancer to prevent jumping and improve quality
     # Detect language from query parameter for pronunciation matching
     parsed = urllib.parse.urlparse(path if path else '/')
     query_params = urllib.parse.parse_qs(parsed.query)
@@ -186,27 +186,20 @@ async def recognize(websocket, path, model):
     else:
         detected_language = "english"
     
-    enhancer_config = {
-        'min_word_length': 1,      # Allow single letters like "A"
-        'min_confidence': 0.2,     # Slightly higher confidence threshold for better accuracy (was 0.0)
-        'debounce_time': 0.1,      # Balanced response - 100ms (was 0.05)
-        'stability_count': 2,      # Require 2 detections for stability (was 1)
-        'stability_time': 0.15,    # Slightly longer stability - 150ms (was 0.1)
-        'max_candidates': 20,      # More candidates (was 10)
-        'silence_threshold': 0.015, # Slightly higher silence threshold (was 0.01)
-        'language': detected_language  # Set language for pronunciation matching
-    }
-    word_enhancer = create_enhanced_recognizer(enhancer_config)
-    print(f"✓ Word enhancer configured with VERY RELAXED settings for maximum recognition")
+    # REMOVED: word_enhancer - was never actually used, all calls were disabled
+    # The enhancer added complexity without providing value
     
     # Track if grammar has been set
     grammar_set = False
     # Track audio format from client
     client_sample_rate = 48000  # Default, can be overridden via config
     
-    # Audio accumulation buffer - OPTIMIZED FOR ACCURACY
+    # Audio accumulation buffer - OPTIMIZED FOR FAST SPEECH
     audio_buffer = bytearray()
-    buffer_size_target = 3200  # OPTIMIZED: ~0.1 seconds of audio (3200 bytes = 1600 samples @ 16kHz = 0.1s) - Better accuracy with minimal latency
+    # FAST SPEECH: Reduced buffer size for faster processing
+    # 1600 bytes = 800 samples @ 16kHz = 0.05 seconds (50ms)
+    # This allows Vosk to process audio more frequently, catching fast speech better
+    buffer_size_target = 1600  # FAST SPEECH: ~0.05 seconds of audio for rapid processing
     
     # ACCURACY TRACKING: Track metrics for live updates
     session_start_time = time.time()
@@ -261,98 +254,99 @@ async def recognize(websocket, path, model):
                         print(f"   ✓ Sending {len(audio_to_process)} bytes to Vosk for recognition")
                         
                         # Process audio in chunks - Vosk works best with continuous streaming
-                        if recognizer.AcceptWaveform(audio_to_process):
-                            # Final result - enhance before sending
+                        # HYBRID MODE: Use both final and partial results
+                        # Final results are more accurate, partial results are faster
+                        has_final = recognizer.AcceptWaveform(audio_to_process)
+                        
+                        text = ""
+                        if has_final:
+                            # Final result - most accurate
                             res = json.loads(recognizer.Result())
                             text = res.get("text", "").strip()
-                            
-                            # DEBUG: Log raw Vosk output
-                            print(f"🎤 Vosk raw result: '{text}'")
-                            
                             if text:
-                                # OPTIMIZED: Apply vocabulary filter with pronunciation matching
-                                words = text.split()
-                                if vocabulary:
-                                    # Filter words - keep only those in vocabulary (with pronunciation matching)
-                                    filtered_words = []
-                                    rejected_words = []
-                                    for word in words:
-                                        word_lower = word.lower().strip()
-                                        
-                                        # Direct match
-                                        if word_lower in vocabulary:
-                                            filtered_words.append(word)
-                                        else:
-                                            # Try pronunciation matching against vocabulary
-                                            matched = False
-                                            best_match = None
-                                            
-                                            # First try exact pronunciation match
-                                            for vocab_word in vocabulary:
-                                                if match_pronunciation(word_lower, vocab_word, detected_language):
-                                                    # Use the vocabulary word (canonical form)
-                                                    best_match = vocab_word
-                                                    matched = True
-                                                    print(f"   🔄 Pronunciation match: '{word}' → '{vocab_word}'")
-                                                    break
-                                            
-                                            # If no pronunciation match, try fuzzy match (1-2 char difference)
-                                            if not matched:
-                                                for vocab_word in vocabulary:
-                                                    if len(word_lower) == len(vocab_word):
-                                                        diff = sum(c1 != c2 for c1, c2 in zip(word_lower, vocab_word))
-                                                        if diff <= 1:  # Allow 1 character difference
-                                                            best_match = vocab_word
-                                                            matched = True
-                                                            print(f"   🔄 Fuzzy match: '{word}' → '{vocab_word}' (1 char diff)")
-                                                            break
-                                            
-                                            if matched and best_match:
-                                                filtered_words.append(best_match)
-                                            else:
-                                                rejected_words.append(word)
+                                print(f"🎤 Vosk FINAL result: '{text}'")
+                                # Reset partial tracking on final result
+                                if hasattr(recognizer, '_words_sent_count'):
+                                    recognizer._words_sent_count = 0
+                                    recognizer._last_partial_text = ""
+                        else:
+                            # Partial result - faster but less accurate
+                            pres = json.loads(recognizer.PartialResult())
+                            text = pres.get("partial", "").strip()
+                            if text:
+                                print(f"🎤 Vosk partial result: '{text}'")
+                        
+                        if text:
+                            # REAL-TIME: Process partial results word-by-word
+                            # Split into words and process only NEW words (not already sent)
+                            words = text.split()
+                            
+                            # Track last sent partial to avoid duplicates
+                            if not hasattr(recognizer, '_last_partial_text'):
+                                recognizer._last_partial_text = ""
+                                recognizer._words_sent_count = 0
+                            
+                            # Only process if we have new words
+                            # Compare word count instead of word list to handle Vosk corrections
+                            if len(words) > recognizer._words_sent_count:
+                                new_words = words[recognizer._words_sent_count:]
+                                recognizer._words_sent_count = len(words)
+                            else:
+                                new_words = []
+                            
+                            recognizer._last_partial_text = text
+                            
+                            if new_words and vocabulary:
+                                # Filter NEW words - keep only those in vocabulary (with pronunciation matching)
+                                filtered_words = []
+                                rejected_words = []
+                                for word in new_words:
+                                    word_lower = word.lower().strip()
                                     
-                                    if rejected_words:
-                                        print(f"   ❌ Vocabulary filter: Rejected {len(rejected_words)} word(s) not in story: {', '.join(rejected_words)}")
-                                    
-                                    if filtered_words:
-                                        filtered_text = ' '.join(filtered_words)
-                                        print(f"   ✅ Vocabulary filter: Accepted \"{filtered_text}\"")
-                                        
-                                        # NEW: Use word matcher if initialized
-                                        if word_matcher:
-                                            # Process each word through the matcher
-                                            for word in filtered_words:
-                                                match_result = word_matcher.process_word(word)
-                                                
-                                                # Calculate current metrics
-                                                elapsed = time.time() - session_start_time
-                                                metrics = word_matcher.get_metrics(elapsed)
-                                                
-                                                # Send match result with metrics
-                                                await websocket.send(json.dumps({
-                                                    "text": word,
-                                                    "match_result": match_result,
-                                                    "metrics": metrics
-                                                }))
-                                                
-                                                print(f"   📊 Match: {match_result['match_type']} - {match_result['details']}")
-                                        else:
-                                            # Fallback: Send filtered result without matching
-                                            await websocket.send(json.dumps({
-                                                "text": filtered_text,
-                                                "confidence": 1.0
-                                            }))
+                                    # Direct match
+                                    if word_lower in vocabulary:
+                                        filtered_words.append(word)
                                     else:
-                                        print(f"   ⚠️ All words rejected by vocabulary filter")
-                                else:
-                                    # No vocabulary filter - send all words
-                                    print(f"   ✅ Sending word to client: '{text}'")
+                                        # Try pronunciation matching against vocabulary
+                                        matched = False
+                                        best_match = None
+                                        
+                                        # First try exact pronunciation match
+                                        for vocab_word in vocabulary:
+                                            if match_pronunciation(word_lower, vocab_word, detected_language):
+                                                # Use the vocabulary word (canonical form)
+                                                best_match = vocab_word
+                                                matched = True
+                                                print(f"   🔄 Pronunciation match: '{word}' → '{vocab_word}'")
+                                                break
+                                        
+                                        # If no pronunciation match, try fuzzy match (1-2 char difference)
+                                        if not matched:
+                                            for vocab_word in vocabulary:
+                                                if len(word_lower) == len(vocab_word):
+                                                    diff = sum(c1 != c2 for c1, c2 in zip(word_lower, vocab_word))
+                                                    if diff <= 1:  # Allow 1 character difference
+                                                        best_match = vocab_word
+                                                        matched = True
+                                                        print(f"   🔄 Fuzzy match: '{word}' → '{vocab_word}' (1 char diff)")
+                                                        break
+                                        
+                                        if matched and best_match:
+                                            filtered_words.append(best_match)
+                                        else:
+                                            rejected_words.append(word)
+                                
+                                if rejected_words:
+                                    print(f"   ❌ Vocabulary filter: Rejected {len(rejected_words)} word(s) not in story: {', '.join(rejected_words)}")
+                                
+                                if filtered_words:
+                                    filtered_text = ' '.join(filtered_words)
+                                    print(f"   ✅ Vocabulary filter: Accepted \"{filtered_text}\"")
                                     
                                     # NEW: Use word matcher if initialized
                                     if word_matcher:
                                         # Process each word through the matcher
-                                        for word in words:
+                                        for word in filtered_words:
                                             match_result = word_matcher.process_word(word)
                                             
                                             # Calculate current metrics
@@ -368,11 +362,41 @@ async def recognize(websocket, path, model):
                                             
                                             print(f"   📊 Match: {match_result['match_type']} - {match_result['details']}")
                                     else:
-                                        # Fallback: Send text without matching
+                                        # Fallback: Send filtered result without matching
                                         await websocket.send(json.dumps({
-                                            "text": text,
+                                            "text": filtered_text,
                                             "confidence": 1.0
                                         }))
+                                else:
+                                    print(f"   ⚠️ All words rejected by vocabulary filter")
+                            elif new_words:
+                                # No vocabulary filter - send all NEW words
+                                print(f"   ✅ Sending words to client: '{' '.join(new_words)}'")
+                                
+                                # NEW: Use word matcher if initialized
+                                if word_matcher:
+                                    # Process each word through the matcher
+                                    for word in new_words:
+                                        match_result = word_matcher.process_word(word)
+                                        
+                                        # Calculate current metrics
+                                        elapsed = time.time() - session_start_time
+                                        metrics = word_matcher.get_metrics(elapsed)
+                                        
+                                        # Send match result with metrics
+                                        await websocket.send(json.dumps({
+                                            "text": word,
+                                            "match_result": match_result,
+                                            "metrics": metrics
+                                        }))
+                                        
+                                        print(f"   📊 Match: {match_result['match_type']} - {match_result['details']}")
+                                else:
+                                    # Fallback: Send text without matching
+                                    await websocket.send(json.dumps({
+                                        "text": ' '.join(new_words),
+                                        "confidence": 1.0
+                                    }))
                             
                             # OLD CODE - COMPLETELY DISABLED
                             if False:

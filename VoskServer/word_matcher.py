@@ -8,6 +8,15 @@ omissions, substitutions, and mispronunciations.
 from typing import Dict, List, Optional, Tuple
 from difflib import SequenceMatcher
 import re
+import time
+
+# Import timing validator
+try:
+    from timing_validator import TimingValidator
+    TIMING_VALIDATOR_AVAILABLE = True
+except ImportError:
+    TIMING_VALIDATOR_AVAILABLE = False
+    print("⚠ Timing validator not available")
 
 # Import pronunciation dictionaries
 try:
@@ -45,6 +54,20 @@ except ImportError:
         return False
     CONTEXT_CORRECTION_ENABLED = False
 
+# Import phonetic similarity validator
+try:
+    from phonetic_similarity_validator import validate_substitution
+    PHONETIC_VALIDATOR_ENABLED = True
+    print("✓ Phonetic similarity validator loaded")
+except ImportError:
+    def validate_substitution(spoken, expected, threshold=0.60):
+        # Fallback: use simple similarity
+        from difflib import SequenceMatcher
+        similarity = SequenceMatcher(None, spoken.lower(), expected.lower()).ratio()
+        is_sub = similarity < threshold
+        return (is_sub, f"{int(similarity*100)}% similar", similarity)
+    PHONETIC_VALIDATOR_ENABLED = False
+
 
 def normalize_word(word: str) -> str:
     """Normalize a word for comparison (lowercase, remove punctuation)."""
@@ -56,6 +79,154 @@ def calculate_similarity(word1: str, word2: str) -> float:
     if not word1 or not word2:
         return 0.0
     return SequenceMatcher(None, word1, word2).ratio()
+
+
+def is_semantically_related(word1: str, word2: str) -> bool:
+    """
+    Check if two words are semantically related (would make sense as a substitution).
+    
+    A true substitution should be semantically related to the expected word.
+    If words are completely unrelated, it's likely a Vosk error, not a real substitution.
+    
+    Examples:
+    - "cat" → "dog" = Related (both animals) → True substitution
+    - "cat" → "bed" = Unrelated → Likely Vosk error
+    - "happy" → "sad" = Related (both emotions) → True substitution
+    - "run" → "walk" = Related (both actions) → True substitution
+    
+    Args:
+        word1: First word
+        word2: Second word
+        
+    Returns:
+        True if words are semantically related (real substitution likely)
+    """
+    word1_norm = normalize_word(word1)
+    word2_norm = normalize_word(word2)
+    
+    # Semantic categories - words that could reasonably be substituted
+    semantic_groups = {
+        # Animals
+        'animals': {'cat', 'dog', 'bird', 'fish', 'pet', 'animal', 'puppy', 'kitten'},
+        
+        # Furniture/Objects
+        'furniture': {'bed', 'chair', 'table', 'desk', 'sofa', 'couch', 'mat'},
+        
+        # Actions
+        'actions': {'sit', 'run', 'walk', 'jump', 'play', 'sleep', 'nap', 'rest'},
+        
+        # Emotions
+        'emotions': {'happy', 'sad', 'mad', 'glad', 'angry', 'upset'},
+        
+        # People
+        'people': {'mom', 'dad', 'boy', 'girl', 'man', 'woman', 'child', 'baby'},
+        
+        # Places
+        'places': {'home', 'house', 'school', 'park', 'room'},
+        
+        # Size/Descriptors
+        'size': {'big', 'small', 'little', 'large', 'tiny', 'huge'},
+        
+        # Colors
+        'colors': {'red', 'blue', 'green', 'yellow', 'black', 'white'},
+        
+        # Numbers
+        'numbers': {'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'},
+        
+        # Common verbs
+        'verbs': {'is', 'are', 'was', 'were', 'has', 'have', 'had', 'can', 'will', 'do', 'does'},
+        
+        # Articles/Determiners
+        'articles': {'a', 'an', 'the', 'this', 'that', 'these', 'those'},
+        
+        # Prepositions
+        'prepositions': {'on', 'in', 'at', 'by', 'to', 'from', 'with', 'off'},
+    }
+    
+    # Check if both words are in the same semantic group
+    for group_name, words in semantic_groups.items():
+        if word1_norm in words and word2_norm in words:
+            return True  # Same category - could be a real substitution
+    
+    # Check for rhyming words (children often substitute rhyming words)
+    # Words that end with the same 2+ characters
+    if len(word1_norm) >= 3 and len(word2_norm) >= 3:
+        if word1_norm[-2:] == word2_norm[-2:]:
+            return True  # Rhyming words - could be a real substitution
+    
+    return False  # Unrelated words - likely Vosk error
+
+
+def is_likely_mishearing(spoken: str, expected: str) -> bool:
+    """
+    Check if spoken word is likely a Vosk mishearing rather than a real substitution.
+    
+    This reduces false substitutions by identifying common Vosk recognition errors:
+    - Phonetically similar words (bed/bad, cat/cut)
+    - Single letter differences (cat/bat, sit/set)
+    - Common consonant confusions (b/p, d/t, g/k)
+    - Vowel confusions (a/e/i/o/u)
+    
+    Args:
+        spoken: Word that was spoken
+        expected: Expected word
+        
+    Returns:
+        True if this is likely a mishearing (should be mispronunciation, not substitution)
+    """
+    spoken_norm = normalize_word(spoken)
+    expected_norm = normalize_word(expected)
+    
+    # Same length words with 1 character difference - likely mishearing
+    if len(spoken_norm) == len(expected_norm):
+        differences = sum(1 for a, b in zip(spoken_norm, expected_norm) if a != b)
+        if differences == 1:
+            return True  # Single character difference (cat/bat, sit/set)
+    
+    # Check for common consonant confusions
+    consonant_pairs = [
+        ('b', 'p'), ('d', 't'), ('g', 'k'),  # Voiced/unvoiced pairs
+        ('f', 'v'), ('s', 'z'), ('th', 'f'),  # Fricatives
+        ('m', 'n'), ('l', 'r'),  # Nasals and liquids
+    ]
+    
+    for c1, c2 in consonant_pairs:
+        # Check if words differ only by these consonants
+        if spoken_norm.replace(c1, c2) == expected_norm or spoken_norm.replace(c2, c1) == expected_norm:
+            return True
+    
+    # Check for vowel confusions (a/e/i/o/u)
+    vowels = 'aeiou'
+    spoken_consonants = ''.join(c for c in spoken_norm if c not in vowels)
+    expected_consonants = ''.join(c for c in expected_norm if c not in vowels)
+    
+    # Same consonants, different vowels - likely mishearing
+    if spoken_consonants == expected_consonants and len(spoken_consonants) > 0:
+        return True
+    
+    # Check for common Vosk-specific mishearings
+    # These are words that Vosk frequently confuses
+    vosk_confusions = {
+        'bed': ['bad', 'bet', 'bid'],
+        'cat': ['cut', 'cot', 'kit'],
+        'sit': ['set', 'sat'],
+        'the': ['a', 'da', 'de'],
+        'a': ['the', 'uh'],
+        'it': ['at', 'et'],
+        'on': ['an', 'in'],
+        'is': ['as', 'us'],
+    }
+    
+    # Check bidirectional confusions
+    if expected_norm in vosk_confusions:
+        if spoken_norm in vosk_confusions[expected_norm]:
+            return True
+    
+    if spoken_norm in vosk_confusions:
+        if expected_norm in vosk_confusions[spoken_norm]:
+            return True
+    
+    return False
 
 
 def is_reversal(spoken: str, expected: str) -> bool:
@@ -127,19 +298,29 @@ def check_pronunciation_match(spoken: str, expected: str, language: str = "engli
             print(f"🤖 Auto-matched: '{spoken}' -> '{expected}' (generated variant)")
             return True
     
-    # Common mishearings (Vosk-specific) - ONLY if allowed
-    # Disabled by default for searching to prevent false matches
-    if allow_mishearings:
-        common_mishearings = {
-            'a': ['the', 'uh', 'ah', 'ay'],
-            'the': ['a', 'da', 'de'],
-            'i': ['eye', 'aye'],
-            'to': ['too', 'two']
-        }
-        
-        if expected_norm in common_mishearings:
-            if spoken_norm in common_mishearings[expected_norm]:
-                return True
+    # Common mishearings (Vosk-specific) - ONLY for pronunciation variants
+    # These should be CONSERVATIVE - only include variants that are truly interchangeable
+    # DO NOT include words that sound completely different!
+    common_mishearings = {
+        'a': ['uh', 'ah', 'ay'],  # Article "a" pronunciations only
+        'the': ['da', 'de', 'thee', 'thuh'],  # Article "the" pronunciations only
+        'i': ['eye', 'aye'],
+        'to': ['too', 'two'],
+        'no': ['know'],  # Removed "now" - different word
+        'sit': ['set'],
+        'nap': ['knap'],
+        'sad': ['said']  # "sad" matches "sad?"
+    }
+    
+    # Check if spoken matches expected through mishearings
+    if expected_norm in common_mishearings:
+        if spoken_norm in common_mishearings[expected_norm]:
+            return True
+    
+    # Check reverse - if expected matches spoken through mishearings
+    if spoken_norm in common_mishearings:
+        if expected_norm in common_mishearings[spoken_norm]:
+            return True
     
     return False
 
@@ -174,9 +355,10 @@ def match_word(
     spoken_norm = normalize_word(spoken_word)
     expected_norm = normalize_word(expected_word)
     
-    # CONTEXT-AWARE CORRECTION: Fix common Vosk mishearings
-    # Example: Child says "in", Vosk hears "it" → Correct to "in"
-    if CONTEXT_CORRECTION_ENABLED:
+    # CONTEXT-AWARE CORRECTION DISABLED: Causing false corrections
+    # The context corrector was "fixing" words that were already correct
+    # This added confusion instead of helping
+    if False and CONTEXT_CORRECTION_ENABLED:
         corrected_word, was_corrected, reason = correct_mishearing(spoken_word, expected_word)
         if was_corrected:
             print(f"🔧 Context correction: '{spoken_word}' → '{corrected_word}' ({reason})")
@@ -202,12 +384,11 @@ def match_word(
     # Example: Child says "Si Brownie ay" quickly, system incorrectly marked "ay" as insertion
     # Now we only detect insertions through omission logic (if word matches future position)
     
-    # TRANSPOSITION DETECTION: Check if spoken word matches the NEXT word
-    # If it does, this might be a transposition (word order swap)
-    # We need to wait for the following word to confirm
-    # NOTE: This is called from match_word, not process_word, so we can't set state here
-    # We return a special result that process_word will handle
-    if current_position + 1 < len(expected_words):
+    # TRANSPOSITION DETECTION DISABLED: Too many false positives
+    # The transposition logic was causing confusion by marking correct words as "pending"
+    # Real transpositions are rare in reading, so we'll treat them as substitutions instead
+    # This simplifies the logic and reduces false omissions
+    if False and current_position + 1 < len(expected_words):
         next_word = expected_words[current_position + 1]
         if check_pronunciation_match(spoken_word, next_word, language, allow_mishearings=False):
             # Spoken word matches NEXT expected word - possible transposition!
@@ -222,33 +403,17 @@ def match_word(
                 "details": f"Transposition pending: '{spoken_word}' matches next word, waiting for '{expected_word}'"
             }
     
-    # CONSERVATIVE SEARCH: Check if spoken word matches nearby words only
-    # This prevents jumping to repeated words later in the story
-    # Example: If "Mia" appears at position 0 and position 23, and we're at position 15,
-    # we should NOT jump to position 23 when we hear "Mia" - that's a different occurrence!
-    look_ahead_range = 3   # Only look 3 words ahead (prevents false jumps to repeated words)
-    look_behind_range = 5  # Look 5 words back (handles delayed words from Vosk buffering)
+    # VOSK-OPTIMIZED SEARCH: Handle Vosk's word reordering
+    # Vosk often outputs words out of order due to internal buffering
+    # ONLY look behind - look-ahead causes too many false omissions
+    look_behind_range = 5  # Look 5 words back (handles Vosk's word reordering)
     
-    # Check ahead (WITHOUT mishearings to prevent false matches)
-    # Skip i=1 since we already checked for transposition above
-    for i in range(2, min(look_ahead_range + 1, len(expected_words) - current_position)):
-        future_word = expected_words[current_position + i]
-        if check_pronunciation_match(spoken_word, future_word, language, allow_mishearings=False):
-            # Found the spoken word ahead - mark as omission
-            # IMPORTANT: Only look 3 words ahead to prevent jumping to repeated words
-            return {
-                "match_type": "omission",
-                "advance": True,
-                "new_position": current_position + i + 1,  # Jump to after the matched word
-                "miscue_count": i,  # Count skipped words as miscues
-                "skipped_count": i,
-                "details": f"Omission: Skipped {i} word(s), found '{spoken_word}' at position +{i}"
-            }
-    
-    # Check behind (for delayed words from Vosk buffering) - WITHOUT mishearings
+    # Check behind ONLY (for delayed words from Vosk buffering)
+    # This prevents marking delayed words as substitutions
     for i in range(1, min(look_behind_range + 1, current_position + 1)):
         past_word = expected_words[current_position - i]
-        if check_pronunciation_match(spoken_word, past_word, language, allow_mishearings=False):
+        # Use EXACT match only (no pronunciation variants) to prevent false matches
+        if normalize_word(spoken_word) == normalize_word(past_word):
             # Found a delayed word! Mark as correct but don't move position backwards
             # This handles Vosk's buffering delays where words arrive out of order
             return {
@@ -258,6 +423,11 @@ def match_word(
                 "miscue_count": 0,
                 "details": f"Delayed word: '{spoken_word}' from position -{i} (Vosk buffering delay)"
             }
+    
+    # LOOK-AHEAD DISABLED: Causes too many false omissions due to Vosk's word reordering
+    # Real omissions will be detected as substitutions, which is more accurate
+    # Example: If child skips "a" and says "cat", we'll mark it as substitution
+    # This is better than jumping ahead and marking multiple words as omissions
     
     # Check for REVERSAL first (before similarity check)
     # Reversal: letters are reversed (e.g., "was" → "saw", "on" → "no")
@@ -271,8 +441,15 @@ def match_word(
             "details": f"Reversal: '{spoken_word}' is reverse of '{expected_word}'"
         }
     
-    # Calculate similarity for mispronunciation vs substitution
-    similarity = calculate_similarity(spoken_norm, expected_norm)
+    # PHONETIC SIMILARITY VALIDATION:
+    # Use advanced phonetic validator to determine if this is a true substitution
+    # or just a mispronunciation/Vosk error
+    
+    is_true_substitution, validation_reason, phonetic_similarity = validate_substitution(
+        spoken_word, 
+        expected_word, 
+        threshold=0.60
+    )
     
     # Check for dropped endings (common in Tagalog)
     is_dropped_ending = (
@@ -281,25 +458,55 @@ def match_word(
         len(expected_norm) - len(spoken_norm) <= 2
     )
     
-    if is_dropped_ending or similarity >= 0.75:
-        # Mispronunciation - similar enough to be the same word
+    # Check for added endings (e.g., "thuh" for "a")
+    is_added_ending = (
+        spoken_norm.startswith(expected_norm) and
+        len(expected_norm) >= 1 and
+        len(spoken_norm) - len(expected_norm) <= 3
+    )
+    
+    # Override validator if we detect dropped/added endings
+    if is_dropped_ending or is_added_ending:
+        is_true_substitution = False
+        if is_dropped_ending:
+            validation_reason = "dropped ending"
+        else:
+            validation_reason = "added ending"
+    
+    # INTELLIGENT CLASSIFICATION:
+    # Use phonetic validator result to classify the miscue
+    
+    if not is_true_substitution:
+        # MISPRONUNCIATION: Phonetically similar or Vosk confusion
+        # The child attempted the correct word but said it slightly wrong
+        # OR Vosk misheard a correct pronunciation
+        
+        print(f"   🔍 Phonetic validation: MISPRONUNCIATION - {validation_reason}")
+        
         return {
             "match_type": "mispronunciation",
             "advance": True,
             "new_position": current_position + 1,
             "miscue_count": 1,
-            "similarity": similarity,
-            "details": f"Mispronunciation: '{spoken_word}' instead of '{expected_word}' ({int(similarity*100)}% similar)"
+            "similarity": phonetic_similarity,
+            "validation_reason": validation_reason,
+            "details": f"Mispronunciation: '{spoken_word}' instead of '{expected_word}' ({validation_reason})"
         }
     else:
-        # Substitution - completely different word
+        # TRUE SUBSTITUTION: Completely different word
+        # The child said a different word (not just mispronounced)
+        # Examples: "cat" → "dog", "run" → "walk"
+        
+        print(f"   🔍 Phonetic validation: SUBSTITUTION - {validation_reason}")
+        
         return {
             "match_type": "substitution",
             "advance": True,
             "new_position": current_position + 1,
             "miscue_count": 1,
-            "similarity": similarity,
-            "details": f"Substitution: '{spoken_word}' instead of '{expected_word}' ({int(similarity*100)}% similar)"
+            "similarity": phonetic_similarity,
+            "validation_reason": validation_reason,
+            "details": f"Substitution: '{spoken_word}' instead of '{expected_word}' ({validation_reason})"
         }
 
 
@@ -330,15 +537,33 @@ class WordMatcherSession:
             "reversal": 0,
             "transposition": 0
         }
-        self.recent_words = []  # Track recent spoken words for insertion detection
-        self.max_recent_words = 5  # Keep last 5 words
         self.words_read = 0
-        self.pending_word = None  # Track pending word for insertion detection
-        self.session_started = False  # Track if we've found the first word
-        self.last_spoken_word = None  # Track last spoken word for repetition detection
-        self.last_match_result = None  # Track last match result for self-correction detection
-        self.transposition_pending = False  # Track if we're expecting a transposition confirmation
-        self.transposition_first_word = None  # The first word of the transposition pair
+        self.session_started = False  # Track if session has started
+        
+        # REMOVED: Unused state variables from disabled features
+        # - recent_words, max_recent_words (insertion detection - disabled)
+        # - pending_word (insertion detection - disabled)
+        # - last_spoken_word (repetition detection - disabled)
+        # - last_match_result (self-correction detection - disabled)
+        # - transposition_pending, transposition_first_word (transposition - disabled)
+        
+        # Initialize smart buffer matcher for handling Vosk's word reordering
+        try:
+            from smart_buffer_matcher import SmartBufferMatcher
+            self.smart_buffer = SmartBufferMatcher(expected_words, buffer_size=5)
+            self.use_smart_buffer = True
+            print("✓ Smart buffer matcher initialized (handles Vosk word reordering)")
+        except ImportError:
+            self.smart_buffer = None
+            self.use_smart_buffer = False
+            print("⚠ Smart buffer matcher not available")
+        
+        # Initialize timing validator for lag detection
+        if TIMING_VALIDATOR_AVAILABLE:
+            self.timing_validator = TimingValidator(expected_words, language)
+            print("✓ Timing validator initialized (lag detection enabled)")
+        else:
+            self.timing_validator = None
     
     def process_word(self, spoken_word: str) -> Dict:
         """
@@ -350,6 +575,42 @@ class WordMatcherSession:
         Returns:
             Match result dictionary
         """
+        # Use smart buffer if available
+        if self.use_smart_buffer and self.smart_buffer:
+            result = self.smart_buffer.add_word(spoken_word)
+            
+            # If buffer returned a result, use it
+            if result:
+                # Update our state from smart buffer
+                self.current_position = result["new_position"]
+                self.words_read = result["words_read"]
+                self.total_miscues = result["total_miscues"]
+                
+                # Update miscue types
+                if result["match_type"] in self.miscue_types:
+                    self.miscue_types[result["match_type"]] += result["miscue_count"]
+                
+                # Add session state
+                result["session_state"] = {
+                    "current_position": self.current_position,
+                    "words_read": self.words_read,
+                    "total_miscues": self.total_miscues,
+                    "miscue_types": self.miscue_types.copy(),
+                    "progress": f"{self.current_position}/{len(self.expected_words)}"
+                }
+                
+                return result
+            else:
+                # Still buffering - return a "buffering" status
+                return {
+                    "match_type": "buffering",
+                    "advance": False,
+                    "new_position": self.current_position,
+                    "miscue_count": 0,
+                    "details": "Buffering words for intelligent matching"
+                }
+        
+        # Fallback to original logic if smart buffer not available
         if self.current_position >= len(self.expected_words):
             # Reached end of story
             return {
@@ -362,29 +623,15 @@ class WordMatcherSession:
         
         expected_word = self.expected_words[self.current_position]
         
-        # WAIT FOR FIRST WORD: Don't start matching until we find the FIRST word of the story
-        # STRICT MODE: Only accept the first word (position 0) to start the session
-        # This prevents false starts when Vosk hears phantom words or words from later in the story
+        # SIMPLIFIED START: Just start from position 0
+        # The old "wait for first word" logic was too strict and could ignore valid words
         if not self.session_started:
-            # Only check if spoken word matches the FIRST word of the story
-            if check_pronunciation_match(spoken_word, self.expected_words[0], self.language):
-                # Found the first word! Start the session
-                print(f"   🎯 SESSION START: Found first word '{spoken_word}' at position 0")
-                self.current_position = 0
-                self.session_started = True
-                expected_word = self.expected_words[0]
-            else:
-                # Not the first word yet - ignore this word
-                return {
-                    "match_type": "waiting_for_start",
-                    "advance": False,
-                    "new_position": 0,
-                    "miscue_count": 0,
-                    "details": f"Waiting for first word '{self.expected_words[0]}', ignoring '{spoken_word}'"
-                }
+            self.session_started = True
+            self.current_position = 0
+            print(f"   🎯 SESSION START: Beginning at position 0")
         
-        # TRANSPOSITION CONFIRMATION: Check if we're expecting the second word of a transposition
-        if self.transposition_pending and self.transposition_first_word is not None:
+        # TRANSPOSITION CONFIRMATION DISABLED: Detection is disabled, so this is never triggered
+        if False and self.transposition_pending and self.transposition_first_word is not None:
             # We detected a transposition - now check if current word completes it
             # The current word should match the PREVIOUS expected word
             previous_expected = self.expected_words[self.current_position]
@@ -439,9 +686,9 @@ class WordMatcherSession:
                 self.transposition_first_word = None
                 # Continue processing current word normally
         
-        # REPETITION DETECTION: Check if the same word is spoken twice in a row
-        # This must be checked BEFORE other logic to catch immediate repetitions
-        if self.last_spoken_word is not None:
+        # REPETITION DETECTION DISABLED: Can misidentify Vosk duplicates as repetitions
+        # Real repetitions are rare and hard to distinguish from Vosk processing delays
+        if False and self.last_spoken_word is not None:
             if check_pronunciation_match(spoken_word, self.last_spoken_word, self.language):
                 # Same word spoken twice - this is a REPETITION
                 print(f"   🔁 REPETITION DETECTED: '{spoken_word}' repeated")
@@ -479,9 +726,9 @@ class WordMatcherSession:
                 
                 return repetition_result
         
-        # SELF-CORRECTION DETECTION: Check if previous word was wrong and current word is correct
-        # This detects when a student says a wrong word then immediately corrects it
-        if self.last_match_result is not None:
+        # SELF-CORRECTION DETECTION DISABLED: Too complex, causing false positives
+        # Self-corrections are rare and hard to detect reliably with Vosk's delays
+        if False and self.last_match_result is not None:
             # Check if last result was a miscue (substitution or mispronunciation)
             if self.last_match_result.get("match_type") in ["substitution", "mispronunciation"]:
                 # Check if current word matches the PREVIOUS expected word (the one they got wrong)
@@ -528,13 +775,12 @@ class WordMatcherSession:
                         
                         return self_correction_result
         
-        # INSERTION DETECTION: Use pending word logic to detect insertions
-        # When a word doesn't match, hold it as "pending" and wait for the next word
-        # If the next word matches the expected word, the pending word was an insertion
-        # If the next word doesn't match, the pending word was a substitution
+        # INSERTION DETECTION DISABLED: Overly complex and rarely works correctly
+        # The pending word logic was causing more confusion than it solved
+        # Insertions are rare and will be treated as substitutions instead
         
         # Check if we have a pending word from the previous call
-        if self.pending_word is not None:
+        if False and self.pending_word is not None:
             # We have a pending word - check if current word matches expected
             if check_pronunciation_match(spoken_word, expected_word, self.language):
                 # Current word matches! But first check if this is a SELF-CORRECTION
@@ -641,6 +887,21 @@ class WordMatcherSession:
             self.language
         )
         
+        # TIMING VALIDATION: Check if Vosk is lagging and correct if needed
+        if self.timing_validator and result.get("new_position"):
+            correction = self.timing_validator.correct_position(
+                spoken_word,
+                result["new_position"],
+                self.current_position
+            )
+            
+            if correction["corrected"]:
+                # Apply timing correction
+                print(f"   ✅ Applied timing correction: position {result['new_position']} → {correction['corrected_position']}")
+                result["new_position"] = correction["corrected_position"]
+                result["timing_corrected"] = True
+                result["lag_words"] = correction.get("lag_words", 0)
+        
         # Check for TRANSPOSITION PENDING - set state and wait for next word
         if result["match_type"] == "transposition_pending":
             # Set transposition pending state
@@ -656,8 +917,12 @@ class WordMatcherSession:
                 "details": f"Transposition pending: waiting for next word"
             }
         
-        # Check if word doesn't match - make it pending for insertion detection
-        if result["match_type"] in ["substitution", "mispronunciation"]:
+        # DISABLED: Pending word logic causes too many false omissions
+        # When a child says "a cat" quickly, Vosk might hear "da cat"
+        # The old logic would mark "da" as pending, then mark "a" and "cat" as omissions
+        # New approach: Accept mispronunciations and substitutions immediately
+        # Only use pending for very specific cases (transposition)
+        if False and result["match_type"] in ["substitution", "mispronunciation"]:
             # Word doesn't match - hold it as pending
             print(f"   ⏸️ PENDING: '{spoken_word}' doesn't match '{expected_word}' - waiting for next word")
             self.pending_word = spoken_word
@@ -670,25 +935,18 @@ class WordMatcherSession:
                 "details": f"Pending: '{spoken_word}' doesn't match '{expected_word}', waiting for next word"
             }
         
-        # Word matched or is an omission - process normally
-        self.pending_word = None
-        
-        # Update last spoken word for repetition detection
-        self.last_spoken_word = spoken_word
-        
-        # Store result with spoken word for self-correction detection
-        result["spoken_word"] = spoken_word
-        self.last_match_result = result.copy()
-        
-        # Add to recent words buffer
-        self.recent_words.append(spoken_word)
-        if len(self.recent_words) > self.max_recent_words:
-            self.recent_words.pop(0)
+        # REMOVED: State tracking for disabled features
+        # All the pending_word, last_spoken_word, last_match_result, and recent_words
+        # tracking has been removed since those features are disabled
         
         # Update state
         if result["advance"]:
             self.current_position = result["new_position"]
             self.words_read += 1
+            
+            # Track timing for lag detection
+            if self.timing_validator:
+                self.timing_validator.add_word(spoken_word, self.current_position, time.time())
         elif "new_position" in result:
             # Position correction without advancing
             self.current_position = result["new_position"]

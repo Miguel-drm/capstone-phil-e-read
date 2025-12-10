@@ -713,6 +713,14 @@ const ReadingSessionPage: React.FC = () => {
   const recognitionRef = useRef<any>(null); // Web Speech API recognition instance
   const [webSpeechStatus, setWebSpeechStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const shouldRestartWebSpeechRef = useRef<boolean>(false); // Track if we should auto-restart
+  
+  // ⚡ OPTIMISTIC UI: Track expected position after optimistic moves
+  const optimisticWordIndexRef = useRef<number>(0); // Where we expect to be after optimistic moves
+  
+  // 👷 MULTI-WORKER: WebSocket connection to multi-worker backend
+  const multiWorkerWsRef = useRef<WebSocket | null>(null);
+  const [multiWorkerStatus, setMultiWorkerStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const [useMultiWorker, setUseMultiWorker] = useState(true); // Enable by default
 
   // Server-calculated metrics (backend is source of truth)
   const [serverMetrics, setServerMetrics] = useState<{
@@ -1298,6 +1306,90 @@ const ReadingSessionPage: React.FC = () => {
 
 
 
+  // 👷 MULTI-WORKER: Connect to multi-worker backend
+  const connectMultiWorker = () => {
+    if (!useMultiWorker || !useWebSpeech) return;
+    
+    console.log('👷 Connecting to multi-worker backend...');
+    setMultiWorkerStatus('connecting');
+    
+    const ws = new WebSocket('ws://localhost:2702');
+    
+    ws.onopen = () => {
+      console.log('✅ Multi-worker backend connected!');
+      setMultiWorkerStatus('connected');
+      
+      // Initialize session with story words
+      ws.send(JSON.stringify({
+        type: 'init',
+        story_words: words,
+        language: storyLanguage
+      }));
+      
+      console.log(`👷 Initialized multi-worker session: ${words.length} words, ${storyLanguage}`);
+    };
+    
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'validation_result') {
+          // Worker 1 or 2 responded with validation
+          console.log(`👷 Worker validation: Word ${data.index} - ${data.correct ? '✅ Correct' : '❌ ' + data.error_type}`);
+          
+          // Update UI based on worker result
+          if (!data.correct && data.error_type) {
+            // Mark error from Worker 2
+            setWordMiscues(prev => new Map(prev).set(data.index, data.error_type as any));
+            setMiscues(prev => prev + 1);
+          }
+        }
+        
+        if (data.type === 'metrics_update') {
+          // Worker 3 responded with metrics
+          console.log(`👷 Worker metrics: WPM=${data.wpm.toFixed(0)}, Accuracy=${data.accuracy.toFixed(1)}%`);
+          
+          // Update server metrics
+          setServerMetrics({
+            wpm: data.wpm,
+            accuracy: data.accuracy,
+            oralReadingScore: data.accuracy,
+            wordsRead: data.words_read,
+            totalMiscues: data.total_miscues
+          });
+        }
+        
+        if (data.type === 'init_success') {
+          console.log(`✅ Multi-worker session initialized: ${data.total_words} words, ${data.workers} workers`);
+        }
+      } catch (error) {
+        console.error('Error processing multi-worker message:', error);
+      }
+    };
+    
+    ws.onerror = (error) => {
+      console.error('❌ Multi-worker connection error:', error);
+      setMultiWorkerStatus('disconnected');
+    };
+    
+    ws.onclose = () => {
+      console.log('Multi-worker connection closed');
+      setMultiWorkerStatus('disconnected');
+    };
+    
+    multiWorkerWsRef.current = ws;
+  };
+  
+  // 👷 MULTI-WORKER: Disconnect from backend
+  const disconnectMultiWorker = () => {
+    if (multiWorkerWsRef.current) {
+      multiWorkerWsRef.current.close();
+      multiWorkerWsRef.current = null;
+      setMultiWorkerStatus('disconnected');
+      console.log('Multi-worker disconnected');
+    }
+  };
+
   // Start recording and speech recognition
   const handleStartRecording = () => {
     if (currentSession?.status === "completed") {
@@ -1338,18 +1430,27 @@ const ReadingSessionPage: React.FC = () => {
     recognition.onresult = (event: any) => {
       // Mark as connected when we start receiving results
       setWebSpeechStatus('connected');
-      // Build the complete transcript from all final results
-      let fullTranscript = '';
+      
+      // 👷 WORKER 5: Use BOTH interim and final results to catch all words
+      let allTranscript = '';
+      let hasNewFinalWords = false;
       
       for (let i = 0; i < event.results.length; i++) {
         if (event.results[i].isFinal) {
-          fullTranscript += event.results[i][0].transcript + ' ';
+          allTranscript += event.results[i][0].transcript + ' ';
+          hasNewFinalWords = true;
+        } else {
+          // Also process interim results for faster detection
+          const interimText = event.results[i][0].transcript;
+          if (interimText.trim()) {
+            console.log(`👂 Worker 5: Interim result: "${interimText}"`);
+          }
         }
       }
       
-      if (fullTranscript.trim()) {
+      if (allTranscript.trim()) {
         // Split into words
-        const allWords = fullTranscript.trim().split(/\s+/).filter(Boolean);
+        const allWords = allTranscript.trim().split(/\s+/).filter(Boolean);
         
         // Only process NEW words (words we haven't seen before)
         const newWords = allWords.slice(processedWordCount);
@@ -1362,11 +1463,38 @@ const ReadingSessionPage: React.FC = () => {
             const filteredWord = filterThroughVocabulary(word, storyVocabulary);
             if (filteredWord) {
               console.log(`✅ Accepted: "${filteredWord}"`);
-              // Add to transcript
+              
+              // ⚡ OPTIMISTIC UI: Move yellow highlight IMMEDIATELY (before validation)
+              const currentIndex = optimisticWordIndexRef.current;
+              const nextIndex = Math.min(currentIndex + 1, words.length - 1);
+              
+              setCurrentWordIndex(nextIndex);
+              optimisticWordIndexRef.current = nextIndex;
+              console.log(`⚡ INSTANT: Yellow moved from ${currentIndex} to ${nextIndex} (optimistic)`);
+              
+              // ⚡ INSTANT VALIDATION: Mark word as correct immediately
+              setRecognizedWords(prev => new Set(prev).add(currentIndex));
+              setWordsRead(prev => Math.min(prev + 1, words.length));
+              console.log(`✅ INSTANT: Word ${currentIndex} marked correct`);
+              
+              // 👷 MULTI-WORKER: Send word to backend for parallel processing
+              if (multiWorkerWsRef.current && multiWorkerWsRef.current.readyState === WebSocket.OPEN) {
+                multiWorkerWsRef.current.send(JSON.stringify({
+                  type: 'word_spoken',
+                  word: filteredWord,
+                  index: currentIndex,
+                  timestamp: Date.now(),
+                  confidence: 0.95
+                }));
+                console.log(`👷 Sent to 5 workers: "${filteredWord}" at index ${currentIndex}`);
+              }
+              
+              // Add to transcript for background validation (optional double-check)
               voskFinalTranscriptRef.current += (voskFinalTranscriptRef.current ? " " : "") + filteredWord;
               setTranscript(voskFinalTranscriptRef.current);
             } else {
               console.log(`❌ Rejected: "${word}" (not in vocabulary)`);
+              console.log(`👂 Worker 5: Monitoring for missed word...`);
             }
           }
           
@@ -1657,6 +1785,9 @@ const ReadingSessionPage: React.FC = () => {
     setCurrentWordIndex(0);
     voskReconnectAttemptsRef.current = 0; // Reset reconnect attempts
     
+    // ⚡ OPTIMISTIC UI: Reset optimistic tracking
+    optimisticWordIndexRef.current = 0;
+    
     // Clear all word markings from previous session
     setWordMiscues(new Map());
     setWordMarkings(new Map());
@@ -1698,6 +1829,12 @@ const ReadingSessionPage: React.FC = () => {
       console.log('🎤 Starting Web Speech API for', storyLanguage);
       setWebSpeechStatus('connecting');
       shouldRestartWebSpeechRef.current = true; // Enable auto-restart
+      
+      // 👷 MULTI-WORKER: Connect to backend
+      if (useMultiWorker) {
+        connectMultiWorker();
+      }
+      
       const recognition = initializeWebSpeech();
       if (recognition) {
         recognitionRef.current = recognition;
@@ -2399,6 +2536,9 @@ const ReadingSessionPage: React.FC = () => {
           recognitionRef.current = null;
           setWebSpeechStatus('disconnected');
           console.log('✅ Web Speech API stopped');
+          
+          // 👷 MULTI-WORKER: Disconnect from backend
+          disconnectMultiWorker();
         } catch (error) {
           console.warn('Error stopping Web Speech API:', error);
         }
@@ -2861,6 +3001,13 @@ const ReadingSessionPage: React.FC = () => {
   useEffect(() => {
     if (!transcript || !realWords.length || currentWordIndex >= realWords.length) return;
 
+    // ⚡ OPTIMISTIC MODE: Skip slow validation when using Web Speech
+    // Web Speech already marks words instantly, no need for background validation
+    if (useWebSpeech && isRecording) {
+      console.log('⚡ Skipping slow validation (optimistic mode active)');
+      return;
+    }
+
     // Process if transcript changed OR if we moved to a new word
     const transcriptChanged = transcript !== lastTranscriptRef.current;
     const indexChanged = currentWordIndex !== lastProcessedIndexRef.current;
@@ -2957,8 +3104,15 @@ const ReadingSessionPage: React.FC = () => {
 
             // Move yellow highlight to next word
             const newIndex = currentWordIndex + 1;
-            setCurrentWordIndex(newIndex);
-            console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex}`);
+            
+            // ⚡ OPTIMISTIC UI: Only move if not already at expected position
+            if (newIndex !== optimisticWordIndexRef.current) {
+              setCurrentWordIndex(newIndex);
+              optimisticWordIndexRef.current = newIndex;
+              console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex}`);
+            } else {
+              console.log(`✓ Yellow already at position ${newIndex} (optimistic move was correct)`);
+            }
 
             // Remove the first word (matched) and keep remaining words
             const remainingWords = transcriptWords.slice(1); // Remove first word
@@ -3117,8 +3271,15 @@ const ReadingSessionPage: React.FC = () => {
         
         // Move yellow highlight forward by number of matched words
         const newIndex = currentWordIndex + wordsMatched;
-        setCurrentWordIndex(newIndex);
-        console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex} (+${wordsMatched} words)`);
+        
+        // ⚡ OPTIMISTIC UI: Only move if not already at expected position
+        if (newIndex !== optimisticWordIndexRef.current) {
+          setCurrentWordIndex(newIndex);
+          optimisticWordIndexRef.current = newIndex;
+          console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex} (+${wordsMatched} words)`);
+        } else {
+          console.log(`✓ Yellow already at position ${newIndex} (optimistic move was correct)`);
+        }
         console.log(`📊 Words Read incremented to ${Math.min(wordsRead + wordsMatched, words.length)}`);
 
         // Reset and mark as processed
@@ -5333,9 +5494,25 @@ const ReadingSessionPage: React.FC = () => {
                   {useWebSpeech ? 'Web Speech' : 'Vosk'}
                 </span>
                 {useWebSpeech && (
-                  <span className="text-xs text-gray-500 italic">
-                    {storyLanguage === 'tagalog' ? '(limited Tagalog support)' : '(requires internet)'}
-                  </span>
+                  <>
+                    <span className="text-xs text-gray-500 italic">
+                      {storyLanguage === 'tagalog' ? '(limited Tagalog support)' : '(requires internet)'}
+                    </span>
+                    <span className="text-xs font-semibold text-green-600 bg-green-50 px-2 py-0.5 rounded">
+                      ⚡ Instant Mode
+                    </span>
+                    {useMultiWorker && (
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                        multiWorkerStatus === 'connected' 
+                          ? 'text-blue-600 bg-blue-50' 
+                          : multiWorkerStatus === 'connecting'
+                          ? 'text-yellow-600 bg-yellow-50'
+                          : 'text-gray-600 bg-gray-50'
+                      }`}>
+                        👷 {multiWorkerStatus === 'connected' ? '4 Workers' : multiWorkerStatus === 'connecting' ? 'Connecting...' : 'Workers Off'}
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
               
