@@ -65,6 +65,8 @@ const StudentTestPage: React.FC = () => {
   const studentName = location.state?.studentName || null;
   const studentId = location.state?.studentId || null;
   const teacherId = location.state?.teacherId || null;
+  const isrResultId = location.state?.isrResultId || null; // ISR result ID from reading session
+  const fromReadingSession = location.state?.fromReadingSession || false;
   const [test, setTest] = useState<Test | null>(null);
   const [answers, setAnswers] = useState<number[]>([]);
   const [submitted, setSubmitted] = useState(false);
@@ -347,41 +349,47 @@ const StudentTestPage: React.FC = () => {
       
       // Update ISR result in MongoDB with quiz data
       try {
-        // Get the most recent ISR result for this student
-        const isrResults = await isrResultService.getISRResultsByStudent(studentId);
+        let resultId = isrResultId; // Use the ISR result ID passed from reading session if available
         
-        if (isrResults && isrResults.length > 0) {
-          // Find the most recent ISR result that matches this test (by testId or book title)
-          // Or just use the most recent one
-          const mostRecentResult = isrResults[0]; // Results are sorted by createdAt descending
+        // If no ISR result ID was passed, try to find the most recent one
+        if (!resultId) {
+          console.log('🔍 No ISR result ID provided, searching for most recent result...');
+          const isrResults = await isrResultService.getISRResultsByStudent(studentId);
           
-          // Check if this result matches the current test (by testId or book title)
-          const matchesTest = mostRecentResult.testId === testId || 
-                             mostRecentResult.book === test.testName ||
-                             mostRecentResult.sessionTitle?.includes(test.testName);
-          
-          if (matchesTest || isrResults.length === 1) {
-            // Get the result ID (handle both id and _id formats)
-            const resultId = (mostRecentResult as any).id || (mostRecentResult as any)._id;
-            if (!resultId) {
-              console.error('⚠️ ISR result has no ID field');
-              throw new Error('ISR result missing ID');
+          if (isrResults && isrResults.length > 0) {
+            // Find the most recent ISR result that matches this test (by testId or book title)
+            const mostRecentResult = isrResults[0]; // Results are sorted by createdAt descending
+            
+            // Check if this result matches the current test (by testId or book title)
+            const matchesTest = mostRecentResult.testId === testId || 
+                               mostRecentResult.book === test.testName ||
+                               mostRecentResult.sessionTitle?.includes(test.testName);
+            
+            if (matchesTest || isrResults.length === 1) {
+              resultId = (mostRecentResult as any).id || (mostRecentResult as any)._id;
             }
-            
-            console.log('📝 Updating ISR result with quiz data:', {
-              resultId,
-              correctAnswers: correct,
-              percentage,
-              comprehensionLevel: getComprehensionLevel(percentage),
-              answerCount: answerLetters.length
-            });
-            
-            // Update the ISR result with quiz data
+          }
+        }
+        
+        if (resultId) {
+          console.log('📝 Updating ISR result with quiz data:', {
+            resultId,
+            correctAnswers: correct,
+            percentage,
+            comprehensionLevel: getComprehensionLevel(percentage),
+            answerCount: answerLetters.length
+          });
+          
+          // Get the existing ISR result to preserve partA data
+          const existingResult = await isrResultService.getISRResultById(resultId);
+          
+          if (existingResult) {
+            // Update the ISR result with quiz data, preserving existing partA fields
             await isrResultService.updateISRResult(resultId, {
               testId: testId,
               testName: test.testName,
               partA: {
-                ...mostRecentResult.partA,
+                ...existingResult.partA, // Preserve reading time, rate, etc.
                 correctAnswers: correct,
                 percentage: percentage,
                 comprehensionLevel: getComprehensionLevel(percentage),
@@ -391,12 +399,10 @@ const StudentTestPage: React.FC = () => {
             console.log('✅ ISR result updated successfully! The review record will be automatically updated in the backend.');
             console.log('💡 You can now view the updated ISR data in the Reports page.');
           } else {
-            console.log('⚠️ No matching ISR result found for this test. Creating new ISR result...');
-            // If no matching result, we could create a new one, but typically the reading session
-            // should have already created the ISR result. So we'll just log a warning.
+            console.error('⚠️ ISR result not found with ID:', resultId);
           }
         } else {
-          console.log('⚠️ No ISR results found for student. Quiz data saved to Firebase only.');
+          console.log('⚠️ No ISR result found for this quiz. Quiz data saved to Firebase only.');
         }
       } catch (isrError) {
         console.error('Error updating ISR result with quiz data:', isrError);
@@ -825,16 +831,24 @@ const StudentTestPage: React.FC = () => {
                       )}
                     </button>
                     
-                    {/* Back to Reading Sessions Button */}
+                    {/* Back Button - Navigate back to reading session or reading sessions list */}
                     <button
                       className="w-full px-6 py-4 bg-gradient-to-r from-emerald-600 to-green-600 text-white rounded-2xl text-base md:text-lg font-bold shadow-lg hover:from-emerald-700 hover:to-green-700 transition-all transform hover:scale-[1.02]"
-                      onClick={() => navigate('/teacher/Reading')}
+                      onClick={() => {
+                        if (fromReadingSession) {
+                          // Go back to the previous page (reading session)
+                          navigate(-1);
+                        } else {
+                          // Go to reading sessions list
+                          navigate('/teacher/Reading');
+                        }
+                      }}
                     >
                       <div className="flex items-center justify-center gap-2">
                         <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                         </svg>
-                        <span>Back to Reading Sessions</span>
+                        <span>{fromReadingSession ? 'Back to Reading Session' : 'Back to Reading Sessions'}</span>
                       </div>
                     </button>
                   </div>

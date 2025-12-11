@@ -423,6 +423,8 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
 
 
 
+
+
   // Async version to get teacher profile and ISR data
   const getISRDataAsync = async (student: Student) => {
 
@@ -1704,6 +1706,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                                   <span className="hidden sm:inline">Generate ISR</span>
                                   <span className="sm:hidden">ISR</span>
                                 </button>
+                                
                                 <button
                                   className="bg-green-100 hover:bg-green-200 text-green-700 font-semibold px-2 sm:px-4 py-1 sm:py-2 rounded text-xs sm:text-sm"
                                   onClick={() => handleOpenShare(student)}
@@ -1778,6 +1781,8 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
           </div>
         </div>
       )}
+
+
 
       {/* Class ISR Submission Modal */}
       {submissionModalOpen && submissionResult && (

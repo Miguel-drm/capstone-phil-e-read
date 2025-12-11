@@ -85,6 +85,9 @@ const ReadingSessionPage: React.FC = () => {
   // Track if session has been started (to show Complete button)
   const [hasStarted, setHasStarted] = useState(false);
   
+  // Store ISR result ID for quiz navigation
+  const [isrResultId, setIsrResultId] = useState<string | null>(null);
+  
   // Countdown effect - preload Vosk connection during countdown
   useEffect(() => {
     if (showCountdown && countdown > 0) {
@@ -689,8 +692,7 @@ const ReadingSessionPage: React.FC = () => {
   // Toggle visibility of Miscue Types Detection section (hidden by default)
   const [showMiscueDetails, setShowMiscueDetails] = useState(false);
 
-  // No Quiz Modal state
-  const [showNoQuizModal, setShowNoQuizModal] = useState(false);
+
 
   // Speech recognition provider toggle (Vosk vs Web Speech API)
   const [useWebSpeech, setUseWebSpeech] = useState(false);
@@ -4301,9 +4303,11 @@ const ReadingSessionPage: React.FC = () => {
 
   // Quiz: resolve matching test automatically and student mapping
   const [tests, setTests] = useState<
-    { id: string; testName: string; storyId?: string; storyTitle?: string }[]
+    {
+      id: string; testName: string; storyId?: string; storyTitle?: string; storySet?: any;
+}[]
   >([]);
-  const [resolvedTestId, setResolvedTestId] = useState<string>("");
+
 
   // Extract student names from currentSession (students now contains both id and name)
   useEffect(() => {
@@ -4434,7 +4438,6 @@ const ReadingSessionPage: React.FC = () => {
 
     if (match) {
       console.log("✅ Test found:", match.testName, "ID:", match.id);
-      setResolvedTestId(match.id);
     } else {
       console.log("❌ No matching test found for story:", storyKey);
       console.log("💡 Tip: Make sure the quiz has storyId set to:", currentSession.book);
@@ -4643,8 +4646,10 @@ const ReadingSessionPage: React.FC = () => {
         },
       };
 
-      // Save to MongoDB
-      await isrResultService.createISRResult(isrResultData);
+      // Save to MongoDB and store the result ID
+      const resultId = await isrResultService.createISRResult(isrResultData);
+      setIsrResultId(resultId);
+      console.log('✅ ISR result saved with ID:', resultId);
     } catch (error) {
       console.error("Error saving ISR result to MongoDB:", error);
       throw error; // Re-throw to show error to user
@@ -4683,6 +4688,8 @@ const ReadingSessionPage: React.FC = () => {
       showConfirmButton: false
     });
   };
+
+
 
   const handleCompleteSession = async () => {
     if (!sessionId || !currentSession) return;
@@ -5700,45 +5707,113 @@ const ReadingSessionPage: React.FC = () => {
         <div className="w-full px-4 sm:px-8 py-4 mt-auto bg-white/80 border-t border-blue-100">
           <div className="max-w-6xl mx-auto">
             <button
-              onClick={() => {
-                if (!currentSession) return;
-                // choose student deterministically: first completed, else first in list
-                const completedIds = Object.keys(completedStudents).filter(
-                  (id) => completedStudents[id]
-                );
-
-                // Extract student IDs from students array (handle both old and new format)
-                const studentIds = currentSession.students.map(s =>
-                  typeof s === 'string' ? s : s.id
-                );
-
-                const studentId =
-                  currentSession.students.length === 1
-                    ? studentIds[0]
-                    : completedIds[0] || studentIds[0];
-
-                // Get student name (handle both old and new format)
+              onClick={async () => {
+                if (!currentSession || !currentStory) return;
+                
+                // Get student info
                 const firstStudent = currentSession.students[0];
-                const studentName = typeof firstStudent === 'string'
-                  ? (studentNames[studentId] || studentId)
-                  : firstStudent.name;
-                if (!resolvedTestId) {
-                  setShowNoQuizModal(true);
-                  return;
+                const studentId = typeof firstStudent === 'string' ? firstStudent : firstStudent.id;
+                const studentName = typeof firstStudent === 'string' ? firstStudent : firstStudent.name;
+                
+                try {
+                  // Query Firebase to find a test that matches this story
+                  // Tests are stored in Firebase with storyId linking to MongoDB story _id
+                  const storyId = (currentStory as any)?._id || (currentStory as any)?.id;
+                  
+                  console.log('🔍 Searching for quiz matching story:', {
+                    title: currentStory.title,
+                    storyId: storyId
+                  });
+                  
+                  if (!storyId) {
+                    console.error('❌ Story has no ID field');
+                    Swal.fire({
+                      icon: 'error',
+                      title: 'Error',
+                      text: 'Story ID not found. Cannot search for quiz.',
+                      confirmButtonColor: '#3b82f6'
+                    });
+                    return;
+                  }
+                  
+                  const testsRef = collection(db, 'tests');
+                  const testsSnapshot = await getDocs(testsRef);
+                  
+                  console.log(`📚 Found ${testsSnapshot.size} total tests in Firebase`);
+                  
+                  let matchingTestId: string | null = null;
+                  const allTests: any[] = [];
+                  
+                  // Search for a test with matching storyId
+                  testsSnapshot.forEach((doc) => {
+                    const testData = doc.data();
+                    const testStoryId = testData.storyId;
+                    const testName = testData.testName || 'Untitled';
+                    
+                    allTests.push({ 
+                      id: doc.id, 
+                      testName, 
+                      storyId: testStoryId 
+                    });
+                    
+                    // Check if test's storyId matches current story's ID
+                    if (testStoryId && testStoryId === storyId) {
+                      matchingTestId = doc.id;
+                      console.log('✅ Found matching test:', { 
+                        testId: doc.id, 
+                        testName, 
+                        storyId: testStoryId,
+                        matchedWith: storyId
+                      });
+                    }
+                  });
+                  
+                  // Log all available tests for debugging
+                  if (!matchingTestId) {
+                    console.log('❌ No matching test found.');
+                    console.log('Looking for test with storyId:', storyId);
+                    console.log('Available tests:', allTests);
+                  }
+                  
+                  if (!matchingTestId) {
+                    // Show error if no quiz is available
+                    Swal.fire({
+                      icon: 'warning',
+                      title: 'No Quiz Available',
+                      html: `There is no quiz associated with this story yet.<br><br>
+                             <strong>Story:</strong> ${currentStory.title}<br>
+                             <strong>Story ID:</strong> <code>${storyId}</code><br><br>
+                             Please create a quiz in the Admin Resources page and select this story when creating the quiz.`,
+                      confirmButtonText: 'Got it',
+                      confirmButtonColor: '#3b82f6'
+                    });
+                    return;
+                  }
+                  
+                  // Navigate to StudentTestPage with all necessary data
+                  navigate(`/student/test/${matchingTestId}`, {
+                    state: {
+                      studentId,
+                      studentName,
+                      teacherId: currentUser?.uid,
+                      isrResultId, // Pass the ISR result ID so quiz can update it
+                      fromReadingSession: true
+                    }
+                  });
+                } catch (error) {
+                  console.error('Error finding quiz:', error);
+                  Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    text: 'Failed to check for available quizzes. Please try again.',
+                    confirmButtonColor: '#3b82f6'
+                  });
                 }
-
-                navigate(`/student/test/${resolvedTestId}` as any, {
-                  state: {
-                    studentId,
-                    studentName,
-                    teacherId: currentSession.teacherId,
-                  },
-                });
               }}
               disabled={false}
               className="w-full py-4 rounded-2xl text-white font-bold text-lg transition-all duration-200 bg-gradient-to-r from-indigo-500 to-blue-500 hover:from-indigo-600 hover:to-blue-600 hover:scale-[1.01]"
             >
-              Quiz
+              Start Comprehension Quiz
             </button>
           </div>
         </div>
@@ -5812,41 +5887,7 @@ const ReadingSessionPage: React.FC = () => {
         </div>
       )}
 
-      {/* No Quiz Available Modal */}
-      {showNoQuizModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 animate-fade-in">
-            <div className="flex flex-col items-center text-center">
-              {/* Icon */}
-              <div className="w-20 h-20 bg-yellow-100 rounded-full flex items-center justify-center mb-4">
-                <svg className="w-10 h-10 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-              </div>
 
-              {/* Title */}
-              <h3 className="text-2xl font-bold text-gray-900 mb-3">
-                No Quiz Available
-              </h3>
-
-              {/* Message */}
-              <p className="text-gray-600 mb-6 leading-relaxed">
-                There is no quiz associated with this story yet. Please contact your administrator to create a quiz for this story before students can take the assessment.
-              </p>
-
-              {/* Actions */}
-              <div className="flex justify-center w-full">
-                <button
-                  onClick={() => setShowNoQuizModal(false)}
-                  className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
-                >
-                  Got it
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
