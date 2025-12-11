@@ -198,6 +198,42 @@ class SmartBufferMatcher:
         
         expected_word = self.expected_words[self.current_position].lower().strip()
         
+        # ============================================================================
+        # PRIORITY CHECK: TRANSPOSITION (before instant match!)
+        # ============================================================================
+        # Check for transposition FIRST because it involves 2 words
+        # If we match the second word first, we'll miss the transposition
+        if len(self.word_buffer) >= 2 and self.current_position + 1 < len(self.expected_words):
+            word1_buffer, _ = self.word_buffer[0]
+            word2_buffer, _ = self.word_buffer[1]
+            word1_expected = self.expected_words[self.current_position].lower().strip()
+            word2_expected = self.expected_words[self.current_position + 1].lower().strip()
+            
+            # Check if words are transposed (swapped order)
+            if self._words_match(word1_buffer, word2_expected) and self._words_match(word2_buffer, word1_expected):
+                print(f"   🔀 [PRIORITY] TRANSPOSITION detected: '{word1_buffer} {word2_buffer}' instead of '{word1_expected} {word2_expected}'")
+                
+                # Remove both words from buffer
+                self.word_buffer.popleft()
+                self.word_buffer.popleft()
+                
+                # Advance position by 2 (both words were read, just in wrong order)
+                self.current_position += 2
+                self.words_read += 2
+                self.total_miscues += 1
+                self.miscue_types["transposition"] += 1
+                
+                return {
+                    "match_type": "transposition",
+                    "advance": True,
+                    "new_position": self.current_position,
+                    "miscue_count": 1,
+                    "words_read": self.words_read,
+                    "total_miscues": self.total_miscues,
+                    "miscue_types": self.miscue_types.copy(),
+                    "details": f"Transposition: '{word1_buffer} {word2_buffer}' swapped (expected '{word1_expected} {word2_expected}')"
+                }
+        
         # OPTIMISTIC MATCHING: Check if the NEWEST word matches (most common case)
         # This gives instant feedback when reading in order
         if len(self.word_buffer) > 0:
@@ -245,6 +281,38 @@ class SmartBufferMatcher:
                     "details": f"Correct: '{buffered_word}' matches '{expected_word}'"
                 }
         
+        # ============================================================================
+        # IMMEDIATE MISCUE DETECTION (Check after 2-3 words, not 10!)
+        # ============================================================================
+        # Check for reversals and transpositions IMMEDIATELY after checking for matches
+        # Don't wait for buffer to fill - these are high-priority miscues
+        
+        if len(self.word_buffer) >= 1:
+            oldest_word, oldest_timestamp = self.word_buffer[0]
+            
+            # PRIORITY 1: REVERSAL (letters reversed) - Check immediately!
+            if self._is_reversal(oldest_word, expected_word):
+                print(f"   🔄 [IMMEDIATE] REVERSAL detected: '{oldest_word}' is reverse of '{expected_word}'")
+                
+                # Remove the reversed word from buffer
+                self.word_buffer.popleft()
+                
+                self.current_position += 1
+                self.words_read += 1
+                self.total_miscues += 1
+                self.miscue_types["reversal"] += 1
+                
+                return {
+                    "match_type": "reversal",
+                    "advance": True,
+                    "new_position": self.current_position,
+                    "miscue_count": 1,
+                    "words_read": self.words_read,
+                    "total_miscues": self.total_miscues,
+                    "miscue_types": self.miscue_types.copy(),
+                    "details": f"Reversal: '{oldest_word}' is reverse of '{expected_word}'"
+                }
+        
         # No match found yet - use SMART TIMEOUT instead of fixed buffer size
         # Wait for 10 words OR 3 seconds (whichever comes first)
         SMART_WAIT_WORDS = 10  # Much faster than 80!
@@ -270,20 +338,44 @@ class SmartBufferMatcher:
             # MISCUE DETECTION PRIORITY (User-specified order)
             # ============================================================================
             # Priority order for detecting miscues (check in this exact order):
-            # 1. Mispronunciation (60%+ similar to expected)
-            # 2. Omission (word not found - but check other types first)
-            # 3. Insertion (word doesn't match any nearby expected words)
-            # 4. Repetition (already handled in add_word)
-            # 5. Transposition (next 2 words are swapped)
-            # 6. Reversal (letters reversed)
+            # 1. Reversal (letters reversed) - CHECK FIRST before similarity check
+            # 2. Mispronunciation (60%+ similar to expected)
+            # 3. Omission (word not found - but check other types first)
+            # 4. Insertion (word doesn't match any nearby expected words)
+            # 5. Repetition (already handled in add_word)
+            # 6. Transposition (next 2 words are swapped)
             # 7. Self-Correction (already handled in add_word)
             # 8. Substitution (DISABLED per user request)
             # ============================================================================
             
-            # PRIORITY 1: MISPRONUNCIATION (phonetically similar - 60%+ match)
+            # PRIORITY 1: REVERSAL (letters reversed) - Must check BEFORE mispronunciation
+            # because reversed words often have high similarity (e.g., "was" vs "saw" = 66%)
+            if self._is_reversal(oldest_word, expected_word):
+                print(f"   🔄 [P1] REVERSAL detected: '{oldest_word}' is reverse of '{expected_word}'")
+                
+                # Remove the reversed word from buffer
+                self.word_buffer.popleft()
+                
+                self.current_position += 1
+                self.words_read += 1
+                self.total_miscues += 1
+                self.miscue_types["reversal"] += 1
+                
+                return {
+                    "match_type": "reversal",
+                    "advance": True,
+                    "new_position": self.current_position,
+                    "miscue_count": 1,
+                    "words_read": self.words_read,
+                    "total_miscues": self.total_miscues,
+                    "miscue_types": self.miscue_types.copy(),
+                    "details": f"Reversal: '{oldest_word}' is reverse of '{expected_word}'"
+                }
+            
+            # PRIORITY 2: MISPRONUNCIATION (phonetically similar - 60%+ match)
             similarity = self._calculate_similarity(oldest_word, expected_word)
             if similarity >= 0.60:  # 60% or more similar
-                print(f"   🔍 [P1] MISPRONUNCIATION detected: '{oldest_word}' vs '{expected_word}' ({int(similarity*100)}% similar)")
+                print(f"   🔍 [P2] MISPRONUNCIATION detected: '{oldest_word}' vs '{expected_word}' ({int(similarity*100)}% similar)")
                 
                 # Remove the mispronounced word from buffer
                 self.word_buffer.popleft()
@@ -305,10 +397,10 @@ class SmartBufferMatcher:
                     "details": f"Mispronunciation: '{oldest_word}' instead of '{expected_word}' ({int(similarity*100)}% similar)"
                 }
             
-            # PRIORITY 2: OMISSION (expected word not found - check before insertion)
+            # PRIORITY 3: OMISSION (expected word not found - check before insertion)
             # This is checked implicitly - if we reach the end without finding other miscues, it's omission
             
-            # PRIORITY 3: INSERTION (word doesn't match ANY nearby expected words)
+            # PRIORITY 4: INSERTION (word doesn't match ANY nearby expected words)
             # Check if word exists in story vocabulary first (to avoid false positives)
             is_insertion = True
             
@@ -343,7 +435,7 @@ class SmartBufferMatcher:
             # 3. Word is at least 2 characters
             # 4. Word is not a partial/fragment
             if is_insertion and not word_in_story:
-                print(f"   ➕ [P3] INSERTION detected: '{oldest_word}' not in story vocabulary")
+                print(f"   ➕ [P4] INSERTION detected: '{oldest_word}' not in story vocabulary")
                 
                 # Remove the inserted word from buffer
                 self.word_buffer.popleft()
@@ -364,9 +456,9 @@ class SmartBufferMatcher:
                     "inserted_word": oldest_word  # Include the actual inserted word
                 }
             
-            # PRIORITY 4: REPETITION (already handled in add_word method)
+            # PRIORITY 5: REPETITION (already handled in add_word method)
             
-            # PRIORITY 5: TRANSPOSITION (next 2 words are swapped)
+            # PRIORITY 6: TRANSPOSITION (next 2 words are swapped)
             if len(self.word_buffer) >= 2 and self.current_position + 1 < len(self.expected_words):
                 word1_buffer, _ = self.word_buffer[0]
                 word2_buffer, _ = self.word_buffer[1]
@@ -375,7 +467,7 @@ class SmartBufferMatcher:
                 
                 # Check if words are transposed (swapped order)
                 if self._words_match(word1_buffer, word2_expected) and self._words_match(word2_buffer, word1_expected):
-                    print(f"   🔀 [P5] TRANSPOSITION detected: '{word1_buffer} {word2_buffer}' instead of '{word1_expected} {word2_expected}'")
+                    print(f"   🔀 [P6] TRANSPOSITION detected: '{word1_buffer} {word2_buffer}' instead of '{word1_expected} {word2_expected}'")
                     
                     # Remove both words from buffer
                     self.word_buffer.popleft()
@@ -398,28 +490,7 @@ class SmartBufferMatcher:
                         "details": f"Transposition: '{word1_buffer} {word2_buffer}' swapped (expected '{word1_expected} {word2_expected}')"
                     }
             
-            # PRIORITY 6: REVERSAL (letters reversed)
-            if self._is_reversal(oldest_word, expected_word):
-                print(f"   🔄 [P6] REVERSAL detected: '{oldest_word}' is reverse of '{expected_word}'")
-                
-                # Remove the reversed word from buffer
-                self.word_buffer.popleft()
-                
-                self.current_position += 1
-                self.words_read += 1
-                self.total_miscues += 1
-                self.miscue_types["reversal"] += 1
-                
-                return {
-                    "match_type": "reversal",
-                    "advance": True,
-                    "new_position": self.current_position,
-                    "miscue_count": 1,
-                    "words_read": self.words_read,
-                    "total_miscues": self.total_miscues,
-                    "miscue_types": self.miscue_types.copy(),
-                    "details": f"Reversal: '{oldest_word}' is reverse of '{expected_word}'"
-                }
+            # REVERSAL already checked at Priority 1 (removed from here)
             
             # PRIORITY 7: SELF-CORRECTION (already handled in add_word method)
             
@@ -490,6 +561,8 @@ class SmartBufferMatcher:
             'can': ['cann', 'ken'],
             'has': ['haz', 'hass'],
             'cat': ['kat', 'catt'],
+            'pam': ['paam'],
+            'map': ['mapp'],
         }
         
         # Check if word1 is a variant of word2
@@ -540,8 +613,9 @@ class SmartBufferMatcher:
         
         Examples:
         - "was" → "saw"
-        - "on" → "no"
+        - "on" → "no"  
         - "pot" → "top"
+        - "pam" → "map"
         
         Args:
             word1: First word
@@ -555,7 +629,39 @@ class SmartBufferMatcher:
         
         # Must be at least 2 characters to be a meaningful reversal
         if len(word1_lower) >= 2 and len(word2_lower) >= 2:
-            return word1_lower == word2_lower[::-1]
+            # Check exact reversal
+            if word1_lower == word2_lower[::-1]:
+                return True
+            
+            # PHONETIC REVERSAL: Check common phonetic reversals that Vosk might recognize
+            # These are words that sound like reversals even if not spelled exactly reversed
+            phonetic_reversals = {
+                # Common reversals
+                ('no', 'on'),
+                ('on', 'no'),
+                ('map', 'pam'),
+                ('pam', 'map'),
+                ('tap', 'pat'),
+                ('pat', 'tap'),
+                ('top', 'pot'),
+                ('pot', 'top'),
+                ('saw', 'was'),
+                ('was', 'saw'),
+                ('god', 'dog'),
+                ('dog', 'god'),
+                ('bad', 'dab'),
+                ('dab', 'bad'),
+                ('tab', 'bat'),
+                ('bat', 'tab'),
+                ('ten', 'net'),
+                ('net', 'ten'),
+                ('ton', 'not'),
+                ('not', 'ton'),
+            }
+            
+            # Check if this pair is a known phonetic reversal
+            if (word1_lower, word2_lower) in phonetic_reversals:
+                return True
         
         return False
     

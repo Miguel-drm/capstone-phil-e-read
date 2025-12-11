@@ -647,13 +647,15 @@ const ReadingSessionPage: React.FC = () => {
                   type: 'transposition',
                   marking: `Transpositional symbol over and under "${word1}"`,
                   spokenWord: `${word2} ${word1}`,
-                  correctWord: `${word1} ${word2}`
+                  correctWord: `${word1} ${word2}`,
+                  isFirstWord: true  // Mark as first word of transposition pair
                 });
                 newMap.set(new_position - 1, {
                   type: 'transposition',
                   marking: `Transpositional symbol over and under "${word2}"`,
                   spokenWord: `${word2} ${word1}`,
-                  correctWord: `${word1} ${word2}`
+                  correctWord: `${word1} ${word2}`,
+                  isFirstWord: false  // Mark as second word of transposition pair
                 });
                 return newMap;
               });
@@ -848,6 +850,7 @@ const ReadingSessionPage: React.FC = () => {
     spokenWord?: string; // What the child actually said
     correctWord: string; // What should have been said
     wrongWord?: string; // For self-correction: what they said wrong first
+    isFirstWord?: boolean; // For transposition: true if this is the first word of the pair
   }>>(new Map());
 
   // Track inserted words (extra words child said) with their position
@@ -2923,10 +2926,22 @@ const ReadingSessionPage: React.FC = () => {
             setRecognizedWords(new Set(sessionData.recognizedWords));
           }
           if (sessionData.wordMiscues) {
-            setWordMiscues(new Map(Object.entries(sessionData.wordMiscues).map(([k, v]) => [parseInt(k), v])));
+            const restoredMiscues = new Map(Object.entries(sessionData.wordMiscues).map(([k, v]) => [parseInt(k), v]));
+            console.log('🔴 Restored wordMiscues count:', restoredMiscues.size);
+            console.log('🔴 Restored wordMiscues data:', Object.entries(sessionData.wordMiscues));
+            setWordMiscues(restoredMiscues);
+          } else {
+            console.warn('⚠️ No wordMiscues found in session data!');
           }
           if (sessionData.wordMarkings) {
-            setWordMarkings(new Map(Object.entries(sessionData.wordMarkings).map(([k, v]) => [parseInt(k), v])));
+            const restoredMarkings = new Map(Object.entries(sessionData.wordMarkings).map(([k, v]) => [parseInt(k), v]));
+            console.log('📝 Restored wordMarkings count:', restoredMarkings.size);
+            console.log('📝 Restored wordMarkings data:', Object.entries(sessionData.wordMarkings));
+            console.log('📝 Sample marking at index 0:', restoredMarkings.get(0));
+            console.log('📝 Sample marking at index 2:', restoredMarkings.get(2));
+            setWordMarkings(restoredMarkings);
+          } else {
+            console.warn('⚠️ No wordMarkings found in session data!');
           }
           if (sessionData.insertedWords) {
             setInsertedWords(new Map(Object.entries(sessionData.insertedWords).map(([k, v]) => [parseInt(k), v])));
@@ -2941,7 +2956,9 @@ const ReadingSessionPage: React.FC = () => {
             wordsRead: sessionData.wordsRead,
             miscues: sessionData.totalMiscues,
             miscueTypes: sessionData.miscueTypes,
-            recognizedWords: sessionData.recognizedWords?.length || 0
+            recognizedWords: sessionData.recognizedWords?.length || 0,
+            status: sessionData.status,
+            isCompleted: sessionData.status === 'completed'
           });
           
           // Check if quiz has been completed for this session
@@ -4164,6 +4181,17 @@ const ReadingSessionPage: React.FC = () => {
 
           // 6. TRANSPOSITION - Word order changed (DepEd Rule: Count as one error every transposition made)
           // Use transpositional symbol over and under the letters or words transposed
+          
+          // FIRST: Check if this word matches the NEXT expected word (potential transposition)
+          if (currentWordIndex + 1 < realWords.length) {
+            const nextExpectedWord = realWords[currentWordIndex + 1];
+            if (isWordMatch(lastWord, nextExpectedWord)) {
+              console.log(`⏳ POTENTIAL TRANSPOSITION: "${lastWord}" matches next expected word "${nextExpectedWord}" - waiting for "${expectedWord}"`);
+              // Don't mark as miscue yet - wait to see if next word completes the transposition
+              return;
+            }
+          }
+
           const isNewWord = newWords.includes(lastWord);
 
           if (isNewWord && wordsForMiscueDetection.length >= 2) {
@@ -4171,6 +4199,8 @@ const ReadingSessionPage: React.FC = () => {
             if (currentWordIndex + 1 < realWords.length) {
               const nextExpectedWord = realWords[currentWordIndex + 1];
               const secondLastWord = wordsForMiscueDetection[wordsForMiscueDetection.length - 2];
+
+              console.log(`🔄 TRANSPOSITION CHECK: lastWord="${lastWord}", secondLastWord="${secondLastWord}", expected="${expectedWord}", next="${nextExpectedWord}"`);
 
               // Pattern: They said word[i+1] then word[i] (swapped order)
               if (isWordMatch(secondLastWord, nextExpectedWord) && isWordMatch(lastWord, expectedWord)) {
@@ -4193,13 +4223,15 @@ const ReadingSessionPage: React.FC = () => {
                     type: 'transposition',
                     marking: `Transpositional symbol over and under "${expectedWord}"`,
                     spokenWord: `${secondLastWord} ${lastWord}`,
-                    correctWord: `${expectedWord} ${nextExpectedWord}`
+                    correctWord: `${expectedWord} ${nextExpectedWord}`,
+                    isFirstWord: true  // Mark as first word of transposition pair
                   });
                   newMap.set(currentWordIndex + 1, {
                     type: 'transposition',
                     marking: `Transpositional symbol over and under "${nextExpectedWord}"`,
                     spokenWord: `${secondLastWord} ${lastWord}`,
-                    correctWord: `${expectedWord} ${nextExpectedWord}`
+                    correctWord: `${expectedWord} ${nextExpectedWord}`,
+                    isFirstWord: false  // Mark as second word of transposition pair
                   });
                   return newMap;
                 });
@@ -4961,6 +4993,48 @@ const ReadingSessionPage: React.FC = () => {
         await waitForAudioFinalization(2500);
       }
 
+      // CRITICAL FIX: Build complete wordMarkings including end-of-session omissions
+      // The state updates from handleStopRecording haven't been applied yet, so we need to
+      // manually add the omissions for unread words
+      const finalWordMarkings = new Map(wordMarkings);
+      const finalWordMiscues = new Map(wordMiscues);
+      const realWords = words.filter(w => /\w+/.test(w));
+      const lastReadIndex = currentWordIndex;
+      
+      // Add omissions for all unread words at the end
+      for (let i = lastReadIndex; i < realWords.length; i++) {
+        if (!finalWordMiscues.has(i) && !recognizedWords.has(i)) {
+          finalWordMiscues.set(i, 'omission');
+          finalWordMarkings.set(i, {
+            type: 'omission',
+            marking: `Circle omitted word`,
+            spokenWord: '',
+            correctWord: realWords[i]
+          });
+        }
+      }
+
+      // Clean wordMarkings to remove undefined values (Firebase doesn't accept undefined)
+      const cleanedWordMarkings: any = {};
+      finalWordMarkings.forEach((marking, index) => {
+        const cleaned: any = {
+          type: marking.type,
+          marking: marking.marking,
+          spokenWord: marking.spokenWord || '',
+          correctWord: marking.correctWord || ''
+        };
+        
+        // Only add optional properties if they exist
+        if (marking.wrongWord) {
+          cleaned.wrongWord = marking.wrongWord;
+        }
+        if (marking.isFirstWord !== undefined) {
+          cleaned.isFirstWord = marking.isFirstWord;
+        }
+        
+        cleanedWordMarkings[index] = cleaned;
+      });
+
       // Prepare session results data
       const sessionResults: any = {
         status: "completed" as const,
@@ -4972,8 +5046,8 @@ const ReadingSessionPage: React.FC = () => {
         readingSpeedWPM: parseInt(readingSpeedWPM) || 0,
         oralReadingScore: parseFloat(oralReadingScore) || 0,
         recognizedWords: Array.from(recognizedWords), // Convert Set to Array
-        wordMiscues: Object.fromEntries(wordMiscues), // Convert Map to Object
-        wordMarkings: Object.fromEntries(wordMarkings), // Convert Map to Object
+        wordMiscues: Object.fromEntries(finalWordMiscues), // Use final miscues including end omissions
+        wordMarkings: cleanedWordMarkings, // Use cleaned data
         insertedWords: Object.fromEntries(insertedWords), // Convert Map to Object
         transcript: transcript || "",
       };
@@ -5447,15 +5521,18 @@ const ReadingSessionPage: React.FC = () => {
 
                                     {/* REPETITION: Underline applied via getMiscueMarkingStyle - no additional marking needed */}
 
-                                    {/* TRANSPOSITION: Curved line connecting transposed words in solid purple (DepEd standard) */}
+                                    {/* TRANSPOSITION: Visual indicator showing words are swapped */}
                                     {marking.type === 'transposition' && (
-                                      <span
-                                        className="absolute left-full ml-1 top-0 text-4xl text-purple-600 font-extrabold z-20"
-                                        title="DepEd: Use transpositional symbol connecting the transposed words"
-                                        style={{ lineHeight: '1' }}
-                                      >
-                                        ⌢
-                                      </span>
+                                      <>
+                                        {/* Show arrow on first word (check if isFirstWord exists and is true) */}
+                                        {marking.isFirstWord && (
+                                          <div className="absolute left-full -top-6 z-20" style={{ marginLeft: '0.25rem' }}>
+                                            <span className="text-sm text-purple-600 font-bold" title="DepEd: Transposition - words swapped">
+                                              ⇄
+                                            </span>
+                                          </div>
+                                        )}
+                                      </>
                                     )}
 
                                     {/* REVERSAL: Italic correct word above in solid pink (DepEd standard) */}
