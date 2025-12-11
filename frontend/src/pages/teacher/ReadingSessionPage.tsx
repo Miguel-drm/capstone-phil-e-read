@@ -5443,7 +5443,7 @@ const ReadingSessionPage: React.FC = () => {
                                     {/* REVERSAL: Italic correct word above in solid pink (DepEd standard) */}
                                     {marking.type === 'reversal' && (
                                       <span
-                                        className="absolute left-0 -top-7 text-base italic text-pink-600 font-bold whitespace-nowrap z-20"
+                                        className="absolute left-0 -top-8 text-lg italic text-pink-600 font-extrabold whitespace-nowrap z-30 bg-white px-1 rounded shadow-md"
                                         style={{ fontFamily: 'cursive' }}
                                         title="DepEd: Write correct word above the reversed word in italic"
                                       >
