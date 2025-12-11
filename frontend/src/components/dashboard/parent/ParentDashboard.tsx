@@ -21,30 +21,108 @@ const ChildrenOverviewWidget: React.FC<{
   children: Student[];
   isLoading: boolean;
   avgPerformancePct: number;
-}> = ({ children, isLoading, avgPerformancePct }) => {
+  chartsByStudentId: Record<string, ChartData>;
+}> = ({ children, isLoading, avgPerformancePct, chartsByStudentId }) => {
   const stats = useMemo(() => {
     if (children.length === 0) return null;
 
     const activeChildren = children.filter(c => c.status === 'active');
-    // Average reading level from DB values only
-    const numericLevels = children
-      .map(child => parseInt(child.readingLevel || ''))
-      .filter(v => !isNaN(v));
-    const avgReadingLevel = numericLevels.length
-      ? numericLevels.reduce((a, b) => a + b, 0) / numericLevels.length
-      : NaN;
+    
+    // Debug: Log chart data to see what we have
+    console.log('📊 Children Overview - Chart Data:', {
+      childrenCount: children.length,
+      chartDataKeys: Object.keys(chartsByStudentId),
+      chartData: chartsByStudentId
+    });
+    
+    // Calculate average reading level from actual assessment data (database-dependent)
+    let avgReadingLevel: number | string = 'N/A';
+    
+    // Try to get levels from assessment data first
+    const childrenWithData = children.filter(child => {
+      const chartData = chartsByStudentId[child.id as string];
+      if (!chartData || !chartData.readingLevels) return false;
+      
+      // Check if there's at least one non-empty reading level
+      const hasValidLevel = chartData.readingLevels.some(level => 
+        level && level.trim() !== '' && 
+        (level === 'Independent' || level === 'Instructional' || level === 'Frustration')
+      );
+      return hasValidLevel;
+    });
+
+    if (childrenWithData.length > 0) {
+      // Get the most recent reading level for each child from their chart data
+      const levels = childrenWithData
+        .map(child => {
+          const chartData = chartsByStudentId[child.id as string];
+          // Get the last non-empty reading level from the chart
+          const validLevels = chartData.readingLevels.filter(level => 
+            level && level.trim() !== ''
+          );
+          
+          if (validLevels.length === 0) return null;
+          
+          const recentLevel = validLevels[validLevels.length - 1];
+          
+          // Convert reading level to numeric value for averaging
+          // Independent = 3, Instructional = 2, Frustration = 1
+          if (recentLevel === 'Independent') return 3;
+          if (recentLevel === 'Instructional') return 2;
+          if (recentLevel === 'Frustration') return 1;
+          return null;
+        })
+        .filter((v): v is number => v !== null);
+
+      if (levels.length > 0) {
+        const avgNumeric = levels.reduce((a, b) => a + b, 0) / levels.length;
+        // Convert back to reading level label
+        if (avgNumeric >= 2.5) {
+          avgReadingLevel = 'Independent';
+        } else if (avgNumeric >= 1.5) {
+          avgReadingLevel = 'Instructional';
+        } else {
+          avgReadingLevel = 'Frustration';
+        }
+      }
+    }
+    
+    // Fallback: If no assessment data, try to calculate from child.readingLevel field
+    if (avgReadingLevel === 'N/A' && children.length > 0) {
+      const numericLevels = children
+        .map(child => {
+          const level = child.readingLevel;
+          if (!level) return null;
+          
+          // Try to parse as number (e.g., "4", "5")
+          const num = parseInt(level);
+          if (!isNaN(num)) return num;
+          
+          // Try to parse as grade level (e.g., "Grade 4")
+          const gradeMatch = level.match(/(\d+)/);
+          if (gradeMatch) return parseInt(gradeMatch[1]);
+          
+          return null;
+        })
+        .filter((v): v is number => v !== null);
+      
+      if (numericLevels.length > 0) {
+        const avg = numericLevels.reduce((a, b) => a + b, 0) / numericLevels.length;
+        avgReadingLevel = Math.round(avg);
+      }
+    }
 
     return {
       total: children.length,
       active: activeChildren.length,
-      avgLevel: Math.round(avgReadingLevel) || 'N/A',
+      avgLevel: avgReadingLevel,
       avgPerf: Math.round(avgPerformancePct)
     };
 
-  }, [children, avgPerformancePct]);
+  }, [children, avgPerformancePct, chartsByStudentId]);
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+    <div className="bg-white rounded-2xl border-2 border-gray-200 p-6 shadow-sm">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center">
@@ -99,11 +177,16 @@ const ChildrenOverviewWidget: React.FC<{
             {isLoading ? (
               <div className="h-8 bg-purple-200 rounded animate-pulse"></div>
             ) : (
-              <div className="text-3xl font-bold text-purple-900">
+              <div className={`text-2xl font-bold ${
+                stats?.avgLevel === 'Independent' ? 'text-green-700' :
+                stats?.avgLevel === 'Instructional' ? 'text-yellow-700' :
+                stats?.avgLevel === 'Frustration' ? 'text-red-700' :
+                'text-purple-900'
+              }`}>
                 {stats?.avgLevel || 'N/A'}
               </div>
             )}
-            <div className="text-base text-purple-700">Current level</div>
+            <div className="text-base text-purple-700">From assessments</div>
           </div>
         </div>
 
@@ -156,8 +239,6 @@ const normalizeLevelName = (raw?: string): string => {
 const ChildCard = memo(({ child }: { child: Student }) => {
   const navigate = useNavigate();
 
-
-
   const getPerformanceText = (performance: string) => {
     switch (performance) {
       case 'Excellent': return 'Advanced';
@@ -167,72 +248,72 @@ const ChildCard = memo(({ child }: { child: Student }) => {
     }
   };
 
-
-
-
+  const getPerformanceColor = (performance: string) => {
+    switch (performance) {
+      case 'Excellent': return 'bg-green-100 text-green-800 border-green-200';
+      case 'Good': return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'Needs Improvement': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      default: return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
 
   return (
-    <div
-      className="group relative overflow-hidden bg-white border border-gray-200 rounded-2xl p-5 flex flex-col transition-all hover:shadow-sm cursor-pointer"
-      onClick={() => navigate('/parent/children')}
-      role="button"
-      tabIndex={0}
-      aria-label={`View details for ${child.name}`}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          navigate('/parent/children');
-        }
-      }}
-    >
-      <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-blue-100/60 blur-2xl group-hover:scale-110 transition-transform" />
-      <div className="relative flex items-center mb-2">
-        <div className="h-12 w-12 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center text-lg font-bold text-gray-700 mr-3">
-          {child.name?.[0] || '?'}
-        </div>
-        <div>
-          <div className="font-semibold text-gray-900 text-2xl">{child.name}</div>
-          <div className="text-base text-gray-500">{child.grade}</div>
+    <div className="group relative overflow-hidden bg-white border-2 border-gray-200 rounded-2xl p-6 transition-all hover:shadow-md hover:border-blue-300">
+      {/* Decorative gradient */}
+      <div className="absolute -right-8 -top-8 w-32 h-32 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 opacity-50 blur-2xl group-hover:scale-110 transition-transform" />
+      
+      {/* Header with Avatar and Name */}
+      <div className="relative flex items-start justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="h-14 w-14 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-xl font-bold text-white shadow-md">
+            {child.name?.[0]?.toUpperCase() || '?'}
+          </div>
+          <div>
+            <h3 className="font-bold text-gray-900 text-lg leading-tight">{child.name}</h3>
+            <p className="text-sm text-gray-600 mt-0.5">{child.grade}</p>
+          </div>
         </div>
       </div>
 
-      <div className="relative flex flex-col gap-1 mt-2">
-        <div className="text-lg flex items-center gap-2">
-          <span className="font-medium text-gray-700">Reading Level:</span>
-          <span className="px-2 py-0.5 rounded-full bg-gray-50 border border-gray-200 text-base text-gray-700">
+      {/* Stats Grid */}
+      <div className="relative space-y-3 mb-4">
+        <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-gray-100">
+          <span className="text-sm font-medium text-gray-700">Reading Level</span>
+          <span className="px-3 py-1 rounded-full bg-white border border-gray-200 text-sm font-semibold text-gray-900">
             {child.readingLevel || 'N/A'}
           </span>
         </div>
-        <div className="text-lg flex items-center gap-2">
-          <span className="font-medium text-gray-700">Performance:</span>
-          <span className={`px-2 py-0.5 rounded-full text-base font-semibold ${child.performance === 'Excellent' ? 'bg-green-100 text-green-700' :
-            child.performance === 'Good' ? 'bg-blue-100 text-blue-700' :
-              'bg-yellow-100 text-yellow-800'
-            }`}>
-            {getPerformanceText(child.performance) || '—'}
+        
+        <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-gray-100">
+          <span className="text-sm font-medium text-gray-700">Performance</span>
+          <span className={`px-3 py-1 rounded-full text-sm font-semibold border ${getPerformanceColor(child.performance)}`}>
+            {getPerformanceText(child.performance) || 'Not assessed'}
           </span>
         </div>
+      </div>
 
-        <div className="mt-3 flex gap-2">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              navigate('/parent/reading', { state: { childId: child.id, childName: child.name } });
-            }}
-            className="inline-flex items-center gap-2 px-4 py-2 text-base rounded-lg text-white bg-blue-600 hover:bg-blue-700"
-          >
-            <BookOpenIcon className="h-5 w-5" /> Practice
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              navigate('/parent/progress', { state: { childId: child.id } });
-            }}
-            className="inline-flex items-center gap-2 px-4 py-2 text-base rounded-lg text-blue-700 bg-white border border-blue-200 hover:bg-blue-50"
-          >
-            <ChartBarIcon className="h-5 w-5" /> Progress
-          </button>
-        </div>
+      {/* Action Buttons */}
+      <div className="relative grid grid-cols-2 gap-2">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate('/parent/reading', { state: { childId: child.id, childName: child.name } });
+          }}
+          className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition-colors shadow-sm"
+        >
+          <BookOpenIcon className="h-4 w-4" />
+          Practice
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate('/parent/progress', { state: { childId: child.id } });
+          }}
+          className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors"
+        >
+          <ChartBarIcon className="h-4 w-4" />
+          Progress
+        </button>
       </div>
     </div>
   );
@@ -403,45 +484,78 @@ const ParentDashboard: React.FC = () => {
     <div className="p-6 space-y-6">
       {/* Hero Section */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 border border-gray-100">
-        <div className="px-6 py-6 sm:px-8 sm:py-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div>
-            <h2 className="text-3xl font-extrabold text-blue-900 mb-2">
-              Welcome back, {currentUser?.displayName?.split(' ')[0] || 'Parent'}!
-            </h2>
-            <p className="text-lg text-blue-700 mt-1">
-              See how your children are growing as readers and start new learning adventures.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
+        <div className="px-6 py-6 sm:px-8 sm:py-8">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+              <h2 className="text-3xl font-extrabold text-blue-900 mb-2">
+                Welcome back, {currentUser?.displayName?.split(' ')[0] || 'Parent'}!
+              </h2>
+              <p className="text-lg text-blue-700 mt-1">
+                See how your children are growing as readers and start new learning adventures.
+              </p>
+            </div>
             <span className="text-xs inline-flex items-center px-2 py-1 rounded-full bg-white/60 border border-white text-blue-700">
               Updated {formatDateHuman(new Date())}
             </span>
-            <button
-              aria-label="Start Practice Session"
-              onClick={() => navigate('/parent/reading')}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-blue-700 bg-white/80 hover:bg-white hover:text-blue-800 transition-all duration-200 font-medium shadow-sm hover:shadow-md border border-white/50"
-            >
-              <BookOpenIcon className="h-4 w-4" />
-              Start Reading
-            </button>
-            <button
-              aria-label="View Progress Reports"
-              onClick={() => navigate('/parent/reports')}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-blue-700 bg-white/80 hover:bg-white hover:text-blue-800 transition-all duration-200 font-medium shadow-sm hover:shadow-md border border-white/50"
-            >
-              <ChartBarIcon className="h-4 w-4" />
-              View Reports
-            </button>
-            <button
-              aria-label="Manage Children Profiles"
-              onClick={() => navigate('/parent/children')}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-blue-700 bg-white/80 hover:bg-white hover:text-blue-800 transition-all duration-200 font-medium shadow-sm hover:shadow-md border border-white/50"
-            >
-              <UsersIcon className="h-4 w-4" />
-              Manage Kids
-            </button>
           </div>
         </div>
+      </div>
+
+      {/* Quick Actions Section */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <button
+          onClick={() => navigate('/parent/reading')}
+          className="group relative overflow-hidden bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-6 text-left transition-all hover:shadow-lg hover:scale-[1.02]"
+        >
+          <div className="absolute -right-4 -top-4 w-24 h-24 rounded-full bg-white/10 blur-2xl group-hover:scale-110 transition-transform" />
+          <div className="relative">
+            <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center mb-4">
+              <BookOpenIcon className="h-6 w-6 text-white" />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">Start Reading</h3>
+            <p className="text-blue-100 text-sm mb-4">Begin a new reading session with your child</p>
+            <div className="flex items-center text-white text-sm font-medium">
+              Start Now
+              <ArrowRightIcon className="h-4 w-4 ml-2 group-hover:translate-x-1 transition-transform" />
+            </div>
+          </div>
+        </button>
+
+        <button
+          onClick={() => navigate('/parent/progress')}
+          className="group relative overflow-hidden bg-gradient-to-br from-green-500 to-green-600 rounded-2xl p-6 text-left transition-all hover:shadow-lg hover:scale-[1.02]"
+        >
+          <div className="absolute -right-4 -top-4 w-24 h-24 rounded-full bg-white/10 blur-2xl group-hover:scale-110 transition-transform" />
+          <div className="relative">
+            <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center mb-4">
+              <ChartBarIcon className="h-6 w-6 text-white" />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">View Progress</h3>
+            <p className="text-green-100 text-sm mb-4">Track your child's reading journey and achievements</p>
+            <div className="flex items-center text-white text-sm font-medium">
+              View Details
+              <ArrowRightIcon className="h-4 w-4 ml-2 group-hover:translate-x-1 transition-transform" />
+            </div>
+          </div>
+        </button>
+
+        <button
+          onClick={() => navigate('/parent/children')}
+          className="group relative overflow-hidden bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl p-6 text-left transition-all hover:shadow-lg hover:scale-[1.02]"
+        >
+          <div className="absolute -right-4 -top-4 w-24 h-24 rounded-full bg-white/10 blur-2xl group-hover:scale-110 transition-transform" />
+          <div className="relative">
+            <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center mb-4">
+              <UsersIcon className="h-6 w-6 text-white" />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">Manage Children</h3>
+            <p className="text-purple-100 text-sm mb-4">Add or update your children's profiles</p>
+            <div className="flex items-center text-white text-sm font-medium">
+              Manage
+              <ArrowRightIcon className="h-4 w-4 ml-2 group-hover:translate-x-1 transition-transform" />
+            </div>
+          </div>
+        </button>
       </div>
 
       {/* No Children Banner */}
@@ -478,37 +592,164 @@ const ParentDashboard: React.FC = () => {
             children={children}
             isLoading={loading}
             avgPerformancePct={metrics.avgPerformance}
+            chartsByStudentId={chartsByStudentId}
           />
 
-          {/* Children Cards */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
-                <UsersIcon className="h-6 w-6 text-gray-600" />
-                Your Children
-              </h2>
-              <button
-                onClick={() => navigate('/parent/children')}
-                className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
-              >
-                Manage All
-                <ArrowRightIcon className="h-4 w-4" />
-              </button>
+          {/* Divider */}
+          <div className="border-t border-gray-200"></div>
+
+          {/* Two Column Layout */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left Column - Children Cards */}
+            <div className="lg:col-span-2 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
+                  <UsersIcon className="h-6 w-6 text-gray-600" />
+                  Your Children
+                </h2>
+                <button
+                  onClick={() => navigate('/parent/children')}
+                  className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
+                >
+                  Manage All
+                  <ArrowRightIcon className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {children.map((child) => (
+                  <ChildCard key={child.id} child={child} />
+                ))}
+              </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {children.map((child) => (
-                <ChildCard key={child.id} child={child} />
-              ))}
+
+            {/* Right Column - Recent Activity & Tips */}
+            <div className="space-y-4">
+              {/* Recent Activity */}
+              <div className="bg-white rounded-2xl border-2 border-gray-200 p-6 shadow-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                    <ClockIcon className="h-5 w-5 text-blue-600" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900">Recent Activity</h3>
+                </div>
+                
+                {metrics.lastActivityAt ? (
+                  <div className="space-y-3">
+                    <div className="flex items-start gap-3 p-3 rounded-lg bg-gray-50">
+                      <div className="w-2 h-2 rounded-full bg-green-500 mt-2"></div>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-gray-900">Last Reading Session</p>
+                        <p className="text-xs text-gray-600 mt-1">
+                          {formatDateHuman(metrics.lastActivityAt)}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {metrics.streakDays > 0 && (
+                      <div className="flex items-start gap-3 p-3 rounded-lg bg-orange-50">
+                        <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center">
+                          <svg className="h-4 w-4 text-orange-600" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A2.99 2.99 0 0113 13a2.99 2.99 0 01-.879 2.121z" />
+                          </svg>
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-gray-900">
+                            {metrics.streakDays} Day Streak! 🔥
+                          </p>
+                          <p className="text-xs text-gray-600 mt-1">
+                            Keep the momentum going!
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-6">
+                    <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
+                      <ClockIcon className="h-6 w-6 text-gray-400" />
+                    </div>
+                    <p className="text-sm text-gray-600">No recent activity</p>
+                    <button
+                      onClick={() => navigate('/parent/reading')}
+                      className="mt-3 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                    >
+                      Start a session
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Reading Tips */}
+              <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl border-2 border-indigo-200 p-6 shadow-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
+                    <svg className="h-5 w-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900">Reading Tip</h3>
+                </div>
+                <p className="text-sm text-gray-700 leading-relaxed">
+                  <strong className="text-indigo-900">Daily Practice:</strong> Reading for just 15-20 minutes each day can significantly improve your child's fluency and comprehension skills.
+                </p>
+              </div>
+
+              {/* Quick Links */}
+              <div className="bg-white rounded-2xl border-2 border-gray-200 p-6 shadow-sm">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">Quick Links</h3>
+                <div className="space-y-1">
+                  <button
+                    onClick={() => navigate('/parent/reports')}
+                    className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-blue-50 hover:border-blue-200 border border-transparent transition-all text-left group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-gray-100 group-hover:bg-blue-100 flex items-center justify-center transition-colors">
+                        <svg className="h-4 w-4 text-gray-600 group-hover:text-blue-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                      </div>
+                      <span className="text-sm font-medium text-gray-900">View Reports</span>
+                    </div>
+                    <ArrowRightIcon className="h-4 w-4 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" />
+                  </button>
+                  
+                  <button
+                    onClick={() => navigate('/parent/settings')}
+                    className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-blue-50 hover:border-blue-200 border border-transparent transition-all text-left group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-gray-100 group-hover:bg-blue-100 flex items-center justify-center transition-colors">
+                        <svg className="h-4 w-4 text-gray-600 group-hover:text-blue-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                      </div>
+                      <span className="text-sm font-medium text-gray-900">Settings</span>
+                    </div>
+                    <ArrowRightIcon className="h-4 w-4 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" />
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Progress Charts */}
+          {/* Divider */}
+          <div className="border-t border-gray-200"></div>
+
+          {/* Progress Charts - Full Width */}
           <div className="space-y-6">
-            <div>
+            <div className="flex items-center justify-between">
               <h2 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
                 <ChartBarIcon className="h-6 w-6 text-gray-600" />
-                Your Child's Learning Journey
+                Learning Progress
               </h2>
+              <button
+                onClick={() => navigate('/parent/progress')}
+                className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
+              >
+                View All
+                <ArrowRightIcon className="h-4 w-4" />
+              </button>
             </div>
             <div className="space-y-6">
               {children.map((child) => (
@@ -521,10 +762,6 @@ const ParentDashboard: React.FC = () => {
               ))}
             </div>
           </div>
-
-
-
-
         </>
       )}
     </div>
