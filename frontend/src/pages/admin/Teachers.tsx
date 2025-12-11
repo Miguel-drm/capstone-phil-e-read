@@ -61,7 +61,51 @@ const Teachers: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchTeachers();
+    let isCancelled = false;
+    
+    const loadData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await getAllTeachers();
+        
+        if (isCancelled) return;
+
+        // Fetch profile images from MongoDB for each teacher (by firebase UID)
+        const withImages = await Promise.all(
+          data.map(async (t) => {
+            if (isCancelled) return t;
+            
+            try {
+              const base64 = await profileImageService.getTeacherProfileImage(t.id);
+              return base64
+                ? { ...t, profileImage: profileImageService.convertBase64ToDataUrl(base64) }
+                : t;
+            } catch {
+              return t;
+            }
+          })
+        );
+
+        if (!isCancelled) {
+          setTeachers(withImages);
+        }
+      } catch (err) {
+        if (!isCancelled) {
+          setError('Failed to load teachers.');
+        }
+      } finally {
+        if (!isCancelled) {
+          setLoading(false);
+        }
+      }
+    };
+    
+    loadData();
+    
+    return () => {
+      isCancelled = true;
+    };
   }, []);
 
   useEffect(() => {

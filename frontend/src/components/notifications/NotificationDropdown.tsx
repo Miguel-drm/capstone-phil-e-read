@@ -250,9 +250,6 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
     // For parent users, read messages should also go to Recent section
     const isReadByParent = (userRole === 'parent' && msg.isRead);
 
-    // For teacher users, read messages should also go to Recent section (except pending link requests)
-    const isReadByTeacher = (userRole === 'teacher' && msg.isRead);
-
     // Special handling for link requests - only show in Recent if approved/rejected
     if (userRole === 'teacher' && (msg.type === 'link_request' || msg.category === 'link_requests')) {
       const isApproved = msg.status === 'approved' || msg.status === 'rejected';
@@ -271,6 +268,9 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
       });
       return false; // Pending link requests don't go to Recent
     }
+
+    // For teacher users, read messages should also go to Recent section (except pending link requests handled above)
+    const isReadByTeacher = (userRole === 'teacher' && msg.isRead);
 
     // For parent users, include their own sent messages in Recent section after 20 seconds
     const isParentSent = (userRole === 'parent' && msg.senderRole === 'parent');
@@ -302,21 +302,11 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
       return msg.isRead; // Only show in Recent after parent reads them
     }
 
-    // For teacher users, parent replies should move to Recent only after being read
+    // For teacher users, parent messages should move to Recent only after being read
     const isParentReply = (userRole === 'teacher' && msg.senderRole === 'parent');
     if (isParentReply) {
-      // Special handling for link requests - only show in Recent if approved/rejected
-      if (msg.type === 'link_request' || msg.category === 'link_requests') {
-        const isApproved = msg.status === 'approved' || msg.status === 'rejected';
-        console.log('🔥 TEACHER: Link request Recent check:', {
-          id: msg.id,
-          status: msg.status,
-          isApproved,
-          title: msg.title
-        });
-        return isApproved; // Only show in Recent after approval/rejection
-      }
-      console.log('🔥 TEACHER: Parent reply Recent check:', {
+      // Link requests are already handled above, so this won't be reached for them
+      console.log('🔥 TEACHER: Parent message Recent check:', {
         id: msg.id,
         isRead: msg.isRead,
         title: msg.title
@@ -324,6 +314,8 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
       return msg.isRead; // Only show in Recent after teacher reads them
     }
 
+    // Return true if any of the conditions are met
+    // Note: isReadByTeacher is checked last to avoid circular logic
     return isReplied || isTeacherReplied || isParentReplied || isMovedToRecent || isReadByParent || isReadByTeacher;
   };
 
@@ -354,7 +346,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
       return false;
     }
 
-    // For teacher users, special handling for link requests
+    // For teacher users, special handling for link requests and parent messages
     const isTeacherUser = userRole === 'teacher';
     const isParentSender = msg.senderRole === 'parent';
     if (isTeacherUser && isParentSender) {
@@ -377,9 +369,17 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
         });
         return true; // Pending link requests stay in Inbox (even if read)
       }
+      // For other parent messages (not link requests), filter out if read
+      if (msg.isRead) {
+        console.log('🔥 TEACHER: Parent message read - moving to Recent:', {
+          id: msg.id,
+          title: msg.title
+        });
+        return false;
+      }
     }
 
-    // FUNDAMENTAL RULE: Read messages should NEVER be in Inbox (except link requests above)
+    // FUNDAMENTAL RULE: Read messages should NEVER be in Inbox (except pending link requests above)
     if (msg.isRead) {
       console.log('Filtered out: read message (goes to Recent)');
       return false;

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { studentService, type Student } from '../../../services/studentService';
 import { useNavigate } from 'react-router-dom';
@@ -240,7 +240,7 @@ const MyChildren: React.FC = () => {
   };
 
   // Get sections for selected grade from already loaded data
-  const fetchSectionsForGrade = async (gradeId: string) => {
+  const fetchSectionsForGrade = useCallback(async (gradeId: string) => {
     setLoadingSections(true);
     try {
       console.log('🔍 Fetching sections for gradeId:', gradeId);
@@ -268,7 +268,7 @@ const MyChildren: React.FC = () => {
     } finally {
       setLoadingSections(false);
     }
-  };
+  }, [availableGrades]); // Memoize with availableGrades dependency
 
 
   return (

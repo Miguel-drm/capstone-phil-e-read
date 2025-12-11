@@ -29,38 +29,58 @@ const Students: React.FC = () => {
   const [filterType, setFilterType] = useState<'az' | 'za' | 'newest' | 'oldest'>('az');
 
   useEffect(() => {
+    let isCancelled = false; // Flag to prevent state updates after unmount
+    
     const fetchInitialData = async () => {
+      if (isCancelled) return;
+      
       setLoading(true);
       setError(null);
       try {
         const allGrades = await gradeService.getAllClassGrades();
+        
+        if (isCancelled) return; // Check before state update
         setGrades(allGrades);
 
         if (selectedGradeId === 'all') {
           const allStudents = await StudentServiceModule.studentService.getAllStudents();
+          if (isCancelled) return; // Check before state update
+          
           const filtered = allStudents.filter(s => showArchived ? (s as any).archived : !(s as any).archived);
           setStudents(filtered.map(s => ({ ...s })) as MergedStudent[]);
         } else if (selectedGradeId) {
           // Find the grade name for the selectedGradeId
-          const gradeObj = grades.find(g => g.id === selectedGradeId);
+          const gradeObj = allGrades.find(g => g.id === selectedGradeId);
           const gradeName = gradeObj?.name;
           if (!gradeName) {
-            setStudents([]);
+            if (!isCancelled) setStudents([]);
             return;
           }
           // Fetch all students and filter by grade name
           const allStudents = await StudentServiceModule.studentService.getAllStudents();
+          if (isCancelled) return; // Check before state update
+          
           const filtered = allStudents.filter(s => s.grade === gradeName).filter(s => showArchived ? (s as any).archived : !(s as any).archived);
           setStudents(filtered.map(s => ({ ...s })) as MergedStudent[]);
         }
       } catch (err) {
-        setError('Failed to load data.');
-        console.error('Error loading data:', err);
+        if (!isCancelled) {
+          setError('Failed to load data.');
+          console.error('Error loading data:', err);
+        }
       } finally {
-        setLoading(false);
+        if (!isCancelled) {
+          setLoading(false);
+        }
       }
     };
+    
     fetchInitialData();
+    
+    // Cleanup function to cancel ongoing requests
+    return () => {
+      isCancelled = true;
+    };
   }, [selectedGradeId, showArchived]);
 
   useEffect(() => {
@@ -213,7 +233,7 @@ const Students: React.FC = () => {
 
   const studentStats = [
     { label: showArchived ? 'Archived Students' : 'Active Students', value: students.length },
-    { label: 'Linked Parents', value: students.filter((s) => Boolean(s.parentName)).length },
+    { label: 'Linked Parents', value: students.filter((s) => Boolean(s.parentId)).length },
     { label: 'Grade Levels Visible', value: new Set(students.map((s) => s.grade || 'Unassigned')).size },
   ];
 

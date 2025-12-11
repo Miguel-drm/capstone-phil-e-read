@@ -112,11 +112,6 @@ const Header: React.FC<HeaderProps> = ({
           }
         }
         
-        // Don't show badge for admin users
-        if ((userRole as UserRole) === 'admin') {
-          totalUnreadCount = 0;
-        }
-        
         console.log('🔥 HEADER NOTIFICATION COUNT:', {
           userRole,
           allMessages: messages.length,
@@ -171,11 +166,6 @@ const Header: React.FC<HeaderProps> = ({
         // Note: Link requests count will be updated by real-time listeners
         // No need to fetch them here as it's handled by the link requests listener
         
-        // Don't show badge for admin users
-        if ((userRole as UserRole) === 'admin') {
-          totalUnreadCount = 0;
-        }
-        
         console.log('🔥 HEADER REAL-TIME NOTIFICATION COUNT:', {
           userRole,
           allMessages: messages.length,
@@ -198,7 +188,15 @@ const Header: React.FC<HeaderProps> = ({
             // Apply same filtering logic as NotificationDropdown
             const filteredInboxMessages = messages.filter(msg => {
               if (msg.isArchived) return false;
-              if ((userRole as UserRole) === 'teacher' && msg.senderRole === 'parent' && msg.isRead) return false;
+              // For teachers, link requests stay in inbox even if read (until approved/rejected)
+              if ((userRole as UserRole) === 'teacher' && msg.senderRole === 'parent') {
+                if (msg.type === 'link_request' || msg.category === 'link_requests') {
+                  // Link requests stay in inbox until approved/rejected
+                  return msg.status !== 'approved' && msg.status !== 'rejected';
+                }
+                // Other parent messages are filtered out when read
+                return !msg.isRead;
+              }
               if ((userRole as UserRole) === 'parent' && msg.senderRole === 'teacher' && msg.isRead) return false;
               return true;
             });
@@ -230,8 +228,13 @@ const Header: React.FC<HeaderProps> = ({
               // Apply same filtering logic as NotificationDropdown
               const filteredInboxMessages = messages.filter(msg => {
                 if (msg.isArchived) return false;
-                if ((userRole as UserRole) === 'teacher' && msg.senderRole === 'parent' && msg.isRead) return false;
+                // For parents, read messages from teachers are filtered out
                 if ((userRole as UserRole) === 'parent' && msg.senderRole === 'teacher' && msg.isRead) return false;
+                // For parents, their own sent messages older than 20 seconds go to Recent
+                if ((userRole as UserRole) === 'parent' && msg.senderRole === 'parent') {
+                  const messageAge = Date.now() - (msg.createdAt?.toDate?.() || new Date()).getTime();
+                  return messageAge <= 20000; // Keep in inbox for first 20 seconds
+                }
                 return true;
               });
               

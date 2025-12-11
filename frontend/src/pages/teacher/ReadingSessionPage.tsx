@@ -90,17 +90,23 @@ const ReadingSessionPage: React.FC = () => {
   
   // Countdown effect - preload Vosk connection during countdown
   useEffect(() => {
+    let timer: NodeJS.Timeout | null = null;
+    
     if (showCountdown && countdown > 0) {
-      const timer = setTimeout(() => {
+      timer = setTimeout(() => {
         setCountdown(countdown - 1);
       }, 1000);
-      return () => clearTimeout(timer);
     } else if (showCountdown && countdown === 0) {
       // Countdown finished, start recording
       setShowCountdown(false);
       startRecordingAfterCountdown();
       setCountdown(5); // Reset for next time
     }
+    
+    // Cleanup timer on unmount or when dependencies change
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
   }, [showCountdown, countdown]);
   
   // Check Vosk connection status during countdown

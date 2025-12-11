@@ -87,18 +87,12 @@ const ClassList: React.FC = () => {
   // Helper function to check if the current user has management permissions
   const canManage = (userRole === 'teacher' || userRole === 'admin') && isProfileComplete;
 
-  // Load students on component mount
-  useEffect(() => {
-    if (currentUser?.uid) {
-      console.log('Current User UID:', currentUser.uid); // Add this line
-      loadStudents();
-      loadClassStatistics();
-    }
-  }, [currentUser?.uid]);
-
   // Realtime subscription for students belonging to the current teacher
+  // This replaces the need for loadStudents() - real-time updates are more efficient
   useEffect(() => {
     if (!currentUser?.uid) return;
+    
+    setIsLoading(true);
     const q = fsQuery(collection(db, 'students'), fsWhere('teacherId', '==', currentUser.uid));
     const unsub = onSnapshot(q, (snap) => {
       const list: Student[] = [] as any;
@@ -112,6 +106,10 @@ const ClassList: React.FC = () => {
       setStudents(list);
       setIsLoading(false);
     });
+    
+    // Also load class statistics on mount
+    loadClassStatistics();
+    
     return () => unsub();
   }, [currentUser?.uid]);
 

@@ -97,6 +97,8 @@ const ProgressPage: React.FC = () => {
   // Fetch reading results for selected child
   useEffect(() => {
     const unsubscribers: (() => void)[] = [];
+    
+    // Clear results when dependencies change to prevent stale data
     setReadingResults([]);
 
     const attachListenerForChild = (childId: string) => {
@@ -109,12 +111,16 @@ const ProgressPage: React.FC = () => {
           ...doc.data()
         })) as ReadingResult[];
 
+        // Use functional update to avoid race conditions
         setReadingResults((prev) => {
+          // Remove old results for this child
           const others = prev.filter(r => r.studentId !== childId);
+          // Add new results
           return [...others, ...results];
         });
       }, (error) => {
         console.error('Error fetching reading results:', error);
+        // Remove results for this child on error
         setReadingResults((prev) => prev.filter(r => r.studentId !== childId));
       });
 
@@ -122,12 +128,17 @@ const ProgressPage: React.FC = () => {
     };
 
     if (selectedChild) {
+      // Only attach listener for selected child
       attachListenerForChild(selectedChild);
     } else if (children.length > 0) {
+      // Attach listeners for all children
       children.forEach((child) => attachListenerForChild(child.id));
     }
 
-    return () => unsubscribers.forEach(unsub => unsub());
+    // Cleanup all listeners when dependencies change
+    return () => {
+      unsubscribers.forEach(unsub => unsub());
+    };
   }, [selectedChild, children]);
 
   // Fetch shared ISR reports for parent

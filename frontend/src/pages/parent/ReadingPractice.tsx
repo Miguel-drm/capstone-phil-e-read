@@ -102,7 +102,8 @@ const ReadingPractice: React.FC = () => {
     } finally {
       setStoriesLoading(false);
     }
-  }, [children]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [children.length]); // Only depend on children.length to avoid infinite loop
 
   // Load children first, then stories
   useEffect(() => {

@@ -96,13 +96,20 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
 
   // Fetch ISR Review Records and ISR Results from MongoDB for all students to determine their ISR status
   useEffect(() => {
+    let isCancelled = false; // Flag to prevent state updates after unmount
+    
     const fetchISRStatus = async () => {
       if (students.length === 0) {
-        setStudentsWithISRResults(new Set());
+        if (!isCancelled) {
+          setStudentsWithISRResults(new Set());
+        }
         return;
       }
 
-      setLoadingISRStatus(true);
+      if (!isCancelled) {
+        setLoadingISRStatus(true);
+      }
+      
       try {
         const studentIds = students
           .map(s => s.id)
@@ -130,6 +137,12 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
         });
 
         const results = await Promise.all(statusPromises);
+        
+        // Only update state if component is still mounted
+        if (isCancelled) {
+          console.log('ISR status fetch cancelled - component unmounted');
+          return;
+        }
         const completedSet = new Set<string>();
         const statusMap = new Map<string, { hasPartA: boolean; hasPartB: boolean }>();
         const reviewRecords: Record<string, any> = {};
@@ -234,29 +247,45 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
 
         setStudentsWithISRResults(completedSet);
         setStudentReadingLevels(readingLevels);
-        // Store status details for getISRStatus to use
-        (window as any).__isrStatusMap = statusMap;
-        
-        // Log status for debugging
-        if (process.env.NODE_ENV === 'development') {
-          console.log('📊 ISR Status fetched:', {
-            totalStudents: studentIds.length,
-            studentsWithData: completedSet.size,
-            reviewRecordsCount: Object.keys(reviewRecords).length
-          });
+        // Only update state if component is still mounted
+        if (!isCancelled) {
+          setStudentsWithISRResults(completedSet);
+          setStudentReadingLevels(readingLevels);
+          // Store status details for getISRStatus to use
+          (window as any).__isrStatusMap = statusMap;
+          
+          // Log status for debugging
+          if (process.env.NODE_ENV === 'development') {
+            console.log('📊 ISR Status fetched:', {
+              totalStudents: studentIds.length,
+              studentsWithData: completedSet.size,
+              reviewRecordsCount: Object.keys(reviewRecords).length
+            });
+          }
         }
       } catch (error) {
-        console.error('Error fetching ISR status:', error);
+        if (!isCancelled) {
+          console.error('Error fetching ISR status:', error);
+        }
       } finally {
-        setLoadingISRStatus(false);
+        if (!isCancelled) {
+          setLoadingISRStatus(false);
+        }
       }
     };
 
     if (students.length > 0) {
       fetchISRStatus();
     } else {
-      setStudentsWithISRResults(new Set());
+      if (!isCancelled) {
+        setStudentsWithISRResults(new Set());
+      }
     }
+    
+    // Cleanup function to cancel ongoing requests
+    return () => {
+      isCancelled = true;
+    };
   }, [students]);
 
   // Group students by class

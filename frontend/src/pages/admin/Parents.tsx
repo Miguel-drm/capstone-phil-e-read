@@ -80,7 +80,51 @@ const Parents: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchParents();
+    let isCancelled = false;
+    
+    const loadData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await getAllParents();
+        
+        if (isCancelled) return;
+
+        // Load profile images using the teacher endpoint (shared UID).
+        const withImages = await Promise.all(
+          data.map(async (p) => {
+            if (isCancelled) return p;
+            
+            try {
+              const base64 = await profileImageService.getTeacherProfileImage(p.id);
+              return base64
+                ? { ...p, profileImage: profileImageService.convertBase64ToDataUrl(base64) }
+                : p;
+            } catch {
+              return p;
+            }
+          })
+        );
+
+        if (!isCancelled) {
+          setParents(withImages);
+        }
+      } catch (err) {
+        if (!isCancelled) {
+          setError('Failed to load parents.');
+        }
+      } finally {
+        if (!isCancelled) {
+          setLoading(false);
+        }
+      }
+    };
+    
+    loadData();
+    
+    return () => {
+      isCancelled = true;
+    };
   }, []);
 
   let displayedParents = [...parents];
