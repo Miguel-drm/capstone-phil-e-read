@@ -120,7 +120,7 @@ VERBS_PRESENT = {
 # Category: Common Nouns - Animals
 ANIMALS = {
     'dog': ['dog', 'dawg', 'dogg'],
-    'cat': ['cat', 'kat', 'catt'],
+    'cat': ['cat', 'cut' 'kat', 'catt'],
     'bird': ['bird', 'burd', 'birrd'],
     'fish': ['fish', 'fiss', 'phish'],
     'cow': ['cow', 'kow', 'caw'],
