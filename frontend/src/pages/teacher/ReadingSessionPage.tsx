@@ -4336,6 +4336,8 @@ const ReadingSessionPage: React.FC = () => {
 
     const normalizedStoryKey = storyKey ? normalizeForMatch(storyKey) : "";
     const normalizedStoryTitle = currentStory?.title ? normalizeForMatch(currentStory.title) : "";
+    const storySet = (currentStory as any)?.storySet || (currentStory as any)?.set || (currentSession as any)?.storySet || "";
+    const normalizedStorySet = storySet ? normalizeForMatch(storySet) : "";
 
     // Collect possible story IDs to match against test.storyId
     const storyIdCandidates = [
@@ -4347,34 +4349,26 @@ const ReadingSessionPage: React.FC = () => {
 
     console.log("🔑 Normalized story key:", normalizedStoryKey, "Story IDs:", storyIdCandidates);
 
-    // IMPROVED MATCHING: Try multiple strategies
-    let match = tests.find(
+    // Filter tests by story set if available; if none remain, fall back to all tests
+    let candidateTests = tests;
+    if (normalizedStorySet) {
+      const filtered = tests.filter(t => t.storySet && normalizeForMatch(String(t.storySet)) === normalizedStorySet);
+      if (filtered.length > 0) {
+        candidateTests = filtered;
+      }
+    }
+
+    // STRICT MATCHING WITH SET CONTEXT: Only match by storyId or normalized title, within the set-filtered list
+    const match = candidateTests.find(
       (t) =>
         // Strategy 1: Exact storyId match (any candidate)
         (t.storyId && storyIdCandidates.some(id => id === t.storyId)) ||
         // Strategy 2: Exact storyTitle match (with normalization) using session book/title or currentStory.title
         (t.storyTitle && (
-          normalizeForMatch(t.storyTitle) === normalizedStoryKey ||
+          (normalizedStoryKey && normalizeForMatch(t.storyTitle) === normalizedStoryKey) ||
           (normalizedStoryTitle && normalizeForMatch(t.storyTitle) === normalizedStoryTitle)
-        )) ||
-        // Strategy 3: Test name contains story key
-        (t.testName && normalizeForMatch(t.testName).includes(normalizedStoryKey)) ||
-        // Strategy 4: Story key contains test name (reverse)
-        (t.testName && normalizedStoryKey.includes(normalizeForMatch(t.testName))) ||
-        // Strategy 5: Story key contains storyTitle
-        (t.storyTitle && normalizedStoryKey.includes(normalizeForMatch(t.storyTitle)))
+        ))
     );
-
-    // If still no match, try fuzzy matching by checking if storyId matches any test's storyId
-    if (!match && currentSession.book) {
-      match = tests.find(t => t.storyId === currentSession.book);
-    }
-
-    // If STILL no match and there's only one test, use it (fallback)
-    if (!match && tests.length === 1) {
-      console.log("⚠️ Using single available test as fallback");
-      match = tests[0];
-    }
 
     if (match) {
       console.log("✅ Test found:", match.testName, "ID:", match.id);
