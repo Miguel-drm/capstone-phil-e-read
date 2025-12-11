@@ -4318,7 +4318,7 @@ const ReadingSessionPage: React.FC = () => {
   useEffect(() => {
     if (!currentSession) return;
     const storyKey = (currentSession.book || "").toString().trim();
-    if (!storyKey) {
+    if (!storyKey && !currentStory) {
       console.log("⚠️ No story key found in currentSession.book");
       return;
     }
@@ -4329,21 +4329,34 @@ const ReadingSessionPage: React.FC = () => {
     // Helper function to normalize strings for comparison (handle different apostrophe types)
     const normalizeForMatch = (str: string) => {
       return str.toLowerCase()
-        .replace(/['']/g, "'")  // Normalize all apostrophe types to straight apostrophe
+        .replace(/['’]/g, "'")  // Normalize curly apostrophes to straight apostrophe
         .replace(/\s+/g, ' ')    // Normalize whitespace
         .trim();
     };
 
-    const normalizedStoryKey = normalizeForMatch(storyKey);
-    console.log("🔑 Normalized story key:", normalizedStoryKey);
+    const normalizedStoryKey = storyKey ? normalizeForMatch(storyKey) : "";
+    const normalizedStoryTitle = currentStory?.title ? normalizeForMatch(currentStory.title) : "";
+
+    // Collect possible story IDs to match against test.storyId
+    const storyIdCandidates = [
+      currentSession.book || "",
+      (currentStory as any)?.id || "",
+      (currentStory as any)?._id || "",
+      (currentStory as any)?.storyId || ""
+    ].filter(Boolean);
+
+    console.log("🔑 Normalized story key:", normalizedStoryKey, "Story IDs:", storyIdCandidates);
 
     // IMPROVED MATCHING: Try multiple strategies
     let match = tests.find(
       (t) =>
-        // Strategy 1: Exact storyId match
-        (t.storyId && t.storyId === currentSession.book) ||
-        // Strategy 2: Exact storyTitle match (with normalization)
-        (t.storyTitle && normalizeForMatch(t.storyTitle) === normalizedStoryKey) ||
+        // Strategy 1: Exact storyId match (any candidate)
+        (t.storyId && storyIdCandidates.some(id => id === t.storyId)) ||
+        // Strategy 2: Exact storyTitle match (with normalization) using session book/title or currentStory.title
+        (t.storyTitle && (
+          normalizeForMatch(t.storyTitle) === normalizedStoryKey ||
+          (normalizedStoryTitle && normalizeForMatch(t.storyTitle) === normalizedStoryTitle)
+        )) ||
         // Strategy 3: Test name contains story key
         (t.testName && normalizeForMatch(t.testName).includes(normalizedStoryKey)) ||
         // Strategy 4: Story key contains test name (reverse)
