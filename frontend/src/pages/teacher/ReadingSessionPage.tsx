@@ -4303,19 +4303,30 @@ const ReadingSessionPage: React.FC = () => {
     console.log("🔍 Looking for test matching story:", storyKey);
     console.log("📚 Available tests:", tests.map(t => ({ id: t.id, name: t.testName, storyId: t.storyId, storyTitle: t.storyTitle })));
 
+    // Helper function to normalize strings for comparison (handle different apostrophe types)
+    const normalizeForMatch = (str: string) => {
+      return str.toLowerCase()
+        .replace(/['']/g, "'")  // Normalize all apostrophe types to straight apostrophe
+        .replace(/\s+/g, ' ')    // Normalize whitespace
+        .trim();
+    };
+
+    const normalizedStoryKey = normalizeForMatch(storyKey);
+    console.log("🔑 Normalized story key:", normalizedStoryKey);
+
     // IMPROVED MATCHING: Try multiple strategies
     let match = tests.find(
       (t) =>
         // Strategy 1: Exact storyId match
         (t.storyId && t.storyId === currentSession.book) ||
-        // Strategy 2: Exact storyTitle match
-        (t.storyTitle && t.storyTitle.toLowerCase() === storyKey.toLowerCase()) ||
+        // Strategy 2: Exact storyTitle match (with normalization)
+        (t.storyTitle && normalizeForMatch(t.storyTitle) === normalizedStoryKey) ||
         // Strategy 3: Test name contains story key
-        (t.testName && t.testName.toLowerCase().includes(storyKey.toLowerCase())) ||
+        (t.testName && normalizeForMatch(t.testName).includes(normalizedStoryKey)) ||
         // Strategy 4: Story key contains test name (reverse)
-        (t.testName && storyKey.toLowerCase().includes(t.testName.toLowerCase())) ||
+        (t.testName && normalizedStoryKey.includes(normalizeForMatch(t.testName))) ||
         // Strategy 5: Story key contains storyTitle
-        (t.storyTitle && storyKey.toLowerCase().includes(t.storyTitle.toLowerCase()))
+        (t.storyTitle && normalizedStoryKey.includes(normalizeForMatch(t.storyTitle)))
     );
 
     // If still no match, try fuzzy matching by checking if storyId matches any test's storyId
