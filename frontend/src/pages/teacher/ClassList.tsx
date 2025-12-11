@@ -193,9 +193,40 @@ const ClassList: React.FC = () => {
 
   const filterStudents = async () => {
     setIsFilteringStudents(true);
-    // If no grade is selected or 'all' is selected, filter students should be empty
+    // If no grade is selected or 'all' is selected, show all students (respecting archived toggle)
     if (!selectedGrade || selectedGrade === 'all') {
-      setFilteredStudents([]);
+      let list = students.filter(s => (showArchived ? (s as any).archived : !(s as any).archived));
+
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase().trim();
+        list = list.filter(student => {
+          const matchesName = student.name.toLowerCase().includes(query);
+          const matchesGrade = String(student.grade).toLowerCase().includes(query);
+          const matchesAge = String(student.age || '').includes(query);
+          const matchesLRN = String(student.lrn || '').toLowerCase().includes(query);
+          const matchesParentName = String(student.parentName || '').toLowerCase().includes(query);
+          return matchesName || matchesGrade || matchesAge || matchesLRN || matchesParentName;
+        });
+      }
+
+      list.sort((a, b) => {
+        switch (sortBy) {
+          case 'name-asc':
+            return a.name.localeCompare(b.name);
+          case 'name-desc':
+            return b.name.localeCompare(a.name);
+          case 'readingLevel-desc':
+            return (Number(b.readingLevel) || 0) - (Number(a.readingLevel) || 0);
+          case 'readingLevel-asc':
+            return (Number(a.readingLevel) || 0) - (Number(b.readingLevel) || 0);
+          case 'age':
+            return (a.age || 0) - (b.age || 0);
+          default:
+            return 0;
+        }
+      });
+
+      setFilteredStudents(list);
       setIsFilteringStudents(false);
       return;
     }
@@ -240,9 +271,14 @@ const ClassList: React.FC = () => {
         student.grade === gradeObj.name && (student as any).archived === true
       );
     } else {
-      // Active view: show ONLY roster membership and exclude archived, to align with realtime roster counts
+      // Active view: show roster membership OR students tagged with this grade (even if unlinked) and exclude archived
       const rosterSet = new Set<string>(rosterIds);
-      filtered = students.filter(student => !!student.id && rosterSet.has(student.id) && !(student as any).archived);
+      filtered = students.filter(student => {
+        const inRoster = !!student.id && rosterSet.has(student.id);
+        const matchesGrade = student.grade === gradeObj.name;
+        const notArchived = !(student as any).archived;
+        return notArchived && (inRoster || matchesGrade);
+      });
       // If the stored studentCount differs from computed live count, reconcile in background
       if (gradeObj && typeof (gradeObj as any).studentCount === 'number') {
         const liveCount = countsByGrade[gradeObj.id || ''] ?? filtered.length;
@@ -1024,6 +1060,33 @@ const ClassList: React.FC = () => {
     }
   };
 
+  // Unlink parent from student (keep student intact)
+  const handleUnlinkParent = async (studentId: string, studentName: string) => {
+    if (!studentId) return;
+    const result = await showConfirmation(
+      'Unlink Parent',
+      `Remove the parent link for ${studentName}? This will not delete the student or the parent.`,
+      'Unlink',
+      'Cancel',
+      'warning'
+    );
+    if (!result.isConfirmed) return;
+    try {
+      setActionLoadingStudentId(studentId);
+      await studentService.updateStudent(studentId, {
+        parentId: '',
+        parentName: ''
+      });
+      // Optimistic local update
+      setStudents(prev => prev.map(s => s.id === studentId ? ({ ...s, parentId: '', parentName: '' }) : s));
+      showSuccess('Unlinked', `${studentName}'s parent link has been removed.`);
+    } catch (e) {
+      showError('Failed to Unlink Parent', 'Please try again.');
+    } finally {
+      setActionLoadingStudentId(null);
+    }
+  };
+
   /* removed unused handleDeleteStudent to satisfy linter */
   /*
   const handleDeleteStudent = async (studentId: string, studentName: string) => {
@@ -1367,7 +1430,8 @@ const ClassList: React.FC = () => {
             gradeLevel: gradeLevelNumber,
             section: section,
             description,
-            color
+            color,
+            gradeLevelNumber
           };
         }
       });
@@ -1378,7 +1442,10 @@ const ClassList: React.FC = () => {
           color: formValues.color,
           isActive: true,
           ageRange: '', // Provide empty string for required field
-          studentCount: 0
+          studentCount: 0,
+          gradeLevel: formValues.gradeLevelNumber, // store numeric grade level for parent requests
+          grade: `Grade ${formValues.gradeLevelNumber}`, // fallback string grade
+          section: formValues.section?.trim() || '' // store section name for parent requests
         };
         await gradeService.createGrade(gradeData);
         await Swal.fire({
@@ -1620,6 +1687,11 @@ const ClassList: React.FC = () => {
           const student = filteredStudents.find(s => s.id === studentId);
           const studentName = student?.name || 'Student';
           const teacherName = currentUser?.displayName || 'Teacher';
+          const teacherId = currentUser?.uid || '';
+          const className =
+            (selectedGrade && grades.find(g => g.id === selectedGrade)?.name) ||
+            student?.grade ||
+            'Class';
 
           await studentService.updateStudent(studentId, {
             parentId: parent.id,
@@ -1637,9 +1709,9 @@ const ClassList: React.FC = () => {
               studentId: studentId,
               studentName: studentName,
               teacherName: teacherName,
-              teacherId: currentUser?.uid,
+              teacherId,
               linkedAt: new Date().toISOString(),
-              className: selectedGrade ? grades.find(g => g.id === selectedGrade)?.name : 'Class'
+              className
             }
           });
 
@@ -1657,9 +1729,9 @@ const ClassList: React.FC = () => {
               studentId: studentId,
               studentName: studentName,
               teacherName: teacherName,
-              teacherId: currentUser?.uid,
+              teacherId,
               linkedAt: serverTimestamp(),
-              className: selectedGrade ? grades.find(g => g.id === selectedGrade)?.name : 'Class'
+              className
             },
             isRead: false,
             isArchived: false,
@@ -2466,13 +2538,24 @@ const ClassList: React.FC = () => {
                               <td className="px-4 py-3 whitespace-nowrap text-center align-middle">
                                 <div className="flex justify-center items-center">
                                   {student.parentId ? (
-                                    <span
-                                      className="px-2.5 py-1 text-xs font-semibold text-green-700 bg-green-100 rounded-lg cursor-default select-none shadow-sm"
-                                      title={student.parentName || "Parent linked"}
-                                    >
-                                      <i className="fas fa-check-circle mr-1"></i>
-                                      Linked
-                                    </span>
+                                    <div className="flex items-center gap-2">
+                                      <span
+                                        className="px-2.5 py-1 text-xs font-semibold text-green-700 bg-green-100 rounded-lg cursor-default select-none shadow-sm"
+                                        title={student.parentName || "Parent linked"}
+                                      >
+                                        <i className="fas fa-check-circle mr-1"></i>
+                                        Linked
+                                      </span>
+                                      <button
+                                        onClick={() => student.id && handleUnlinkParent(student.id, student.name)}
+                                        className="inline-flex items-center px-2 py-1 text-xs font-semibold rounded-lg text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 hover:border-red-300 transition-all shadow-sm"
+                                        title="Unlink parent"
+                                        disabled={loadingStudentId === student.id}
+                                      >
+                                        <i className="fas fa-unlink mr-1"></i>
+                                        Unlink
+                                      </button>
+                                    </div>
                                   ) : (
                                     <button
                                       onClick={() => student.id && handleLinkParent(student.id)}

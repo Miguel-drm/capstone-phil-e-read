@@ -229,15 +229,16 @@ const MyClassesBreakdown: React.FC<MyClassesBreakdownProps> = ({ classes, studen
 
 // Helper function to assign colors to classes
 function getClassColor(className: string): string {
+  // Blue-forward palette
   const colors = [
-    '#3b82f6', // Blue
-    '#8b5cf6', // Purple
-    '#10b981', // Green
-    '#f59e0b', // Orange
-    '#ef4444', // Red
-    '#06b6d4', // Cyan
-    '#ec4899', // Pink
-    '#84cc16', // Lime
+    '#3b82f6', // primary blue
+    '#2563eb', // slightly darker
+    '#60a5fa', // light blue
+    '#1d4ed8', // deep blue
+    '#38bdf8', // cyan blue
+    '#0ea5e9', // sky blue
+    '#1e40af', // navy
+    '#93c5fd', // pale blue
   ];
   
   // Use class name to deterministically assign color
@@ -246,15 +247,16 @@ function getClassColor(className: string): string {
 }
 
 function getClassLightColor(className: string): string {
+  // Matching light tints for hover/selection
   const lightColors = [
-    '#e0e7ff', // Blue
-    '#f3e8ff', // Purple
-    '#d1fae5', // Green
-    '#fef3c7', // Orange
-    '#fee2e2', // Red
-    '#cffafe', // Cyan
-    '#fce7f3', // Pink
-    '#ecfccb', // Lime
+    '#e0e7ff',
+    '#dbeafe',
+    '#eff6ff',
+    '#e0f2fe',
+    '#f0f9ff',
+    '#e2e8f0',
+    '#e5e7eb',
+    '#f1f5f9',
   ];
   
   const index = className.charCodeAt(0) % lightColors.length;

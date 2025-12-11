@@ -46,19 +46,30 @@ const Header: React.FC<HeaderProps> = ({
       if (!currentUser?.uid) return;
       try {
         const API_BASE = (import.meta as any)?.env?.VITE_API_URL ? String((import.meta as any).env.VITE_API_URL).replace(/\/$/, '') : 'http://localhost:5000';
-        const res = await fetch(`${API_BASE}/api/teachers/${currentUser.uid}/profile-image`);
+        const role = (userRole || '').toLowerCase();
+        const endpoint =
+          role === 'parent'
+            ? `${API_BASE}/api/parents/${currentUser.uid}/profile-image`
+            : `${API_BASE}/api/teachers/${currentUser.uid}/profile-image`;
+
+        const res = await fetch(endpoint);
+        if (!res.ok) {
+          setProfileImage(null);
+          return;
+        }
         const data = await res.json();
         if (data && data.profileImage) {
           setProfileImage(`data:image/png;base64,${data.profileImage}`);
         } else {
           setProfileImage(null);
         }
-      } catch {
+      } catch (err) {
+        console.debug('Profile image fetch failed:', err);
         setProfileImage(null);
       }
     }
     fetchProfileImage();
-  }, [currentUser]);
+  }, [currentUser, userRole]);
 
   // Fetch unread notification count
   useEffect(() => {

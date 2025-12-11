@@ -110,75 +110,108 @@ const ReadingLevelDistributionChart: React.FC<Props> = ({ classes = [] }) => {
     pieChartInstance.current.setOption({ series: [{ data: readingLevelData }] });
   }, [readingLevelData]);
 
-  // Realtime subscription to reading results per class
+  // Subscribe to data for pie chart (prefer ISR results API; fallback to Firestore readingResults)
   useEffect(() => {
     if (!currentUser?.uid) return;
 
     let unsubscribe: (() => void) | null = null;
+    let cancelled = false;
 
-    try {
-      const col = collection(db, 'readingResults');
-      // Use only teacherId filter to avoid composite index requirements
-      const q = query(col, where('teacherId', '==', currentUser.uid));
-      
-      unsubscribe = onSnapshot(q, (snap) => {
-        try {
-          let independent = 0;
-          let instructional = 0;
-          let frustration = 0;
-          snap.forEach((docSnap) => {
-            const d: any = docSnap.data();
-            
-            // Client-side filtering for selectedClassId
-            if (selectedClassId && d.gradeId !== selectedClassId) {
-              return; // Skip this document if it doesn't match the selected class
-            }
-            
-            // Determine level from stored value or compute from accuracy
-            const levelName: string | undefined = d.readingLevel || d.level || d.readingLevelName;
-            const accuracy: number | undefined = d.oralReadingScore ?? d.accuracy ?? d.score;
-            let bucket: 'independent' | 'instructional' | 'frustration';
-            if (typeof levelName === 'string') {
-              const name = levelName.toLowerCase();
-              if (name.startsWith('independent')) bucket = 'independent';
-              else if (name.startsWith('instruction')) bucket = 'instructional';
-              else bucket = 'frustration';
-            } else if (typeof accuracy === 'number') {
-              if (accuracy >= 97) bucket = 'independent';
-              else if (accuracy >= 90) bucket = 'instructional';
-              else bucket = 'frustration';
-            } else {
-              bucket = 'frustration';
-            }
-            if (bucket === 'independent') independent += 1;
-            if (bucket === 'instructional') instructional += 1;
-            if (bucket === 'frustration') frustration += 1;
-          });
-          setCounts({ independent, instructional, frustration });
-        } catch (error) {
-          console.error('🔥 READING CHART: Error processing snapshot:', error);
-          setCounts({ independent: 0, instructional: 0, frustration: 0 });
+    // Helper to bucket a result
+    const bucketize = (levelName?: string, accuracy?: number): 'independent' | 'instructional' | 'frustration' => {
+      if (typeof levelName === 'string') {
+        const name = levelName.toLowerCase();
+        if (name.startsWith('independent')) return 'independent';
+        if (name.startsWith('instruction')) return 'instructional';
+        return 'frustration';
+      }
+      if (typeof accuracy === 'number') {
+        if (accuracy >= 97) return 'independent';
+        if (accuracy >= 90) return 'instructional';
+        return 'frustration';
+      }
+      return 'frustration';
+    };
+
+    const applyCounts = (items: any[]) => {
+      if (cancelled) return;
+      let independent = 0;
+      let instructional = 0;
+      let frustration = 0;
+
+      const selectedName = classes.find(c => c.id === selectedClassId)?.name?.toLowerCase?.() || '';
+
+      items.forEach((item) => {
+        const gradeId = (item as any).gradeId || (item as any).gradeSection || '';
+        const gradeName = String(gradeId || '').toLowerCase();
+        if (selectedClassId) {
+          if (gradeId === selectedClassId) {
+            // pass
+          } else if (selectedName && gradeName.includes(selectedName.toLowerCase())) {
+            // pass
+          } else {
+            return;
+          }
         }
-      }, (error) => {
-        console.warn('🔥 READING CHART: Subscribe error:', error);
-        setCounts({ independent: 0, instructional: 0, frustration: 0 });
+        const levelName: string | undefined =
+          (item as any).readingLevel ||
+          (item as any).level ||
+          (item as any).readingLevelName ||
+          (item as any).partB?.wordReadingLevel ||
+          (item as any).partB?.accuracyLevel;
+        const accuracy: number | undefined =
+          (item as any).oralReadingScore ??
+          (item as any).accuracy ??
+          (item as any).score ??
+          (item as any).partB?.wordReadingScore;
+
+        const bucket = bucketize(levelName, accuracy);
+        if (bucket === 'independent') independent += 1;
+        if (bucket === 'instructional') instructional += 1;
+        if (bucket === 'frustration') frustration += 1;
       });
-    } catch (e) {
-      console.warn('🔥 READING CHART: Setup error:', e);
-      setCounts({ independent: 0, instructional: 0, frustration: 0 });
-    }
+
+      setCounts({ independent, instructional, frustration });
+    };
+
+    // First try ISR results API (MongoDB)
+    (async () => {
+      try {
+        const { isrResultService } = await import('../../../services/ISRresultService');
+        const results = await isrResultService.getISRResultsByTeacher(currentUser.uid);
+        applyCounts(results);
+      } catch (apiError) {
+        console.warn('ReadingLevelDistribution: ISR API unavailable, falling back to Firestore', apiError);
+
+        try {
+          const col = collection(db, 'readingResults');
+          const q = query(col, where('teacherId', '==', currentUser.uid));
+
+          unsubscribe = onSnapshot(
+            q,
+            (snap) => {
+              const docs: any[] = [];
+              snap.forEach((docSnap) => docs.push({ id: docSnap.id, ...docSnap.data() }));
+              applyCounts(docs);
+            },
+            () => applyCounts([])
+          );
+        } catch (err) {
+          console.warn('ReadingLevelDistribution: Firestore fallback failed', err);
+          applyCounts([]);
+        }
+      }
+    })();
 
     return () => {
+      cancelled = true;
       try {
-        if (unsubscribe) {
-          console.log('🔥 READING CHART: Cleaning up listener');
-          unsubscribe();
-        }
+        if (unsubscribe) unsubscribe();
       } catch (error) {
         console.error('🔥 READING CHART: Error during cleanup:', error);
       }
     };
-  }, [currentUser?.uid, selectedClassId]);
+  }, [currentUser?.uid, selectedClassId, classes]);
 
   return (
     <div className="bg-white rounded-2xl p-4 transition-all duration-300 h-full flex flex-col">

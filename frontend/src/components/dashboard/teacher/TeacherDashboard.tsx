@@ -13,6 +13,8 @@ import QuickActions from './QuickActions';
 import PendingLinkRequests from './PendingLinkRequests';
 import MyActivityDashboard from './MyActivityDashboard';
 import MyClassesBreakdown from './MyClassesBreakdown';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { db } from '../../../config/firebase';
 
 interface TeacherDashboardProps {
   showSessionsModal: boolean;
@@ -301,49 +303,131 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
     classNames: [],
     classAverages: []
   });
+  const [classPerformanceDetails, setClassPerformanceDetails] = useState<{ name: string; average: number; count: number }[]>([]);
 
   // Calculate class performance when grades and students data is available
   useEffect(() => {
     const calculateClassPerformance = async () => {
-      if (grades.length === 0 || students.length === 0) {
+      if (!currentUser?.uid || grades.length === 0 || students.length === 0) {
         setClassPerformanceData({ classNames: [], classAverages: [] });
         return;
       }
 
       const classNames = grades.map(grade => grade.name);
       const classAverages: number[] = [];
+      const details: { name: string; average: number; count: number }[] = [];
+
+      // Fetch latest reading results for this teacher
+      let readingResults: any[] = [];
+      try {
+        const resultsQuery = query(
+          collection(db, 'readingResults'),
+          where('teacherId', '==', currentUser.uid)
+        );
+        const snap = await getDocs(resultsQuery);
+        readingResults = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      } catch (err) {
+        console.warn('ClassPerformance: failed to fetch readingResults, falling back to student performance', err);
+      }
+
+      const clampScore = (score: number | undefined) => {
+        if (typeof score !== 'number' || Number.isNaN(score)) return 0;
+        return Math.max(0, Math.min(100, score));
+      };
+
+      const fallbackScoreFromStudent = (student: Student) => {
+        const level = String((student as any).readingLevel || '').toLowerCase();
+        if (level.startsWith('independent')) return 95;
+        if (level.startsWith('instruction')) return 80;
+        if (level.startsWith('frustration')) return 60;
+
+        const perf = (student as any).performance;
+        if (perf === 'Excellent') return 90;
+        if (perf === 'Good') return 80;
+        if (perf === 'Average') return 65;
+        if (perf === 'Needs Improvement') return 55;
+        return 50;
+      };
+
+      const scoreFromResult = (result: any) => {
+        if (!result) return 0;
+        const scores: number[] = [];
+
+        if (result.oralReadingScore !== undefined) scores.push(clampScore(result.oralReadingScore));
+        if (result.comprehension !== undefined) scores.push(clampScore(result.comprehension));
+
+        if (scores.length === 0) {
+          const level = String(result.readingLevel || '').toLowerCase();
+          if (level.startsWith('independent')) scores.push(90);
+          else if (level.startsWith('instruction')) scores.push(75);
+          else if (level.startsWith('frustration')) scores.push(60);
+        }
+
+        if (scores.length === 0) return 0;
+        const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+        return Math.round(avg);
+      };
+
+      // Build a map of latest result per student
+      const latestResultByStudent = new Map<string, any>();
+      readingResults.forEach((res) => {
+        const sid = (res as any).studentId;
+        if (!sid) return;
+        const createdAt = (res as any).createdAt?.toDate?.() || (res as any).createdAt || 0;
+        const existing = latestResultByStudent.get(sid);
+        if (!existing) {
+          latestResultByStudent.set(sid, { res, createdAt });
+        } else {
+          const existingDate = existing.createdAt;
+          if (new Date(createdAt).getTime() > new Date(existingDate).getTime()) {
+            latestResultByStudent.set(sid, { res, createdAt });
+          }
+        }
+      });
+
+      let totalScoreAll = 0;
+      let totalCountAll = 0;
 
       for (const grade of grades) {
         const studentsInClass = students.filter(student => student.grade === grade.name);
         
         if (studentsInClass.length === 0) {
           classAverages.push(0);
+          details.push({ name: grade.name, average: 0, count: 0 });
           continue;
         }
 
-        // Calculate average performance for this class
+        // Calculate average performance for this class from latest results; fallback to student performance
         let totalScore = 0;
         let validScores = 0;
 
         for (const student of studentsInClass) {
-          // Results fetching removed - MongoDB results service no longer available
-          // Use default score based on performance level
-          const defaultScore = student.performance === 'Excellent' ? 85 : 
-                              student.performance === 'Good' ? 75 : 65;
-          totalScore += defaultScore;
+          const latest = latestResultByStudent.get(student.id || '');
+          const score = latest ? scoreFromResult(latest.res) : fallbackScoreFromStudent(student);
+          totalScore += score;
           validScores++;
+          totalScoreAll += score;
+          totalCountAll += 1;
         }
 
         // Calculate class average
         const classAverage = validScores > 0 ? Math.round(totalScore / validScores) : 0;
         classAverages.push(classAverage);
+        details.push({ name: grade.name, average: classAverage, count: studentsInClass.length });
       }
 
+      // Overall entry
+      const overallAverage = totalCountAll > 0 ? Math.round(totalScoreAll / totalCountAll) : 0;
+      classNames.push('All Classes');
+      classAverages.push(overallAverage);
+      details.unshift({ name: 'All Classes', average: overallAverage, count: totalCountAll });
+
       setClassPerformanceData({ classNames, classAverages });
+      setClassPerformanceDetails(details);
     };
 
     calculateClassPerformance();
-  }, [grades, students]);
+  }, [grades, students, currentUser?.uid]);
 
 
 
@@ -380,21 +464,6 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
             students={students}
           />
         </div>
-        {/* Class Performance and Reading Level Distribution side by side */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
-          <div className="h-full flex flex-col">
-            <ClassPerformanceChart
-              classNames={classPerformanceData.classNames}
-              classAverages={classPerformanceData.classAverages}
-              className="Classes"
-              isLoading={isLoading}
-            />
-          </div>
-          <div className="h-full flex flex-col">
-            <ReadingLevelDistributionChart classes={grades.map(g => ({ id: g.id, name: g.name }))} />
-          </div>
-        </div>
-
         {/* My Activity and My Classes Breakdown side by side */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
           <div className="h-full flex flex-col">

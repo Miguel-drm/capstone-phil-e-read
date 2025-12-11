@@ -73,8 +73,19 @@ const MyChildren: React.FC = () => {
         console.log('📊 ClassGrade document:', docSnap.id, data);
         
         // Extract grade level - convert to string for consistent matching
-        const gradeLevel: string | undefined = data.gradeLevel ? String(data.gradeLevel) : data.grade || data.gradeName;
-        const sectionName: string | undefined = data.section || data.sectionName;
+        let gradeLevel: string | undefined = data.gradeLevel ? String(data.gradeLevel) : data.grade || data.gradeName;
+        // Fallback: parse from name (e.g., "Grade 4 - Mango")
+        if (!gradeLevel && data.name) {
+          const match = String(data.name).match(/\d+/);
+          if (match) gradeLevel = match[0];
+        }
+        const sectionName: string | undefined = data.section || data.sectionName || (() => {
+          if (data.name && String(data.name).includes('-')) {
+            const parts = String(data.name).split('-');
+            return parts[parts.length - 1].trim();
+          }
+          return undefined;
+        })();
         
         console.log('📊 Extracted - gradeLevel:', gradeLevel, 'sectionName:', sectionName);
         

@@ -109,8 +109,10 @@ const ProfileOverviewTeacher: React.FC = () => {
       try {
         const API_BASE = (import.meta as any)?.env?.VITE_API_URL ? String((import.meta as any).env.VITE_API_URL).replace(/\/$/, '') : 'http://localhost:5000';
         const res = await axios.get(`${API_BASE}/api/teachers/${firebaseUid}/profile-image`);
-        if (res.data && res.data.profileImage) {
+        if (res.status === 200 && res.data && res.data.profileImage) {
           setProfileImage(`data:image/png;base64,${res.data.profileImage}`);
+        } else {
+          setProfileImage(null);
         }
       } catch (err) {
         setProfileImage(null);

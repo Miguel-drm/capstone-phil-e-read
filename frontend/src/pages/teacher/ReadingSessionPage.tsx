@@ -54,6 +54,29 @@ const ReadingSessionPage: React.FC = () => {
   const [pdfContent, setPdfContent] = useState<string>("");
   const [isLoadingPdf, setIsLoadingPdf] = useState(false); // used in PDF fetch display logic
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const recommendedFont = useMemo(() => {
+    // Prefer session grade over story level so class grade drives sizing
+    const levelRaw =
+      (currentSession as any)?.gradeLevel ||
+      (currentSession as any)?.gradeName ||
+      (currentStory as any)?.readingLevel ||
+      (currentStory as any)?.level ||
+      "";
+    const levelMatch = String(levelRaw).match(/\d+/);
+    const levelNum = levelMatch ? parseInt(levelMatch[0], 10) : 0;
+
+    // More separation between grades
+    let fontSize = "13px"; // default 4th–7th
+    if (levelNum <= 1) fontSize = "20px";
+    else if (levelNum === 2) fontSize = "18px";
+    else if (levelNum === 3) fontSize = "16px";
+    else fontSize = "13px";
+
+    return {
+      fontFamily: '"Comic Sans MS", "Comic Sans", cursive',
+      fontSize,
+    };
+  }, [currentStory, currentSession]);
   
   // Countdown modal state
   const [showCountdown, setShowCountdown] = useState(false);
@@ -4813,7 +4836,8 @@ const ReadingSessionPage: React.FC = () => {
             </div>
             <div
               ref={storyContentRef}
-              className="max-h-[20rem] sm:max-h-[30rem] lg:max-h-[38rem] overflow-y-auto custom-scrollbar prose prose-sm sm:prose-base lg:prose-xl prose-blue bg-white/60 rounded-lg sm:rounded-xl p-4 sm:p-6 lg:p-8 text-sm sm:text-base lg:text-[1.35rem] leading-relaxed tracking-wide"
+              className="max-h-[20rem] sm:max-h-[30rem] lg:max-h-[38rem] overflow-y-auto custom-scrollbar prose prose-blue bg-white/60 rounded-lg sm:rounded-xl p-4 sm:p-6 lg:p-8 leading-relaxed tracking-wide"
+              style={recommendedFont}
             >
               {storyText || pdfContent ? (
                 (storyText ? storyText : pdfContent)
@@ -4949,6 +4973,11 @@ const ReadingSessionPage: React.FC = () => {
 
                             // Get marking details for this word
                             const marking = !isSpecialChar ? wordMarkings.get(realWordIndex) : undefined;
+                          const baseWordStyle = {
+                            fontFamily: recommendedFont.fontFamily,
+                            fontSize: recommendedFont.fontSize,
+                            lineHeight: "1.6",
+                          };
 
                             return (
                               <React.Fragment key={`${paragraphIndex}-${wordIndex}`}>
@@ -4957,7 +4986,8 @@ const ReadingSessionPage: React.FC = () => {
                                   <span
                                     key={`insert-${realWordIndex}-${idx}`}
                                     className="inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative bg-cyan-100 text-cyan-900 border-2 border-cyan-400 font-semibold"
-                                    title={`Inserted word: "${insertedWord}" (not in story)`}
+                                  title={`Inserted word: "${insertedWord}" (not in story)`}
+                                  style={baseWordStyle}
                                   >
                                     {insertedWord}
                                     {/* Caret at bottom pointing up to show insertion */}
@@ -4985,18 +5015,22 @@ const ReadingSessionPage: React.FC = () => {
                                 style={
                                   isCurrent
                                     ? {
+                                      ...baseWordStyle,
                                       transition: "background-color 0.2s ease-in-out, color 0.2s ease-in-out, border-color 0.2s ease-in-out"
                                     }
                                     : miscueType
                                       ? {
+                                        ...baseWordStyle,
                                         ...getMiscueMarkingStyle(miscueType),
                                         transition: "background-color 0.2s ease-in-out, color 0.2s ease-in-out"
                                       }
                                       : isRead
                                         ? {
+                                          ...baseWordStyle,
                                           transition: "background-color 0.2s ease-in-out, color 0.2s ease-in-out"
                                         }
                                         : {
+                                          ...baseWordStyle,
                                           transition: "background-color 0.2s ease-in-out, color 0.2s ease-in-out"
                                         }
                                 }
