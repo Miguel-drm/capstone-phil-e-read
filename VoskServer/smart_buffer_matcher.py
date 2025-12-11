@@ -296,15 +296,23 @@ class SmartBufferMatcher:
             # This is checked implicitly - if we reach the end without finding other miscues, it's omission
             
             # PRIORITY 3: INSERTION (word doesn't match ANY nearby expected words)
+            # Check if word exists in story vocabulary first (to avoid false positives)
             is_insertion = True
-            for offset in range(min(3, len(self.expected_words) - self.current_position)):
-                check_word = self.expected_words[self.current_position + offset].lower().strip()
-                if self._words_match(oldest_word, check_word) or self._calculate_similarity(oldest_word, check_word) >= 0.60:
-                    is_insertion = False
-                    break
             
-            if is_insertion:
-                print(f"   ➕ [P3] INSERTION detected: '{oldest_word}' not in expected sequence")
+            # First check: Does this word exist ANYWHERE in the story?
+            word_in_story = self._word_exists_in_story(oldest_word)
+            
+            if word_in_story:
+                # Word is in story - check if it's coming up soon (within next 10 words)
+                for offset in range(min(10, len(self.expected_words) - self.current_position)):
+                    check_word = self.expected_words[self.current_position + offset].lower().strip()
+                    if self._words_match(oldest_word, check_word) or self._calculate_similarity(oldest_word, check_word) >= 0.60:
+                        is_insertion = False
+                        break
+            
+            # Only mark as insertion if word is NOT in story vocabulary at all
+            if is_insertion and not word_in_story:
+                print(f"   ➕ [P3] INSERTION detected: '{oldest_word}' not in story vocabulary")
                 
                 # Remove the inserted word from buffer
                 self.word_buffer.popleft()
@@ -321,7 +329,7 @@ class SmartBufferMatcher:
                     "words_read": self.words_read,
                     "total_miscues": self.total_miscues,
                     "miscue_types": self.miscue_types.copy(),
-                    "details": f"Insertion: '{oldest_word}' inserted (not in expected sequence)"
+                    "details": f"Insertion: '{oldest_word}' inserted (not in story vocabulary)"
                 }
             
             # PRIORITY 4: REPETITION (already handled in add_word method)

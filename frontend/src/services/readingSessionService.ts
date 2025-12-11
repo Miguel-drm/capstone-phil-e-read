@@ -45,6 +45,16 @@ export type ReadingSession = {
   // Reading session results (saved when completed)
   wordsRead?: number;
   totalMiscues?: number;
+  miscueTypes?: {
+    mispronunciation: number;
+    omission: number;
+    substitution: number;
+    insertion: number;
+    repetition: number;
+    transposition: number;
+    reversal: number;
+    selfCorrection: number;
+  }; // Breakdown of miscue types (Phil-IRI)
   elapsedTime?: number;
   readingSpeedWPM?: number;
   oralReadingScore?: number;
