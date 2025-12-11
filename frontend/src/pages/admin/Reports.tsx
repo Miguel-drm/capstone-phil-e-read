@@ -46,6 +46,13 @@ import ReportManagementHub from './ReportManagementHub';
 import * as XLSX from 'xlsx';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 
+// Development-only logging utility
+const devLog = (...args: any[]) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log(...args);
+  }
+};
+
 interface ReportTemplate {
   id: string;
   name: string;
@@ -272,8 +279,7 @@ const Reports: React.FC = () => {
       }));
 
       return updatedReports;
-    } catch (error) {
-      console.error('Error updating report counts:', error);
+    } catch {
       return reports;
     }
   };
@@ -340,7 +346,7 @@ const Reports: React.FC = () => {
       
       // Fetch real-time statistics
       const stats = await reportService.getReportStatistics();
-      console.log('[Reports] Report statistics:', stats);
+      devLog('[Reports] Report statistics:', stats);
 
       setReportData(prev => ({
         ...prev,
@@ -348,8 +354,7 @@ const Reports: React.FC = () => {
         generatedReports: reportsWithCounts,
         loading: false
       }));
-    } catch (error) {
-      console.error('Error initializing reports:', error);
+    } catch {
       setReportData(prev => ({
         ...prev,
         loading: false,
@@ -419,8 +424,8 @@ const Reports: React.FC = () => {
       // Auto-download the report in selected format
       await downloadReport(newReport, selectedFormat);
 
-    } catch (error) {
-      console.error('Error generating report:', error);
+    } catch {
+      // Report generation failed
     } finally {
       setIsGenerating(false);
       setGenerationProgress(0);
@@ -453,8 +458,7 @@ const Reports: React.FC = () => {
           sampleData = [{ message: 'Preview not available for this report type' }];
       }
       setPreviewData(sampleData.slice(0, 10)); // Show first 10 records
-    } catch (error) {
-      console.error('Error loading preview:', error);
+    } catch {
       setPreviewData([{ error: 'Failed to load preview' }]);
     }
   };
@@ -486,8 +490,8 @@ const Reports: React.FC = () => {
       const shareUrl = `${window.location.origin}/reports/shared/${report.id}`;
       await navigator.clipboard.writeText(shareUrl);
       alert('Share link copied to clipboard!');
-    } catch (error) {
-      console.error('Error sharing report:', error);
+    } catch {
+      // Share failed
     }
   };
 
@@ -709,8 +713,7 @@ const Reports: React.FC = () => {
           await downloadAsExcel(data, baseFileName);
       }
 
-    } catch (error) {
-      console.error('Error downloading report:', error);
+    } catch {
       setNotification({
         message: `Failed to download ${format || report.format || 'report'}. Please try again.`,
         type: 'error'
@@ -740,8 +743,7 @@ const Reports: React.FC = () => {
       // Fallback to HTML-based PDF generation
       await generateHTMLBasedPDF(data, reportName);
 
-    } catch (error) {
-      console.error('Error generating PDF:', error);
+    } catch {
       setNotification({
         message: 'Failed to generate PDF. Please try Excel format instead.',
         type: 'error'
@@ -979,8 +981,7 @@ const Reports: React.FC = () => {
 
       return true;
 
-    } catch (error) {
-      console.error('Advanced PDF generation failed:', error);
+    } catch {
       return false;
     }
   };
@@ -1026,8 +1027,7 @@ const Reports: React.FC = () => {
           });
           setTimeout(() => setNotification(null), 5000);
 
-        } catch (printError) {
-          console.error('Print error:', printError);
+        } catch {
           // Fallback: open in new window
           const printWindow = window.open('', '_blank', 'width=800,height=600');
           if (printWindow) {
@@ -1047,7 +1047,6 @@ const Reports: React.FC = () => {
       }, 1000);
 
     } catch (error) {
-      console.error('HTML-based PDF generation failed:', error);
       throw error;
     }
   };
@@ -1379,8 +1378,7 @@ const Reports: React.FC = () => {
       });
 
       return comprehensionData.length > 0 ? comprehensionData : [{ message: 'No comprehension analysis data available' }];
-    } catch (error) {
-      console.error('Error fetching comprehension analysis:', error);
+    } catch {
       return [{ error: 'Failed to fetch comprehension analysis data' }];
     }
   };
@@ -1392,7 +1390,6 @@ const Reports: React.FC = () => {
 
   const fetchReadingLevelDistributionData_OLD = async () => {
     try {
-      console.log('Fetching Reading Level Distribution from database...');
 
       // Fetch from both approved ISR records and recent submissions
       const approvedISRQuery = query(
@@ -1462,8 +1459,6 @@ const Reports: React.FC = () => {
         }
       });
 
-      console.log('Grade statistics:', gradeStats);
-
       // Convert to array format
       const distributionData = Object.entries(gradeStats).map(([grade, stats]) => ({
         'Grade Level': grade,
@@ -1490,8 +1485,7 @@ const Reports: React.FC = () => {
       }
 
       return distributionData;
-    } catch (error) {
-      console.error('Error fetching reading level distribution:', error);
+    } catch {
       return [{
         'Grade Level': 'Database Error',
         'Independent Count': 0,
@@ -2570,8 +2564,7 @@ const fetchLanguageComparisonData = async () => {
       });
 
       return languageData.length > 0 ? languageData : [{ message: 'No language comparison data available' }];
-    } catch (error) {
-      console.error('Error fetching language comparison:', error);
+    } catch {
       return [{ error: 'Failed to fetch language comparison data' }];
     }
 };

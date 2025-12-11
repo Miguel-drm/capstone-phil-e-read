@@ -38,7 +38,7 @@ const MyClassesBreakdown: React.FC<MyClassesBreakdownProps> = ({ classes, studen
     : largestClass;
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 h-full flex flex-col hover:shadow-md transition-shadow duration-300">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-md p-6 h-full flex flex-col transition-all duration-300 hover:shadow-lg">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>

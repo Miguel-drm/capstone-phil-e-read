@@ -93,15 +93,16 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
       const width = window.innerWidth;
       setIsMobile(width < 768);
 
-
+      // Close mobile sidebar overlay when reaching tablet/desktop
       if (width >= 1024) {
         setSidebarOpen(false);
       }
 
-
+      // On tablet (768px - 1023px), collapse sidebar by default for more content space
       if (width >= 768 && width < 1024) {
         setSidebarCollapsed(true);
-      } else {
+      } else if (width >= 1024) {
+        // On desktop, expand sidebar by default
         setSidebarCollapsed(false);
       }
     };
@@ -181,7 +182,9 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
               {...(userRole !== 'teacher' ? { onShowSessionsModal: () => setShowSessionsModal(true) } : {})}
             />
             {/* Content Container */}
-            <main className={
+            <main 
+              id="main-content"
+              className={
               isQuizPage
                 ? 'flex-1 w-full min-w-0 bg-gradient-to-br from-gray-50 to-gray-100 pt-0 overflow-hidden'
                 : 'flex-1 overflow-auto bg-gradient-to-br from-gray-50 to-gray-100 w-full min-w-0 pt-2 sm:pt-[var(--header-height,56px)] md:pt-0'
@@ -190,7 +193,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
                 className={
                   isQuizPage
                     ? 'w-full h-full p-0 m-0 overflow-hidden'
-                    : 'w-full px-2 sm:px-4 md:px-6 lg:px-8 py-3 sm:py-4 md:py-6 lg:py-8 pb-[env(safe-area-inset-bottom)]'
+                    : 'w-full max-w-[1600px] mx-auto px-3 sm:px-6 md:px-8 lg:px-12 py-3 sm:py-6 md:py-8 lg:py-10 pb-[env(safe-area-inset-bottom)]'
                 }
                 style={isQuizPage ? { padding: 0, margin: 0, height: '100%', minHeight: '100vh', overflow: 'hidden' } : {}}
               >
@@ -199,12 +202,18 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
             </main>
             {/* Upcoming Sessions Modal (global) */}
             {showSessionsModal && (
-              <div className="fixed inset-0 z-50 flex justify-end items-start bg-black bg-opacity-10">
+              <div 
+                className="fixed inset-0 z-50 flex justify-end items-start bg-black bg-opacity-10"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="sessions-modal-title"
+              >
                 <div className="bg-white rounded-xl p-6 w-full max-w-sm mt-20 mr-8 relative h-[32rem] flex flex-col">
                   <button
                     className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-xl"
                     onClick={() => setShowSessionsModal(false)}
-                    aria-label="Close"
+                    aria-label="Close upcoming sessions"
+                    type="button"
                   >
                     &times;
                   </button>
@@ -222,8 +231,9 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
           {/* Mobile Overlay */}
           {isMobile && sidebarOpen && (
             <div
-              className="fixed inset-0 z-40 lg:hidden"
+              className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden transition-opacity duration-300 ease-in-out"
               onClick={toggleSidebar}
+              aria-hidden="true"
             />
           )}
           {/* Back to Top Button */}
@@ -231,11 +241,13 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
             <button
               onClick={scrollToTop}
               className="fixed bottom-6 right-6 z-50 w-12 h-12 md:w-14 md:h-14 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full transition-all duration-300 ease-in-out flex items-center justify-center group"
-              aria-label="Back to top"
+              aria-label="Scroll back to top"
               title="Back to top"
+              type="button"
             >
               <KeyboardArrowUpIcon
                 className="text-white group-hover:scale-110 transition-transform duration-200"
+                aria-hidden="true"
               />
             </button>
           )}

@@ -14,6 +14,19 @@ import { isrResultService, type ISRResult } from '../../services/ISRresultServic
 
 import PillSelect from '../../components/ui/PillSelect';
 
+// Development-only logging utility
+const devLog = (...args: any[]) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log(...args);
+  }
+};
+
+const devWarn = (...args: any[]) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.warn(...args);
+  }
+};
+
 const ClassList: React.FC = () => {
   const { currentUser, userRole, isProfileComplete, userProfile } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
@@ -87,18 +100,12 @@ const ClassList: React.FC = () => {
   // Helper function to check if the current user has management permissions
   const canManage = (userRole === 'teacher' || userRole === 'admin') && isProfileComplete;
 
-  // Load students on component mount
-  useEffect(() => {
-    if (currentUser?.uid) {
-      console.log('Current User UID:', currentUser.uid); // Add this line
-      loadStudents();
-      loadClassStatistics();
-    }
-  }, [currentUser?.uid]);
-
   // Realtime subscription for students belonging to the current teacher
+  // This replaces the need for loadStudents() - real-time updates are more efficient
   useEffect(() => {
     if (!currentUser?.uid) return;
+    
+    setIsLoading(true);
     const q = fsQuery(collection(db, 'students'), fsWhere('teacherId', '==', currentUser.uid));
     const unsub = onSnapshot(q, (snap) => {
       const list: Student[] = [] as any;
@@ -112,6 +119,10 @@ const ClassList: React.FC = () => {
       setStudents(list);
       setIsLoading(false);
     });
+    
+    // Also load class statistics on mount
+    loadClassStatistics();
+    
     return () => unsub();
   }, [currentUser?.uid]);
 
@@ -139,8 +150,7 @@ const ClassList: React.FC = () => {
           try {
             const results = await isrResultService.getISRResultsByStudent(studentId);
             return { studentId, hasResults: results && results.length > 0 };
-          } catch (error) {
-            console.error(`Error fetching ISR results for student ${studentId}:`, error);
+          } catch {
             return { studentId, hasResults: false };
           }
         });
@@ -154,8 +164,8 @@ const ClassList: React.FC = () => {
         });
 
         setStudentsWithCompletedSessions(completedSet);
-      } catch (error) {
-        console.error('Error fetching ISR status:', error);
+      } catch {
+        // ISR status fetch failed - continue with empty set
       } finally {
         setLoadingISRStatus(false);
       }
@@ -175,8 +185,8 @@ const ClassList: React.FC = () => {
       setIsLoading(true);
       const fetchedStudents = await studentService.getStudents(currentUser.uid);
       setStudents(fetchedStudents);
-    } catch (error) {
-      console.error('Error loading students:', error);
+    } catch {
+      // Student loading failed
     } finally {
       setIsLoading(false);
     }
@@ -186,8 +196,8 @@ const ClassList: React.FC = () => {
     if (!currentUser?.uid) return;
     try {
       // Removed unused stats variable
-    } catch (error) {
-      console.error('Error loading class statistics:', error);
+    } catch {
+      // Statistics loading failed
     }
   };
 
@@ -560,8 +570,7 @@ const ClassList: React.FC = () => {
         fileInputRef.current.value = '';
       }
       showSuccess('Import Complete', 'Students imported successfully!');
-    } catch (error) {
-      console.error('Error importing students:', error);
+    } catch {
       // If currently offline, wait until online and ask the user
       if (!(await pingOnline())) {
         const ok = await waitForConnectivity();
@@ -633,8 +642,7 @@ const ClassList: React.FC = () => {
       setEditForm({ name: '', lrn: '' });
 
       showSuccess('Updated', 'Student information updated successfully.');
-    } catch (error) {
-      console.error('Error updating student:', error);
+    } catch {
       showError('Update Failed', 'Failed to update student information.');
     } finally {
       setLoadingStudentId(null);
@@ -664,8 +672,7 @@ const ClassList: React.FC = () => {
       const { formData: generatedFormData, hasISRData: hasData } = await generatePhilIRIForm(student);
       setFormData(generatedFormData);
       setHasISRData(hasData);
-    } catch (error) {
-      console.error('Error generating form:', error);
+    } catch {
       showError('Form Generation Failed', 'Failed to generate Phil-IRI Form 3A. Please try again.');
       setFormModalOpen(false);
       setSelectedFormStudent(null);
@@ -692,8 +699,7 @@ const ClassList: React.FC = () => {
           latestISRResult = sorted[0];
         }
       }
-    } catch (error) {
-      console.error('Error fetching ISR results:', error);
+    } catch {
       // Continue with default values if fetch fails
     }
 
@@ -1128,26 +1134,19 @@ const ClassList: React.FC = () => {
   const loadGrades = async () => {
     if (!currentUser?.uid) return;
     try {
-      console.log('🔍 Loading classes for teacher:', currentUser.uid);
+      devLog('🔍 Loading classes for teacher:', currentUser.uid);
 
       // Get teacher's grade level from profile
       let teacherGradeLevel: string | null = null;
       try {
         const profile = await getUserProfile();
         teacherGradeLevel = profile?.gradeLevel?.toString() || null;
-        console.log('👨‍🏫 Teacher grade level:', teacherGradeLevel);
-      } catch (error) {
-        console.warn('Could not fetch teacher profile:', error);
+      } catch {
+        // Could not fetch teacher profile - continue without grade level filter
       }
 
       const gradesData = await gradeService.getGradesByTeacherAll(currentUser.uid); // include active and archived
-      console.log('📚 Loaded classes:', gradesData.length);
-      console.log('Classes details:', gradesData.map(g => ({
-        id: g.id,
-        name: g.name,
-        teacherId: g.teacherId,
-        matchesCurrentTeacher: g.teacherId === currentUser.uid
-      })));
+      devLog('📚 Loaded classes:', gradesData.length);
 
       // FILTER 1: Ensure only classes for this teacher
       let filteredGrades = gradesData.filter(g => g.teacherId === currentUser.uid);
@@ -1155,23 +1154,17 @@ const ClassList: React.FC = () => {
       // FILTER 2: Filter by teacher's grade level
       if (teacherGradeLevel) {
         const gradeNumber = teacherGradeLevel.toString().replace(/[^0-9]/g, '');
-        console.log('🎯 Filtering classes for Grade', gradeNumber);
 
         filteredGrades = filteredGrades.filter(g => {
           // Extract grade number from class name (e.g., "Grade 4 - Narra" -> "4")
           const classGradeMatch = g.name.match(/Grade\s*(\d+)/i) || g.name.match(/^(\d+)/);
           const classGradeNumber = classGradeMatch ? classGradeMatch[1] : null;
-
-          const matches = classGradeNumber === gradeNumber;
-          console.log(`  Class "${g.name}" (Grade ${classGradeNumber}) ${matches ? '✓' : '✗'} matches teacher grade ${gradeNumber}`);
-          return matches;
+          return classGradeNumber === gradeNumber;
         });
       }
 
-      console.log('✅ Filtered classes:', filteredGrades.length);
+      devLog('✅ Filtered classes:', filteredGrades.length);
 
-      // Continue with filtered grades
-      console.log('Grades loaded successfully:', filteredGrades);
       // Get all students for the teacher
       let allStudents: Student[] = students;
       if (!allStudents.length && currentUser?.uid) {
@@ -1185,18 +1178,12 @@ const ClassList: React.FC = () => {
             return grade;
           }
           return grade;
-        } catch (error) {
-          console.error(`Error getting students for grade ${grade.name}:`, error);
+        } catch {
           return grade;
         }
       }));
-      console.log('Grades with counts:', gradesWithCounts);
       setGrades(gradesWithCounts);
-      if (gradesWithCounts.length === 0) {
-        console.log('No grades found in database');
-      }
-    } catch (error) {
-      console.error('Error loading grades:', error);
+    } catch {
       setGrades([]);
     }
   };
@@ -1457,8 +1444,7 @@ const ClassList: React.FC = () => {
         });
         await loadGrades();
       }
-    } catch (error) {
-      console.error('Error creating grade:', error);
+    } catch {
       await Swal.fire({
         icon: 'error',
         title: 'Error',
@@ -1544,8 +1530,7 @@ const ClassList: React.FC = () => {
         loadGrades(),
         loadClassStatistics()
       ]);
-    } catch (error) {
-      console.error('Error refreshing data:', error);
+    } catch {
       showError('Refresh Failed', 'An error occurred while refreshing data. Please try again.');
     } finally {
       setIsRefreshing(false);
@@ -1865,16 +1850,13 @@ const ClassList: React.FC = () => {
           try {
             // Get school code from teacher profile, default to '1023' if not set
             const schoolCode = (userProfile as any)?.schoolCode || '1023';
-            if (!schoolCode || schoolCode.length !== 4) {
-              console.warn('School code not set or invalid. Using default: 1023');
-            }
             const lrn = await studentService.generateUniqueLRN(schoolCode);
             const lrnInput = document.getElementById('student-lrn') as HTMLInputElement;
             if (lrnInput) {
               lrnInput.value = lrn;
             }
-          } catch (error) {
-            console.error('Error generating LRN on modal open:', error);
+          } catch {
+            // LRN generation failed - user can enter manually
           }
         },
         preConfirm: () => {
@@ -1962,8 +1944,7 @@ const ClassList: React.FC = () => {
           }, 0);
           setRosterCounts((prev) => ({ ...prev, [gradeId]: nonArchivedCount }));
         },
-        (error) => {
-          console.warn(`Permission denied for grade ${gradeId} students:`, error);
+        () => {
           // Don't update the count if permission is denied
         }
       );

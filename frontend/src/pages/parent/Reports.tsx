@@ -49,7 +49,7 @@ const ReportsPage: React.FC = () => {
   useEffect(() => {
     if (!currentUser?.uid) return;
     const studentsQ = query(collection(db, 'students'), where('parentId', '==', currentUser.uid));
-    const unsub = onSnapshot(studentsQ, async (snap) => {
+    const unsub = onSnapshot(studentsQ, (snap) => {
       const list = snap.docs.map(d => {
         const data = d.data() as any;
         return { 
@@ -61,37 +61,13 @@ const ReportsPage: React.FC = () => {
         };
       });
       setChildren(list);
-      const first = list[0];
-      if (first) {
-        setSelectedChildId(first.id);
-        setChildName(first.name);
-        // fetch teacher info from users collection by uid
-        if (first.teacherId) {
-          setIsLoadingTeacher(true);
-          // Use direct document reference instead of query for better performance
-          const teacherDocRef = doc(db, 'users', first.teacherId);
-          onSnapshot(teacherDocRef, (teacherDoc) => {
-            if (teacherDoc.exists()) {
-              const teacherData = teacherDoc.data();
-              setTeacherEmail(teacherData?.email || '');
-              setTeacherName(teacherData?.displayName || teacherData?.name || '');
-            } else {
-              setTeacherEmail('');
-              setTeacherName('');
-            }
-            setIsLoadingTeacher(false);
-          }, (error) => {
-            console.warn('Error fetching teacher data:', error);
-            setTeacherEmail('');
-            setTeacherName('');
-            setIsLoadingTeacher(false);
-          });
-        } else {
-          setTeacherEmail('');
-          setTeacherName('');
-          setIsLoadingTeacher(false);
-        }
+      
+      // Only set first child if no child is currently selected
+      if (list.length > 0 && !selectedChildId) {
+        setSelectedChildId(list[0].id);
       }
+      
+      // Teacher info will be loaded by the separate useEffect that watches selectedChildId
     });
     return () => unsub();
   }, [currentUser?.uid]);
@@ -171,8 +147,7 @@ const ReportsPage: React.FC = () => {
       setSentBanner('Your report has been sent to the teacher! 📩');
       setTimeout(()=> setSentBanner(null), 3000);
       setMessage('');
-    } catch (e) {
-      console.error('Error sending report:', e);
+    } catch {
       setSentBanner('Oops! Something went wrong. Please try sending again.');
       setTimeout(()=> setSentBanner(null), 3000);
     } finally {
@@ -184,33 +159,40 @@ const ReportsPage: React.FC = () => {
   useEffect(() => {
     const child = children.find(c => c.id === selectedChildId);
     if (!child) return;
+    
     setChildName(child.name);
-    if (child.teacherId) {
-      setIsLoadingTeacher(true);
-      // Use direct document reference instead of query for better performance
-      const teacherDocRef = doc(db, 'users', child.teacherId);
-      const unsub = onSnapshot(teacherDocRef, (teacherDoc) => {
-        if (teacherDoc.exists()) {
-          const teacherData = teacherDoc.data();
-          setTeacherEmail(teacherData?.email || '');
-          setTeacherName(teacherData?.displayName || teacherData?.name || '');
-        } else {
-          setTeacherEmail('');
-          setTeacherName('');
-        }
-        setIsLoadingTeacher(false);
-      }, (error) => {
-        console.warn('Error fetching teacher data:', error);
-        setTeacherEmail('');
-        setTeacherName('');
-        setIsLoadingTeacher(false);
-      });
-      return () => unsub();
-    } else {
+    
+    // Only set up new listener if teacherId exists
+    if (!child.teacherId) {
       setTeacherEmail('');
       setTeacherName('');
       setIsLoadingTeacher(false);
+      return;
     }
+    
+    setIsLoadingTeacher(true);
+    // Use direct document reference instead of query for better performance
+    const teacherDocRef = doc(db, 'users', child.teacherId);
+    const unsub = onSnapshot(teacherDocRef, (teacherDoc) => {
+      if (teacherDoc.exists()) {
+        const teacherData = teacherDoc.data();
+        setTeacherEmail(teacherData?.email || '');
+        setTeacherName(teacherData?.displayName || teacherData?.name || '');
+      } else {
+        setTeacherEmail('');
+        setTeacherName('');
+      }
+      setIsLoadingTeacher(false);
+    }, () => {
+      setTeacherEmail('');
+      setTeacherName('');
+      setIsLoadingTeacher(false);
+    });
+    
+    // Cleanup function to unsubscribe when child changes
+    return () => {
+      unsub();
+    };
   }, [selectedChildId, children]);
 
   // Realtime saved reports for this parent
@@ -244,8 +226,7 @@ const ReportsPage: React.FC = () => {
       
       setSavedReports(items);
       setIsLoadingSaved(false);
-    }, (error) => {
-      console.error('Error loading message history:', error);
+    }, () => {
       setSavedReports([]); 
       setIsLoadingSaved(false);
     });

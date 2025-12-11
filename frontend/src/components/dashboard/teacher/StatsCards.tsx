@@ -53,27 +53,27 @@ const StatsCards: React.FC<StatsCardsProps> = ({ stats }) => {
   };
 
   return (
-    <div className="relative mb-4">
+    <div className="relative mb-4 sm:mb-6">
       {/* Stats Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
         {stats.map((stat, index) => (
-          <div key={index} className="group bg-white rounded-xl transition-all duration-300 border border-gray-100 overflow-hidden">
-            <div className="p-4">
-              <div className="flex items-center justify-between">
+          <div key={index} className="group bg-white rounded-xl border border-gray-200 shadow-md transition-all duration-300 hover:shadow-lg hover:scale-[1.01] overflow-hidden">
+            <div className="p-4 sm:p-6">
+              <div className="flex items-center justify-between gap-3 sm:gap-4">
                 <div className="min-w-0 flex-1">
-                  <p className="text-gray-500 text-sm font-medium truncate mb-1">
+                  <p className="text-gray-500 text-xs sm:text-sm font-medium truncate mb-1 sm:mb-2">
                     {stat.title}
                   </p>
-                  <h3 className="text-2xl font-bold text-gray-900 truncate">
+                  <h3 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">
                     {stat.value}
                   </h3>
                 </div>
-                <div className={`w-12 h-12 rounded-xl ${stat.bgColor} flex items-center justify-center ${stat.iconColor} flex-shrink-0 ml-3 group-hover:scale-110 transition-transform duration-300`}>
-                  <i className={`${stat.icon} text-lg`}></i>
+                <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl ${stat.bgColor} flex items-center justify-center ${stat.iconColor} flex-shrink-0 group-hover:scale-110 transition-transform duration-300`}>
+                  <i className={`${stat.icon} text-base sm:text-lg`}></i>
                 </div>
               </div>
-              <div className={`mt-3 flex items-center ${getChangeBgColor(stat.changeType)} rounded-lg px-2 py-1`}>
-                <i className={`${getChangeIcon(stat.changeType)} mr-1.5 text-xs ${getChangeColor(stat.changeType)}`}></i>
+              <div className={`mt-3 sm:mt-4 flex items-center ${getChangeBgColor(stat.changeType)} rounded-lg px-2 sm:px-3 py-1.5 sm:py-2`}>
+                <i className={`${getChangeIcon(stat.changeType)} mr-1.5 sm:mr-2 text-xs ${getChangeColor(stat.changeType)}`}></i>
                 <span className={`text-xs font-medium ${getChangeColor(stat.changeType)} truncate`}>
                   {stat.change}
                 </span>

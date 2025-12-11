@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { studentService, type Student } from '../../../services/studentService';
 import { useNavigate } from 'react-router-dom';
@@ -240,7 +240,7 @@ const MyChildren: React.FC = () => {
   };
 
   // Get sections for selected grade from already loaded data
-  const fetchSectionsForGrade = async (gradeId: string) => {
+  const fetchSectionsForGrade = useCallback(async (gradeId: string) => {
     setLoadingSections(true);
     try {
       console.log('🔍 Fetching sections for gradeId:', gradeId);
@@ -268,7 +268,7 @@ const MyChildren: React.FC = () => {
     } finally {
       setLoadingSections(false);
     }
-  };
+  }, [availableGrades]); // Memoize with availableGrades dependency
 
 
   return (
@@ -362,7 +362,7 @@ const MyChildren: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map(child => (
-            <div key={child.id} className="group relative overflow-hidden bg-white border border-gray-200 rounded-2xl p-5 flex flex-col transition-all hover:shadow-sm">
+            <div key={child.id} className="group relative overflow-hidden bg-white border border-gray-200 rounded-xl shadow-md p-6 flex flex-col transition-all duration-300 hover:shadow-lg hover:scale-[1.01]">
               <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-blue-100/60 blur-2xl group-hover:scale-110 transition-transform" />
               <div className="flex items-center mb-2">
                 <div className="h-12 w-12 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center text-lg font-bold text-gray-700 mr-3">

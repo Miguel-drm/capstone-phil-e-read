@@ -112,11 +112,6 @@ const Header: React.FC<HeaderProps> = ({
           }
         }
         
-        // Don't show badge for admin users
-        if ((userRole as UserRole) === 'admin') {
-          totalUnreadCount = 0;
-        }
-        
         console.log('🔥 HEADER NOTIFICATION COUNT:', {
           userRole,
           allMessages: messages.length,
@@ -171,11 +166,6 @@ const Header: React.FC<HeaderProps> = ({
         // Note: Link requests count will be updated by real-time listeners
         // No need to fetch them here as it's handled by the link requests listener
         
-        // Don't show badge for admin users
-        if ((userRole as UserRole) === 'admin') {
-          totalUnreadCount = 0;
-        }
-        
         console.log('🔥 HEADER REAL-TIME NOTIFICATION COUNT:', {
           userRole,
           allMessages: messages.length,
@@ -198,7 +188,15 @@ const Header: React.FC<HeaderProps> = ({
             // Apply same filtering logic as NotificationDropdown
             const filteredInboxMessages = messages.filter(msg => {
               if (msg.isArchived) return false;
-              if ((userRole as UserRole) === 'teacher' && msg.senderRole === 'parent' && msg.isRead) return false;
+              // For teachers, link requests stay in inbox even if read (until approved/rejected)
+              if ((userRole as UserRole) === 'teacher' && msg.senderRole === 'parent') {
+                if (msg.type === 'link_request' || msg.category === 'link_requests') {
+                  // Link requests stay in inbox until approved/rejected
+                  return msg.status !== 'approved' && msg.status !== 'rejected';
+                }
+                // Other parent messages are filtered out when read
+                return !msg.isRead;
+              }
               if ((userRole as UserRole) === 'parent' && msg.senderRole === 'teacher' && msg.isRead) return false;
               return true;
             });
@@ -230,8 +228,13 @@ const Header: React.FC<HeaderProps> = ({
               // Apply same filtering logic as NotificationDropdown
               const filteredInboxMessages = messages.filter(msg => {
                 if (msg.isArchived) return false;
-                if ((userRole as UserRole) === 'teacher' && msg.senderRole === 'parent' && msg.isRead) return false;
+                // For parents, read messages from teachers are filtered out
                 if ((userRole as UserRole) === 'parent' && msg.senderRole === 'teacher' && msg.isRead) return false;
+                // For parents, their own sent messages older than 20 seconds go to Recent
+                if ((userRole as UserRole) === 'parent' && msg.senderRole === 'parent') {
+                  const messageAge = Date.now() - (msg.createdAt?.toDate?.() || new Date()).getTime();
+                  return messageAge <= 20000; // Keep in inbox for first 20 seconds
+                }
                 return true;
               });
               
@@ -305,15 +308,18 @@ const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="bg-white z-[40]">
-      <div className="px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
+    <header className="bg-white z-[40] border-b border-gray-200 shadow-sm" role="banner">
+      <div className="px-3 sm:px-6 md:px-8 lg:px-10">
+        <div className="flex items-center justify-between h-16 sm:h-20">
           {/* Left side */}
           <div className="flex items-center">
             <button
               onClick={onMenuToggle}
-              className="p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none transition-colors duration-200"
+              className="p-2 sm:p-3 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 focus:outline-none transition-all duration-200 ease-in-out hover:scale-105 min-h-[44px] min-w-[44px]"
               aria-expanded={!isSidebarCollapsed}
+              aria-label={isSidebarCollapsed ? "Open navigation menu" : "Close navigation menu"}
+              aria-controls="main-navigation"
+              type="button"
             >
               <span className="sr-only">Toggle menu</span>
               <span className="relative block h-6 w-6">
@@ -322,6 +328,7 @@ const Header: React.FC<HeaderProps> = ({
                   <svg
                     className="h-6 w-6"
                     fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                    aria-hidden="true"
                   >
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                   </svg>
@@ -329,6 +336,7 @@ const Header: React.FC<HeaderProps> = ({
                   <svg
                     className="h-6 w-6"
                     fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                    aria-hidden="true"
                   >
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                   </svg>
@@ -339,19 +347,23 @@ const Header: React.FC<HeaderProps> = ({
           </div>
 
           {/* Right side */}
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2 sm:space-x-4" role="navigation" aria-label="User actions">
             {/* Notifications */}
             <div className="relative">
               <button
                 onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
-                className="relative p-2 rounded-full text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none transition-colors duration-200"
+                className="relative p-2 sm:p-3 rounded-lg text-gray-600 hover:text-blue-600 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-200 ease-in-out hover:scale-105 min-h-[44px] min-w-[44px]"
+                aria-label={`View notifications${unreadNotificationCount > 0 ? `, ${unreadNotificationCount} unread` : ''}`}
+                aria-expanded={isNotificationsOpen}
+                aria-haspopup="true"
+                type="button"
               >
                 <span className="sr-only">View notifications</span>
-                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                <svg className="h-6 w-6 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                 </svg>
                 {unreadNotificationCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center shadow-lg">
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full min-w-[20px] h-5 px-1.5 flex items-center justify-center shadow-lg border-2 border-white transition-all duration-200 hover:scale-110" aria-label={`${unreadNotificationCount} unread notifications`}>
                     {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
                   </span>
                 )}
@@ -366,8 +378,10 @@ const Header: React.FC<HeaderProps> = ({
               <button
                 className="flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all duration-200 text-sm font-semibold"
                 onClick={onShowSessionsModal}
+                aria-label="View upcoming sessions"
+                type="button"
               >
-                <i className="fas fa-calendar-alt mr-2"></i>
+                <i className="fas fa-calendar-alt mr-2" aria-hidden="true"></i>
                 Upcoming Sessions
               </button>
             )}
@@ -375,12 +389,15 @@ const Header: React.FC<HeaderProps> = ({
             <div className="relative" onMouseEnter={openProfileMenu} onMouseLeave={scheduleCloseProfileMenu}>
               <button
                 onClick={() => setIsProfileOpen(!isProfileOpen)}
-                className="flex items-center space-x-3 focus:outline-none"
-                aria-haspopup="menu" aria-expanded={isProfileOpen}
+                className="flex items-center space-x-2 sm:space-x-3 focus:outline-none p-1 sm:p-2 rounded-lg hover:bg-gray-50 transition-all duration-200 ease-in-out min-h-[44px]"
+                aria-haspopup="menu" 
+                aria-expanded={isProfileOpen}
+                aria-label={`User menu for ${currentUser?.displayName || currentUser?.email?.split('@')[0] || 'User'}`}
+                type="button"
               >
                 {/* Avatar with overlapping chevron dropdown icon */}
-                <div className="relative h-12 w-12">
-                  <div className="h-12 w-12 rounded-full bg-white border border-gray-300 flex items-center justify-center text-white">
+                <div className="relative h-10 w-10 sm:h-12 sm:w-12">
+                  <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-full bg-white border-2 border-gray-300 flex items-center justify-center text-white transition-all duration-200 hover:border-blue-500 hover:shadow-md">
                     {profileImage ? (
                       <img
                         src={profileImage}
@@ -390,7 +407,7 @@ const Header: React.FC<HeaderProps> = ({
                     ) : (
                       <svg
                         xmlns="http://www.w3.org/2000/svg"
-                        className="w-8 h-8"
+                        className="w-6 h-6 sm:w-8 sm:h-8"
                         viewBox="0 0 24 24"
                         fill="#cfd8dc"
                       >
@@ -400,38 +417,49 @@ const Header: React.FC<HeaderProps> = ({
                     )}
                   </div>
                   {/* Chevron dropdown icon, overlapping bottom-right */}
-                  <span className="absolute -bottom-0 -right-0 translate-x-1/4 translate-y-1/4 bg-gray-100 rounded-full flex items-center justify-center border border-gray-200" style={{ width: '1.25rem', height: '1.25rem' }}>
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="#111" className="w-5 h-5">
+                  <span className="absolute -bottom-0 -right-0 translate-x-1/4 translate-y-1/4 bg-gray-100 rounded-full flex items-center justify-center border border-gray-200 transition-transform duration-200" style={{ width: '1.25rem', height: '1.25rem' }}>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="#111" className={`w-5 h-5 transition-transform duration-200 ${isProfileOpen ? 'rotate-180' : ''}`}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                     </svg>
                   </span>
                 </div>
-                <span className="text-sm font-medium text-gray-700 ml-2">
+                <span className="hidden sm:inline text-sm font-medium text-gray-700 ml-2">
                   {currentUser?.displayName || currentUser?.email?.split('@')[0] || 'User'}
                 </span>
               </button>
               {isProfileOpen && (
-                <div className="origin-top-right absolute right-0 mt-2 w-48 rounded-md bg-white ring-1 ring-black ring-opacity-5">
-                  <div className="py-1">
-                    <div className="px-4 py-2 text-sm text-gray-700">
-                      {currentUser?.email}
-                    </div>
-                    <div className="px-4 py-2 text-xs text-gray-500">
-                      {userRole}
+                <div 
+                  className="origin-top-right absolute right-0 mt-3 w-56 rounded-lg bg-white shadow-lg ring-1 ring-black ring-opacity-5 transition-all duration-200 ease-in-out animate-fadeIn"
+                  role="menu"
+                  aria-orientation="vertical"
+                  aria-labelledby="user-menu-button"
+                >
+                  <div className="py-2">
+                    <div className="px-4 py-3 border-b border-gray-100" role="none">
+                      <div className="text-sm font-medium text-gray-900 truncate">
+                        {currentUser?.email}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1 capitalize">
+                        {userRole}
+                      </div>
                     </div>
                     {/* Upcoming Sessions in dropdown for mobile only - Hidden for teachers, parents, and admins */}
                     {isMobile && onShowSessionsModal && userRole !== 'teacher' && userRole !== 'parent' && userRole !== 'admin' && (
                       <button
                         onClick={onShowSessionsModal}
-                        className="w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 focus:outline-none flex items-center gap-2"
+                        className="w-full text-left px-4 py-3 text-sm text-blue-600 hover:bg-blue-50 focus:outline-none flex items-center gap-2 transition-colors duration-150"
+                        role="menuitem"
+                        type="button"
                       >
-                        <i className="fas fa-calendar-alt"></i>
+                        <i className="fas fa-calendar-alt" aria-hidden="true"></i>
                         Upcoming Sessions
                       </button>
                     )}
                     <button
                       onClick={handleSignOut}
-                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 focus:outline-none"
+                      className="block w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 focus:outline-none transition-colors duration-150"
+                      role="menuitem"
+                      type="button"
                     >
                       Sign out
                     </button>

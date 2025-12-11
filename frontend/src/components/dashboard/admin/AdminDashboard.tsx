@@ -237,7 +237,7 @@ const UserGrowthChart: React.FC<{
   }, [selectedRange, selectedYear, userGrowthMonthly, userGrowthData]);
 
   return (
-    <div className="bg-white rounded-2xl p-4 transition-all duration-300">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-md p-6 transition-all duration-300 hover:shadow-lg">
       <div className="flex items-center justify-between mb-3">
         <div className="flex flex-col">
           <div className="font-semibold text-[#2C3E50] text-sm sm:text-base">
@@ -643,7 +643,7 @@ const TeacherActivityDashboard: React.FC<{
   }, [activeView, teacherMetrics]);
 
   return (
-    <div className="bg-white rounded-2xl p-4 transition-all duration-300 h-full flex flex-col">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-md p-6 transition-all duration-300 hover:shadow-lg h-full flex flex-col">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="font-semibold text-[#2C3E50] text-sm sm:text-base">Teacher Analytics</h3>
@@ -748,7 +748,7 @@ const UserRoleBreakdownChart: React.FC<{ roleCounts: { teachers: number; parents
     : largestSegment;
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 h-full flex flex-col hover:shadow-md transition-shadow duration-300">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-md p-6 h-full flex flex-col transition-all duration-300 hover:shadow-lg">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -928,7 +928,7 @@ const UserRoleBreakdownChart: React.FC<{ roleCounts: { teachers: number; parents
 
 // School Overview Widget
 const SchoolOverviewWidget: React.FC<{ stats: any; onRefresh?: () => void; isLoading: boolean }> = ({ stats, onRefresh, isLoading }) => (
-  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 w-full">
+  <div className="bg-white rounded-xl border border-gray-200 shadow-md p-6 w-full transition-all duration-300 hover:shadow-lg">
     <div className="flex items-center justify-between mb-6">
       <h3 className="text-lg font-semibold text-gray-900">School Overview</h3>
       <div className="flex items-center gap-3">
@@ -1188,7 +1188,7 @@ const QuickActionsWidget: React.FC = () => {
   ];
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 h-full w-full flex flex-col">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-md p-6 h-full w-full flex flex-col transition-all duration-300 hover:shadow-lg">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold text-gray-900">Quick Actions</h3>
@@ -1293,7 +1293,7 @@ const RecentRegistrationsWidget: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="bg-white rounded-2xl border border-gray-100 p-6">
+      <div className="bg-white rounded-xl border border-gray-200 shadow-md p-6 transition-all duration-300">
         <div className="flex items-center justify-between mb-8">
           <h3 className="text-lg font-medium text-gray-900">Recent Registrations</h3>
         </div>
@@ -1315,7 +1315,7 @@ const RecentRegistrationsWidget: React.FC = () => {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 p-6">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-md p-6 transition-all duration-300 hover:shadow-lg">
       {/* Minimalist Header */}
       <div className="flex items-center justify-between mb-8">
         <h3 className="text-lg font-medium text-gray-900">Recent Registrations</h3>
@@ -2165,9 +2165,9 @@ const AdminDashboard: React.FC = () => {
   return (
     <>
       {/* Admin Stats Overview - Improved Layout */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
         {overviewStats.map((stat, index) => (
-          <div key={index} className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
+          <div key={index} className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5 md:p-6 shadow-sm hover:shadow-lg hover:scale-[1.01] transition-all duration-300">
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1 min-w-0">
                 <p className="text-xs sm:text-sm font-medium text-gray-600 mb-1">{stat.title}</p>
@@ -2207,7 +2207,7 @@ const AdminDashboard: React.FC = () => {
         {/* Main Content Sections */}
         <div className="flex flex-col gap-3 mt-2">
           {/* School Overview and Quick Actions - top row */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-stretch">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 items-stretch">
             <div className="lg:col-span-2 flex">
               <SchoolOverviewWidget stats={schoolOverview} onRefresh={fetchSchoolOverviewData} isLoading={isLoadingSchoolOverview} />
             </div>
@@ -2251,7 +2251,7 @@ const AdminDashboard: React.FC = () => {
           </div>
 
           {/* Teacher Analytics and User Role Breakdown side by side */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch">
             <div className="h-full flex flex-col">
               <TeacherActivityDashboard
                 totalTeachers={totalTeachers || 0}

@@ -14,6 +14,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import InfoButton from '@/components/common/InfoButton';
 import { studentService, type Student } from '@/services/studentService';
 
+// Development-only logging utility
+const devLog = (...args: any[]) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log(...args);
+  }
+};
+
 const ReadingPractice: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
@@ -31,8 +38,8 @@ const ReadingPractice: React.FC = () => {
       setChildrenLoading(true);
       const fetchedChildren = await studentService.getStudentsByParent(currentUser.uid);
       setChildren(fetchedChildren);
-    } catch (error) {
-      console.error('Error loading children:', error);
+    } catch {
+      // Children loading failed
     } finally {
       setChildrenLoading(false);
     }
@@ -44,8 +51,7 @@ const ReadingPractice: React.FC = () => {
       setStoriesError(null);
       const fetchedStories = await UnifiedStoryService.getInstance().getStories({});
       
-      console.log('📚 Total stories fetched:', fetchedStories.length);
-      console.log('👶 Children:', children);
+      devLog('📚 Total stories fetched:', fetchedStories.length);
       
       // Get unique grade levels from children
       // Extract just the grade number from formats like "Grade 4 - Athena" or "4"
@@ -57,11 +63,9 @@ const ReadingPractice: React.FC = () => {
           return match ? match[1] : gradeStr;
         })
       );
-      console.log('🎓 Child grades (extracted):', Array.from(childGrades));
       
       // If no children, show all stories
       if (childGrades.size === 0) {
-        console.log('⚠️ No children found - showing all stories');
         setStories(fetchedStories.map(story => ({
           ...story,
           _id: story._id?.toString(),
@@ -75,17 +79,14 @@ const ReadingPractice: React.FC = () => {
       // Filter stories based on children's grade levels
       const filteredStories = fetchedStories.filter(story => {
         if (!story.grade) {
-          console.log(`📖 Story "${story.title}" - No grade, skipping`);
           return false;
         }
         
         const storyGrade = String(story.grade).trim();
-        const matches = childGrades.has(storyGrade);
-        console.log(`📖 Story "${story.title}" - Grade: "${storyGrade}" - ${matches ? '✅ MATCH' : '❌ NO MATCH'}`);
-        return matches;
+        return childGrades.has(storyGrade);
       });
       
-      console.log('✅ Filtered stories:', filteredStories.length, 'out of', fetchedStories.length);
+      devLog('✅ Filtered stories:', filteredStories.length, 'out of', fetchedStories.length);
       
       // Map IStory[] to Story[] to ensure type compatibility and add pdfUrl
       setStories(filteredStories.map(story => ({
@@ -95,14 +96,14 @@ const ReadingPractice: React.FC = () => {
         language: story.language as 'english' | 'tagalog',
         pdfUrl: story._id ? UnifiedStoryService.getInstance().getStoryPdfUrl(story._id) : undefined
       })));
-    } catch (error) {
-      console.error('Error loading stories:', error);
+    } catch {
       setStoriesError('Failed to load stories. Please try again.');
       Swal.fire('Error', 'Failed to load stories', 'error');
     } finally {
       setStoriesLoading(false);
     }
-  }, [children]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [children.length]); // Only depend on children.length to avoid infinite loop
 
   // Load children first, then stories
   useEffect(() => {
@@ -162,8 +163,7 @@ const ReadingPractice: React.FC = () => {
       
       // Navigate to the reading session page with the created session ID
       navigate(`/parent/reading-session/${sessionId}`);
-    } catch (error) {
-      console.error('Error starting practice:', error);
+    } catch {
       await Swal.fire({
         icon: 'error',
         title: 'Error',

@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import capstoneLogo from '../../assets/img/capstone-logo.png';
 import Swal from 'sweetalert2';
 import AuthModalLayout from './AuthModalLayout';
+import { Button } from '../ui';
 
 interface SignupProps {
   onSwitchToLogin: () => void;
@@ -116,90 +117,130 @@ const Signup: React.FC<SignupProps> = ({ onSwitchToLogin }) => {
 
   return (
     <AuthModalLayout>
-      <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-6 sm:p-8 w-full flex flex-col gap-4 shadow-2xl border border-slate-100">
+      <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-8 w-full flex flex-col gap-6 shadow-2xl border border-gray-200">
         <div className="mb-2 text-center">
-          <img src={capstoneLogo} alt="Capstone Logo" className="mx-auto mb-4 h-16 w-auto" />
-          <h2 className="text-2xl font-bold text-blue-700 mb-1">Create Account</h2>
-          <p className="text-gray-500 text-sm">Join us and start your journey!</p>
+          <img src={capstoneLogo} alt="Capstone Logo" className="mx-auto mb-6 h-16 w-auto" />
+          <h2 className="text-3xl font-bold text-gray-800 mb-2">Create Account</h2>
+          <p className="text-gray-600 text-base">Join us and start your journey!</p>
         </div>
 
         <div>
-          <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="name" className="input-label">
             Full Name
           </label>
           <input
             id="name"
             type="text"
             autoComplete="name"
-            className={`w-full px-4 py-2 rounded-lg border ${nameError ? 'border-red-400' : 'border-gray-200'} focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm`}
+            className={`input w-full ${nameError ? 'input-error' : ''}`}
+            placeholder="Enter your full name"
             value={name}
             onChange={e => setName(e.target.value)}
           />
-          {nameError && <div className="text-xs text-red-500 mt-1">{nameError}</div>}
+          {nameError && (
+            <div className="input-error-message">
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              {nameError}
+            </div>
+          )}
         </div>
 
         <div>
-          <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="email" className="input-label">
             Email
           </label>
           <input
             id="email"
             type="email"
             autoComplete="email"
-            className={`w-full px-4 py-2 rounded-lg border ${emailError ? 'border-red-400' : 'border-gray-200'} focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm`}
+            className={`input w-full ${emailError ? 'input-error' : ''}`}
+            placeholder="Enter your email"
             value={email}
             onChange={e => setEmail(e.target.value)}
           />
-          {emailError && <div className="text-xs text-red-500 mt-1">{emailError}</div>}
+          {emailError && (
+            <div className="input-error-message">
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              {emailError}
+            </div>
+          )}
         </div>
 
         <div>
-          <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="password" className="input-label">
             Password
           </label>
           <input
             id="password"
             type="password"
             autoComplete="new-password"
-            className={`w-full px-4 py-2 rounded-lg border ${passwordError ? 'border-red-400' : 'border-gray-200'} focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm`}
+            className={`input w-full ${passwordError ? 'input-error' : ''}`}
+            placeholder="Create a password (min. 6 characters)"
             value={password}
             onChange={e => setPassword(e.target.value)}
           />
-          {passwordError && <div className="text-xs text-red-500 mt-1">{passwordError}</div>}
+          {passwordError && (
+            <div className="input-error-message">
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              {passwordError}
+            </div>
+          )}
         </div>
 
         <div>
-          <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="confirmPassword" className="input-label">
             Confirm Password
           </label>
           <input
             id="confirmPassword"
             type="password"
             autoComplete="new-password"
-            className={`w-full px-4 py-2 rounded-lg border ${confirmPasswordError ? 'border-red-400' : 'border-gray-200'} focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm`}
+            className={`input w-full ${confirmPasswordError ? 'input-error' : ''}`}
+            placeholder="Confirm your password"
             value={confirmPassword}
             onChange={e => setConfirmPassword(e.target.value)}
           />
-          {confirmPasswordError && <div className="text-xs text-red-500 mt-1">{confirmPasswordError}</div>}
+          {confirmPasswordError && (
+            <div className="input-error-message">
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              {confirmPasswordError}
+            </div>
+          )}
         </div>
 
-        {error && <div className="text-xs text-red-600 text-center">{error}</div>}
+        {error && (
+          <div className="input-error-message justify-center">
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+            {error}
+          </div>
+        )}
 
-        <button
+        <Button
           type="submit"
-          disabled={loading}
-          className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold text-base transition-colors"
+          loading={loading}
+          variant="primary"
+          fullWidth
         >
-          {loading ? 'Creating Account...' : 'Create Account'}
-        </button>
+          Create Account
+        </Button>
 
         {/* Divider */}
-        <div className="relative my-4">
+        <div className="relative my-2">
           <div className="absolute inset-0 flex items-center">
             <div className="w-full border-t border-gray-300"></div>
           </div>
           <div className="relative flex justify-center text-sm">
-            <span className="px-2 bg-white text-gray-500">Or continue with</span>
+            <span className="px-4 bg-white text-gray-500">Or continue with</span>
           </div>
         </div>
 
@@ -208,7 +249,7 @@ const Signup: React.FC<SignupProps> = ({ onSwitchToLogin }) => {
           type="button"
           onClick={handleGoogleSignUp}
           disabled={loading}
-          className="w-full flex items-center justify-center gap-3 py-2.5 rounded-lg border-2 border-gray-300 hover:border-gray-400 bg-white text-gray-700 font-semibold text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full flex items-center justify-center gap-3 h-11 rounded-lg border-2 border-gray-300 hover:border-gray-400 hover:bg-gray-50 bg-white text-gray-700 font-semibold text-base transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24">
             <path
@@ -231,12 +272,12 @@ const Signup: React.FC<SignupProps> = ({ onSwitchToLogin }) => {
           Sign up with Google
         </button>
 
-        <div className="text-center text-sm text-gray-500 mt-2">
+        <div className="text-center text-base text-gray-600 mt-2">
           Already have an account?{' '}
           <button
             type="button"
             onClick={onSwitchToLogin}
-            className="text-blue-600 hover:underline font-medium"
+            className="text-blue-600 hover:text-blue-700 hover:underline font-semibold transition-colors"
           >
             Sign in
           </button>

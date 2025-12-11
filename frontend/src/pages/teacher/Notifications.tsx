@@ -41,8 +41,8 @@ const TeacherNotifications: React.FC = () => {
         setNotifications(inboxMessages);
         setLinkRequests(pendingRequests);
         setRejectedRequests(rejected);
-      } catch (error) {
-        console.error('Error fetching notification data:', error);
+      } catch {
+        // Notification fetch failed
       } finally {
         setLoading(false);
       }
@@ -70,8 +70,8 @@ const TeacherNotifications: React.FC = () => {
       setNotifications(prev => 
         prev.map(n => n.id === notificationId ? { ...n, isRead: true } : n)
       );
-    } catch (error) {
-      console.error('Error marking notification as read:', error);
+    } catch {
+      // Mark as read failed
     }
   };
 
@@ -79,8 +79,8 @@ const TeacherNotifications: React.FC = () => {
     try {
       await notificationService.markAllMessagesAsRead(currentUser?.uid || '', 'teacher');
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
-    } catch (error) {
-      console.error('Error marking all notifications as read:', error);
+    } catch {
+      // Mark all as read failed
     }
   };
 

@@ -56,12 +56,12 @@ export default function QuickActions() {
   };
 
   return (
-    <div className="bg-white rounded-2xl p-4 md:p-6">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-md p-6 transition-all duration-300 hover:shadow-lg">
       <h3 className="text-base md:text-lg font-semibold text-[#2C3E50] mb-4 md:mb-5">Quick Actions</h3>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4 place-items-stretch">
         <button
           onClick={handleAddUser}
-          className="group flex flex-col items-center justify-center p-4 md:p-5 rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:bg-gray-50 active:bg-gray-100 active:scale-95 transition-all bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 cursor-pointer"
+          className="group flex flex-col items-center justify-center p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:bg-gray-50 active:bg-gray-100 active:scale-95 transition-all duration-200 bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 cursor-pointer"
         >
           <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-purple-500 flex items-center justify-center text-white mb-2 group-hover:scale-105 transition-transform">
             <i className="fas fa-user-plus text-base md:text-lg"></i>
@@ -71,7 +71,7 @@ export default function QuickActions() {
 
         <button
           onClick={handleAddContent}
-          className="group flex flex-col items-center justify-center p-4 md:p-5 rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:bg-gray-50 active:bg-gray-100 active:scale-95 transition-all bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 cursor-pointer"
+          className="group flex flex-col items-center justify-center p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:bg-gray-50 active:bg-gray-100 active:scale-95 transition-all duration-200 bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 cursor-pointer"
         >
           <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-green-500 flex items-center justify-center text-white mb-2 group-hover:scale-105 transition-transform">
             <i className="fas fa-file-alt text-base md:text-lg"></i>
@@ -81,7 +81,7 @@ export default function QuickActions() {
 
         <button
           onClick={handleSendNotice}
-          className="group flex flex-col items-center justify-center p-4 md:p-5 rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:bg-gray-50 active:bg-gray-100 active:scale-95 transition-all bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 cursor-pointer"
+          className="group flex flex-col items-center justify-center p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:bg-gray-50 active:bg-gray-100 active:scale-95 transition-all duration-200 bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 cursor-pointer"
         >
           <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-pink-500 flex items-center justify-center text-white mb-2 group-hover:scale-105 transition-transform">
             <i className="fas fa-bullhorn text-base md:text-lg"></i>
@@ -91,7 +91,7 @@ export default function QuickActions() {
 
         <button
           onClick={handleGenerateReport}
-          className="group flex flex-col items-center justify-center p-4 md:p-5 rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:bg-gray-50 active:bg-gray-100 active:scale-95 transition-all bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 cursor-pointer"
+          className="group flex flex-col items-center justify-center p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:bg-gray-50 active:bg-gray-100 active:scale-95 transition-all duration-200 bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 cursor-pointer"
         >
           <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-yellow-500 flex items-center justify-center text-white mb-2 group-hover:scale-105 transition-transform">
             <i className="fas fa-chart-bar text-base md:text-lg"></i>
@@ -101,7 +101,7 @@ export default function QuickActions() {
 
         <button
           onClick={handleManageClasses}
-          className="group flex flex-col items-center justify-center p-4 md:p-5 rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:bg-gray-50 active:bg-gray-100 active:scale-95 transition-all bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 cursor-pointer"
+          className="group flex flex-col items-center justify-center p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:bg-gray-50 active:bg-gray-100 active:scale-95 transition-all duration-200 bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 cursor-pointer"
         >
           <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-blue-500 flex items-center justify-center text-white mb-2 group-hover:scale-105 transition-transform">
             <i className="fas fa-school text-base md:text-lg"></i>
@@ -111,7 +111,7 @@ export default function QuickActions() {
 
         <button
           onClick={handleSettings}
-          className="group flex flex-col items-center justify-center p-4 md:p-5 rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:bg-gray-50 active:bg-gray-100 active:scale-95 transition-all bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 cursor-pointer"
+          className="group flex flex-col items-center justify-center p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:bg-gray-50 active:bg-gray-100 active:scale-95 transition-all duration-200 bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 cursor-pointer"
         >
           <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-gray-500 flex items-center justify-center text-white mb-2 group-hover:scale-105 transition-transform">
             <i className="fas fa-cog text-base md:text-lg"></i>

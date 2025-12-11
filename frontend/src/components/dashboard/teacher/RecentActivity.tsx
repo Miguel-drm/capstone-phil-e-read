@@ -30,7 +30,7 @@ export default function RecentActivity() {
   }, [currentUser?.uid]);
 
   return (
-    <div className="lg:col-span-2 bg-white rounded-lg p-4 md:p-6">
+    <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-md p-6 transition-all duration-300 hover:shadow-lg">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 md:mb-6 space-y-2 sm:space-y-0">
         <h3 className="text-base md:text-lg font-semibold text-[#2C3E50]">Recent Activity</h3>
       </div>

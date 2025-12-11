@@ -43,8 +43,7 @@ const ParentNotifications: React.FC = () => {
         if (inboxMessages.length === 0) {
           await notificationService.createWelcomeNotification(currentUser.uid);
         }
-      } catch (error) {
-        console.error('Error fetching notification data:', error);
+      } catch {
         // Even if there's an error, try to create a welcome notification
         try {
           await notificationService.createWelcomeNotification(currentUser.uid);
@@ -74,8 +73,8 @@ const ParentNotifications: React.FC = () => {
       setNotifications(prev => 
         prev.map(n => n.id === notificationId ? { ...n, isRead: true } : n)
       );
-    } catch (error) {
-      console.error('Error marking notification as read:', error);
+    } catch {
+      // Mark as read failed
     }
   };
 
@@ -83,8 +82,8 @@ const ParentNotifications: React.FC = () => {
     try {
       await notificationService.markAllMessagesAsRead(currentUser?.uid || '', 'parent');
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
-    } catch (error) {
-      console.error('Error marking all notifications as read:', error);
+    } catch {
+      // Mark all as read failed
     }
   };
 

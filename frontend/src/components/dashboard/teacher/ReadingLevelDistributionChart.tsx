@@ -214,7 +214,7 @@ const ReadingLevelDistributionChart: React.FC<Props> = ({ classes = [] }) => {
   }, [currentUser?.uid, selectedClassId, classes]);
 
   return (
-    <div className="bg-white rounded-2xl p-4 transition-all duration-300 h-full flex flex-col">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-md p-6 transition-all duration-300 hover:shadow-lg h-full flex flex-col">
       <div className="flex items-center justify-between mb-3">
         <div className="font-semibold text-[#2C3E50] text-sm sm:text-base">Reading Level Distribution</div>
         <PillSelect

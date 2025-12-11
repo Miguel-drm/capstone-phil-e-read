@@ -290,8 +290,8 @@ const ISRManagement: React.FC = () => {
       });
 
       setAllRecords(sortedRecords);
-    } catch (error) {
-      console.error('Error fetching ISR records:', error);
+    } catch {
+      // ISR records fetch failed
     } finally {
       setLoading(false);
     }
@@ -384,8 +384,7 @@ const ISRManagement: React.FC = () => {
       } else {
         showError('Failed', 'Failed to approve ISR submission');
       }
-    } catch (error) {
-      console.error('Error approving ISR:', error);
+    } catch {
       showError('Error', 'An error occurred while approving the ISR submission');
     } finally {
       setProcessingRecordId(null);
@@ -425,8 +424,7 @@ const ISRManagement: React.FC = () => {
       } else {
         showError('Failed', 'Failed to reject ISR submission');
       }
-    } catch (error) {
-      console.error('Error rejecting ISR:', error);
+    } catch {
       showError('Error', 'An error occurred while rejecting the ISR submission');
     } finally {
       setProcessingRecordId(null);

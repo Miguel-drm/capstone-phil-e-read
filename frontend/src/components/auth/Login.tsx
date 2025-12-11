@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import capstoneLogo from '../../assets/img/capstone-logo.png';
 import AuthModalLayout from './AuthModalLayout';
 import Swal from 'sweetalert2';
+import { Button } from '../ui';
 
 interface LoginProps {
   onSwitchToSignup: () => void;
@@ -115,11 +116,11 @@ const Login: React.FC<LoginProps> = ({ onSwitchToSignup }) => {
   if (showResetPassword) {
     return (
       <AuthModalLayout>
-        <div className="bg-white rounded-2xl p-6 sm:p-8 w-full flex flex-col gap-4 shadow-2xl border border-slate-100">
+        <div className="bg-white rounded-2xl p-8 w-full flex flex-col gap-6 shadow-2xl border border-gray-200">
           <div className="mb-2 text-center">
-            <img src={capstoneLogo} alt="Capstone Logo" className="mx-auto mb-4 h-16 w-auto" />
-            <h2 className="text-2xl font-bold text-blue-700 mb-1">Reset Password</h2>
-            <p className="text-gray-500 text-sm">
+            <img src={capstoneLogo} alt="Capstone Logo" className="mx-auto mb-6 h-16 w-auto" />
+            <h2 className="text-3xl font-bold text-gray-800 mb-2">Reset Password</h2>
+            <p className="text-gray-600 text-base">
               {resetEmailSent 
                 ? 'Check your email for password reset instructions'
                 : 'Enter your email to receive reset instructions'
@@ -130,48 +131,60 @@ const Login: React.FC<LoginProps> = ({ onSwitchToSignup }) => {
           {!resetEmailSent ? (
             <>
               <div>
-                <label htmlFor="reset-email" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="reset-email" className="input-label">
                   Email
                 </label>
                 <input
                   id="reset-email"
                   type="email"
                   autoComplete="email"
-                  className={`w-full px-4 py-2 rounded-lg border ${error ? 'border-red-400' : 'border-gray-200'} focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm`}
+                  className={`input w-full ${error ? 'input-error' : ''}`}
+                  placeholder="Enter your email"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                 />
               </div>
-              {error && <div className="text-xs text-red-600 text-center">{error}</div>}
-              <button
+              {error && (
+                <div className="input-error-message justify-center">
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                  {error}
+                </div>
+              )}
+              <Button
                 onClick={handleResetPassword}
-                disabled={loading}
-                className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold text-base transition-colors"
+                loading={loading}
+                variant="primary"
+                fullWidth
               >
-                {loading ? 'Sending...' : 'Send Reset Email'}
-              </button>
+                Send Reset Email
+              </Button>
             </>
           ) : (
-            <div className="text-center">
+            <div className="text-center py-4">
               <div className="text-green-600 mb-4">
-                <i className="fas fa-check-circle text-2xl"></i>
+                <svg className="w-16 h-16 mx-auto" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
               </div>
-              <p className="text-sm text-gray-600 mb-4">
-                We've sent a password reset link to {email}
+              <p className="text-base text-gray-600 mb-4">
+                We've sent a password reset link to <span className="font-semibold">{email}</span>
               </p>
             </div>
           )}
           
-          <button
+          <Button
             onClick={() => {
               setShowResetPassword(false);
               setResetEmailSent(false);
               setError('');
             }}
-            className="w-full py-2 rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 font-semibold text-base transition-colors"
+            variant="secondary"
+            fullWidth
           >
             Back to Login
-          </button>
+          </Button>
         </div>
       </AuthModalLayout>
     );
@@ -179,28 +192,36 @@ const Login: React.FC<LoginProps> = ({ onSwitchToSignup }) => {
 
   return (
     <AuthModalLayout>
-      <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-6 sm:p-8 w-full flex flex-col gap-4 shadow-2xl border border-slate-100">
+      <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-8 w-full flex flex-col gap-6 shadow-2xl border border-gray-200">
         <div className="mb-2 text-center">
-          <img src={capstoneLogo} alt="Capstone Logo" className="mx-auto mb-4 h-16 w-auto" />
-          <h2 className="text-2xl font-bold text-blue-700 mb-1">Sign In</h2>
-          <p className="text-gray-500 text-sm">Welcome back! Please login to your account.</p>
+          <img src={capstoneLogo} alt="Capstone Logo" className="mx-auto mb-6 h-16 w-auto" />
+          <h2 className="text-3xl font-bold text-gray-800 mb-2">Sign In</h2>
+          <p className="text-gray-600 text-base">Welcome back! Please login to your account.</p>
         </div>
         <div>
-          <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="email" className="input-label">
             Email
           </label>
           <input
             id="email"
             type="email"
             autoComplete="email"
-            className={`w-full px-4 py-2 rounded-lg border ${emailError ? 'border-red-400' : 'border-gray-200'} focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm`}
+            className={`input w-full ${emailError ? 'input-error' : ''}`}
+            placeholder="Enter your email"
             value={email}
             onChange={e => setEmail(e.target.value)}
           />
-          {emailError && <div className="text-xs text-red-500 mt-1">{emailError}</div>}
+          {emailError && (
+            <div className="input-error-message">
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              {emailError}
+            </div>
+          )}
         </div>
         <div>
-          <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="password" className="input-label">
             Password
           </label>
           <div className="relative">
@@ -208,7 +229,8 @@ const Login: React.FC<LoginProps> = ({ onSwitchToSignup }) => {
               id="password"
               type={showPassword ? 'text' : 'password'}
               autoComplete="current-password"
-              className={`w-full px-4 py-2 rounded-lg border ${passwordError ? 'border-red-400' : 'border-gray-200'} focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm pr-10`}
+              className={`input w-full pr-12 ${passwordError ? 'input-error' : ''}`}
+              placeholder="Enter your password"
               value={password}
               onChange={e => setPassword(e.target.value)}
             />
@@ -216,7 +238,7 @@ const Login: React.FC<LoginProps> = ({ onSwitchToSignup }) => {
               type="button"
               tabIndex={-1}
               onClick={() => setShowPassword((prev) => !prev)}
-              className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-500 focus:outline-none"
+              className="absolute inset-y-0 right-0 flex items-center px-4 text-gray-500 hover:text-gray-700 focus:outline-none transition-colors"
               aria-label={showPassword ? 'Hide password' : 'Show password'}
             >
               {showPassword ? (
@@ -226,34 +248,49 @@ const Login: React.FC<LoginProps> = ({ onSwitchToSignup }) => {
               )}
             </button>
           </div>
-          {passwordError && <div className="text-xs text-red-500 mt-1">{passwordError}</div>}
+          {passwordError && (
+            <div className="input-error-message">
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              {passwordError}
+            </div>
+          )}
         </div>
-        {error && <div className="text-xs text-red-600 text-center">{error}</div>}
+        {error && (
+          <div className="input-error-message justify-center">
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+            {error}
+          </div>
+        )}
         
-        <button
+        <Button
           type="submit"
-          disabled={loading}
-          className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold text-base transition-colors"
+          loading={loading}
+          variant="primary"
+          fullWidth
         >
-          {loading ? 'Signing In...' : 'Sign In'}
-        </button>
+          Sign In
+        </Button>
         <div className="text-center">
           <button
             type="button"
             onClick={() => setShowResetPassword(true)}
-            className="text-sm text-blue-600 hover:underline font-medium"
+            className="text-sm text-blue-600 hover:text-blue-700 hover:underline font-medium transition-colors"
           >
             Forgot your password?
           </button>
         </div>
 
         {/* Divider */}
-        <div className="relative my-4">
+        <div className="relative my-2">
           <div className="absolute inset-0 flex items-center">
             <div className="w-full border-t border-gray-300"></div>
           </div>
           <div className="relative flex justify-center text-sm">
-            <span className="px-2 bg-white text-gray-500">Or continue with</span>
+            <span className="px-4 bg-white text-gray-500">Or continue with</span>
           </div>
         </div>
 
@@ -262,7 +299,7 @@ const Login: React.FC<LoginProps> = ({ onSwitchToSignup }) => {
           type="button"
           onClick={handleGoogleSignIn}
           disabled={loading}
-          className="w-full flex items-center justify-center gap-3 py-2.5 rounded-lg border-2 border-gray-300 hover:border-gray-400 bg-white text-gray-700 font-semibold text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full flex items-center justify-center gap-3 h-11 rounded-lg border-2 border-gray-300 hover:border-gray-400 hover:bg-gray-50 bg-white text-gray-700 font-semibold text-base transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24">
             <path
@@ -285,12 +322,12 @@ const Login: React.FC<LoginProps> = ({ onSwitchToSignup }) => {
           Sign in with Google
         </button>
 
-        <div className="text-center text-sm text-gray-500 mt-2">
+        <div className="text-center text-base text-gray-600 mt-2">
           Don't have an account?{' '}
           <button
             type="button"
             onClick={onSwitchToSignup}
-            className="text-blue-600 hover:underline font-medium"
+            className="text-blue-600 hover:text-blue-700 hover:underline font-semibold transition-colors"
           >
             Sign up
           </button>

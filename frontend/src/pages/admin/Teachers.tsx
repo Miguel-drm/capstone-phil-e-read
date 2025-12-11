@@ -61,7 +61,51 @@ const Teachers: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchTeachers();
+    let isCancelled = false;
+    
+    const loadData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await getAllTeachers();
+        
+        if (isCancelled) return;
+
+        // Fetch profile images from MongoDB for each teacher (by firebase UID)
+        const withImages = await Promise.all(
+          data.map(async (t) => {
+            if (isCancelled) return t;
+            
+            try {
+              const base64 = await profileImageService.getTeacherProfileImage(t.id);
+              return base64
+                ? { ...t, profileImage: profileImageService.convertBase64ToDataUrl(base64) }
+                : t;
+            } catch {
+              return t;
+            }
+          })
+        );
+
+        if (!isCancelled) {
+          setTeachers(withImages);
+        }
+      } catch (err) {
+        if (!isCancelled) {
+          setError('Failed to load teachers.');
+        }
+      } finally {
+        if (!isCancelled) {
+          setLoading(false);
+        }
+      }
+    };
+    
+    loadData();
+    
+    return () => {
+      isCancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -242,43 +286,45 @@ const Teachers: React.FC = () => {
                 </div>
               </div>
             </div>
-            <div className="overflow-visible">
-            <table className="min-w-full rounded-2xl">
+            <div className="overflow-x-auto">
+            <table className="min-w-full">
               <thead>
-                <tr className="bg-white shadow-sm rounded-t-2xl sticky top-0 z-10">
-                  <th className="px-6 py-5 text-left text-sm font-bold text-gray-700 uppercase tracking-wider rounded-tl-2xl border-b border-gray-200">Name</th>
-                  <th className="px-6 py-5 text-left text-sm font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200">School</th>
-                  <th className="px-6 py-5 text-center text-sm font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200">Grade Level</th>
-                  <th className="px-6 py-5 text-right text-sm font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200" colSpan={2}></th>
+                <tr className="bg-gray-50">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wide border-b-2 border-gray-200">Name</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wide border-b-2 border-gray-200">School</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wide border-b-2 border-gray-200">Grade Level</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 uppercase tracking-wide border-b-2 border-gray-200" colSpan={2}></th>
                 </tr>
               </thead>
               <tbody>
-                {displayedTeachers.map((teacher) => (
+                {displayedTeachers.map((teacher, index) => (
                   <tr
                     key={teacher.id}
-                    className="transition-all duration-200 hover:bg-blue-200/70 hover:shadow-2xl hover:-translate-y-1 hover:border-blue-400 border-b border-gray-100 last:border-b-0 group"
+                    className={`transition-colors duration-150 hover:bg-gray-50 border-b border-gray-200 last:border-b-0 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}
                   >
                     <td
-                      className="px-6 py-6 whitespace-nowrap flex items-center gap-4 cursor-pointer"
+                      className="px-4 py-3 whitespace-nowrap cursor-pointer"
                       onClick={() => setViewTeacher(teacher)}
                     >
-                      <span className="w-16 h-16 rounded-full bg-white border border-gray-200 shadow flex items-center justify-center overflow-hidden mr-2">
-                        {teacher.profileImage ? (
-                          <img src={teacher.profileImage} alt={teacher.displayName || 'Profile'} className="w-full h-full object-cover rounded-full" />
-                        ) : (
-                          <div className="w-full h-full rounded-full bg-gradient-to-br from-indigo-500 to-blue-500 flex items-center justify-center text-white text-xl font-semibold">
-                            {(teacher.displayName || teacher.email || 'T').charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                      </span>
-                      <div className="flex flex-col">
-                        <span className="font-extrabold text-lg text-gray-900">{teacher.displayName || 'N/A'}</span>
-                        <span className="text-xs text-gray-400">{teacher.email || 'N/A'}</span>
+                      <div className="flex items-center gap-3">
+                        <span className="w-10 h-10 rounded-full bg-white border border-gray-200 shadow-sm flex items-center justify-center overflow-hidden flex-shrink-0">
+                          {teacher.profileImage ? (
+                            <img src={teacher.profileImage} alt={teacher.displayName || 'Profile'} className="w-full h-full object-cover rounded-full" />
+                          ) : (
+                            <div className="w-full h-full rounded-full bg-gradient-to-br from-indigo-500 to-blue-500 flex items-center justify-center text-white text-sm font-semibold">
+                              {(teacher.displayName || teacher.email || 'T').charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                        </span>
+                        <div className="flex flex-col min-w-0">
+                          <span className="font-semibold text-sm text-gray-900 truncate">{teacher.displayName || 'N/A'}</span>
+                          <span className="text-xs text-gray-500 truncate">{teacher.email || 'N/A'}</span>
+                        </div>
                       </div>
                     </td>
-                    <td className="px-6 py-6 whitespace-nowrap text-sm text-gray-700 align-middle cursor-pointer" onClick={() => setViewTeacher(teacher)}>{teacher.school || 'N/A'}</td>
-                    <td className="px-6 py-6 whitespace-nowrap text-sm text-gray-700 text-center align-middle cursor-pointer" onClick={() => setViewTeacher(teacher)}>{teacher.gradeLevel || 'N/A'}</td>
-                    <td className="px-6 py-6 whitespace-nowrap text-right text-sm font-medium relative align-middle">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 align-middle cursor-pointer" onClick={() => setViewTeacher(teacher)}>{teacher.school || 'N/A'}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-center align-middle cursor-pointer" onClick={() => setViewTeacher(teacher)}>{teacher.gradeLevel || 'N/A'}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium relative align-middle">
                       <Menu as="div" className="relative inline-block text-left">
                         <Menu.Button className="flex items-center p-2 rounded-full hover:bg-gray-100 focus:outline-none">
                           <EllipsisVerticalIcon className="w-5 h-5 text-gray-500" />

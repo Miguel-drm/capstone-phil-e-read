@@ -150,7 +150,7 @@ const PendingLinkRequests: React.FC = () => {
 
   return (
     <>
-      <div className="bg-white rounded-2xl p-6 border border-gray-100">
+      <div className="bg-white rounded-xl border border-gray-200 shadow-md p-6 transition-all duration-300 hover:shadow-lg">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-100 rounded-lg">

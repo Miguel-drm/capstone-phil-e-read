@@ -52,8 +52,8 @@ const EditStoryModal: React.FC<EditStoryModalProps> = ({ isOpen, onClose, onSave
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
-    } catch (error) {
-      console.error('Error in handleSubmit:', error);
+    } catch {
+      // Submit failed
     } finally {
       setIsSubmitting(false);
     }
@@ -74,10 +74,16 @@ const EditStoryModal: React.FC<EditStoryModalProps> = ({ isOpen, onClose, onSave
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-xl p-8 w-full max-w-2xl shadow-2xl">
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">Edit Story</h2>
-        <form onSubmit={handleSubmit} className="space-y-6">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 animate-fade-in">
+      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl animate-scale-in">
+        {/* Modal Header */}
+        <div className="px-8 py-6 border-b border-gray-200">
+          <h2 className="text-2xl font-semibold text-gray-900">Edit Story</h2>
+        </div>
+        
+        {/* Modal Body */}
+        <form onSubmit={handleSubmit} className="flex flex-col">
+          <div className="p-8 space-y-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Title</label>
             <input
@@ -147,19 +153,21 @@ const EditStoryModal: React.FC<EditStoryModalProps> = ({ isOpen, onClose, onSave
               </div>
             </div>
           </div>
+          </div>
 
-          <div className="flex justify-end space-x-4 mt-8">
+          {/* Modal Footer */}
+          <div className="px-8 py-6 border-t border-gray-200 flex justify-end gap-3">
             <button
               type="button"
               onClick={onClose}
-              className="px-6 py-3 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium transition duration-200"
+              className="px-6 py-2.5 border-2 border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-400 focus:outline-none focus:ring-4 focus:ring-gray-200 transition-all duration-200"
               disabled={isSubmitting}
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition duration-200 disabled:opacity-50"
+              className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 hover:scale-[1.02] hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-blue-200 transition-all duration-200 disabled:opacity-50"
               disabled={isSubmitting}
             >
               {isSubmitting ? 'Saving...' : 'Save Changes'}

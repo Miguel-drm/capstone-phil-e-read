@@ -157,8 +157,8 @@ const Resources: React.FC = () => {
     };
     try {
       await addDoc(collection(db, 'tests'), testData);
-    } catch (error: any) {
-      console.error('Error saving test: ', error.message);
+    } catch {
+      // Test save failed
     }
   };
 

@@ -465,7 +465,7 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
           />
         </div>
         {/* My Activity and My Classes Breakdown side by side */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch">
           <div className="h-full flex flex-col">
             <MyActivityDashboard
               totalStudents={calculateStats.totalStudents}
@@ -482,7 +482,7 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ showSessionsModal, 
       </div>
       
       {/* Recent Activity and Quick Actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-2">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mt-2">
         <RecentActivity />
         <QuickActions />
       </div>

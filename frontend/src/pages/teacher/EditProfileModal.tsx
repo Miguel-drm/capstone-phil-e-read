@@ -314,14 +314,22 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black bg-opacity-60"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black bg-opacity-50 animate-fade-in"
       onClick={handleOverlayClick}
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl relative flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl relative flex flex-col animate-scale-in" onClick={e => e.stopPropagation()}>
         {/* Modal Header */}
-        <div className="flex items-center justify-between bg-white rounded-t-2xl px-8 py-5 border-b border-gray-200">
-          <h2 className="text-xl font-bold text-gray-900">Edit Profile</h2>
-          <button className="text-gray-400 text-2xl font-bold hover:text-gray-700 transition-colors" onClick={handleEditCancel} aria-label='Close'>&times;</button>
+        <div className="flex items-center justify-between bg-white rounded-t-2xl px-8 py-6 border-b border-gray-200">
+          <h2 className="text-2xl font-semibold text-gray-900">Edit Profile</h2>
+          <button 
+            className="w-10 h-10 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all duration-200" 
+            onClick={handleEditCancel} 
+            aria-label='Close'
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
         <div className="p-4 pt-2 overflow-y-auto scrollbar-thin scrollbar-thumb-rounded scrollbar-thumb-blue-300 scrollbar-track-blue-100" style={{ maxHeight: '70vh' }}>
           {/* Profile Picture */}
@@ -356,23 +364,32 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
           </div>
           {/* Cropper Modal */}
           {showCropModal && (
-            <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black bg-opacity-60">
-              <div className="bg-white rounded-2xl shadow-2xl p-10 w-full max-w-4xl relative flex flex-col items-center">
-                <h3 className="text-lg font-semibold mb-4">Crop Image</h3>
-                <div className="relative w-[600px] h-[600px] bg-gray-100">
-                  <Cropper
-                    image={imageToCrop!}
-                    crop={crop}
-                    zoom={zoom}
-                    aspect={1}
-                    onCropChange={setCrop}
-                    onZoomChange={setZoom}
-                    onCropComplete={onCropComplete}
-                  />
+            <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black bg-opacity-50 animate-fade-in">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative flex flex-col animate-scale-in">
+                {/* Cropper Header */}
+                <div className="px-8 py-6 border-b border-gray-200">
+                  <h3 className="text-xl font-semibold text-gray-900">Crop Image</h3>
                 </div>
-                <div className="flex gap-3 mt-4">
-                  <button className="px-4 py-2 rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300" onClick={handleCropCancel}>Cancel</button>
-                  <button className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700" onClick={handleCropConfirm}>Crop</button>
+                
+                {/* Cropper Body */}
+                <div className="p-8 flex items-center justify-center">
+                  <div className="relative w-[600px] h-[600px] bg-gray-100 rounded-lg overflow-hidden">
+                    <Cropper
+                      image={imageToCrop!}
+                      crop={crop}
+                      zoom={zoom}
+                      aspect={1}
+                      onCropChange={setCrop}
+                      onZoomChange={setZoom}
+                      onCropComplete={onCropComplete}
+                    />
+                  </div>
+                </div>
+                
+                {/* Cropper Footer */}
+                <div className="px-8 py-6 border-t border-gray-200 flex justify-end gap-3">
+                  <button className="px-6 py-2.5 rounded-lg border-2 border-gray-300 text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-400 focus:outline-none focus:ring-4 focus:ring-gray-200 transition-all duration-200" onClick={handleCropCancel}>Cancel</button>
+                  <button className="px-6 py-2.5 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 hover:scale-[1.02] hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-blue-200 transition-all duration-200" onClick={handleCropConfirm}>Crop</button>
                 </div>
               </div>
             </div>
@@ -405,10 +422,16 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
           </div>
           {/* Banner Picker Modal */}
           {showBannerPicker && (
-            <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black bg-opacity-40">
-              <div className="bg-white rounded-xl shadow-xl p-6 max-w-lg w-full flex flex-col gap-4">
-                <h3 className="text-lg font-semibold mb-2">Choose a Background</h3>
-                <div className="grid grid-cols-2 gap-4">
+            <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black bg-opacity-50 animate-fade-in">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full flex flex-col animate-scale-in">
+                {/* Banner Picker Header */}
+                <div className="px-8 py-6 border-b border-gray-200">
+                  <h3 className="text-xl font-semibold text-gray-900">Choose a Background</h3>
+                </div>
+                
+                {/* Banner Picker Body */}
+                <div className="p-8">
+                  <div className="grid grid-cols-2 gap-4">
                   {defaultBanners.map((url, idx) => (
                     <button
                       key={url}
@@ -427,14 +450,19 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
                       )}
                     </button>
                   ))}
+                  </div>
                 </div>
-                <button
-                  className="mt-4 px-4 py-2 rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors self-end"
-                  onClick={() => setShowBannerPicker(false)}
-                  type="button"
-                >
-                  Cancel
-                </button>
+                
+                {/* Banner Picker Footer */}
+                <div className="px-8 py-6 border-t border-gray-200 flex justify-end">
+                  <button
+                    className="px-6 py-2.5 rounded-lg border-2 border-gray-300 text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-400 focus:outline-none focus:ring-4 focus:ring-gray-200 transition-all duration-200"
+                    onClick={() => setShowBannerPicker(false)}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -590,17 +618,17 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
           }
           {/* Grade Level (teachers only) moved above - section retained here intentionally removed */}
         </div>
-        {/* Sticky Action Buttons */}
-        <div className="flex justify-end gap-3 p-4 border-t bg-white sticky bottom-0 z-10">
+        {/* Modal Footer */}
+        <div className="flex justify-end gap-3 px-8 py-6 border-t border-gray-200 bg-white sticky bottom-0 z-10">
           <button
-            className="px-5 py-2 rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors"
+            className="px-6 py-2.5 rounded-lg border-2 border-gray-300 text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-400 focus:outline-none focus:ring-4 focus:ring-gray-200 transition-all duration-200"
             onClick={handleEditCancel}
             disabled={savingEdit}
           >
             Cancel
           </button>
           <button
-            className="px-5 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
+            className="px-6 py-2.5 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 hover:scale-[1.02] hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-blue-200 transition-all duration-200 disabled:opacity-50"
             onClick={handleEditSave}
             disabled={savingEdit || Object.keys(errors).length > 0 && Object.values(errors).some(Boolean)}
           >
