@@ -476,7 +476,7 @@ const AddStoryModal: React.FC<AddStoryModalProps> = ({
                     className="w-full h-full max-w-4xl px-12 py-6 bg-white focus:outline-none resize-none border-none rounded shadow-sm overflow-y-auto"
                     style={{ 
                       fontFamily: 'Georgia, "Times New Roman", serif',
-                      textAlign: 'left', // Always left-align in textarea to preserve leading spaces
+                      textAlign: textAlign, // Use the textAlign state from alignment buttons
                       fontSize: `${fontSize}px`,
                       lineHeight: '1.8',
                       whiteSpace: 'pre-wrap',

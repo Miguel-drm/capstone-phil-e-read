@@ -418,145 +418,23 @@ const ReadingSessionPage: React.FC = () => {
               console.log(`🟡 Position updated from ${oldPosition} to ${new_position}`);
               break;
               
+            // NOTE: The following miscue type cases are not currently used by the phrase matcher
+            // The phrase matcher only returns 'correct' or 'buffering' match types
+            // Individual miscue detection would need to be implemented in the backend
+            // Keeping these commented out for future reference
+            
+            /*
             case 'omission':
-              // Mark as omitted (orange circle)
-              setWordMiscues(prev => new Map(prev).set(wordIndex, 'omission'));
-              setWordMarkings(prev => new Map(prev).set(wordIndex, {
-                type: 'omission',
-                marking: `Circle omitted word`,
-                spokenWord: '',
-                correctWord: realWords[wordIndex]
-              }));
-              console.log(`⚠️ Word ${wordIndex} marked as omission`);
-              break;
-              
             case 'mispronunciation':
-              // Mark as mispronounced (red underline)
-              setWordMiscues(prev => new Map(prev).set(wordIndex, 'mispronunciation'));
-              setWordMarkings(prev => new Map(prev).set(wordIndex, {
-                type: 'mispronunciation',
-                marking: `Underline and write phonetic spelling above`,
-                spokenWord: word,
-                correctWord: realWords[wordIndex]
-              }));
-              console.log(`⚠️ Word ${wordIndex} marked as mispronunciation`);
-              break;
-              
             case 'substitution':
-              // Mark as substituted (yellow underline)
-              setWordMiscues(prev => new Map(prev).set(wordIndex, 'substitution'));
-              setWordMarkings(prev => new Map(prev).set(wordIndex, {
-                type: 'substitution',
-                marking: `Underline and write substituted word above`,
-                spokenWord: word,
-                correctWord: realWords[wordIndex]
-              }));
-              console.log(`⚠️ Word ${wordIndex} marked as substitution`);
-              break;
-              
             case 'insertion':
-              // Mark as insertion (cyan caret with word above)
-              // Insertion should be placed BEFORE the current word (between previous and current)
-              const insertedWord = msg.match_result.inserted_word || word;
-              const insertionPosition = wordIndex; // Position where insertion happened (before this word)
-              
-              // Add to insertedWords map to show as separate box BEFORE this word
-              setInsertedWords(prev => {
-                const newMap = new Map(prev);
-                const existing = newMap.get(insertionPosition) || [];
-                newMap.set(insertionPosition, [...existing, insertedWord]);
-                return newMap;
-              });
-              
-              console.log(`⚠️ Insertion detected: "${insertedWord}" before word ${wordIndex} ("${realWords[wordIndex]}")`);
-              
-              // IMPORTANT: The current word (at wordIndex) should still be marked as CORRECT
-              // because the child DID read it correctly - they just added an extra word before it
-              // The insertion is tracked separately in insertedWords map
-              setRecognizedWords(prev => new Set(prev).add(wordIndex));
-              console.log(`✅ Word ${wordIndex} ("${realWords[wordIndex]}") marked correct (after insertion)`);
-              break;
-              
             case 'repetition':
-              // Mark as repetition (blue underline)
-              // The word was repeated - show it as a separate box AFTER the original word
-              const repeatedWord = msg.match_result.repeated_word || word;
-              
-              // Add to repeatedWords map to show as separate box with blue underline
-              setRepeatedWords(prev => {
-                const newMap = new Map(prev);
-                const existing = newMap.get(wordIndex) || [];
-                newMap.set(wordIndex, [...existing, repeatedWord]);
-                return newMap;
-              });
-              
-              console.log(`⚠️ Repetition detected: "${repeatedWord}" repeated after word ${wordIndex}`);
-              break;
-              
             case 'selfCorrection':
-              // Mark as self-correction (green 'S' above)
-              // Student corrected their own mistake - this is POSITIVE behavior
-              const correctedWord = msg.match_result.corrected_word || word;
-              const wrongWord = msg.match_result.wrong_word || '';
-              
-              // Mark the CURRENT word (the one that was corrected) with self-correction
-              // The student said the wrong word first, then corrected to this word
-              setWordMiscues(prev => new Map(prev).set(wordIndex, 'selfCorrection'));
-              setWordMarkings(prev => new Map(prev).set(wordIndex, {
-                type: 'selfCorrection',
-                marking: `Write 'S' above self-corrected word`,
-                spokenWord: correctedWord,
-                correctWord: realWords[wordIndex] || '',
-                wrongWord: wrongWord  // Track what they said wrong first
-              }));
-              console.log(`✅ Word ${wordIndex} ("${realWords[wordIndex]}") marked as self-correction (was "${wrongWord}", corrected to "${correctedWord}")`);
-              break;
-              
             case 'reversal':
-              // Mark as reversal (pink background, correct word above)
-              // Student reversed the letters (e.g., "was" → "saw")
-              setWordMiscues(prev => new Map(prev).set(wordIndex, 'reversal'));
-              setWordMarkings(prev => new Map(prev).set(wordIndex, {
-                type: 'reversal',
-                marking: `Write correct word above reversed word`,
-                spokenWord: word,
-                correctWord: realWords[wordIndex] || ''
-              }));
-              console.log(`⚠️ Word ${wordIndex} marked as reversal: "${word}" (should be "${realWords[wordIndex]}")`);
-              break;
-              
             case 'transposition':
-              // Mark as transposition (purple, curved line connecting the two words)
-              // Student swapped word order (e.g., "big red" → "red big")
-              const firstWord = msg.match_result.first_word || '';
-              const secondWord = msg.match_result.second_word || '';
-              
-              // Mark BOTH words involved in the transposition
-              // wordIndex-1 is the first word, wordIndex is the second word
-              const firstWordIndex = wordIndex - 1;
-              
-              if (firstWordIndex >= 0) {
-                // Mark first word
-                setWordMiscues(prev => new Map(prev).set(firstWordIndex, 'transposition'));
-                setWordMarkings(prev => new Map(prev).set(firstWordIndex, {
-                  type: 'transposition',
-                  marking: `Use transpositional symbol (curved line)`,
-                  spokenWord: firstWord,
-                  correctWord: realWords[firstWordIndex] || ''
-                }));
-                
-                // Mark second word
-                setWordMiscues(prev => new Map(prev).set(wordIndex, 'transposition'));
-                setWordMarkings(prev => new Map(prev).set(wordIndex, {
-                  type: 'transposition',
-                  marking: `Use transpositional symbol (curved line)`,
-                  spokenWord: secondWord,
-                  correctWord: realWords[wordIndex] || ''
-                }));
-                
-                console.log(`⚠️ Transposition detected: "${firstWord}" and "${secondWord}" swapped (words ${firstWordIndex} and ${wordIndex})`);
-              }
+              console.warn(`⚠️ Miscue type "${match_type}" not implemented in phrase matcher`);
               break;
+            */
           }
           
           // Update metrics from backend (source of truth)
@@ -743,6 +621,7 @@ const ReadingSessionPage: React.FC = () => {
   const [insertedWords, setInsertedWords] = useState<Map<number, string[]>>(new Map());
   
   // Track repeated words (words said twice) with their position
+  // @ts-expect-error - Unused variable kept for future feature
   const [repeatedWords, setRepeatedWords] = useState<Map<number, string[]>>(new Map());
 
   // Toggle visibility of Miscue Types Detection section (hidden by default)
@@ -763,6 +642,7 @@ const ReadingSessionPage: React.FC = () => {
   // 👷 MULTI-WORKER: WebSocket connection to multi-worker backend
   const multiWorkerWsRef = useRef<WebSocket | null>(null);
   const [multiWorkerStatus, setMultiWorkerStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  // @ts-expect-error - Unused variable kept for future feature
   const [useMultiWorker, setUseMultiWorker] = useState(true); // Enable by default
 
   // Server-calculated metrics (backend is source of truth)
@@ -1476,6 +1356,7 @@ const ReadingSessionPage: React.FC = () => {
       
       // 👷 WORKER 5: Use BOTH interim and final results to catch all words
       let allTranscript = '';
+      // @ts-expect-error - Unused variable kept for future feature
       let hasNewFinalWords = false;
       
       for (let i = 0; i < event.results.length; i++) {
@@ -2788,6 +2669,43 @@ const ReadingSessionPage: React.FC = () => {
         }
 
         setCurrentSession(sessionData);
+
+        // If session is completed, load the saved results
+        if (sessionData.status === 'completed' && sessionData.wordsRead !== undefined) {
+          console.log('📊 Loading completed session results...');
+          
+          // Restore session state
+          setWordsRead(sessionData.wordsRead || 0);
+          setMiscues(sessionData.totalMiscues || 0);
+          setElapsedTime(sessionData.elapsedTime || 0);
+          setTranscript(sessionData.transcript || '');
+          setAudioUrl(sessionData.audioUrl || null);
+          
+          // Restore word markings
+          if (sessionData.recognizedWords) {
+            setRecognizedWords(new Set(sessionData.recognizedWords));
+          }
+          if (sessionData.wordMiscues) {
+            setWordMiscues(new Map(Object.entries(sessionData.wordMiscues).map(([k, v]) => [parseInt(k), v])));
+          }
+          if (sessionData.wordMarkings) {
+            setWordMarkings(new Map(Object.entries(sessionData.wordMarkings).map(([k, v]) => [parseInt(k), v])));
+          }
+          if (sessionData.insertedWords) {
+            setInsertedWords(new Map(Object.entries(sessionData.insertedWords).map(([k, v]) => [parseInt(k), v])));
+          }
+          
+          // Set current word index to the last word read
+          if (sessionData.currentWordIndex !== undefined) {
+            setCurrentWordIndex(sessionData.currentWordIndex);
+          }
+          
+          console.log('✅ Completed session results loaded:', {
+            wordsRead: sessionData.wordsRead,
+            miscues: sessionData.totalMiscues,
+            recognizedWords: sessionData.recognizedWords?.length || 0
+          });
+        }
 
         // Get all stories
         const stories = await UnifiedStoryService.getInstance().getStories({});
@@ -4408,19 +4326,30 @@ const ReadingSessionPage: React.FC = () => {
     console.log("🔍 Looking for test matching story:", storyKey);
     console.log("📚 Available tests:", tests.map(t => ({ id: t.id, name: t.testName, storyId: t.storyId, storyTitle: t.storyTitle })));
 
+    // Helper function to normalize strings for comparison (handle different apostrophe types)
+    const normalizeForMatch = (str: string) => {
+      return str.toLowerCase()
+        .replace(/['']/g, "'")  // Normalize all apostrophe types to straight apostrophe
+        .replace(/\s+/g, ' ')    // Normalize whitespace
+        .trim();
+    };
+
+    const normalizedStoryKey = normalizeForMatch(storyKey);
+    console.log("🔑 Normalized story key:", normalizedStoryKey);
+
     // IMPROVED MATCHING: Try multiple strategies
     let match = tests.find(
       (t) =>
         // Strategy 1: Exact storyId match
         (t.storyId && t.storyId === currentSession.book) ||
-        // Strategy 2: Exact storyTitle match
-        (t.storyTitle && t.storyTitle.toLowerCase() === storyKey.toLowerCase()) ||
+        // Strategy 2: Exact storyTitle match (with normalization)
+        (t.storyTitle && normalizeForMatch(t.storyTitle) === normalizedStoryKey) ||
         // Strategy 3: Test name contains story key
-        (t.testName && t.testName.toLowerCase().includes(storyKey.toLowerCase())) ||
+        (t.testName && normalizeForMatch(t.testName).includes(normalizedStoryKey)) ||
         // Strategy 4: Story key contains test name (reverse)
-        (t.testName && storyKey.toLowerCase().includes(t.testName.toLowerCase())) ||
+        (t.testName && normalizedStoryKey.includes(normalizeForMatch(t.testName))) ||
         // Strategy 5: Story key contains storyTitle
-        (t.storyTitle && storyKey.toLowerCase().includes(t.storyTitle.toLowerCase()))
+        (t.storyTitle && normalizedStoryKey.includes(normalizeForMatch(t.storyTitle)))
     );
 
     // If still no match, try fuzzy matching by checking if storyId matches any test's storyId
@@ -4696,8 +4625,29 @@ const ReadingSessionPage: React.FC = () => {
         await waitForAudioFinalization(2500);
       }
 
-      // Update session status to completed
-      await readingSessionService.updateSessionStatus(sessionId, "completed");
+      // Prepare session results data
+      const sessionResults: any = {
+        status: "completed" as const,
+        completedAt: new Date(),
+        wordsRead,
+        totalMiscues: miscues,
+        elapsedTime,
+        readingSpeedWPM: parseInt(readingSpeedWPM) || 0,
+        oralReadingScore: parseFloat(oralReadingScore) || 0,
+        recognizedWords: Array.from(recognizedWords), // Convert Set to Array
+        wordMiscues: Object.fromEntries(wordMiscues), // Convert Map to Object
+        wordMarkings: Object.fromEntries(wordMarkings), // Convert Map to Object
+        insertedWords: Object.fromEntries(insertedWords), // Convert Map to Object
+        transcript: transcript || "",
+      };
+
+      // Only add audioUrl if it exists (Firebase doesn't accept undefined)
+      if (audioUrl) {
+        sessionResults.audioUrl = audioUrl;
+      }
+
+      // Update session with results
+      await readingSessionService.updateSession(sessionId, sessionResults);
 
       // Save ISR results to MongoDB for each student
       for (const student of currentSession.students) {
@@ -4731,7 +4681,7 @@ const ReadingSessionPage: React.FC = () => {
       // Update local state
       setCurrentSession({
         ...currentSession,
-        status: "completed",
+        ...sessionResults,
       });
 
       // Show SweetAlert2 success popup
@@ -4841,7 +4791,7 @@ const ReadingSessionPage: React.FC = () => {
             >
               {storyText || pdfContent ? (
                 (storyText ? storyText : pdfContent)
-                  .split("\n\n")
+                  .split("\n")  // Split by single line break to preserve original formatting
                   .filter((p) => p.trim().length > 0)
                   .map((paragraph, paragraphIndex, paragraphs) => {
                     // Detect leading whitespace before trimming
@@ -4869,7 +4819,10 @@ const ReadingSessionPage: React.FC = () => {
                         <p 
                           className="text-gray-800 leading-relaxed flex flex-wrap gap-y-1 sm:gap-y-2 lg:gap-y-3" 
                           style={{ 
-                            whiteSpace: 'pre-wrap'
+                            whiteSpace: 'pre-wrap',
+                            textAlign: (currentStory as any)?.textAlign || 'left',
+                            justifyContent: (currentStory as any)?.textAlign === 'center' ? 'center' : 
+                                          (currentStory as any)?.textAlign === 'right' ? 'flex-end' : 'flex-start'
                           }}
                         >
                           {leadingSpaces && leadingSpaces.length > 0 && (
@@ -5002,7 +4955,7 @@ const ReadingSessionPage: React.FC = () => {
                                     isSpecialChar
                                       ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"
                                       : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative ` +
-                                      (isCurrent
+                                      (isCurrent && !isCompleted
                                         ? "bg-transparent text-gray-900 font-extrabold z-10 border-4 border-yellow-400"
                                         : miscueType && showMiscueColors
                                           ? `${getMiscueColor(miscueType)} font-semibold`
