@@ -835,43 +835,60 @@ class WordMatcherSession:
                     
                     return self_correction_result
                 
-                # Not self-correction, it's an INSERTION
-                print(f"   ✅ INSERTION CONFIRMED: '{self.pending_word}' inserted before '{expected_word}'")
+                # Check if pending word exists in story vocabulary
+                # If it does, it's NOT an insertion - just out of order (skip it)
+                pending_word_in_story = any(
+                    self._words_match(self.pending_word, expected.lower().strip())
+                    for expected in self.expected_words
+                )
                 
-                # Return insertion result for the pending word
-                insertion_result = {
-                    "match_type": "insertion",
-                    "advance": True,  # Advance position because we found the expected word
-                    "new_position": self.current_position + 1,
-                    "miscue_count": 1,
-                    "inserted_word": self.pending_word,
-                    "details": f"Insertion: '{self.pending_word}' inserted before '{expected_word}'"
-                }
+                if pending_word_in_story:
+                    # Word is in story - NOT an insertion, just out of order
+                    # Skip it and continue with current word
+                    print(f"   ⏭️ SKIPPING: '{self.pending_word}' is in story (not an insertion)")
+                    self.pending_word = None
+                    # Don't count as insertion - continue processing current word
+                    # Fall through to normal processing below
+                else:
+                    # Not self-correction, it's an INSERTION (word not in story)
+                    print(f"   ✅ INSERTION CONFIRMED: '{self.pending_word}' inserted before '{expected_word}' (not in story)")
+                    
+                    # Return insertion result for the pending word
+                    insertion_result = {
+                        "match_type": "insertion",
+                        "advance": True,  # Advance position because we found the expected word
+                        "new_position": self.current_position + 1,
+                        "miscue_count": 1,
+                        "inserted_word": self.pending_word,
+                        "details": f"Insertion: '{self.pending_word}' inserted before '{expected_word}'"
+                    }
+                    
+                    # Clear pending word
+                    self.pending_word = None
+                    
+                    # Update state
+                    self.current_position = insertion_result["new_position"]
+                    self.words_read += 1
+                    self.total_miscues += 1
+                    self.miscue_types["insertion"] += 1
                 
-                # Clear pending word
-                self.pending_word = None
+                    # Add to recent words
+                    self.recent_words.append(spoken_word)
+                    if len(self.recent_words) > self.max_recent_words:
+                        self.recent_words.pop(0)
+                    
+                    # Add session state
+                    insertion_result["session_state"] = {
+                        "current_position": self.current_position,
+                        "words_read": self.words_read,
+                        "total_miscues": self.total_miscues,
+                        "miscue_types": self.miscue_types.copy(),
+                        "progress": f"{self.current_position}/{len(self.expected_words)}"
+                    }
+                    
+                    return insertion_result
                 
-                # Update state
-                self.current_position = insertion_result["new_position"]
-                self.words_read += 1
-                self.total_miscues += 1
-                self.miscue_types["insertion"] += 1
-                
-                # Add to recent words
-                self.recent_words.append(spoken_word)
-                if len(self.recent_words) > self.max_recent_words:
-                    self.recent_words.pop(0)
-                
-                # Add session state
-                insertion_result["session_state"] = {
-                    "current_position": self.current_position,
-                    "words_read": self.words_read,
-                    "total_miscues": self.total_miscues,
-                    "miscue_types": self.miscue_types.copy(),
-                    "progress": f"{self.current_position}/{len(self.expected_words)}"
-                }
-                
-                return insertion_result
+                # If we skipped the pending word, continue to process current word below
             else:
                 # Current word doesn't match either - pending word was a SUBSTITUTION
                 print(f"   ⚠️ SUBSTITUTION CONFIRMED: '{self.pending_word}' substituted for '{self.expected_words[self.current_position - 1]}'")

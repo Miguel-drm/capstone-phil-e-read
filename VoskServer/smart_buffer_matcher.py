@@ -124,9 +124,11 @@ class SmartBufferMatcher:
                 "details": f"Repetition: '{word_lower}' repeated"
             }
         
-        # SELF-CORRECTION DETECTION: Check if this corrects a recent error
-        # Pattern: Child says wrong word, then immediately says correct word
-        if len(self.recent_words) > 0 and self.current_position < len(self.expected_words):
+        # SELF-CORRECTION DETECTION DISABLED: Causes false positives during normal reading
+        # The frontend has proper self-correction detection that checks if the previous word
+        # was attempting the SAME expected word position, not just any previous word
+        # Backend logic was incorrectly flagging normal reading progression as self-correction
+        if False and len(self.recent_words) > 0 and self.current_position < len(self.expected_words):
             expected_word = self.expected_words[self.current_position].lower().strip()
             previous_word = self.recent_words[-1]
             
@@ -140,16 +142,27 @@ class SmartBufferMatcher:
                 # Add to recent words
                 self.recent_words.append(word_lower)
                 
-                # Add to buffer and continue with normal matching
+                # Add to buffer
                 self.word_buffer.append((word_lower, timestamp))
                 self.word_timestamps[word_lower] = timestamp
                 
-                expected_word_display = self.expected_words[self.current_position] if self.current_position < len(self.expected_words) else "END"
-                print(f"   📦 Buffer: {[w for w, _ in self.word_buffer]} (size: {len(self.word_buffer)})")
-                print(f"   🎯 Looking for: '{expected_word_display}' at position {self.current_position}")
+                # Return self-correction result to frontend for marking
+                # Note: Self-correction is tracked but NOT counted as a miscue
+                self.current_position += 1
+                self.words_read += 1
                 
-                # Try to match from buffer
-                return self._try_match_from_buffer()
+                return {
+                    "match_type": "selfCorrection",
+                    "advance": True,
+                    "new_position": self.current_position,
+                    "miscue_count": 0,  # Not counted as error
+                    "words_read": self.words_read,
+                    "total_miscues": self.total_miscues,
+                    "miscue_types": self.miscue_types.copy(),
+                    "details": f"Self-correction: Said '{previous_word}' then corrected to '{word_lower}'",
+                    "wrong_word": previous_word,
+                    "corrected_word": word_lower
+                }
         
         # Add to recent words tracking
         self.recent_words.append(word_lower)
@@ -296,15 +309,41 @@ class SmartBufferMatcher:
             # This is checked implicitly - if we reach the end without finding other miscues, it's omission
             
             # PRIORITY 3: INSERTION (word doesn't match ANY nearby expected words)
+            # Check if word exists in story vocabulary first (to avoid false positives)
             is_insertion = True
-            for offset in range(min(3, len(self.expected_words) - self.current_position)):
-                check_word = self.expected_words[self.current_position + offset].lower().strip()
-                if self._words_match(oldest_word, check_word) or self._calculate_similarity(oldest_word, check_word) >= 0.60:
-                    is_insertion = False
-                    break
             
-            if is_insertion:
-                print(f"   ➕ [P3] INSERTION detected: '{oldest_word}' not in expected sequence")
+            # First check: Does this word exist ANYWHERE in the story?
+            word_in_story = self._word_exists_in_story(oldest_word)
+            
+            if word_in_story:
+                # Word is in story - check if it's coming up soon (within next 10 words)
+                for offset in range(min(10, len(self.expected_words) - self.current_position)):
+                    check_word = self.expected_words[self.current_position + offset].lower().strip()
+                    if self._words_match(oldest_word, check_word) or self._calculate_similarity(oldest_word, check_word) >= 0.60:
+                        is_insertion = False
+                        break
+            
+            # STRICT FILTERING: Ignore very short words, filler sounds, and partial words
+            # These are likely Vosk hallucinations or speech artifacts, not real insertions
+            filler_words = ['um', 'uh', 'ah', 'eh', 'hmm', 'mm', 'er', 'oh', 'a', 'i']
+            is_filler = oldest_word.lower() in filler_words
+            is_too_short = len(oldest_word) < 2
+            is_partial = len(oldest_word) == 2 and not oldest_word.isalpha()
+            
+            # Discard filler words and fragments silently - don't count as insertion
+            if is_filler or is_too_short or is_partial:
+                print(f"   🗑️ Discarding filler/fragment: '{oldest_word}'")
+                self.word_buffer.popleft()
+                # Don't return - just discard and wait for more words
+                return None
+            
+            # Only mark as insertion if:
+            # 1. Word is NOT in story vocabulary
+            # 2. Word is NOT a filler sound
+            # 3. Word is at least 2 characters
+            # 4. Word is not a partial/fragment
+            if is_insertion and not word_in_story:
+                print(f"   ➕ [P3] INSERTION detected: '{oldest_word}' not in story vocabulary")
                 
                 # Remove the inserted word from buffer
                 self.word_buffer.popleft()
@@ -321,7 +360,8 @@ class SmartBufferMatcher:
                     "words_read": self.words_read,
                     "total_miscues": self.total_miscues,
                     "miscue_types": self.miscue_types.copy(),
-                    "details": f"Insertion: '{oldest_word}' inserted (not in expected sequence)"
+                    "details": f"Insertion: '{oldest_word}' inserted (not in story vocabulary)",
+                    "inserted_word": oldest_word  # Include the actual inserted word
                 }
             
             # PRIORITY 4: REPETITION (already handled in add_word method)
