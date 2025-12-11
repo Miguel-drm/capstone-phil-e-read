@@ -185,6 +185,11 @@ const ISRManagement: React.FC = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
   const [detailViewMode, setDetailViewMode] = useState<'grid' | 'table'>('grid');
   const [processingRecordId, setProcessingRecordId] = useState<string | null>(null);
+  const [approvalModalOpen, setApprovalModalOpen] = useState(false);
+  const [recordToApprove, setRecordToApprove] = useState<ISRSubmissionData | null>(null);
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [recordToReject, setRecordToReject] = useState<ISRSubmissionData | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
 
   const [filters, setFilters] = useState<FilterOptions>({
     status: 'all'
@@ -349,23 +354,26 @@ const ISRManagement: React.FC = () => {
     return statusMap[status as keyof typeof statusMap] || 'Pending';
   }, []);
 
-  // Handle approve ISR
-  const handleApproveISR = useCallback(async (record: ISRSubmissionData) => {
+  // Handle approve ISR - open confirmation modal
+  const handleApproveISR = useCallback((record: ISRSubmissionData) => {
     if (!currentUser) {
       showError('Error', 'You must be logged in to approve ISR records');
       return;
     }
+    setRecordToApprove(record);
+    setApprovalModalOpen(true);
+  }, [currentUser]);
 
-    const confirmed = window.confirm(
-      `Are you sure you want to approve this ISR submission for ${record.className || 'this class'}?`
-    );
+  // Confirm approval after modal confirmation
+  const confirmApproveISR = useCallback(async () => {
+    if (!currentUser || !recordToApprove) return;
 
-    if (!confirmed) return;
-
-    setProcessingRecordId(record.id);
+    setApprovalModalOpen(false);
+    setProcessingRecordId(recordToApprove.id);
+    
     try {
       const success = await isrService.approveISR(
-        record.id,
+        recordToApprove.id,
         currentUser.uid,
         currentUser.displayName || 'Admin'
       );
@@ -381,29 +389,34 @@ const ISRManagement: React.FC = () => {
       showError('Error', 'An error occurred while approving the ISR submission');
     } finally {
       setProcessingRecordId(null);
+      setRecordToApprove(null);
     }
-  }, [currentUser, fetchISRRecords]);
+  }, [currentUser, recordToApprove, fetchISRRecords]);
 
-  // Handle reject ISR
-  const handleRejectISR = useCallback(async (record: ISRSubmissionData) => {
+  // Handle reject ISR - open confirmation modal
+  const handleRejectISR = useCallback((record: ISRSubmissionData) => {
     if (!currentUser) {
       showError('Error', 'You must be logged in to reject ISR records');
       return;
     }
+    setRecordToReject(record);
+    setRejectReason('');
+    setRejectModalOpen(true);
+  }, [currentUser]);
 
-    const reason = window.prompt(
-      `Are you sure you want to reject this ISR submission for ${record.className || 'this class'}?\n\nPlease provide a reason (optional):`
-    );
+  // Confirm rejection after modal confirmation
+  const confirmRejectISR = useCallback(async () => {
+    if (!currentUser || !recordToReject) return;
 
-    if (reason === null) return; // User cancelled
-
-    setProcessingRecordId(record.id);
+    setRejectModalOpen(false);
+    setProcessingRecordId(recordToReject.id);
+    
     try {
       const success = await isrService.rejectISR(
-        record.id,
+        recordToReject.id,
         currentUser.uid,
         currentUser.displayName || 'Admin',
-        reason || undefined
+        rejectReason.trim() || undefined
       );
 
       if (success) {
@@ -417,8 +430,10 @@ const ISRManagement: React.FC = () => {
       showError('Error', 'An error occurred while rejecting the ISR submission');
     } finally {
       setProcessingRecordId(null);
+      setRecordToReject(null);
+      setRejectReason('');
     }
-  }, [currentUser, fetchISRRecords]);
+  }, [currentUser, recordToReject, rejectReason, fetchISRRecords]);
 
 
 
@@ -1043,6 +1058,179 @@ const ISRManagement: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Approval Confirmation Modal */}
+      {approvalModalOpen && recordToApprove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-md relative border border-gray-200 shadow-xl">
+            <button
+              className="absolute top-3 right-4 text-gray-400 hover:text-red-500 text-2xl font-bold transition-colors"
+              onClick={() => {
+                setApprovalModalOpen(false);
+                setRecordToApprove(null);
+              }}
+              title="Close"
+            >
+              ×
+            </button>
+            
+            <div className="flex items-center justify-center mb-4">
+              <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center">
+                <CheckCircleIcon className="w-8 h-8 text-emerald-600" />
+              </div>
+            </div>
+            
+            <h2 className="text-2xl font-bold text-gray-900 text-center mb-4">
+              Approve ISR Submission
+            </h2>
+            
+            <p className="text-gray-600 text-center mb-6">
+              Are you sure you want to approve this ISR submission for{' '}
+              <span className="font-semibold text-gray-900">
+                {recordToApprove.className || 'this class'}
+              </span>?
+            </p>
+            
+            <div className="bg-gray-50 rounded-lg p-4 mb-6">
+              <div className="flex justify-between mb-2">
+                <span className="text-gray-600 font-medium">Class:</span>
+                <span className="text-gray-900 font-semibold">{recordToApprove.className || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between mb-2">
+                <span className="text-gray-600 font-medium">Students:</span>
+                <span className="text-gray-900 font-semibold">{recordToApprove.studentCount || 0}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600 font-medium">Teacher:</span>
+                <span className="text-gray-900 font-semibold">{recordToApprove.teacherName || 'N/A'}</span>
+              </div>
+            </div>
+            
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={() => {
+                  setApprovalModalOpen(false);
+                  setRecordToApprove(null);
+                }}
+                className="px-6 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmApproveISR}
+                disabled={processingRecordId === recordToApprove.id}
+                className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {processingRecordId === recordToApprove.id ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircleIcon className="w-5 h-5" />
+                    Approve
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject Confirmation Modal */}
+      {rejectModalOpen && recordToReject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-md relative border border-gray-200 shadow-xl">
+            <button
+              className="absolute top-3 right-4 text-gray-400 hover:text-red-500 text-2xl font-bold transition-colors"
+              onClick={() => {
+                setRejectModalOpen(false);
+                setRecordToReject(null);
+                setRejectReason('');
+              }}
+              title="Close"
+            >
+              ×
+            </button>
+            
+            <div className="flex items-center justify-center mb-4">
+              <div className="w-16 h-16 bg-rose-100 rounded-full flex items-center justify-center">
+                <XCircleIcon className="w-8 h-8 text-rose-600" />
+              </div>
+            </div>
+            
+            <h2 className="text-2xl font-bold text-gray-900 text-center mb-4">
+              Reject ISR Submission
+            </h2>
+            
+            <p className="text-gray-600 text-center mb-6">
+              Are you sure you want to reject this ISR submission for{' '}
+              <span className="font-semibold text-gray-900">
+                {recordToReject.className || 'this class'}
+              </span>?
+            </p>
+            
+            <div className="bg-gray-50 rounded-lg p-4 mb-4">
+              <div className="flex justify-between mb-2">
+                <span className="text-gray-600 font-medium">Class:</span>
+                <span className="text-gray-900 font-semibold">{recordToReject.className || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between mb-2">
+                <span className="text-gray-600 font-medium">Students:</span>
+                <span className="text-gray-900 font-semibold">{recordToReject.studentCount || 0}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600 font-medium">Teacher:</span>
+                <span className="text-gray-900 font-semibold">{recordToReject.teacherName || 'N/A'}</span>
+              </div>
+            </div>
+            
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Please provide a reason (optional):
+              </label>
+              <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Enter rejection reason..."
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-rose-500 focus:border-transparent resize-none"
+                rows={3}
+              />
+            </div>
+            
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={() => {
+                  setRejectModalOpen(false);
+                  setRecordToReject(null);
+                  setRejectReason('');
+                }}
+                className="px-6 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmRejectISR}
+                disabled={processingRecordId === recordToReject.id}
+                className="px-6 py-2 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {processingRecordId === recordToReject.id ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <XCircleIcon className="w-5 h-5" />
+                    Reject
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

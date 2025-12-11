@@ -25,9 +25,15 @@ interface ReadingResult {
   gradeId: string;
   gradeName: string;
   teacherId: string;
+  type?: 'reading-session' | 'test';
   oralReadingScore?: number;
   comprehension?: number;
   readingLevel?: string;
+  book?: string;
+  sessionTitle?: string;
+  elapsedTime?: number;
+  readingTime?: number;
+  duration?: number;
   createdAt: any;
 }
 
@@ -112,47 +118,62 @@ const ProgressPage: React.FC = () => {
     const startOfWeek = new Date(now);
     startOfWeek.setDate(now.getDate() - now.getDay()); // Start of current week
 
+    // Filter to only reading sessions (exclude test results)
+    const readingSessions = readingResults.filter(r => {
+      // If type field exists, use it; otherwise assume it's a reading session if it has oralReadingScore
+      return r.type === 'reading-session' || (r.type !== 'test' && typeof r.oralReadingScore === 'number');
+    });
+
     // Filter results for time periods
-    const thisMonthResults = readingResults.filter(r => {
+    const thisMonthResults = readingSessions.filter(r => {
       const resultDate = new Date((r as any).createdAt?.toDate?.() || (r as any).createdAt);
       return resultDate >= startOfMonth;
     });
 
-    const thisWeekResults = readingResults.filter(r => {
+    const thisWeekResults = readingSessions.filter(r => {
       const resultDate = new Date((r as any).createdAt?.toDate?.() || (r as any).createdAt);
       return resultDate >= startOfWeek;
     });
 
-    // Calculate books read (total sessions)
-    const booksRead = readingResults.length;
+    // Calculate unique books read this month
+    // Use book field if available, otherwise use sessionTitle as fallback
+    const uniqueBooksThisMonth = new Set<string>();
+    thisMonthResults.forEach(r => {
+      const bookName = r.book || r.sessionTitle || '';
+      if (bookName) {
+        uniqueBooksThisMonth.add(bookName.trim());
+      }
+    });
+    const booksRead = uniqueBooksThisMonth.size;
 
     // Calculate total reading time from database (if available) or estimate
-    const totalReadingTime = readingResults.reduce((total, r) => {
+    const totalReadingTime = readingSessions.reduce((total, r) => {
       // Try to get actual reading time from database
-      const sessionTime = (r as any).elapsedTime || (r as any).readingTime || (r as any).duration;
+      const sessionTime = r.elapsedTime || r.readingTime || r.duration;
       if (sessionTime) {
-        // Convert to minutes if it's in seconds
+        // Convert to minutes if it's in seconds (assuming values > 1000 are milliseconds)
         return total + (sessionTime > 1000 ? Math.round(sessionTime / 60) : sessionTime);
       }
       // Fallback: estimate 15 minutes per session
       return total + 15;
     }, 0);
 
-    // Calculate average accuracy from comprehension scores
-    const comprehensionScores = readingResults.filter(r => typeof r.comprehension === 'number');
-    const averageAccuracy = comprehensionScores.length > 0
-      ? Math.round(comprehensionScores.reduce((sum, r) => sum + (r.comprehension || 0), 0) / comprehensionScores.length)
+    // Calculate average accuracy from oral reading scores (not comprehension)
+    // This represents the student's reading accuracy/fluency
+    const oralReadingScores = readingSessions.filter(r => typeof r.oralReadingScore === 'number' && r.oralReadingScore >= 0);
+    const averageAccuracy = oralReadingScores.length > 0
+      ? Math.round(oralReadingScores.reduce((sum, r) => sum + (r.oralReadingScore || 0), 0) / oralReadingScores.length)
       : 0;
 
     // Get current reading level from selected child data
     const currentLevel = selectedChildData?.readingLevel || 'Beginner';
 
-    // Sessions this month
+    // Sessions this month (for reference, but we use unique books for display)
     const sessionsThisMonth = thisMonthResults.length;
 
     // Minutes this week
     const minutesThisWeek = thisWeekResults.reduce((total, r) => {
-      const sessionTime = (r as any).elapsedTime || (r as any).readingTime || (r as any).duration;
+      const sessionTime = r.elapsedTime || r.readingTime || r.duration;
       if (sessionTime) {
         return total + (sessionTime > 1000 ? Math.round(sessionTime / 60) : sessionTime);
       }
@@ -253,36 +274,6 @@ const ProgressPage: React.FC = () => {
 
         </div>
       </div>
-
-      {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="rounded-2xl p-4 bg-white border border-gray-100 shadow-sm">
-          <div className="flex items-center gap-2 mb-1">
-            <BookOpenIcon className="w-4 h-4 text-blue-600" />
-            <div className="text-xs text-gray-500">Books Read</div>
-          </div>
-          <div className="text-2xl font-extrabold text-blue-700">{metrics.sessionsThisMonth}</div>
-          <div className="text-xs text-gray-500 mt-1">This month</div>
-        </div>
-        <div className="rounded-2xl p-4 bg-white border border-gray-100 shadow-sm">
-          <div className="flex items-center gap-2 mb-1">
-            <ClockIcon className="w-4 h-4 text-green-600" />
-            <div className="text-xs text-gray-500">Reading Time</div>
-          </div>
-          <div className="text-2xl font-extrabold text-green-700">{metrics.minutesThisWeek}</div>
-          <div className="text-xs text-gray-500 mt-1">Minutes this week</div>
-        </div>
-        <div className="rounded-2xl p-4 bg-white border border-gray-100 shadow-sm">
-          <div className="flex items-center gap-2 mb-1">
-            <ChartBarIcon className="w-4 h-4 text-purple-600" />
-            <div className="text-xs text-gray-500">Progress</div>
-          </div>
-          <div className="text-2xl font-extrabold text-purple-700">{metrics.averageAccuracy}%</div>
-          <div className="text-xs text-gray-500 mt-1">Average accuracy</div>
-        </div>
-      </div>
-
-
 
       {/* Performance Charts for All Children */}
       <div className="grid grid-cols-1 gap-6">

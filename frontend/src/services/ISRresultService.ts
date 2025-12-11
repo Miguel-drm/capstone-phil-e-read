@@ -408,35 +408,16 @@ export const isrResultService = {
   /**
    * Sync/rebuild ISR review record from all ISR results for a student
    * This ensures the review record has all calculated data from existing ISR results
+   * Note: This uses the GET endpoint with sync=true query parameter, not a separate POST endpoint
    */
   async syncISRReviewRecord(studentId: string): Promise<ISRReviewRecord> {
     if (!studentId) {
       throw new Error('Student ID is required for sync');
     }
 
-    try {
-      const response = await fetch(`${API_BASE}/api/isr-review-records/student/${studentId}/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to sync ISR review record');
-      }
-      
-      const data = await response.json();
-      console.log('✅ ISR Review Record synced:', {
-        studentId,
-        processedResults: data.processedResults,
-        entriesCount: data.record?.entries?.length || 0
-      });
-      
-      return normalizeReviewRecord(data.record || data);
-    } catch (error) {
-      console.error('Error syncing ISR review record:', error);
-      throw error;
-    }
+    // Use the GET endpoint with sync=true instead of a non-existent POST endpoint
+    // This is the correct way to sync according to the backend API
+    return this.getISRReviewRecord(studentId, true);
   },
 };
 

@@ -40,6 +40,19 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
   const [shareOpen, setShareOpen] = useState(false);
   const [shareStudent, setShareStudent] = useState<Student | null>(null);
   const [parentEmail, setParentEmail] = useState('');
+  const [shareISRData, setShareISRData] = useState<any>(null);
+  const [loadingShareISR, setLoadingShareISR] = useState(false);
+
+  // Class ISR submission modal state
+  const [submissionModalOpen, setSubmissionModalOpen] = useState(false);
+  const [submissionResult, setSubmissionResult] = useState<{
+    success: boolean;
+    className?: string;
+    studentCount?: number;
+    teacherName?: string;
+    notificationId?: string;
+    error?: string;
+  } | null>(null);
 
   // Collapsible class state
   const [collapsedClasses, setCollapsedClasses] = useState<Set<string>>(new Set());
@@ -596,31 +609,30 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
             return levelMap[level] || level;
           };
 
-          // Sort by date taken (most recent first) and then by level
+          // Sort by date taken (oldest first) to determine levelStarted correctly
+          // The earliest assessment determines where the student started
           const sortedEntries = calculatedEntries.sort((a, b) => {
             const dateA = new Date(a.calculatedEntry.dateTaken).getTime();
             const dateB = new Date(b.calculatedEntry.dateTaken).getTime();
-            return dateB - dateA; // Most recent first
+            return dateA - dateB; // Oldest first (earliest assessment first)
           });
 
-          // Get the first ISR result for student info
-          const firstResult = sortedEntries[0].isrResult;
+          // Get the latest ISR result for student info (most recent metadata)
+          const latestResult = sortedEntries[sortedEntries.length - 1].isrResult;
+          // Get the earliest entry for levelStarted (first assessment)
+          const firstEntry = sortedEntries[0].calculatedEntry;
           
           // Get teacher profile information
-          let teacherName = firstResult.teacherName || 'Current Teacher';
-          let schoolName = firstResult.school || 'Phil I-Ready School';
+          let teacherName = latestResult.teacherName || 'Current Teacher';
+          let schoolName = latestResult.school || 'Phil I-Ready School';
 
           try {
             const profile = await getUserProfile();
-            teacherName = firstResult.teacherName || profile?.displayName || profile?.email || 'Current Teacher';
-            schoolName = firstResult.school || profile?.school || 'Phil I-Ready School';
+            teacherName = latestResult.teacherName || profile?.displayName || profile?.email || 'Current Teacher';
+            schoolName = latestResult.school || profile?.school || 'Phil I-Ready School';
           } catch (error) {
             console.log('Could not fetch teacher profile:', error);
           }
-
-          // Get the first entry for observations and level started
-          const firstEntry = sortedEntries[0].calculatedEntry;
-          const firstISRResult = sortedEntries[0].isrResult;
 
           // Get student's grade level in Roman numeral format
           const convertGradeToRomanLevel = (grade: any): string => {
@@ -649,9 +661,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
             return 'K';
           };
 
-          // Determine student's grade level strictly from the class list grade
-          // (e.g., "Grade 3 - LOKO" → "III") so Level Started always aligns
-          // with the grade where the student is currently enrolled.
+          // Determine student's grade level for reference
           const studentGradeLevel = convertGradeToRomanLevel(student.grade);
           
           // Build reading data from ALL ISR entries for this student so the ISR
@@ -880,27 +890,44 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
             ? 'Filipino' 
             : 'English';
 
-          // Set levelStarted to the student's grade level (where they should be assessed)
+          // Set levelStarted to the student's current grade level
+          // Grade 3 → Level III, Grade 4 → Level IV, etc.
+          // The asterisk should mark where the student is currently enrolled
           const levelStarted = studentGradeLevel;
 
-          // Get the entry for observations (use the first entry from filtered grade-level data)
-          const observationEntry = readingData.length > 0 
-            ? sortedEntries.find((result) => {
-                const entry = result.calculatedEntry;
-                const romanLevel = convertLevelToRoman(entry.level);
-                return romanLevel === studentGradeLevel;
-              })?.calculatedEntry || firstEntry
+          // Align reading data to the student's grade level (where the asterisk is)
+          // Take the most recent reading data entry and display it on the student's grade level row
+          // Sort by date to get the most recent entry (reverse the oldest-first sort)
+          const sortedByDateNewest = [...readingData].sort((a, b) => {
+            if (!a.dateTaken && !b.dateTaken) return 0;
+            if (!a.dateTaken) return 1;
+            if (!b.dateTaken) return -1;
+            const dateA = new Date(a.dateTaken).getTime();
+            const dateB = new Date(b.dateTaken).getTime();
+            return dateB - dateA; // Newest first
+          });
+          
+          const alignedReadingData = sortedByDateNewest.length > 0
+            ? [{
+                ...sortedByDateNewest[0], // Take the most recent entry
+                level: levelStarted // Change the level to match student's grade level
+              }]
+            : [];
+
+          // Get the entry for observations (use the most recent entry)
+          const observationEntry = sortedEntries.length > 0 
+            ? sortedEntries[sortedEntries.length - 1].calculatedEntry
             : firstEntry;
 
           const finalData = {
-            studentName: firstISRResult.studentName?.replace(/\|/g, ' ') || student.name?.replace(/\|/g, ' ') || '',
+            studentName: latestResult.studentName?.replace(/\|/g, ' ') || student.name?.replace(/\|/g, ' ') || '',
             age: student.age?.toString() || '',
-            gradeSection: firstISRResult.gradeSection || student.grade || '',
+            gradeSection: latestResult.gradeSection || student.grade || '',
             school: schoolName,
             teacher: teacherName,
             language: storyLanguage,
             levelStarted: levelStarted, // Mark the student's grade level as started
-            readingData: readingData,
+            readingData: alignedReadingData,
             observations: {
               wordByWord: false,
               lacksExpression: observationEntry.classification.wordReadingLevel === 'Frustration',
@@ -931,19 +958,11 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
 
     // Fallback: Fetch aggregated ISR review record from backend (fresh fetch with auto-sync)
     console.log('🔄 Fetching ISR review record from backend...');
-    // Always sync to ensure all ISR results are processed and calculated correctly
+    // Use sync=true query parameter (not a separate POST endpoint)
     let reviewRecord: any;
     try {
-      // First, try to sync/rebuild the review record from all ISR results
-      // This ensures all calculations are up-to-date
-      try {
-        await isrResultService.syncISRReviewRecord(student.id || '');
-        console.log('✅ ISR review record synced from all ISR results');
-      } catch (syncError) {
-        console.warn('⚠️ Manual sync failed, will use auto-sync on fetch:', syncError);
-      }
-      
       // Fetch with sync=true to rebuild from all ISR results
+      // The sync is handled via query parameter, not a separate POST endpoint
       reviewRecord = await isrResultService.getISRReviewRecord(student.id || '', true);
       console.log('✅ ISR review record fetched (synced):', {
         hasEntries: reviewRecord.entries?.length > 0,
@@ -965,12 +984,22 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     } catch (syncError) {
       console.warn('⚠️ Sync fetch failed, trying regular fetch:', syncError);
       // Fallback to regular fetch if sync fails
-      reviewRecord = await isrResultService.getISRReviewRecord(student.id || '', false);
-      console.log('✅ ISR review record fetched (regular):', {
-        hasEntries: reviewRecord.entries?.length > 0,
-        entryCount: reviewRecord.entries?.length || 0,
-        levelStarted: reviewRecord.levelStarted
-      });
+      try {
+        reviewRecord = await isrResultService.getISRReviewRecord(student.id || '', false);
+        console.log('✅ ISR review record fetched (regular):', {
+          hasEntries: reviewRecord.entries?.length > 0,
+          entryCount: reviewRecord.entries?.length || 0,
+          levelStarted: reviewRecord.levelStarted
+        });
+      } catch (fetchError) {
+        console.error('❌ Failed to fetch ISR review record:', fetchError);
+        // Return empty record structure
+        reviewRecord = {
+          entries: [],
+          levelStarted: '',
+          languages: { english: false, filipino: false }
+        };
+      }
     }
 
     // Determine language flags but default to English
@@ -1024,8 +1053,30 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     const studentLevel = convertGradeToRomanLevel(student.grade);
 
     // Map entries and ensure all fields are properly formatted.
-    // Include all entries so we never drop ISR data due to unexpected shapes.
-    const readingDataFromRecord = (reviewRecord.entries || [])
+    // Filter out entries that don't have valid data before processing
+    const validEntries = (reviewRecord.entries || []).filter((entry: any) => {
+      // Only include entries that have:
+      // 1. A valid level
+      // 2. At least one wordReading flag OR one comprehension flag
+      // 3. OR a dateTaken
+      const hasLevel = entry.level && entry.level !== '' && entry.level !== 'N/A';
+      const hasWordReading = entry.wordReading && (
+        entry.wordReading.ind === true || 
+        entry.wordReading.ins === true || 
+        entry.wordReading.frus === true
+      );
+      const hasComprehension = entry.comprehension && (
+        entry.comprehension.ind === true || 
+        entry.comprehension.ins === true || 
+        entry.comprehension.frus === true
+      );
+      const hasDate = entry.dateTaken;
+      
+      return hasLevel && (hasWordReading || hasComprehension || hasDate);
+    });
+    
+    // Map valid entries to reading data format
+    const readingDataFromRecord = validEntries
       .map((entry: any) => {
         // CRITICAL: Use flags directly from review record (100% database-dependent)
         // The review record is built from ISR results in MongoDB, so these values come from the database
@@ -1037,8 +1088,8 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
         
         // Ensure at least one flag is set (should always be true from database, but verify)
         if (!wordReading.ind && !wordReading.ins && !wordReading.frus) {
-          console.warn('⚠️ Review record entry has no wordReading flags set:', entry);
-          wordReading.frus = true; // Default fallback
+          // If no flags are set, default to Frustration
+          wordReading.frus = true;
         }
         
         let comprehension = {
@@ -1049,13 +1100,13 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
         
         // Ensure at least one flag is set (should always be true from database, but verify)
         if (!comprehension.ind && !comprehension.ins && !comprehension.frus) {
-          console.warn('⚠️ Review record entry has no comprehension flags set:', entry);
-          comprehension.frus = true; // Default fallback
+          // If no flags are set, default to Frustration
+          comprehension.frus = true;
         }
         
         // Debug: Log the entry being processed from review record
         console.log('🔍 Processing review record entry (100% database-dependent):', {
-        level: entry.level,
+          level: entry.level,
           set: entry.set,
           wordReading: wordReading,
           comprehension: comprehension,
@@ -1093,15 +1144,29 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
         return 0;
       });
     
-    // Level Started should align with the student's grade level (e.g., Grade 3 → III)
-    // so we always use the converted grade level here.
+    // Level Started should be the student's current grade level
+    // Grade 3 → Level III, Grade 4 → Level IV, etc.
+    // The asterisk should mark where the student is currently enrolled
     const actualLevelStarted = studentLevel;
 
-    // Align ISR table with the Level Started row: only keep data for that level.
-    const alignedReadingData =
-      actualLevelStarted && readingDataFromRecord.length > 0
-        ? readingDataFromRecord.filter((e: any) => e.level === actualLevelStarted)
-        : readingDataFromRecord;
+    // Align reading data to the student's grade level (where the asterisk is)
+    // Take the most recent reading data entry and display it on the student's grade level row
+    // Sort by date to get the most recent entry (reverse the oldest-first sort)
+    const sortedByDateNewest = [...readingDataFromRecord].sort((a, b) => {
+      if (!a.dateTaken && !b.dateTaken) return 0;
+      if (!a.dateTaken) return 1;
+      if (!b.dateTaken) return -1;
+      const dateA = new Date(a.dateTaken).getTime();
+      const dateB = new Date(b.dateTaken).getTime();
+      return dateB - dateA; // Newest first
+    });
+    
+    const alignedReadingData = sortedByDateNewest.length > 0
+      ? [{
+          ...sortedByDateNewest[0], // Take the most recent entry
+          level: actualLevelStarted // Change the level to match student's grade level
+        }]
+      : [];
     
     // Debug: Log the final ISR data
     console.log('📋 Final ISR data prepared:', {
@@ -1135,16 +1200,29 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     };
   };
 
-  const handleOpenShare = (student: Student) => {
+  const handleOpenShare = async (student: Student) => {
     setShareStudent(student);
     setShareOpen(true);
     setIsHeaderDarkened?.(true);
+    setLoadingShareISR(true);
+    setShareISRData(null);
+    
+    // Load ISR data for the email
+    try {
+      const isrData = await getISRDataAsync(student);
+      setShareISRData(isrData);
+    } catch (error) {
+      console.error('Error loading ISR data for share:', error);
+    } finally {
+      setLoadingShareISR(false);
+    }
   };
 
   const handleCloseShare = () => {
     setShareOpen(false);
     setShareStudent(null);
     setParentEmail('');
+    setShareISRData(null);
     setIsHeaderDarkened?.(false);
   };
 
@@ -1166,35 +1244,93 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     const to = encodeURIComponent(parentEmail.trim());
     const subject = encodeURIComponent(`ISR Report for ${shareStudent?.name || ''}`);
     const lines: string[] = [];
+    
     if (shareStudent) {
-      lines.push(`Individual Summary Record (ISR) for ${shareStudent.name}`);
-      lines.push(`Grade: ${shareStudent.grade || 'N/A'}`);
-      lines.push(`Reading Level: ${shareStudent.readingLevel || 'N/A'}`);
-    }
-    if (latestReadingForShare) {
+      lines.push(`Individual Summary Record (ISR) for ${shareStudent.name?.replace(/\|/g, ' ') || ''}`);
       lines.push('');
-      lines.push('Latest Reading Assessment:');
-      if (latestReadingForShare.sessionTitle) lines.push(`- Session: ${latestReadingForShare.sessionTitle}`);
-      if (latestReadingForShare.book) lines.push(`- Story: ${latestReadingForShare.book}`);
-      if (latestReadingForShare.wordsRead != null) lines.push(`- Words Read: ${latestReadingForShare.wordsRead}`);
-      if (latestReadingForShare.miscues != null) lines.push(`- Miscues: ${latestReadingForShare.miscues}`);
-      if (latestReadingForShare.oralReadingScore != null) lines.push(`- Oral Reading Score: ${latestReadingForShare.oralReadingScore}%`);
-      if (latestReadingForShare.readingSpeed != null) lines.push(`- Speed: ${latestReadingForShare.readingSpeed} WPM`);
-      if (latestReadingForShare.createdAt) lines.push(`- Date: ${new Date(latestReadingForShare.createdAt).toLocaleString()}`);
+      lines.push('STUDENT INFORMATION:');
+      lines.push(`Name: ${shareStudent.name?.replace(/\|/g, ' ') || 'N/A'}`);
+      lines.push(`Age: ${shareStudent.age || 'N/A'}`);
+      lines.push(`Grade/Section: ${shareStudent.grade || 'N/A'}`);
     }
-    if (latestTestForShare) {
+    
+    // Use ISR data if available, otherwise fall back to old data
+    if (shareISRData) {
       lines.push('');
-      lines.push('Latest Comprehension Assessment:');
-      if (latestTestForShare.testName) lines.push(`- Test: ${latestTestForShare.testName}`);
-      if (latestTestForShare.score != null) lines.push(`- Score: ${latestTestForShare.score}`);
-      if (latestTestForShare.comprehension != null) lines.push(`- Comprehension: ${latestTestForShare.comprehension}%`);
-      if (latestTestForShare.correctAnswers != null && latestTestForShare.totalQuestions != null) lines.push(`- Correct: ${latestTestForShare.correctAnswers}/${latestTestForShare.totalQuestions}`);
-      if (latestTestForShare.createdAt) lines.push(`- Date: ${new Date(latestTestForShare.createdAt).toLocaleString()}`);
+      lines.push('SCHOOL INFORMATION:');
+      lines.push(`School: ${shareISRData.school || 'N/A'}`);
+      lines.push(`Teacher: ${shareISRData.teacher || 'N/A'}`);
+      lines.push(`Language: ${shareISRData.language || 'N/A'}`);
+      lines.push(`Level Started: ${shareISRData.levelStarted || 'N/A'}`);
+      
+      if (shareISRData.readingData && shareISRData.readingData.length > 0) {
+        lines.push('');
+        lines.push('READING ASSESSMENT DATA:');
+        shareISRData.readingData.forEach((entry: any, index: number) => {
+          lines.push(`\nAssessment ${index + 1}:`);
+          lines.push(`  Level: ${entry.level || 'N/A'}`);
+          lines.push(`  Set: ${entry.set || 'N/A'}`);
+          lines.push(`  Date: ${entry.dateTaken || 'N/A'}`);
+          
+          // Word Reading Level
+          let wordReadingLevel = 'N/A';
+          if (entry.wordReading?.ind) wordReadingLevel = 'Independent';
+          else if (entry.wordReading?.ins) wordReadingLevel = 'Instructional';
+          else if (entry.wordReading?.frus) wordReadingLevel = 'Frustration';
+          lines.push(`  Word Reading Level: ${wordReadingLevel}`);
+          
+          // Comprehension Level
+          let comprehensionLevel = 'N/A';
+          if (entry.comprehension?.ind) comprehensionLevel = 'Independent';
+          else if (entry.comprehension?.ins) comprehensionLevel = 'Instructional';
+          else if (entry.comprehension?.frus) comprehensionLevel = 'Frustration';
+          lines.push(`  Comprehension Level: ${comprehensionLevel}`);
+        });
+      }
+      
+      if (shareISRData.observations) {
+        lines.push('');
+        lines.push('OBSERVATIONS:');
+        const obs = shareISRData.observations;
+        if (obs.wordByWord) lines.push('- Reads word by word');
+        if (obs.lacksExpression) lines.push('- Lacks expression');
+        if (obs.hardlyAudible) lines.push('- Hardly audible');
+        if (obs.disregardsPunctuation) lines.push('- Disregards punctuation');
+        if (obs.pointsToWords) lines.push('- Points to words while reading');
+        if (obs.littleAnalysis) lines.push('- Shows little analysis');
+        if (obs.otherObservations) {
+          lines.push(`Additional Notes: ${obs.otherObservations}`);
+        }
+      }
+    } else {
+      // Fallback to old data if ISR data not loaded yet
+      if (latestReadingForShare) {
+        lines.push('');
+        lines.push('Latest Reading Assessment:');
+        if (latestReadingForShare.sessionTitle) lines.push(`- Session: ${latestReadingForShare.sessionTitle}`);
+        if (latestReadingForShare.book) lines.push(`- Story: ${latestReadingForShare.book}`);
+        if (latestReadingForShare.wordsRead != null) lines.push(`- Words Read: ${latestReadingForShare.wordsRead}`);
+        if (latestReadingForShare.miscues != null) lines.push(`- Miscues: ${latestReadingForShare.miscues}`);
+        if (latestReadingForShare.oralReadingScore != null) lines.push(`- Oral Reading Score: ${latestReadingForShare.oralReadingScore}%`);
+        if (latestReadingForShare.readingSpeed != null) lines.push(`- Speed: ${latestReadingForShare.readingSpeed} WPM`);
+        if (latestReadingForShare.createdAt) lines.push(`- Date: ${new Date(latestReadingForShare.createdAt).toLocaleString()}`);
+      }
+      if (latestTestForShare) {
+        lines.push('');
+        lines.push('Latest Comprehension Assessment:');
+        if (latestTestForShare.testName) lines.push(`- Test: ${latestTestForShare.testName}`);
+        if (latestTestForShare.score != null) lines.push(`- Score: ${latestTestForShare.score}`);
+        if (latestTestForShare.comprehension != null) lines.push(`- Comprehension: ${latestTestForShare.comprehension}%`);
+        if (latestTestForShare.correctAnswers != null && latestTestForShare.totalQuestions != null) lines.push(`- Correct: ${latestTestForShare.correctAnswers}/${latestTestForShare.totalQuestions}`);
+        if (latestTestForShare.createdAt) lines.push(`- Date: ${new Date(latestTestForShare.createdAt).toLocaleString()}`);
+      }
     }
-    lines.push('', 'Please contact me if you have any questions about your child\'s reading progress.');
+    
+    lines.push('');
+    lines.push('Please contact me if you have any questions about your child\'s reading progress.');
     const body = encodeURIComponent(lines.join('\n'));
     return `mailto:${to}?subject=${subject}&body=${body}`;
-  }, [parentEmail, shareStudent, latestReadingForShare, latestTestForShare]);
+  }, [parentEmail, shareStudent, shareISRData, latestReadingForShare, latestTestForShare]);
 
   // Toggle class collapse/expand
   const toggleClassCollapse = (className: string) => {
@@ -1415,13 +1551,31 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                                             );
                                             
                                             if (notificationId) {
-                                              alert(`✅ Successfully submitted ISR reports to admin!\n\nDetails:\n- Class: ${className}\n- Students: ${classStudents.length}\n- Teacher: ${teacherName}\n- Notification ID: ${notificationId}`);
+                                              setSubmissionResult({
+                                                success: true,
+                                                className,
+                                                studentCount: classStudents.length,
+                                                teacherName,
+                                                notificationId
+                                              });
+                                              setSubmissionModalOpen(true);
+                                              setIsHeaderDarkened?.(true);
                                             } else {
-                                              alert('❌ Failed to submit ISR to admin. Please try again.');
+                                              setSubmissionResult({
+                                                success: false,
+                                                error: 'Failed to submit ISR to admin. Please try again.'
+                                              });
+                                              setSubmissionModalOpen(true);
+                                              setIsHeaderDarkened?.(true);
                                             }
                                           } catch (error) {
                                             console.error('Error submitting ISR to admin:', error);
-                                            alert('❌ Error submitting ISR to admin. Please check console for details.');
+                                            setSubmissionResult({
+                                              success: false,
+                                              error: error instanceof Error ? error.message : 'Error submitting ISR to admin. Please check console for details.'
+                                            });
+                                            setSubmissionModalOpen(true);
+                                            setIsHeaderDarkened?.(true);
                                           }
                                         }
                                       }}
@@ -1614,6 +1768,97 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
         </div>
       )}
 
+      {/* Class ISR Submission Modal */}
+      {submissionModalOpen && submissionResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-lg relative border border-gray-200 shadow-xl">
+            <button
+              className="absolute top-3 right-4 text-gray-400 hover:text-red-500 text-2xl font-bold transition-colors"
+              onClick={() => {
+                setSubmissionModalOpen(false);
+                setSubmissionResult(null);
+                setIsHeaderDarkened?.(false);
+              }}
+              title="Close"
+            >
+              ×
+            </button>
+            
+            {submissionResult.success ? (
+              <>
+                <div className="flex items-center justify-center mb-4">
+                  <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
+                    <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                </div>
+                <h2 className="text-2xl font-bold text-gray-900 text-center mb-4">
+                  Successfully Submitted!
+                </h2>
+                <p className="text-gray-600 text-center mb-6">
+                  ISR reports have been successfully submitted to admin for review.
+                </p>
+                <div className="bg-gray-50 rounded-lg p-4 mb-6 space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 font-medium">Class:</span>
+                    <span className="text-gray-900 font-semibold">{submissionResult.className}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 font-medium">Students:</span>
+                    <span className="text-gray-900 font-semibold">{submissionResult.studentCount}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 font-medium">Teacher:</span>
+                    <span className="text-gray-900 font-semibold">{submissionResult.teacherName}</span>
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => {
+                      setSubmissionModalOpen(false);
+                      setSubmissionResult(null);
+                      setIsHeaderDarkened?.(false);
+                    }}
+                    className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-colors"
+                  >
+                    OK
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-center mb-4">
+                  <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
+                    <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </div>
+                </div>
+                <h2 className="text-2xl font-bold text-gray-900 text-center mb-4">
+                  Submission Failed
+                </h2>
+                <p className="text-gray-600 text-center mb-6">
+                  {submissionResult.error || 'An error occurred while submitting the ISR reports.'}
+                </p>
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => {
+                      setSubmissionModalOpen(false);
+                      setSubmissionResult(null);
+                      setIsHeaderDarkened?.(false);
+                    }}
+                    className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-colors"
+                  >
+                    OK
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Share to Parent Modal */}
       {shareOpen && shareStudent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
@@ -1626,37 +1871,49 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
               ×
             </button>
             <h2 className="text-xl font-extrabold mb-4 text-gray-900 tracking-tight">Share ISR Report to Parent</h2>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Parent email</label>
-                <input
-                  type="email"
-                  value={parentEmail}
-                  onChange={(e) => setParentEmail(e.target.value)}
-                  placeholder="parent@example.com"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
+            {loadingShareISR ? (
+              <div className="flex items-center justify-center py-8">
+                <TeacherLoader label="Loading ISR data..." />
               </div>
-              <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-900">
-                This will open your email client with a pre-filled ISR summary for {shareStudent.name}.
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Parent email</label>
+                  <input
+                    type="email"
+                    value={parentEmail}
+                    onChange={(e) => setParentEmail(e.target.value)}
+                    placeholder="parent@example.com"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-900">
+                  This will open your email client with a pre-filled ISR summary for {shareStudent?.name?.replace(/\|/g, ' ') || 'this student'}.
+                </div>
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  <button
+                    onClick={handleCloseShare}
+                    className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <a
+                    href={shareMailtoHref}
+                    onClick={(e) => {
+                      if (!parentEmail.trim()) {
+                        e.preventDefault();
+                        return;
+                      }
+                      handleCloseShare();
+                    }}
+                    className={`px-4 py-2 rounded-lg text-white font-medium transition-colors ${parentEmail.trim() ? 'bg-blue-600 hover:bg-blue-700 cursor-pointer' : 'bg-gray-400 cursor-not-allowed'}`}
+                    aria-disabled={!parentEmail.trim()}
+                  >
+                    Open Email
+                  </a>
+                </div>
               </div>
-              <div className="flex items-center justify-end gap-3 pt-2">
-                <button
-                  onClick={handleCloseShare}
-                  className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <a
-                  href={shareMailtoHref}
-                  onClick={handleCloseShare}
-                  className={`px-4 py-2 rounded-lg text-white ${parentEmail.trim() ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-400 cursor-not-allowed'}`}
-                  aria-disabled={!parentEmail.trim()}
-                >
-                  Open Email
-                </a>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       )}

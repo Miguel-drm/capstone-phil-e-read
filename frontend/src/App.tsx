@@ -22,6 +22,7 @@ import Reading from './pages/teacher/Reading';
 import ClassList from './pages/teacher/ClassList';
 import Profile from './pages/teacher/Profile';
 import ReadingSessionPage from './pages/teacher/ReadingSessionPage';
+import TeacherNotifications from './pages/teacher/Notifications';
 
 // Student Pages
 import StudentTestPage from './pages/student/StudentTestPage';
@@ -98,7 +99,7 @@ const App: React.FC = () => {
                     <Route path="dashboard" element={<TeacherDashboardPage />} />
                     <Route path="reading" element={<Reading />} />
                     <Route path="class-list" element={<ClassList />} />
-
+                    <Route path="notifications" element={<TeacherNotifications />} />
                     <Route path="reports" element={<TeacherReports />} />
                     <Route path="profile/*" element={<Profile />} />
                   </Routes>
