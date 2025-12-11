@@ -18,6 +18,16 @@ export type StudentInfo = {
   name: string; // Student name
 };
 
+export type MiscueType = 'mispronunciation' | 'omission' | 'substitution' | 'insertion' | 'repetition' | 'transposition' | 'reversal' | 'selfCorrection';
+
+export type WordMarking = {
+  type: MiscueType;
+  marking: string;
+  spokenWord?: string;
+  correctWord: string;
+  wrongWord?: string;
+};
+
 export type ReadingSession = {
   pdfPublicId: any;
   id?: string;
@@ -31,6 +41,19 @@ export type ReadingSession = {
   completedAt?: Date;
   currentWordIndex?: number;
   storyUrl: string;
+  
+  // Reading session results (saved when completed)
+  wordsRead?: number;
+  totalMiscues?: number;
+  elapsedTime?: number;
+  readingSpeedWPM?: number;
+  oralReadingScore?: number;
+  recognizedWords?: number[]; // Array of word indices that were read correctly
+  wordMiscues?: Record<number, MiscueType>; // Map of word index to miscue type
+  wordMarkings?: Record<number, WordMarking>; // Map of word index to marking details
+  insertedWords?: Record<number, string[]>; // Map of word index to inserted words
+  transcript?: string; // Full transcript of what was spoken
+  audioUrl?: string; // URL to recorded audio (if saved)
 };
 
 export const readingSessionService = {
