@@ -147,8 +147,7 @@ const ReportsPage: React.FC = () => {
       setSentBanner('Your report has been sent to the teacher! 📩');
       setTimeout(()=> setSentBanner(null), 3000);
       setMessage('');
-    } catch (e) {
-      console.error('Error sending report:', e);
+    } catch {
       setSentBanner('Oops! Something went wrong. Please try sending again.');
       setTimeout(()=> setSentBanner(null), 3000);
     } finally {
@@ -184,8 +183,7 @@ const ReportsPage: React.FC = () => {
         setTeacherName('');
       }
       setIsLoadingTeacher(false);
-    }, (error) => {
-      console.warn('Error fetching teacher data:', error);
+    }, () => {
       setTeacherEmail('');
       setTeacherName('');
       setIsLoadingTeacher(false);
@@ -228,8 +226,7 @@ const ReportsPage: React.FC = () => {
       
       setSavedReports(items);
       setIsLoadingSaved(false);
-    }, (error) => {
-      console.error('Error loading message history:', error);
+    }, () => {
       setSavedReports([]); 
       setIsLoadingSaved(false);
     });

@@ -118,8 +118,7 @@ const ProgressPage: React.FC = () => {
           // Add new results
           return [...others, ...results];
         });
-      }, (error) => {
-        console.error('Error fetching reading results:', error);
+      }, () => {
         // Remove results for this child on error
         setReadingResults((prev) => prev.filter(r => r.studentId !== childId));
       });
@@ -162,8 +161,7 @@ const ProgressPage: React.FC = () => {
       });
 
       setSharedISRReports(sortedReports);
-    }, (error) => {
-      console.error('Error fetching shared ISR reports:', error);
+    }, () => {
       setSharedISRReports([]);
     });
 
@@ -175,8 +173,8 @@ const ProgressPage: React.FC = () => {
       await updateDoc(doc(db, 'sharedISRReports', reportId), {
         isRead: true
       });
-    } catch (error) {
-      console.error('Error marking ISR as read:', error);
+    } catch {
+      // Silently fail - not critical if marking as read fails
     }
   };
 

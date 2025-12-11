@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import type { UserRole } from '../../services/authService';
 import DashboardIcon from '@mui/icons-material/Dashboard';
@@ -14,6 +14,7 @@ import PersonIcon from '@mui/icons-material/Person';
 import MicIcon from '@mui/icons-material/Mic';
 import MonitorIcon from '@mui/icons-material/Monitor';
 import Tooltip from '@mui/material/Tooltip';
+import gsap from 'gsap';
 
 interface SidebarProps {
   userRole: UserRole | null;
@@ -56,6 +57,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   onToggleCollapse
 }) => {
   const location = useLocation();
+  const navRef = useRef<HTMLUListElement>(null);
+  const previousPathRef = useRef<string>(location.pathname);
+  const previousIndexRef = useRef<number>(-1);
 
   const isActive = (path: string) => {
     return location.pathname === path || location.pathname.startsWith(path + '/');
@@ -117,6 +121,65 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
+  // GSAP smooth slide up/down transition for active item only
+  useEffect(() => {
+    if (previousPathRef.current !== location.pathname && !isCollapsed) {
+      const ctx = gsap.context(() => {
+        // Find current active item index
+        const allItems = Array.from(document.querySelectorAll('.sidebar-nav-item'));
+        const activeItem = document.querySelector('.sidebar-nav-item.active');
+        const currentIndex = allItems.indexOf(activeItem as Element);
+        
+        // Determine direction: down (positive) or up (negative)
+        const direction = currentIndex > previousIndexRef.current ? 1 : -1;
+        const slideDistance = 30;
+
+        if (activeItem) {
+          // Smooth slide animation ONLY on the active item
+          gsap.fromTo(activeItem,
+            { 
+              y: -direction * slideDistance,
+              opacity: 0,
+              scale: 0.95
+            },
+            { 
+              y: 0,
+              opacity: 1,
+              scale: 1,
+              duration: 0.6,
+              ease: 'power3.out',
+              clearProps: 'y,opacity,scale'
+            }
+          );
+
+          // Icon animation with smooth bounce
+          const activeIcon = activeItem.querySelector('.sidebar-nav-icon');
+          if (activeIcon) {
+            gsap.fromTo(activeIcon,
+              { 
+                scale: 0.7,
+                rotation: direction * 10
+              },
+              { 
+                scale: 1, 
+                rotation: 0,
+                duration: 0.7,
+                ease: 'elastic.out(1, 0.6)',
+                clearProps: 'scale,rotation'
+              }
+            );
+          }
+        }
+
+        // Update refs
+        previousIndexRef.current = currentIndex;
+      });
+
+      previousPathRef.current = location.pathname;
+      return () => ctx.revert();
+    }
+  }, [location.pathname, isCollapsed]);
+
   const sidebarClasses = `
     fixed top-0 left-0 z-[60] h-screen
     transition-all duration-300 ease-in-out overflow-x-hidden
@@ -139,7 +202,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         <>
           {/* Logo Section */}
           <div className="p-4 flex items-center justify-between border-b border-gray-600 bg-gradient-to-r from-[#1A2530] to-[#2C3E50]">
-            <div className={`font-bold transition-all duration-300 ${isCollapsed ? 'opacity-0 w-0' : 'opacity-100'}`}>
+            <div className={`sidebar-logo font-bold transition-all duration-300 ${isCollapsed ? 'opacity-0 w-0' : 'opacity-100'}`}>
               <div className="text-lg md:text-xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
                 Phil I-Ready
               </div>
@@ -154,8 +217,9 @@ const Sidebar: React.FC<SidebarProps> = ({
           </div>
           {/* Navigation Menu */}
           <nav className="flex-1 overflow-y-auto py-4 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent z-1000">
-            <ul className="space-y-1 px-2">
+            <ul ref={navRef} className="space-y-1 px-2">
               {navItems.map((item) => {
+                const active = isActive(item.path);
                 return (
                   <li key={item.path} className="relative group">
                     <Tooltip title={item.label} placement="right" arrow disableInteractive>
@@ -163,15 +227,16 @@ const Sidebar: React.FC<SidebarProps> = ({
                         to={item.path}
                         onClick={handleMenuClick}
                         className={`
+                          sidebar-nav-item ${active ? 'active' : ''}
                           w-full flex items-center ${isCollapsed ? 'justify-center' : ''} px-3 py-4 text-left transition-all duration-200 cursor-pointer rounded-lg min-h-[48px] relative z-10
-                          ${isActive(item.path)
+                          ${active
                             ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white'
                             : 'hover:bg-white/10 text-gray-200 hover:text-white'
                           }
                         `}
                         aria-label={item.label}
                       >
-                        <span className={`flex items-center justify-center ${isCollapsed ? '' : 'mr-3'} text-lg`}>
+                        <span className={`sidebar-nav-icon flex items-center justify-center ${isCollapsed ? '' : 'mr-3'} text-lg`}>
                           {iconMap[item.path.split('/')[2]]}
                         </span>
                         {!isCollapsed && (

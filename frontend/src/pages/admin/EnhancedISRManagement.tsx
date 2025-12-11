@@ -53,8 +53,8 @@ const EnhancedISRManagement: React.FC = () => {
             setLoading(true);
             const records = await isrService.getISRSubmissions('all');
             setAllRecords(records);
-        } catch (error) {
-            console.error('Error fetching ISR records:', error);
+        } catch {
+            // ISR records fetch failed
         } finally {
             setLoading(false);
         }

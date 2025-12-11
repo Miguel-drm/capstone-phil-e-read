@@ -65,7 +65,6 @@ const Parents: React.FC = () => {
 
   const handleConfirmDelete = async () => {
     if (!parentToDelete) return;
-    console.log("Deleting parent:", parentToDelete);
     setDeletingId(parentToDelete.id);
     try {
       await deleteParent(parentToDelete.id);

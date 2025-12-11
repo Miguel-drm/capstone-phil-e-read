@@ -63,10 +63,9 @@ const Students: React.FC = () => {
           const filtered = allStudents.filter(s => s.grade === gradeName).filter(s => showArchived ? (s as any).archived : !(s as any).archived);
           setStudents(filtered.map(s => ({ ...s })) as MergedStudent[]);
         }
-      } catch (err) {
+      } catch {
         if (!isCancelled) {
           setError('Failed to load data.');
-          console.error('Error loading data:', err);
         }
       } finally {
         if (!isCancelled) {

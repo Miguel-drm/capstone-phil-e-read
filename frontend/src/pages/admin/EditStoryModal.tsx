@@ -52,8 +52,8 @@ const EditStoryModal: React.FC<EditStoryModalProps> = ({ isOpen, onClose, onSave
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
-    } catch (error) {
-      console.error('Error in handleSubmit:', error);
+    } catch {
+      // Submit failed
     } finally {
       setIsSubmitting(false);
     }

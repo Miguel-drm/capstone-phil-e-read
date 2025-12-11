@@ -22,10 +22,15 @@ const getApiBase = (): string => {
 
 const API_BASE = getApiBase();
 
+// Development-only logging utility
+const devLog = (...args: any[]) => {
+  if ((import.meta as any)?.env?.MODE === 'development') {
+    console.log(...args);
+  }
+};
+
 // Log the API base URL in development mode for debugging
-if ((import.meta as any)?.env?.MODE === 'development') {
-  console.log('🔗 ISR Result Service API Base URL:', API_BASE);
-}
+devLog('🔗 ISR Result Service API Base URL:', API_BASE);
 
 export type MiscueTypes = {
   mispronunciation: number; // Maling Bigkas
@@ -193,7 +198,6 @@ export const isrResultService = {
       const data = await response.json();
       return data._id || data.id;
     } catch (error) {
-      console.error('Error saving ISR result:', error);
       throw error;
     }
   },
@@ -212,21 +216,19 @@ export const isrResultService = {
         url += `?studentName=${encodeURIComponent(studentName)}`;
       }
       
-      console.log(`🔍 Frontend: Fetching ISR results for studentId: "${studentId}"${studentName ? `, studentName: "${studentName}"` : ''}`);
+      devLog(`🔍 Fetching ISR results for studentId: "${studentId}"`);
       
       const response = await fetch(url);
       if (!response.ok) {
         if (response.status === 404) {
-          console.warn(`⚠️ Frontend: No ISR results found for studentId: "${studentId}"`);
           return [];
         }
         throw new Error('Failed to fetch ISR results');
       }
       const results = await response.json();
-      console.log(`✅ Frontend: Received ${results.length} ISR result(s) for studentId: "${studentId}"`);
+      devLog(`✅ Received ${results.length} ISR result(s) for studentId: "${studentId}"`);
       return results;
     } catch (error) {
-      console.error('❌ Frontend: Error fetching ISR results:', error);
       throw error;
     }
   },
@@ -245,7 +247,6 @@ export const isrResultService = {
       }
       return await response.json();
     } catch (error) {
-      console.error('Error fetching teacher ISR results:', error);
       throw error;
     }
   },
@@ -262,7 +263,6 @@ export const isrResultService = {
       if (!response.ok) throw new Error('Failed to fetch ISR result');
       return await response.json();
     } catch (error) {
-      console.error('Error fetching ISR result:', error);
       throw error;
     }
   },
@@ -307,7 +307,6 @@ export const isrResultService = {
       }
       return await response.json();
     } catch (error) {
-      console.error('Error calculating ISR review entry:', error);
       throw error;
     }
   },
@@ -339,7 +338,6 @@ export const isrResultService = {
 
       return await response.json();
     } catch (error) {
-      console.error('Error updating ISR result:', error);
       throw error;
     }
   },
@@ -359,7 +357,6 @@ export const isrResultService = {
         throw new Error(errorData.error || 'Failed to delete ISR result');
       }
     } catch (error) {
-      console.error('Error deleting ISR result:', error);
       throw error;
     }
   },
@@ -385,18 +382,10 @@ export const isrResultService = {
       }
       const data = await response.json();
       
-      if ((import.meta as any)?.env?.MODE === 'development') {
-        console.log('📊 ISR Review Record fetched:', {
-          studentId,
-          hasEntries: data.entries?.length > 0,
-          entriesWithData: data.entries?.filter((e: any) => e.dateTaken).length || 0,
-          levelStarted: data.levelStarted
-        });
-      }
+      devLog('📊 ISR Review Record fetched:', studentId, data.entries?.length || 0, 'entries');
       
       return normalizeReviewRecord(data);
-    } catch (error) {
-      console.error('Error fetching ISR review record:', error);
+    } catch {
       return normalizeReviewRecord({
         studentId,
         entries: createEmptyReviewRows(),

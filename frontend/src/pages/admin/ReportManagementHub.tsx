@@ -117,8 +117,8 @@ const ReportManagementHub: React.FC<ReportManagementHubProps> = ({
 
       setRecentActivity(activity);
 
-    } catch (error) {
-      console.error('Error loading dashboard data:', error);
+    } catch {
+      // Dashboard data loading failed
     } finally {
       setLoading(false);
     }

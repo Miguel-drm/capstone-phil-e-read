@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { studentService, type Student } from '../../services/studentService';
@@ -6,15 +6,27 @@ import { getUserProfile } from '../../services/authService';
 import { notificationService } from '../../services/notificationService';
 import DepEdISRViewer from '../../components/admin/DepEdISRViewer';
 import TeacherLoader from '../../components/teacher/TeacherLoader';
-// import { gradeService } from '../../services/gradeService';
 import { isrResultService } from '../../services/ISRresultService';
 import { db } from '../../config/firebase';
 import { doc, getDoc, collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
 import Swal from 'sweetalert2';
 
+// Type definitions for ISR status tracking
+type ISRStatusInfo = { hasPartA: boolean; hasPartB: boolean };
+type ISRStatusMap = Map<string, ISRStatusInfo>;
 
+// Development-only logging utility
+const devLog = (...args: any[]) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log(...args);
+  }
+};
 
-
+const devWarn = (...args: any[]) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.warn(...args);
+  }
+};
 
 const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ setIsHeaderDarkened }) => {
   const { currentUser } = useAuth();
@@ -24,10 +36,6 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [isrData, setIsrData] = useState<any>(null);
   const [students, setStudents] = useState<Student[]>([]);
-  // Removed unused classGrades state after redesign to always show all classes
-  // Deprecated: selectedClass no longer used in ISR pages (all classes always shown)
-  // const [selectedClass, setSelectedClass] = useState<string>('');
-  // selectedClass reset no longer needed
   const [studentReadingResults, setStudentReadingResults] = useState<Record<string, any[]>>({});
   const [studentTestResults, setStudentTestResults] = useState<Record<string, any[]>>({});
   // Track which students have ISR results from MongoDB
@@ -35,6 +43,9 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
   const [loadingISRStatus, setLoadingISRStatus] = useState(false);
   // Store reading levels for each student
   const [studentReadingLevels, setStudentReadingLevels] = useState<Record<string, 'Ind' | 'Ins' | 'Frus'>>({});
+  
+  // Use ref instead of window global for ISR status map (prevents memory leaks and global pollution)
+  const isrStatusMapRef = useRef<ISRStatusMap>(new Map());
 
 
 
@@ -125,13 +136,12 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
             let isrResults: any[] = [];
             try {
               isrResults = await isrResultService.getISRResultsByStudent(studentId);
-          } catch (error) {
-              console.warn(`Could not fetch ISR results for student ${studentId}:`, error);
+          } catch {
+              // ISR results fetch failed - continue with empty array
             }
             
             return { studentId, reviewRecord, isrResults };
-          } catch (error) {
-            console.error(`Error fetching ISR data for student ${studentId}:`, error);
+          } catch {
             return { studentId, reviewRecord: null, isrResults: [] };
           }
         });
@@ -140,7 +150,6 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
         
         // Only update state if component is still mounted
         if (isCancelled) {
-          console.log('ISR status fetch cancelled - component unmounted');
           return;
         }
         const completedSet = new Set<string>();
@@ -245,27 +254,22 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
           }
         });
 
-        setStudentsWithISRResults(completedSet);
-        setStudentReadingLevels(readingLevels);
-        // Only update state if component is still mounted
+        // Only update state if component is still mounted (removed duplicate state updates)
         if (!isCancelled) {
           setStudentsWithISRResults(completedSet);
           setStudentReadingLevels(readingLevels);
-          // Store status details for getISRStatus to use
-          (window as any).__isrStatusMap = statusMap;
+          // Store status details in ref instead of window global
+          isrStatusMapRef.current = statusMap;
           
-          // Log status for debugging
-          if (process.env.NODE_ENV === 'development') {
-            console.log('📊 ISR Status fetched:', {
-              totalStudents: studentIds.length,
-              studentsWithData: completedSet.size,
-              reviewRecordsCount: Object.keys(reviewRecords).length
-            });
-          }
+          devLog('📊 ISR Status fetched:', {
+            totalStudents: studentIds.length,
+            studentsWithData: completedSet.size,
+            reviewRecordsCount: Object.keys(reviewRecords).length
+          });
         }
       } catch (error) {
         if (!isCancelled) {
-          console.error('Error fetching ISR status:', error);
+          devWarn('Error fetching ISR status:', error);
         }
       } finally {
         if (!isCancelled) {
@@ -277,9 +281,8 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     if (students.length > 0) {
       fetchISRStatus();
     } else {
-      if (!isCancelled) {
-        setStudentsWithISRResults(new Set());
-      }
+      setStudentsWithISRResults(new Set());
+      isrStatusMapRef.current = new Map();
     }
     
     // Cleanup function to cancel ongoing requests
@@ -332,17 +335,16 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
 
 
 
-  // Helper function to determine ISR status
-  const getISRStatus = (student: Student) => {
+  // Helper function to determine ISR status - memoized with useCallback
+  const getISRStatus = useCallback((student: Student) => {
     // First check if student has ISR results in MongoDB
     const hasISRResults = studentsWithISRResults.has(student.id || '');
-    const statusMap = (window as any).__isrStatusMap as Map<string, { hasPartA: boolean; hasPartB: boolean }> | undefined;
+    const statusMap = isrStatusMapRef.current;
     
-    if (hasISRResults && statusMap) {
+    if (hasISRResults && statusMap.size > 0) {
       const status = statusMap.get(student.id || '');
       if (status) {
-        const hasPartA = status.hasPartA; // Comprehension data (quiz)
-        const hasPartB = status.hasPartB; // Reading data (reading session)
+        const { hasPartA, hasPartB } = status; // Comprehension (quiz) and Reading (session) data
         
         if (hasPartA && hasPartB) {
           return { status: 'Ready to Submit', color: 'text-green-600 bg-green-50', icon: 'fas fa-check-circle' };
@@ -364,7 +366,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     } else {
       return { status: 'Missing Data', color: 'text-red-600 bg-red-50', icon: 'fas fa-times-circle' };
     }
-  };
+  }, [studentsWithISRResults, studentReadingResults, studentTestResults]);
 
 
 
@@ -405,20 +407,15 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     try {
       const data = await getISRDataAsync(student);
       
-      // Debug: Log the data being passed to the modal
-      console.log('🎯 ISR Data being passed to modal:', {
+      devLog('🎯 ISR Data being passed to modal:', {
         studentName: data.studentName,
         levelStarted: data.levelStarted,
-        readingDataCount: data.readingData?.length || 0,
-        readingData: data.readingData,
-        firstEntry: data.readingData?.[0],
-        firstEntryWordReading: data.readingData?.[0]?.wordReading,
-        firstEntryComprehension: data.readingData?.[0]?.comprehension
+        readingDataCount: data.readingData?.length || 0
       });
       
       setIsrData(data);
     } catch (error) {
-      console.error('Error loading ISR data:', error);
+      devWarn('Error loading ISR data:', error);
       // Set empty data to show error state
       setIsrData({
         studentName: student.name?.replace(/\|/g, ' ') || '',
@@ -456,26 +453,16 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
 
   // Async version to get teacher profile and ISR data
   const getISRDataAsync = async (student: Student) => {
-
     // Original logic for fetching by student
     const { latestReading, latestTest } = getLatestResults(student.id || '');
 
-    // Debug: Log student data to check age
-    console.log('📊 Fetching ISR data for student:', {
-      name: student.name,
-      age: student.age,
-      grade: student.grade,
-      readingLevel: student.readingLevel,
-      latestReadingBook: latestReading?.book,
-      studentId: student.id
-    });
+    devLog('📊 Fetching ISR data for student:', student.name, student.id);
 
     // Determine reading level based on scores
     const readingScore = latestReading?.oralReadingScore || 0;
     const comprehensionScore = latestTest?.comprehension || 0;
 
     // AUTOMATIC CALCULATION: First, try to fetch all ISR results and calculate them automatically
-    console.log('🔄 Automatically fetching and calculating ISR results...');
     let allISRResults: any[] = [];
     let calculatedEntries: any[] = [];
     
@@ -483,27 +470,11 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
       // CRITICAL: Fetch all ISR results for this student from database (100% database-dependent)
       const studentId = student.id || '';
       if (!studentId) {
-        console.error('❌ No student ID provided, cannot fetch ISR results');
         throw new Error('Student ID is required');
       }
       
-      console.log('🔍 Fetching ISR results from database for student:', studentId);
       allISRResults = await isrResultService.getISRResultsByStudent(studentId);
-      console.log(`📋 Found ${allISRResults.length} ISR result(s) for student ${studentId} (database-dependent)`);
-      
-      // Log first result to verify database structure
-      if (allISRResults.length > 0) {
-        const firstResult = allISRResults[0];
-        console.log('📊 First ISR result from database:', {
-          _id: (firstResult as any)._id || firstResult.id,
-          studentId: firstResult.studentId,
-          studentName: firstResult.studentName,
-          partAComprehensionLevel: firstResult.partA?.comprehensionLevel,
-          partBWordReadingLevel: firstResult.partB?.wordReadingLevel,
-          assessmentDate: firstResult.assessmentDate,
-          gradeSection: firstResult.gradeSection
-        });
-      }
+      devLog(`📋 Found ${allISRResults.length} ISR result(s) for student ${studentId}`);
       
       if (allISRResults.length > 0) {
         // Calculate each ISR result DIRECTLY from database data (no API call needed)
@@ -593,19 +564,6 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
             const totalMiscues = miscues.totalMiscues || 0;
             const accuracy = totalWords > 0 ? ((totalWords - totalMiscues) / totalWords) * 100 : 0;
             
-            console.log('✅ Calculated directly from database:', {
-              studentName: isrResult.studentName,
-              dbWordReadingLevel: dbWordReadingLevel,
-              dbComprehensionLevel: dbComprehensionLevel,
-              calculatedWordReadingLevel: calculatedWordReadingLevel,
-              calculatedComprehensionLevel: calculatedComprehensionLevel,
-              wordReadingFlags: wordReadingFlags,
-              comprehensionFlags: comprehensionFlags,
-              level: level,
-              set: set,
-              dateTaken: dateTaken
-            });
-            
             return {
               isrResult: isrResult,
               calculatedEntry: {
@@ -624,12 +582,12 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
               }
             };
           } catch (error) {
-            console.error(`Error calculating ISR result directly:`, error, isrResult);
+            devWarn(`Error calculating ISR result:`, error);
             return null;
           }
         }).filter((result): result is NonNullable<typeof result> => result !== null);
         
-        console.log(`✅ Calculated ${calculatedEntries.length} ISR review entries directly from database`);
+        devLog(`✅ Calculated ${calculatedEntries.length} ISR review entries`);
         
         if (calculatedEntries.length > 0) {
           // Build reading data from calculated entries
@@ -668,8 +626,8 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
             const profile = await getUserProfile();
             teacherName = latestResult.teacherName || profile?.displayName || profile?.email || 'Current Teacher';
             schoolName = latestResult.school || profile?.school || 'Phil I-Ready School';
-          } catch (error) {
-            console.log('Could not fetch teacher profile:', error);
+          } catch {
+            // Use default values if profile fetch fails
           }
 
           // Get student's grade level in Roman numeral format
@@ -711,20 +669,6 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
               const isrResult = result.isrResult;
               const romanLevel = convertLevelToRoman(entry.level);
               
-              // Debug: Log the entry to see what we're working with
-              console.log('🔍 Processing calculated entry:', {
-                level: entry.level,
-                romanLevel: romanLevel,
-                classification: entry.classification,
-                wordReadingLevel: entry.classification?.wordReadingLevel,
-                comprehensionLevel: entry.classification?.comprehensionLevel,
-                wordReading: entry.wordReading,
-                comprehension: entry.comprehension,
-                assessmentDate: isrResult.assessmentDate,
-                createdAt: isrResult.createdAt,
-                entryDateTaken: entry.dateTaken
-              });
-              
               // CRITICAL: Set Word Reading checkboxes DIRECTLY from database values
               // ALWAYS use database values first - they are the source of truth
               let wordReading = {
@@ -740,7 +684,6 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                 wordReading.ind = levelLower === 'independent';
                 wordReading.ins = levelLower === 'instructional';
                 wordReading.frus = levelLower === 'frustration';
-                console.log('✅✅✅ Using DIRECT database wordReadingLevel:', dbWordReadingLevel, '→ flags:', wordReading);
               } else {
                 // Step 2: Use classification from calculated entry (which should match database)
                 const wordReadingLevel = entry.classification?.wordReadingLevel;
@@ -749,20 +692,17 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                   wordReading.ind = levelLower === 'independent';
                   wordReading.ins = levelLower === 'instructional';
                   wordReading.frus = levelLower === 'frustration';
-                  console.log('✅ Using classification wordReadingLevel:', wordReadingLevel, '→ flags:', wordReading);
                 } else {
                   // Step 3: Use flags from calculated entry
                   if (entry.wordReading) {
                     wordReading.ind = Boolean(entry.wordReading.Ind) || Boolean(entry.wordReading.ind);
                     wordReading.ins = Boolean(entry.wordReading.Ins) || Boolean(entry.wordReading.ins);
                     wordReading.frus = Boolean(entry.wordReading.Frus) || Boolean(entry.wordReading.frus);
-                    console.log('✅ Using calculated flags for wordReading:', wordReading);
                   }
                   
                   // Last resort: default to Frustration
                   if (!wordReading.ind && !wordReading.ins && !wordReading.frus) {
                     wordReading.frus = true;
-                    console.warn('⚠️ No wordReading level found, defaulting to Frustration');
                   }
                 }
               }
@@ -782,7 +722,6 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                 comprehension.ind = levelLower === 'independent';
                 comprehension.ins = levelLower === 'instructional';
                 comprehension.frus = levelLower === 'frustration';
-                console.log('✅✅✅ Using DIRECT database comprehensionLevel:', dbComprehensionLevel, '→ flags:', comprehension);
               } else {
                 // Step 2: Use classification from calculated entry (which should match database)
                 const comprehensionLevel = entry.classification?.comprehensionLevel;
@@ -791,20 +730,17 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                   comprehension.ind = levelLower === 'independent';
                   comprehension.ins = levelLower === 'instructional';
                   comprehension.frus = levelLower === 'frustration';
-                  console.log('✅ Using classification comprehensionLevel:', comprehensionLevel, '→ flags:', comprehension);
                 } else {
                   // Step 3: Use flags from calculated entry
                   if (entry.comprehension) {
                     comprehension.ind = Boolean(entry.comprehension.Ind) || Boolean(entry.comprehension.ind);
                     comprehension.ins = Boolean(entry.comprehension.Ins) || Boolean(entry.comprehension.ins);
                     comprehension.frus = Boolean(entry.comprehension.Frus) || Boolean(entry.comprehension.frus);
-                    console.log('✅ Using calculated flags for comprehension:', comprehension);
                   }
                   
                   // Last resort: default to Frustration
                   if (!comprehension.ind && !comprehension.ins && !comprehension.frus) {
                     comprehension.frus = true;
-                    console.warn('⚠️ No comprehension level found, defaulting to Frustration');
                   }
                 }
               }
@@ -812,56 +748,36 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
               // CRITICAL: Get the date from the database - assessmentDate is the reading session completion date
               // Priority: assessmentDate (from database) > createdAt > entry.dateTaken
               let dateTaken = '';
+              const dateFormatOptions: Intl.DateTimeFormatOptions = { year: 'numeric', month: '2-digit', day: '2-digit' };
+              
+              // Try assessmentDate first
               if (isrResult.assessmentDate) {
                 try {
                   const assessmentDate = new Date(isrResult.assessmentDate);
                   if (!isNaN(assessmentDate.getTime())) {
-                    dateTaken = assessmentDate.toLocaleDateString('en-US', { 
-                      year: 'numeric', 
-                      month: '2-digit', 
-                      day: '2-digit' 
-                    });
-                    console.log('✅ Using assessmentDate from database:', isrResult.assessmentDate, '→', dateTaken);
+                    dateTaken = assessmentDate.toLocaleDateString('en-US', dateFormatOptions);
                   }
-                } catch (e) {
-                  console.warn('⚠️ Error parsing assessmentDate:', e);
-                }
+                } catch { /* ignore parse errors */ }
               }
               
+              // Fallback to createdAt
               if (!dateTaken && isrResult.createdAt) {
                 try {
                   const createdAt = new Date(isrResult.createdAt);
                   if (!isNaN(createdAt.getTime())) {
-                    dateTaken = createdAt.toLocaleDateString('en-US', { 
-                      year: 'numeric', 
-                      month: '2-digit', 
-                      day: '2-digit' 
-                    });
-                    console.log('✅ Using createdAt as fallback:', isrResult.createdAt, '→', dateTaken);
+                    dateTaken = createdAt.toLocaleDateString('en-US', dateFormatOptions);
                   }
-                } catch (e) {
-                  console.warn('⚠️ Error parsing createdAt:', e);
-                }
+                } catch { /* ignore parse errors */ }
               }
               
+              // Fallback to entry.dateTaken
               if (!dateTaken && entry.dateTaken) {
                 try {
                   const entryDate = new Date(entry.dateTaken);
                   if (!isNaN(entryDate.getTime())) {
-                    dateTaken = entryDate.toLocaleDateString('en-US', { 
-                      year: 'numeric', 
-                      month: '2-digit', 
-                      day: '2-digit' 
-                    });
-                    console.log('✅ Using entry.dateTaken as fallback:', entry.dateTaken, '→', dateTaken);
+                    dateTaken = entryDate.toLocaleDateString('en-US', dateFormatOptions);
                   }
-                } catch (e) {
-                  console.warn('⚠️ Error parsing entry.dateTaken:', e);
-                }
-              }
-              
-              if (!dateTaken) {
-                console.warn('⚠️ No valid date found for dateTaken');
+                } catch { /* ignore parse errors */ }
               }
               
               // FINAL VERIFICATION: Ensure flags match database values
@@ -877,11 +793,6 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                 
                 // Override if mismatch detected
                 if (wordReading.ind !== shouldBeInd || wordReading.ins !== shouldBeIns || wordReading.frus !== shouldBeFrus) {
-                  console.warn('⚠️ Flag mismatch detected for wordReading! Correcting...', {
-                    database: finalDbWordLevel,
-                    currentFlags: wordReading,
-                    shouldBe: { ind: shouldBeInd, ins: shouldBeIns, frus: shouldBeFrus }
-                  });
                   wordReading = { ind: shouldBeInd, ins: shouldBeIns, frus: shouldBeFrus };
                 }
               }
@@ -894,24 +805,9 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                 
                 // Override if mismatch detected
                 if (comprehension.ind !== shouldBeInd || comprehension.ins !== shouldBeIns || comprehension.frus !== shouldBeFrus) {
-                  console.warn('⚠️ Flag mismatch detected for comprehension! Correcting...', {
-                    database: finalDbCompLevel,
-                    currentFlags: comprehension,
-                    shouldBe: { ind: shouldBeInd, ins: shouldBeIns, frus: shouldBeFrus }
-                  });
                   comprehension = { ind: shouldBeInd, ins: shouldBeIns, frus: shouldBeFrus };
                 }
               }
-              
-              // Debug: Log the final checkbox states and date
-              console.log('✅✅✅ FINAL VERIFIED checkbox states (100% database-dependent):', {
-                wordReading: wordReading,
-                comprehension: comprehension,
-                dateTaken: dateTaken,
-                databaseWordLevel: finalDbWordLevel,
-                databaseCompLevel: finalDbCompLevel,
-                classification: entry.classification
-              });
               
               return {
                 level: romanLevel,
@@ -977,60 +873,30 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
             }
           };
           
-          // Debug: Log final data structure
-          console.log('✅ Final ISR data (automatic calculation):', {
-            readingDataCount: finalData.readingData.length,
-            readingData: finalData.readingData,
-            levelStarted: finalData.levelStarted,
-            firstEntry: finalData.readingData[0],
-            firstEntryWordReading: finalData.readingData[0]?.wordReading,
-            firstEntryComprehension: finalData.readingData[0]?.comprehension
-          });
+          devLog('✅ Final ISR data (automatic calculation):', finalData.readingData.length, 'entries');
           
           return finalData;
         }
       }
     } catch (autoCalcError) {
-      console.warn('⚠️ Automatic calculation failed, falling back to review record:', autoCalcError);
+      devWarn('Automatic calculation failed, falling back to review record');
     }
 
     // Fallback: Fetch aggregated ISR review record from backend (fresh fetch with auto-sync)
-    console.log('🔄 Fetching ISR review record from backend...');
     // Use sync=true query parameter (not a separate POST endpoint)
     let reviewRecord: any;
     try {
       // Fetch with sync=true to rebuild from all ISR results
       // The sync is handled via query parameter, not a separate POST endpoint
       reviewRecord = await isrResultService.getISRReviewRecord(student.id || '', true);
-      console.log('✅ ISR review record fetched (synced):', {
-        hasEntries: reviewRecord.entries?.length > 0,
-        entryCount: reviewRecord.entries?.length || 0,
-        entriesWithData: reviewRecord.entries?.filter((e: any) => 
-          e.dateTaken || (e.wordReading && (e.wordReading.ind || e.wordReading.ins || e.wordReading.frus)) ||
-          (e.comprehension && (e.comprehension.ind || e.comprehension.ins || e.comprehension.frus))
-        ).length || 0,
-        levelStarted: reviewRecord.levelStarted,
-        languages: reviewRecord.languages,
-        entries: reviewRecord.entries?.map((e: any) => ({
-          level: e.level,
-          set: e.set,
-          wordReading: e.wordReading,
-          comprehension: e.comprehension,
-          dateTaken: e.dateTaken
-        }))
-      });
+      devLog('✅ ISR review record fetched (synced):', reviewRecord.entries?.length || 0, 'entries');
     } catch (syncError) {
-      console.warn('⚠️ Sync fetch failed, trying regular fetch:', syncError);
+      devWarn('Sync fetch failed, trying regular fetch');
       // Fallback to regular fetch if sync fails
       try {
         reviewRecord = await isrResultService.getISRReviewRecord(student.id || '', false);
-        console.log('✅ ISR review record fetched (regular):', {
-          hasEntries: reviewRecord.entries?.length > 0,
-          entryCount: reviewRecord.entries?.length || 0,
-          levelStarted: reviewRecord.levelStarted
-        });
       } catch (fetchError) {
-        console.error('❌ Failed to fetch ISR review record:', fetchError);
+        devWarn('Failed to fetch ISR review record');
         // Return empty record structure
         reviewRecord = {
           entries: [],
@@ -1057,8 +923,8 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
       const profile = await getUserProfile();
       teacherName = reviewRecord.teacherName || profile?.displayName || profile?.email || 'Current Teacher';
       schoolName = reviewRecord.school || profile?.school || 'Phil I-Ready School';
-    } catch (error) {
-      console.log('Could not fetch teacher profile:', error);
+    } catch {
+      // Use default values if profile fetch fails
     }
 
     // Convert student grade to Roman numeral format for level started
@@ -1142,17 +1008,6 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
           comprehension.frus = true;
         }
         
-        // Debug: Log the entry being processed from review record
-        console.log('🔍 Processing review record entry (100% database-dependent):', {
-          level: entry.level,
-          set: entry.set,
-          wordReading: wordReading,
-          comprehension: comprehension,
-          dateTaken: entry.dateTaken,
-          sourceWordReading: entry.wordReading,
-          sourceComprehension: entry.comprehension
-        });
-        
         return {
           level: entry.level || '',
           set: entry.set || 'A', // Ensure set is always provided (A, B, C, or D)
@@ -1206,15 +1061,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
         }]
       : [];
     
-    // Debug: Log the final ISR data
-    console.log('📋 Final ISR data prepared:', {
-      studentName: student.name,
-      age: student.age,
-      readingLevel: student.readingLevel,
-      finalAge: student.age?.toString() || '',
-      readingDataCount: alignedReadingData.length,
-      readingData: alignedReadingData
-    });
+    devLog('📋 Final ISR data prepared:', alignedReadingData.length, 'entries');
 
     return {
       studentName: student.name?.replace(/\|/g, ' ') || '',
@@ -1261,8 +1108,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
           // Fallback to parentName from student if parent doc doesn't exist
           setParentName(student.parentName || 'Unknown Parent');
         }
-      } catch (error) {
-        console.error('Error loading parent information:', error);
+      } catch {
         setParentName(student.parentName || 'Unknown Parent');
       } finally {
         setLoadingParentInfo(false);
@@ -1281,8 +1127,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
         );
         const existingReports = await getDocs(existingReportsQuery);
         setIsAlreadyShared(!existingReports.empty);
-      } catch (error) {
-        console.error('Error checking existing shares:', error);
+      } catch {
         setIsAlreadyShared(false);
       }
     }
@@ -1291,8 +1136,8 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     try {
       const isrData = await getISRDataAsync(student);
       setShareISRData(isrData);
-    } catch (error) {
-      console.error('Error loading ISR data for share:', error);
+    } catch {
+      // ISR data load failed - will show error state
     } finally {
       setLoadingShareISR(false);
     }
@@ -1332,8 +1177,8 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
           handleCloseShare();
           return;
         }
-      } catch (error) {
-        console.error('Error checking existing shares:', error);
+      } catch {
+        // Error checking existing shares - continue with share
       }
     }
 
@@ -1362,8 +1207,7 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
         text: `ISR report has been successfully shared with ${parentName || 'the parent'}. They can now view it on their Progress page.`,
         confirmButtonText: 'OK'
       });
-    } catch (error) {
-      console.error('Error sharing ISR report:', error);
+    } catch {
       await Swal.fire({
         icon: 'error',
         title: 'Share Failed',
@@ -1530,8 +1374,6 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                                       onClick={async () => {
                                         if (isReady) {
                                           try {
-                                            console.log('Submit Class ISR to Admin for', className);
-                                            
                                             // Get teacher profile for sender name
                                             const teacherProfile = await getUserProfile();
                                             const teacherName = teacherProfile?.displayName || teacherProfile?.email || 'Unknown Teacher';
@@ -1611,10 +1453,9 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
                                               setIsHeaderDarkened?.(true);
                                             }
                                           } catch (error) {
-                                            console.error('Error submitting ISR to admin:', error);
                                             setSubmissionResult({
                                               success: false,
-                                              error: error instanceof Error ? error.message : 'Error submitting ISR to admin. Please check console for details.'
+                                              error: error instanceof Error ? error.message : 'Error submitting ISR to admin. Please try again.'
                                             });
                                             setSubmissionModalOpen(true);
                                             setIsHeaderDarkened?.(true);
