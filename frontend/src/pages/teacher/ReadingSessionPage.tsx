@@ -418,23 +418,85 @@ const ReadingSessionPage: React.FC = () => {
               console.log(`🟡 Position updated from ${oldPosition} to ${new_position}`);
               break;
               
-            // NOTE: The following miscue type cases are not currently used by the phrase matcher
-            // The phrase matcher only returns 'correct' or 'buffering' match types
-            // Individual miscue detection would need to be implemented in the backend
-            // Keeping these commented out for future reference
-            
-            /*
+            // Handle miscue types from phrase matcher
             case 'omission':
-            case 'mispronunciation':
-            case 'substitution':
-            case 'insertion':
-            case 'repetition':
-            case 'selfCorrection':
-            case 'reversal':
-            case 'transposition':
-              console.warn(`⚠️ Miscue type "${match_type}" not implemented in phrase matcher`);
+              console.log(`⚠️ Omission detected at position ${new_position - 1}`);
+              setWordMiscues(prev => new Map(prev).set(new_position - 1, 'omission'));
+              setMiscueTypes(prev => ({ ...prev, omission: prev.omission + 1 }));
+              // Don't mark as recognized - omitted words are not read
+              setCurrentWordIndex(new_position);
+              lastPositionRef.current = new_position;
               break;
-            */
+              
+            case 'mispronunciation':
+              console.log(`⚠️ Mispronunciation detected at position ${new_position - 1}`);
+              setWordMiscues(prev => new Map(prev).set(new_position - 1, 'mispronunciation'));
+              setMiscueTypes(prev => ({ ...prev, mispronunciation: prev.mispronunciation + 1 }));
+              setRecognizedWords(prev => new Set(prev).add(new_position - 1)); // Mark as read (with error)
+              setCurrentWordIndex(new_position);
+              lastPositionRef.current = new_position;
+              break;
+              
+            case 'reversal':
+              console.log(`⚠️ Reversal detected at position ${new_position - 1}`);
+              setWordMiscues(prev => new Map(prev).set(new_position - 1, 'reversal'));
+              setMiscueTypes(prev => ({ ...prev, reversal: prev.reversal + 1 }));
+              setRecognizedWords(prev => new Set(prev).add(new_position - 1)); // Mark as read (with error)
+              setCurrentWordIndex(new_position);
+              lastPositionRef.current = new_position;
+              break;
+              
+            // SUBSTITUTION DISABLED per user request
+            case 'substitution':
+              console.warn(`⚠️ Substitution detection is disabled - treating as omission`);
+              break;
+              
+            case 'insertion':
+              console.log(`⚠️ Insertion detected - extra word spoken`);
+              setMiscueTypes(prev => ({ ...prev, insertion: prev.insertion + 1 }));
+              // Insertion doesn't mark a story word - it's an extra word
+              // The inserted word will be shown separately in the UI
+              break;
+              
+            case 'repetition':
+              console.log(`⚠️ Repetition detected at current position ${new_position}`);
+              // Mark the current word that was repeated
+              // For repetition, new_position is the current position (doesn't advance)
+              setWordMiscues(prev => new Map(prev).set(new_position, 'repetition'));
+              setMiscueTypes(prev => ({ ...prev, repetition: prev.repetition + 1 }));
+              // Don't advance position - word was repeated
+              break;
+              
+            case 'selfCorrection':
+              console.log(`✅ Self-correction detected at position ${new_position - 1}`);
+              // Mark the word that was self-corrected
+              setWordMiscues(prev => new Map(prev).set(new_position - 1, 'selfCorrection'));
+              setMiscueTypes(prev => ({ ...prev, selfCorrection: prev.selfCorrection + 1 }));
+              // Self-correction is tracked but NOT counted as error (Phil-IRI rule)
+              // Mark as recognized since child eventually said it correctly
+              setRecognizedWords(prev => new Set(prev).add(new_position - 1));
+              setCurrentWordIndex(new_position);
+              lastPositionRef.current = new_position;
+              break;
+              
+            case 'transposition':
+              console.log(`⚠️ Transposition detected at position ${new_position - 2} to ${new_position - 1}`);
+              setWordMiscues(prev => {
+                const newMap = new Map(prev);
+                newMap.set(new_position - 2, 'transposition');
+                newMap.set(new_position - 1, 'transposition');
+                return newMap;
+              });
+              setMiscueTypes(prev => ({ ...prev, transposition: prev.transposition + 1 }));
+              setRecognizedWords(prev => {
+                const newSet = new Set(prev);
+                newSet.add(new_position - 2);
+                newSet.add(new_position - 1);
+                return newSet;
+              });
+              setCurrentWordIndex(new_position);
+              lastPositionRef.current = new_position;
+              break;
           }
           
           // Update metrics from backend (source of truth)
@@ -4872,7 +4934,7 @@ const ReadingSessionPage: React.FC = () => {
                                 repetition: 'bg-blue-50 text-blue-900 border border-blue-200', // Light blue, underlined
                                 transposition: 'bg-purple-50 text-purple-900 border border-purple-200', // Light purple, curved line
                                 reversal: 'bg-pink-50 text-pink-900 border border-pink-200', // Light pink, word above
-                                selfCorrection: 'bg-green-50 text-green-900 border border-green-200' // Light green for self-correction
+                                selfCorrection: 'bg-teal-50 text-teal-900 border border-teal-200' // Light teal for self-correction (different from green correct words)
                               };
                               return colors[type];
                             };
@@ -5088,8 +5150,8 @@ const ReadingSessionPage: React.FC = () => {
                                     {/* SELF-CORRECTION: Simple 'S' above */}
                                     {marking.type === 'selfCorrection' && (
                                       <span
-                                        className="absolute left-0 -top-7 text-base font-bold text-green-700 bg-green-100 px-2 py-1 rounded-full shadow-sm z-20 border-2 border-green-500"
-                                        title="DepEd: Write S above self-corrected word"
+                                        className="absolute left-0 -top-7 text-base font-bold text-teal-700 bg-teal-100 px-2 py-1 rounded-full shadow-sm z-20 border-2 border-teal-500"
+                                        title="DepEd: Write S above self-corrected word (not counted as error)"
                                       >
                                         S
                                       </span>
@@ -5238,7 +5300,7 @@ const ReadingSessionPage: React.FC = () => {
                     {miscueTypes.repetition > 0 && <div>Repetition: {miscueTypes.repetition}</div>}
                     {miscueTypes.transposition > 0 && <div>Transposition: {miscueTypes.transposition}</div>}
                     {miscueTypes.reversal > 0 && <div>Reversal: {miscueTypes.reversal}</div>}
-                    {miscueTypes.selfCorrection > 0 && <div className="text-green-600">Self-Correction: {miscueTypes.selfCorrection}</div>}
+                    {miscueTypes.selfCorrection > 0 && <div className="text-teal-600">Self-Correction: {miscueTypes.selfCorrection}</div>}
                   </div>
                 )}
               </div>
@@ -5422,19 +5484,19 @@ const ReadingSessionPage: React.FC = () => {
               </div>
 
               {/* 8. Self-Correction */}
-              <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.selfCorrection > 0 ? 'bg-green-100 border-green-400 shadow-lg' : 'bg-white border-gray-200'}`}>
+              <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.selfCorrection > 0 ? 'bg-teal-100 border-teal-400 shadow-lg' : 'bg-white border-gray-200'}`}>
                 <div className="flex items-start justify-between mb-2">
                   <div>
-                    <h4 className="font-bold text-green-900 text-sm">8. Self-Correction</h4>
-                    <p className="text-xs text-green-700 italic">Pagwawasto</p>
+                    <h4 className="font-bold text-teal-900 text-sm">8. Self-Correction</h4>
+                    <p className="text-xs text-teal-700 italic">Pagwawasto</p>
                   </div>
-                  <span className={`text-2xl font-extrabold ${miscueTypes.selfCorrection > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                  <span className={`text-2xl font-extrabold ${miscueTypes.selfCorrection > 0 ? 'text-teal-600' : 'text-gray-400'}`}>
                     {miscueTypes.selfCorrection}
                   </span>
                 </div>
                 <p className="text-xs text-gray-700 mb-1"><strong>Marking:</strong> Write 'S' above the self-corrected word</p>
                 <p className="text-xs text-gray-600 italic"><strong>Example:</strong> "S" above "hasn't"</p>
-                <p className="text-xs text-blue-600 mt-1"><strong>Scoring:</strong> Don't count self-correction as an error</p>
+                <p className="text-xs text-teal-600 mt-1"><strong>Scoring:</strong> Don't count self-correction as an error (positive behavior!)</p>
               </div>
             </div>
 
