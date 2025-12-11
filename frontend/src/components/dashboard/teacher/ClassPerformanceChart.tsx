@@ -231,8 +231,8 @@ const ClassPerformanceChart: React.FC<ClassPerformanceChartProps> = ({ className
   }, [classNames, classAverages, className, isLoading, visibleClasses]);
 
   return (
-    <div className="bg-white rounded-2xl p-4 transition-all duration-300">
-      <div className="p-4">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-md p-6 transition-all duration-300 hover:shadow-lg">
+      <div>
         <div className="flex flex-col sm:grid sm:grid-cols-3 sm:items-center mb-4 lg:mb-6 space-y-3 sm:space-y-0">
           <div className="whitespace-nowrap">
             <h3 className="text-base md:text-lg font-semibold text-[#2C3E50]">Class Performance</h3>

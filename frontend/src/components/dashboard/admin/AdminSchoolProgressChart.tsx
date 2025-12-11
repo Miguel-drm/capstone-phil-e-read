@@ -74,7 +74,7 @@ const AdminSchoolProgressChart: React.FC<AdminSchoolProgressChartProps> = ({
   // STRICT ADMIN-ONLY ACCESS CONTROL
   if (userRole !== 'admin') {
     return (
-      <div className="bg-white rounded-2xl p-6 text-center border-2 border-red-200">
+      <div className="bg-white rounded-xl border border-gray-200 shadow-md p-6 text-center transition-all duration-300">
         <div className="text-red-500">
           <i className="fas fa-shield-alt text-3xl mb-3"></i>
           <h3 className="text-lg font-semibold mb-2">Admin Access Required</h3>
@@ -837,8 +837,8 @@ const AdminSchoolProgressChart: React.FC<AdminSchoolProgressChartProps> = ({
   }, []);
 
   return (
-    <div className="bg-white rounded-2xl p-3 transition-all duration-300 overflow-hidden flex flex-col h-full w-full">
-      <div className="p-3 flex flex-col flex-1 w-full">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-md p-6 transition-all duration-300 hover:shadow-lg overflow-hidden flex flex-col h-full w-full">
+      <div className="flex flex-col flex-1 w-full">
         <div className="flex flex-col lg:grid lg:grid-cols-3 lg:items-center mb-3 lg:mb-4 space-y-2 lg:space-y-0">
           <div className="flex items-center gap-3">
             <h3 className="text-base md:text-lg font-semibold text-[#2C3E50] whitespace-nowrap flex-shrink-0">

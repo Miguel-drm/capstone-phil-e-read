@@ -11,7 +11,6 @@ import NotificationsIcon from '@mui/icons-material/Notifications';
 
 import SchoolIcon from '@mui/icons-material/School';
 import PersonIcon from '@mui/icons-material/Person';
-import MicIcon from '@mui/icons-material/Mic';
 import MonitorIcon from '@mui/icons-material/Monitor';
 import Tooltip from '@mui/material/Tooltip';
 import gsap from 'gsap';
@@ -45,8 +44,6 @@ const iconMap: Record<string, React.ReactNode> = {
   children: <GroupIcon fontSize="medium" />, // Added for My Children
   'vosk-monitor': <MonitorIcon fontSize="medium" />
 };
-
-const ADMIN_REPORTS_FEATURE = import.meta.env.VITE_FEATURE_ADMIN_REPORTS === 'true';
 
 const Sidebar: React.FC<SidebarProps> = ({ 
   userRole,
@@ -183,10 +180,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   const sidebarClasses = `
     fixed top-0 left-0 z-[60] h-screen
     transition-all duration-300 ease-in-out overflow-x-hidden
-    fixed top-0 left-0 z-[30] h-screen
-    transition-all duration-300 ease-in-out overflow-x-hidden z-1000
     ${isMobile
-      ? `w-full max-w-xs ${isOpen ? 'translate-x-0' : '-translate-x-full'}`
+      ? `w-full max-w-xs ${isOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'}`
       : isCollapsed
         ? 'w-0'
         : 'w-64'
@@ -197,27 +192,27 @@ const Sidebar: React.FC<SidebarProps> = ({
   `;
 
   return (
-    <div className={sidebarClasses}>
+    <aside className={sidebarClasses} aria-label="Main navigation">
       {!isCollapsed && (
         <>
           {/* Logo Section */}
           <div className="p-4 flex items-center justify-between border-b border-gray-600 bg-gradient-to-r from-[#1A2530] to-[#2C3E50]">
             <div className={`sidebar-logo font-bold transition-all duration-300 ${isCollapsed ? 'opacity-0 w-0' : 'opacity-100'}`}>
-              <div className="text-lg md:text-xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
+              <h1 className="text-lg md:text-xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
                 Phil I-Ready
-              </div>
+              </h1>
             </div>
             {isCollapsed && (
-              <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg flex items-center justify-center">
-                <span className="text-sm font-bold text-white">P</span>
+              <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg flex items-center justify-center" aria-label="Phil I-Ready">
+                <span className="text-sm font-bold text-white" aria-hidden="true">P</span>
               </div>
             )}
             {/* Toggle Buttons */}
             
           </div>
           {/* Navigation Menu */}
-          <nav className="flex-1 overflow-y-auto py-4 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent z-1000">
-            <ul ref={navRef} className="space-y-1 px-2">
+          <nav className="flex-1 overflow-y-auto py-4 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent z-1000" aria-label="Primary navigation">
+            <ul ref={navRef} className="space-y-2 px-2" role="list">
               {navItems.map((item) => {
                 const active = isActive(item.path);
                 return (
@@ -228,19 +223,20 @@ const Sidebar: React.FC<SidebarProps> = ({
                         onClick={handleMenuClick}
                         className={`
                           sidebar-nav-item ${active ? 'active' : ''}
-                          w-full flex items-center ${isCollapsed ? 'justify-center' : ''} px-3 py-4 text-left transition-all duration-200 cursor-pointer rounded-lg min-h-[48px] relative z-10
+                          w-full flex items-center ${isCollapsed ? 'justify-center' : ''} px-4 py-3 text-left transition-all duration-300 ease-in-out cursor-pointer rounded-lg min-h-[48px] relative z-10
                           ${active
-                            ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white'
-                            : 'hover:bg-white/10 text-gray-200 hover:text-white'
+                            ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-md'
+                            : 'hover:bg-white/10 text-gray-200 hover:text-white hover:translate-x-1'
                           }
                         `}
                         aria-label={item.label}
+                        aria-current={active ? 'page' : undefined}
                       >
-                        <span className={`sidebar-nav-icon flex items-center justify-center ${isCollapsed ? '' : 'mr-3'} text-lg`}>
+                        <span className={`sidebar-nav-icon flex items-center justify-center ${isCollapsed ? '' : 'mr-4'} text-xl transition-transform duration-300 ${active ? '' : 'group-hover:scale-110'}`} aria-hidden="true">
                           {iconMap[item.path.split('/')[2]]}
                         </span>
                         {!isCollapsed && (
-                          <span className="truncate font-medium">{item.label}</span>
+                          <span className="truncate font-medium text-base">{item.label}</span>
                         )}
                       </Link>
                     </Tooltip>
@@ -250,21 +246,21 @@ const Sidebar: React.FC<SidebarProps> = ({
             </ul>
           </nav>
           {/* User Profile */}
-          <div className="p-4 border-t border-gray-600 bg-gradient-to-r from-[#1A2530] to-[#2C3E50]">
+          <div className="p-4 border-t border-gray-600 bg-gradient-to-r from-[#1A2530] to-[#2C3E50]" role="contentinfo">
             <div className="flex items-center">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 flex items-center justify-center text-white flex-shrink-0">
-                <i className="fas fa-user"></i>
+              <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 flex items-center justify-center text-white flex-shrink-0" aria-label={`${userRole} user`}>
+                <i className="fas fa-user" aria-hidden="true"></i>
               </div>
               {!isCollapsed && (
                 <div className="ml-3 min-w-0 flex-1">
-                  <div className="font-medium text-white truncate">{userRole}</div>
+                  <div className="font-medium text-white truncate" aria-label={`Current role: ${userRole}`}>{userRole}</div>
                 </div>
               )}
             </div>
           </div>
         </>
       )}
-    </div>
+    </aside>
   );
 };
 

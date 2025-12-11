@@ -194,22 +194,22 @@ const LinkRequestApprovalModal: React.FC<LinkRequestApprovalModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 animate-fade-in">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-scale-in">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+        <div className="flex items-center justify-between px-8 py-6 border-b border-gray-200">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-100 rounded-lg">
               <UserIcon className="h-6 w-6 text-blue-600" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Link Request Review</h3>
-              <p className="text-sm text-gray-500">Review and approve or reject this parent's request</p>
+              <h3 className="text-xl font-semibold text-gray-900">Link Request Review</h3>
+              <p className="text-sm text-gray-600">Review and approve or reject this parent's request</p>
             </div>
           </div>
           <button
             onClick={handleClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="w-10 h-10 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all duration-200"
           >
             <XMarkIcon className="h-6 w-6" />
           </button>
@@ -385,24 +385,24 @@ const LinkRequestApprovalModal: React.FC<LinkRequestApprovalModalProps> = ({
               )}
 
               {/* Action Buttons */}
-              <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+              <div className="flex items-center justify-between pt-6 border-t border-gray-200">
                 <div className="flex items-center gap-3">
                   {!showRejectionForm ? (
                     <>
                       <button
                         onClick={handleApprove}
                         disabled={actionLoading || request.status !== 'pending' || !selectedStudentId}
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors"
+                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-green-600 hover:bg-green-700 hover:scale-[1.02] hover:shadow-lg disabled:bg-gray-400 disabled:hover:scale-100 disabled:hover:shadow-none text-white font-semibold rounded-lg focus:outline-none focus:ring-4 focus:ring-green-200 transition-all duration-200"
                       >
-                        <CheckIcon className="h-4 w-4" />
+                        <CheckIcon className="h-5 w-5" />
                         {actionLoading ? 'Approving...' : 'Approve Request'}
                       </button>
                       <button
                         onClick={() => setShowRejectionForm(true)}
                         disabled={actionLoading || request.status !== 'pending'}
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors"
+                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-700 hover:scale-[1.02] hover:shadow-lg disabled:bg-gray-400 disabled:hover:scale-100 disabled:hover:shadow-none text-white font-semibold rounded-lg focus:outline-none focus:ring-4 focus:ring-red-200 transition-all duration-200"
                       >
-                        <XCircleIcon className="h-4 w-4" />
+                        <XCircleIcon className="h-5 w-5" />
                         Reject Request
                       </button>
                     </>
@@ -411,15 +411,15 @@ const LinkRequestApprovalModal: React.FC<LinkRequestApprovalModalProps> = ({
                       <button
                         onClick={handleReject}
                         disabled={actionLoading}
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors"
+                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-700 hover:scale-[1.02] hover:shadow-lg disabled:bg-gray-400 disabled:hover:scale-100 disabled:hover:shadow-none text-white font-semibold rounded-lg focus:outline-none focus:ring-4 focus:ring-red-200 transition-all duration-200"
                       >
-                        <XCircleIcon className="h-4 w-4" />
+                        <XCircleIcon className="h-5 w-5" />
                         {actionLoading ? 'Rejecting...' : 'Confirm Rejection'}
                       </button>
                       <button
                         onClick={() => setShowRejectionForm(false)}
                         disabled={actionLoading}
-                        className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white text-sm font-medium rounded-lg transition-colors"
+                        className="px-5 py-2.5 border-2 border-gray-300 text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-400 rounded-lg focus:outline-none focus:ring-4 focus:ring-gray-200 transition-all duration-200"
                       >
                         Cancel
                       </button>
@@ -428,7 +428,7 @@ const LinkRequestApprovalModal: React.FC<LinkRequestApprovalModalProps> = ({
                 </div>
                 <button
                   onClick={handleClose}
-                  className="px-4 py-2 text-gray-600 hover:text-gray-800 text-sm font-medium transition-colors"
+                  className="px-5 py-2.5 text-gray-600 hover:text-gray-900 font-medium transition-colors duration-200"
                 >
                   Close
                 </button>

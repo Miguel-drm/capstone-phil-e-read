@@ -712,8 +712,8 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
   */
 
   return (
-    <div className="bg-white rounded-2xl p-2 sm:p-3 transition-all duration-300 overflow-hidden flex flex-col h-full w-full">
-      <div className="p-2 sm:p-3 flex flex-col flex-1 w-full gap-2">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-md p-6 transition-all duration-300 hover:shadow-lg overflow-hidden flex flex-col h-full w-full">
+      <div className="flex flex-col flex-1 w-full gap-2">
         <div className="flex flex-col lg:grid lg:grid-cols-3 lg:items-center gap-2 lg:gap-3">
           <div className="flex items-center gap-2 sm:gap-3">
             <h3 className="text-lg md:text-xl font-semibold text-[#2C3E50] whitespace-nowrap flex-shrink-0">

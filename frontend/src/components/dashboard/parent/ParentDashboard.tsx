@@ -122,7 +122,7 @@ const ChildrenOverviewWidget: React.FC<{
   }, [children, avgPerformancePct, chartsByStudentId]);
 
   return (
-    <div className="bg-white rounded-2xl border-2 border-gray-200 p-6 shadow-sm">
+    <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-md transition-all duration-300 hover:shadow-lg">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center">
@@ -139,8 +139,8 @@ const ChildrenOverviewWidget: React.FC<{
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
-        <div className="group relative overflow-hidden bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-xl p-4 transition-all hover:shadow-sm">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+        <div className="group relative overflow-hidden bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-xl p-3 sm:p-4 transition-all hover:shadow-md hover:scale-[1.02]">
           <div className="absolute -right-4 -top-4 w-16 h-16 rounded-full bg-blue-200/40 blur-xl group-hover:scale-110 transition-transform" />
           <div className="relative">
             <div className="text-lg font-medium text-blue-900 mb-1">Total Children</div>
@@ -155,7 +155,7 @@ const ChildrenOverviewWidget: React.FC<{
           </div>
         </div>
 
-        <div className="group relative overflow-hidden bg-gradient-to-br from-green-50 to-green-100 border border-green-200 rounded-xl p-4 transition-all hover:shadow-sm">
+        <div className="group relative overflow-hidden bg-gradient-to-br from-green-50 to-green-100 border border-green-200 rounded-xl p-3 sm:p-4 transition-all hover:shadow-md hover:scale-[1.02]">
           <div className="absolute -right-4 -top-4 w-16 h-16 rounded-full bg-green-200/40 blur-xl group-hover:scale-110 transition-transform" />
           <div className="relative">
             <div className="text-lg font-medium text-green-900 mb-1">Active Students</div>
@@ -170,7 +170,7 @@ const ChildrenOverviewWidget: React.FC<{
           </div>
         </div>
 
-        <div className="group relative overflow-hidden bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 rounded-xl p-4 transition-all hover:shadow-sm">
+        <div className="group relative overflow-hidden bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 rounded-xl p-3 sm:p-4 transition-all hover:shadow-md hover:scale-[1.02]">
           <div className="absolute -right-4 -top-4 w-16 h-16 rounded-full bg-purple-200/40 blur-xl group-hover:scale-110 transition-transform" />
           <div className="relative">
             <div className="text-lg font-medium text-purple-900 mb-1">Avg. Reading Level</div>
@@ -190,7 +190,7 @@ const ChildrenOverviewWidget: React.FC<{
           </div>
         </div>
 
-        <div className="group relative overflow-hidden bg-gradient-to-br from-orange-50 to-orange-100 border border-orange-200 rounded-xl p-4 transition-all hover:shadow-sm">
+        <div className="group relative overflow-hidden bg-gradient-to-br from-orange-50 to-orange-100 border border-orange-200 rounded-xl p-3 sm:p-4 transition-all hover:shadow-md hover:scale-[1.02]">
           <div className="absolute -right-4 -top-4 w-16 h-16 rounded-full bg-orange-200/40 blur-xl group-hover:scale-110 transition-transform" />
           <div className="relative">
             <div className="text-lg font-medium text-orange-900 mb-1">Avg. Performance</div>
@@ -258,7 +258,7 @@ const ChildCard = memo(({ child }: { child: Student }) => {
   };
 
   return (
-    <div className="group relative overflow-hidden bg-white border-2 border-gray-200 rounded-2xl p-6 transition-all hover:shadow-md hover:border-blue-300">
+    <div className="group relative overflow-hidden bg-white border border-gray-200 rounded-xl p-6 shadow-md transition-all duration-300 hover:shadow-lg hover:scale-[1.01]">
       {/* Decorative gradient */}
       <div className="absolute -right-8 -top-8 w-32 h-32 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 opacity-50 blur-2xl group-hover:scale-110 transition-transform" />
       
@@ -502,10 +502,10 @@ const ParentDashboard: React.FC = () => {
       </div>
 
       {/* Quick Actions Section */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
         <button
           onClick={() => navigate('/parent/reading')}
-          className="group relative overflow-hidden bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-6 text-left transition-all hover:shadow-lg hover:scale-[1.02]"
+          className="group relative overflow-hidden bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-left shadow-md transition-all duration-300 hover:shadow-lg hover:scale-[1.01]"
         >
           <div className="absolute -right-4 -top-4 w-24 h-24 rounded-full bg-white/10 blur-2xl group-hover:scale-110 transition-transform" />
           <div className="relative">
@@ -523,7 +523,7 @@ const ParentDashboard: React.FC = () => {
 
         <button
           onClick={() => navigate('/parent/progress')}
-          className="group relative overflow-hidden bg-gradient-to-br from-green-500 to-green-600 rounded-2xl p-6 text-left transition-all hover:shadow-lg hover:scale-[1.02]"
+          className="group relative overflow-hidden bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6 text-left shadow-md transition-all duration-300 hover:shadow-lg hover:scale-[1.01]"
         >
           <div className="absolute -right-4 -top-4 w-24 h-24 rounded-full bg-white/10 blur-2xl group-hover:scale-110 transition-transform" />
           <div className="relative">
@@ -541,7 +541,7 @@ const ParentDashboard: React.FC = () => {
 
         <button
           onClick={() => navigate('/parent/children')}
-          className="group relative overflow-hidden bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl p-6 text-left transition-all hover:shadow-lg hover:scale-[1.02]"
+          className="group relative overflow-hidden bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-left shadow-md transition-all duration-300 hover:shadow-lg hover:scale-[1.01]"
         >
           <div className="absolute -right-4 -top-4 w-24 h-24 rounded-full bg-white/10 blur-2xl group-hover:scale-110 transition-transform" />
           <div className="relative">
@@ -599,7 +599,7 @@ const ParentDashboard: React.FC = () => {
           <div className="border-t border-gray-200"></div>
 
           {/* Two Column Layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
             {/* Left Column - Children Cards */}
             <div className="lg:col-span-2 space-y-4">
               <div className="flex items-center justify-between">
@@ -615,7 +615,7 @@ const ParentDashboard: React.FC = () => {
                   <ArrowRightIcon className="h-4 w-4" />
                 </button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 {children.map((child) => (
                   <ChildCard key={child.id} child={child} />
                 ))}
@@ -625,7 +625,7 @@ const ParentDashboard: React.FC = () => {
             {/* Right Column - Recent Activity & Tips */}
             <div className="space-y-4">
               {/* Recent Activity */}
-              <div className="bg-white rounded-2xl border-2 border-gray-200 p-6 shadow-sm">
+              <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-md transition-all duration-300">
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
                     <ClockIcon className="h-5 w-5 text-blue-600" />
@@ -680,7 +680,7 @@ const ParentDashboard: React.FC = () => {
               </div>
 
               {/* Reading Tips */}
-              <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl border-2 border-indigo-200 p-6 shadow-sm">
+              <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl border border-indigo-200 p-6 shadow-md transition-all duration-300">
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
                     <svg className="h-5 w-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -695,7 +695,7 @@ const ParentDashboard: React.FC = () => {
               </div>
 
               {/* Quick Links */}
-              <div className="bg-white rounded-2xl border-2 border-gray-200 p-6 shadow-sm">
+              <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-md transition-all duration-300">
                 <h3 className="text-lg font-semibold text-gray-900 mb-3">Quick Links</h3>
                 <div className="space-y-1">
                   <button

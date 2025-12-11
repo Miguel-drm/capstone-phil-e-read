@@ -387,48 +387,50 @@ const Students: React.FC = () => {
                   className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-5 rounded-xl shadow transition-all duration-150"
                   onClick={() => setEditModalOpen(true)}
                 >
-                  + Edit Students
+                  Edit Students
                 </button>
               </div>
             </div>
-          <div className="overflow-visible">
-            <table className="min-w-full rounded-2xl">
+          <div className="overflow-x-auto">
+            <table className="min-w-full">
               <thead>
-                <tr className="bg-white shadow-sm rounded-t-2xl sticky top-0 z-10">
-                  <th className="px-6 py-5 text-left text-sm font-bold text-gray-700 uppercase tracking-wider rounded-tl-2xl border-b border-gray-200">Name</th>
-                  <th className="px-6 py-5 text-left text-sm font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200">LRN</th>
-                  <th className="px-6 py-5 text-left text-sm font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200">Grade</th>
-                  <th className="px-6 py-5 text-left text-sm font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200">Parent</th>
-                  <th className="px-6 py-5 text-center text-sm font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200">Status</th>
-                  <th className="px-6 py-5 text-right text-sm font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200" colSpan={2}>
+                <tr className="bg-gray-50">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wide border-b-2 border-gray-200">Name</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wide border-b-2 border-gray-200">LRN</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wide border-b-2 border-gray-200">Grade</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wide border-b-2 border-gray-200">Parent</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wide border-b-2 border-gray-200">Status</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 uppercase tracking-wide border-b-2 border-gray-200" colSpan={2}>
                     Actions
                   </th>
                   </tr>
                 </thead>
                 <tbody>
-                {displayedStudents.map((student) => (
+                {displayedStudents.map((student, index) => (
                   <tr
                     key={student.studentId || student.id}
-                    className="transition-all duration-200 hover:bg-blue-200/70 hover:shadow-2xl hover:-translate-y-1 hover:border-blue-400 border-b border-gray-100 last:border-b-0 group"
+                    className={`transition-colors duration-150 hover:bg-gray-50 border-b border-gray-200 last:border-b-0 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}
                   >
                     <td
-                      className="px-6 py-6 whitespace-nowrap flex items-center gap-4 cursor-pointer"
+                      className="px-4 py-3 whitespace-nowrap cursor-pointer"
                       onClick={() => setViewStudent(student)}
                     >
-                      <span className="w-16 h-16 rounded-full bg-white border border-gray-200 shadow flex items-center justify-center overflow-hidden mr-2">
-                        <div className="w-full h-full rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xl font-bold">
-                          {student.name?.charAt(0)?.toUpperCase() || 'S'}
+                      <div className="flex items-center gap-3">
+                        <span className="w-10 h-10 rounded-full bg-white border border-gray-200 shadow-sm flex items-center justify-center overflow-hidden flex-shrink-0">
+                          <div className="w-full h-full rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-semibold">
+                            {student.name?.charAt(0)?.toUpperCase() || 'S'}
+                          </div>
+                        </span>
+                        <div className="flex flex-col min-w-0">
+                          <span className="font-semibold text-sm text-gray-900 truncate">{student.name || 'N/A'}</span>
+                          <span className="text-xs text-gray-500 truncate">{student.grade || 'N/A'}</span>
                         </div>
-                      </span>
-                      <div className="flex flex-col">
-                        <span className="font-extrabold text-lg text-gray-900">{student.name || 'N/A'}</span>
-                        <span className="text-xs text-gray-400">{student.grade || 'N/A'}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-6 whitespace-nowrap text-sm text-gray-700 align-middle cursor-pointer" onClick={() => setViewStudent(student)}>{student.lrn || 'N/A'}</td>
-                    <td className="px-6 py-6 whitespace-nowrap text-sm text-gray-700 align-middle cursor-pointer" onClick={() => setViewStudent(student)}>{student.grade || 'N/A'}</td>
-                    <td className="px-6 py-6 whitespace-nowrap text-sm text-gray-700 align-middle cursor-pointer" onClick={() => setViewStudent(student)}>{student.parentName || 'N/A'}</td>
-                    <td className="px-6 py-6 whitespace-nowrap text-sm text-gray-700 text-center align-middle cursor-pointer" onClick={() => setViewStudent(student)}>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 align-middle cursor-pointer" onClick={() => setViewStudent(student)}>{student.lrn || 'N/A'}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 align-middle cursor-pointer" onClick={() => setViewStudent(student)}>{student.grade || 'N/A'}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 align-middle cursor-pointer" onClick={() => setViewStudent(student)}>{student.parentName || 'N/A'}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-center align-middle cursor-pointer" onClick={() => setViewStudent(student)}>
                       <span className={`px-2 py-1 text-xs font-medium rounded-full ${
                         student.status === 'active' ? 'bg-green-100 text-green-800' :
                         student.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
@@ -437,7 +439,7 @@ const Students: React.FC = () => {
                         {student.status || 'N/A'}
                       </span>
                     </td>
-                    <td className="px-6 py-6 whitespace-nowrap text-right text-sm font-medium relative align-middle">
+                    <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium relative align-middle">
                       <Menu as="div" className="relative inline-block text-left">
                         <Menu.Button className="flex items-center p-2 rounded-full hover:bg-gray-100 focus:outline-none">
                           <EllipsisVerticalIcon className="w-5 h-5 text-gray-500" />

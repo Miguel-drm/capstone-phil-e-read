@@ -1656,7 +1656,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
       : (isSeen ? 'bg-gray-50 border-gray-200' : 'bg-red-50 border-red-200');
 
     return (
-      <div className={`p-3 rounded-lg border cursor-pointer transition-all duration-200 hover:shadow-md shadow-sm ${containerClass}`}>
+      <div className={`p-3 rounded-xl border cursor-pointer transition-all duration-200 ease-in-out hover:shadow-lg hover:scale-[1.01] shadow-sm ${containerClass}`}>
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 mt-0.5">
             <div className={`p-1.5 rounded-lg ${variant === 'recent' ? 'bg-gray-100' : (isSeen ? 'bg-gray-100' : 'bg-red-100')}`}>
@@ -1810,7 +1810,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
     const isParentSent = message.senderRole === 'parent';
 
     return (
-      <div className={`group relative overflow-hidden rounded-lg transition-all duration-200 hover:shadow-md ${isParentSent
+      <div className={`group relative overflow-hidden rounded-xl transition-all duration-200 ease-in-out hover:shadow-lg hover:scale-[1.01] ${isParentSent
         ? 'bg-gray-50 border border-gray-200'
         : 'bg-white border border-gray-200'
         } shadow-sm`}>
@@ -2086,7 +2086,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
 
     return (
       <div
-        className={`group relative overflow-hidden rounded-lg transition-all duration-200 cursor-pointer ${isAdminSent
+        className={`group relative overflow-hidden rounded-xl transition-all duration-200 ease-in-out cursor-pointer hover:shadow-lg hover:scale-[1.01] ${isAdminSent
           ? 'bg-gray-50 border border-gray-200'
           : 'bg-white border border-gray-200'
           } shadow-sm`}
@@ -2402,7 +2402,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
     };
 
     return (
-      <div className="p-4 rounded-lg border cursor-pointer transition-all duration-200 hover:shadow-md bg-blue-50 border-blue-200 shadow-sm overflow-hidden">
+      <div className="p-4 rounded-xl border cursor-pointer transition-all duration-200 ease-in-out hover:shadow-lg hover:scale-[1.01] bg-blue-50 border-blue-200 shadow-sm overflow-hidden">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 mt-1">
             <div className="p-2 rounded-lg bg-blue-100">
@@ -2705,7 +2705,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
 
     return (
       <div 
-        className={`group relative overflow-hidden rounded-lg transition-all duration-200 hover:shadow-md ${isTeacherSent
+        className={`group relative overflow-hidden rounded-xl transition-all duration-200 ease-in-out hover:shadow-lg hover:scale-[1.01] ${isTeacherSent
           ? 'bg-gray-50 border border-gray-200'
           : 'bg-white border border-gray-200'
           } shadow-sm ${actualMessageType === 'revision_request' ? 'cursor-pointer hover:bg-orange-50' : ''}`}
@@ -2880,81 +2880,86 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
     <>
       {/* Mobile backdrop */}
       <div 
-        className="fixed inset-0 bg-black bg-opacity-20 z-40 sm:hidden"
+        className="fixed inset-0 bg-black bg-opacity-50 z-40 sm:hidden transition-opacity duration-200 ease-in-out"
         onClick={onClose}
         aria-hidden="true"
       />
       
-      {/* Notification Dropdown - Responsive positioning */}
-      <div className="fixed sm:absolute top-16 sm:top-auto left-0.5 sm:left-auto right-0.5 sm:right-0 sm:origin-top-right sm:mt-2 w-[calc(100vw-1rem)] sm:w-[32rem] sm:max-w-[calc(100vw-2rem)] min-w-[280px] sm:min-w-[20rem] max-h-[calc(100vh-5rem)] sm:max-h-[80vh] rounded-lg bg-white shadow-lg ring-1 ring-black ring-opacity-5 z-50 overflow-hidden mx-auto sm:mx-0">
-        <div className="p-3 sm:p-4 max-h-full overflow-y-auto">
+      {/* Notification Dropdown - Responsive positioning with modern styling */}
+      <div className="fixed sm:absolute top-16 sm:top-auto left-0.5 sm:left-auto right-0.5 sm:right-0 sm:origin-top-right sm:mt-3 w-[calc(100vw-1rem)] sm:w-[32rem] sm:max-w-[calc(100vw-2rem)] min-w-[280px] sm:min-w-[20rem] max-h-[calc(100vh-5rem)] sm:max-h-[80vh] rounded-xl bg-white shadow-2xl ring-1 ring-black ring-opacity-5 z-50 overflow-hidden mx-auto sm:mx-0 transition-all duration-200 ease-in-out animate-fadeIn">
+        <div className="p-5 sm:p-6 max-h-full overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-3 sm:mb-4">
-          <div className="flex items-center gap-2 min-w-0">
-            <BellIcon className="h-4 w-4 sm:h-5 sm:w-5 text-gray-600 flex-shrink-0" />
-            <h3 className="text-base sm:text-lg font-semibold text-gray-900 truncate">Notifications</h3>
-            {inboxCount > 0 && (
-              <span className="bg-red-500 text-white text-xs font-bold px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full flex-shrink-0">
-                {inboxCount}
-              </span>
-            )}
-            {/* Debug: Show badge count info - Removed for cleaner UI */}
+        <div className="flex items-center justify-between mb-5 sm:mb-6 pb-4 border-b border-gray-200">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2.5 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg shadow-sm">
+              <BellIcon className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600 flex-shrink-0" />
+            </div>
+            <div className="flex items-center gap-2.5">
+              <h3 className="text-lg sm:text-xl font-semibold text-gray-900 truncate">Notifications</h3>
+              {inboxCount > 0 && (
+                <span className="bg-red-500 text-white text-xs font-bold px-2.5 py-1 rounded-full flex-shrink-0 shadow-md border-2 border-white transition-all duration-200">
+                  {inboxCount}
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 p-1"
+              className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 p-2 rounded-lg transition-all duration-200 ease-in-out hover:scale-105 active:scale-95"
               aria-label="Close notifications"
             >
-              <XMarkIcon className="h-4 w-4 sm:h-5 sm:w-5" />
+              <XMarkIcon className="h-5 w-5 sm:h-6 sm:w-6" />
             </button>
           </div>
         </div>
 
 
 
-        {/* Tabs - Responsive */}
-        <div className="flex mb-3 sm:mb-4 border-b border-gray-200 overflow-x-auto scrollbar-hide -mx-3 sm:-mx-4 px-3 sm:px-4">
+        {/* Tabs - Responsive with modern styling */}
+        <div className="flex mb-5 sm:mb-6 border-b border-gray-200 overflow-x-auto scrollbar-hide -mx-4 sm:-mx-6 px-4 sm:px-6 gap-2">
           <button
             onClick={() => setActiveTab('inbox')}
-            className={`px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${activeTab === 'inbox'
-              ? 'border-blue-500 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
+            className={`px-5 sm:px-6 py-3 text-sm sm:text-base font-semibold border-b-2 transition-all duration-200 ease-in-out whitespace-nowrap flex-shrink-0 rounded-t-lg ${activeTab === 'inbox'
+              ? 'border-blue-600 text-blue-600 bg-blue-50 shadow-sm'
+              : 'border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-50 hover:border-gray-300'
               }`}
           >
             <span className="hidden sm:inline">Inbox </span>
             <span className="sm:hidden">Inbox</span>
-            <span className="ml-1">({inboxCount})</span>
+            <span className={`ml-1.5 ${activeTab === 'inbox' ? 'font-bold' : ''}`}>({inboxCount})</span>
           </button>
           <button
             onClick={() => setActiveTab('archived')}
-            className={`px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${activeTab === 'archived'
-              ? 'border-blue-500 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
+            className={`px-5 sm:px-6 py-3 text-sm sm:text-base font-semibold border-b-2 transition-all duration-200 ease-in-out whitespace-nowrap flex-shrink-0 rounded-t-lg ${activeTab === 'archived'
+              ? 'border-blue-600 text-blue-600 bg-blue-50 shadow-sm'
+              : 'border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-50 hover:border-gray-300'
               }`}
           >
             <span className="hidden sm:inline">Archived </span>
             <span className="sm:hidden">Arch</span>
-            <span className="ml-1">({archivedCount})</span>
+            <span className={`ml-1.5 ${activeTab === 'archived' ? 'font-bold' : ''}`}>({archivedCount})</span>
           </button>
           <button
             onClick={() => setActiveTab('recent')}
-            className={`px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${activeTab === 'recent'
-              ? 'border-blue-500 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
+            className={`px-5 sm:px-6 py-3 text-sm sm:text-base font-semibold border-b-2 transition-all duration-200 ease-in-out whitespace-nowrap flex-shrink-0 rounded-t-lg ${activeTab === 'recent'
+              ? 'border-blue-600 text-blue-600 bg-blue-50 shadow-sm'
+              : 'border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-50 hover:border-gray-300'
               }`}
           >
             <span className="hidden sm:inline">Recent </span>
             <span className="sm:hidden">Recent</span>
-            <span className="ml-1">({recentCount})</span>
+            <span className={`ml-1.5 ${activeTab === 'recent' ? 'font-bold' : ''}`}>({recentCount})</span>
           </button>
         </div>
 
         {/* Content */}
-        <div className="max-h-[60vh] sm:max-h-[60vh] overflow-y-auto overflow-x-hidden -mx-3 sm:-mx-4 px-3 sm:px-4">
+        <div className="max-h-[60vh] sm:max-h-[60vh] overflow-y-auto overflow-x-hidden -mx-4 sm:-mx-6 px-4 sm:px-6">
           {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            <div className="flex flex-col items-center justify-center py-16">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-3 border-blue-600 mb-4"></div>
+              <p className="text-sm text-gray-600 font-medium">Loading notifications...</p>
+              <p className="text-xs text-gray-400 mt-1">Please wait</p>
             </div>
           ) : (
             <>
@@ -2963,17 +2968,17 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
                 <>
                   {/* Link Requests Section for Teachers and Parents */}
                   {(userRole === 'teacher' || userRole === 'parent') && linkRequests.filter(request => request.status === 'pending').length > 0 && (
-                    <div className="mb-4">
-                      <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                        <UserPlusIcon className="h-4 w-4" />
+                    <div className="mb-6">
+                      <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                        <UserPlusIcon className="h-4 w-4 text-blue-600" />
                         Pending Link Requests ({linkRequests.filter(request => request.status === 'pending').length})
                       </h4>
-                      <div className="space-y-3">
+                      <div className="space-y-4">
                         {linkRequests.filter(request => request.status === 'pending').slice(0, 3).map((request) => (
                           <ParentLinkRequestCard key={request.id} request={request} />
                         ))}
                         {linkRequests.filter(request => request.status === 'pending').length > 3 && (
-                          <p className="text-xs text-gray-500 text-center">
+                          <p className="text-xs text-gray-500 text-center py-2 bg-gray-50 rounded-lg">
                             +{linkRequests.filter(request => request.status === 'pending').length - 3} more requests
                           </p>
                         )}
@@ -2985,12 +2990,13 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
 
                   {/* Inbox Messages */}
                   {(inboxMessages.length === 0 && linkRequests.filter(request => request.status === 'pending').length === 0) ? (
-                    <div className="text-center py-8">
-                      <BellIcon className="h-12 w-12 text-gray-300 mx-auto mb-2" />
-                      <p className="text-gray-500 text-sm">No messages in your inbox</p>
+                    <div className="text-center py-12">
+                      <BellIcon className="h-14 w-14 text-gray-300 mx-auto mb-3" />
+                      <p className="text-gray-500 text-sm font-medium">No messages in your inbox</p>
+                      <p className="text-gray-400 text-xs mt-1">You're all caught up!</p>
                     </div>
                   ) : (
-                    <div className="space-y-3">
+                    <div className="space-y-4">
                       {inboxMessages.map((message) => {
                         // Use specialized components based on user role and message type
                         if (userRole === 'parent') {
