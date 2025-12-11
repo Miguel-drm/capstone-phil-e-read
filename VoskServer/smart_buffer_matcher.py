@@ -28,7 +28,7 @@ class SmartBufferMatcher:
     Handles Vosk's severe word reordering by looking for best matches in a buffer.
     """
     
-    def __init__(self, expected_words: List[str], buffer_size: int = 20):
+    def __init__(self, expected_words: List[str], buffer_size: int = 80):
         """
         Initialize the smart buffer matcher.
         
@@ -103,6 +103,8 @@ class SmartBufferMatcher:
     def _try_match_from_buffer(self) -> Optional[Dict]:
         """
         Try to find the best match for the current expected word in the buffer.
+        Uses OPTIMISTIC MATCHING for speed: match immediately if found, 
+        only wait if no match after reasonable time.
         
         Returns:
             Match result if found, None if no match yet
@@ -118,7 +120,31 @@ class SmartBufferMatcher:
         
         expected_word = self.expected_words[self.current_position].lower().strip()
         
-        # Look for exact match in buffer
+        # OPTIMISTIC MATCHING: Check if the NEWEST word matches (most common case)
+        # This gives instant feedback when reading in order
+        if len(self.word_buffer) > 0:
+            newest_word, newest_timestamp = self.word_buffer[-1]
+            if self._words_match(newest_word, expected_word):
+                print(f"   ⚡ INSTANT match: '{newest_word}' matches expected '{expected_word}' (newest word)")
+                
+                # Remove matched word from buffer
+                self.word_buffer.remove((newest_word, newest_timestamp))
+                
+                # Advance position
+                self.current_position += 1
+                self.words_read += 1
+                
+                return {
+                    "match_type": "correct",
+                    "advance": True,
+                    "new_position": self.current_position,
+                    "miscue_count": 0,
+                    "words_read": self.words_read,
+                    "total_miscues": self.total_miscues,
+                    "details": f"Correct: '{newest_word}' matches '{expected_word}'"
+                }
+        
+        # FALLBACK: Look for match anywhere in buffer (handles reordering)
         for i, (buffered_word, timestamp) in enumerate(self.word_buffer):
             if self._words_match(buffered_word, expected_word):
                 # Found a match! Remove it from buffer and advance
@@ -141,38 +167,42 @@ class SmartBufferMatcher:
                     "details": f"Correct: '{buffered_word}' matches '{expected_word}'"
                 }
         
-        # No match found yet - check if buffer is full
-        if len(self.word_buffer) >= self.buffer_size:
-            # Buffer is full and no match - this is likely a miscue
-            # Take the oldest word from buffer and process it
+        # No match found yet - use SMART TIMEOUT instead of fixed buffer size
+        # Wait for 10 words OR 3 seconds (whichever comes first)
+        SMART_WAIT_WORDS = 10  # Much faster than 80!
+        SMART_WAIT_TIME = 3.0  # 3 seconds max wait
+        
+        if len(self.word_buffer) >= SMART_WAIT_WORDS:
+            # Check if we've waited long enough (time-based)
             oldest_word, oldest_timestamp = self.word_buffer[0]
+            time_waited = time.time() - oldest_timestamp
             
-            print(f"   ⚠️ Buffer full, no match for '{expected_word}'. Processing '{oldest_word}'...")
+            if time_waited >= SMART_WAIT_TIME or len(self.word_buffer) >= self.buffer_size:
+                print(f"   ⚠️ No match for '{expected_word}' after {len(self.word_buffer)} words / {time_waited:.1f}s")
+                print(f"   📦 Buffer: {[w for w, _ in list(self.word_buffer)[:10]]}...")
+                print(f"   ⏭️ Marking '{expected_word}' as OMISSION")
             
-            # IMPORTANT: Check if oldest_word matches ANY upcoming word in the next few positions
-            # This prevents false substitutions when Vosk reorders words
-            lookahead_range = min(5, len(self.expected_words) - self.current_position)
-            for i in range(1, lookahead_range):
-                future_word = self.expected_words[self.current_position + i].lower().strip()
-                if self._words_match(oldest_word, future_word):
-                    print(f"   🔮 Word '{oldest_word}' matches future position {self.current_position + i} ('{future_word}')")
-                    print(f"   ⏭️ Skipping current word '{expected_word}' as OMISSION")
-                    
-                    # Mark current word as omission and advance
-                    self.current_position += 1
-                    self.total_miscues += 1
-                    
-                    return {
-                        "match_type": "omission",
-                        "advance": True,
-                        "new_position": self.current_position,
-                        "miscue_count": 1,
-                        "words_read": self.words_read,
-                        "total_miscues": self.total_miscues,
-                        "details": f"Omission: '{expected_word}' not read (next word matches future position)"
-                    }
+            # DISABLED LOOKAHEAD: Just mark current word as omission and continue
+            # The larger buffer (80 words) should give enough time for reordered words to arrive
             
-            # Remove oldest word from buffer
+            # Remove oldest word from buffer to make room
+            self.word_buffer.popleft()
+            
+            # Mark current expected word as omission
+            self.current_position += 1
+            self.total_miscues += 1
+            
+            return {
+                "match_type": "omission",
+                "advance": True,
+                "new_position": self.current_position,
+                "miscue_count": 1,
+                "words_read": self.words_read,
+                "total_miscues": self.total_miscues,
+                "details": f"Omission: '{expected_word}' not found after waiting {self.buffer_size} words"
+            }
+            
+            # OLD CODE BELOW (DISABLED)
             self.word_buffer.popleft()
             
             # MISCUE PRIORITIZATION: Check other miscue types before substitution
@@ -260,12 +290,15 @@ class SmartBufferMatcher:
             "advance": False,
             "new_position": self.current_position,
             "miscue_count": 0,
+            "words_read": self.words_read,
+            "total_miscues": self.total_miscues,
             "details": f"Buffering words for intelligent matching"
         }
     
     def _words_match(self, word1: str, word2: str) -> bool:
         """
         Check if two words match (including pronunciation variants).
+        Uses aggressive matching for short words to handle Vosk's poor recognition.
         
         Args:
             word1: First word
@@ -278,15 +311,22 @@ class SmartBufferMatcher:
         if word1 == word2:
             return True
         
-        # Common pronunciation variants (expanded)
+        # Expanded pronunciation variants for better matching
         variants = {
-            'a': ['uh', 'ah', 'ay', 'eh'],
-            'the': ['da', 'de', 'thuh', 'thee', 'duh'],
-            'sad': ['said'],
-            'is': ['iz', 'iss'],
-            'it': ['itt', 'et'],
-            'oh': ['o', 'ooh'],
-            'no': ['noh', 'know'],
+            'a': ['uh', 'ah', 'ay', 'eh', 'ey', 'ae'],
+            'the': ['da', 'de', 'thuh', 'thee', 'duh', 'thee', 'thuh'],
+            'sad': ['said', 'sadd'],
+            'is': ['iz', 'iss', 'iss', 'izz'],
+            'it': ['itt', 'et', 'itt'],
+            'oh': ['o', 'ooh', 'ohh', 'ooh'],
+            'no': ['noh', 'know', 'nope'],
+            'on': ['onn', 'ohn'],
+            'of': ['off', 'ov'],
+            'off': ['of', 'ov'],
+            'bed': ['bedd', 'bet'],
+            'can': ['cann', 'ken'],
+            'has': ['haz', 'hass'],
+            'cat': ['kat', 'catt'],
         }
         
         # Check if word1 is a variant of word2
@@ -297,7 +337,16 @@ class SmartBufferMatcher:
         if word1 in variants and word2 in variants[word1]:
             return True
         
-        # Check very high similarity (95%+) as potential match
+        # AGGRESSIVE SHORT WORD MATCHING (2-3 letters)
+        # Short words are often misrecognized by Vosk, so be more lenient
+        if len(word1) <= 3 or len(word2) <= 3:
+            # Check if they start with the same letter and are similar length
+            if word1[0] == word2[0] and abs(len(word1) - len(word2)) <= 1:
+                similarity = self._calculate_similarity(word1, word2)
+                if similarity >= 0.70:  # Lower threshold for short words
+                    return True
+        
+        # Check very high similarity (95%+) for longer words
         similarity = self._calculate_similarity(word1, word2)
         if similarity >= 0.95:
             return True

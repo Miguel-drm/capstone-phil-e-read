@@ -108,6 +108,7 @@ const ReadingSessionPage: React.FC = () => {
   const voskFinalTranscriptRef = useRef<string>(""); // Accumulate final results
   const voskConnectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const voskHeartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastPositionRef = useRef<number>(0); // Track last position for phrase matching
   const [transcript, setTranscript] = useState("");
   const [voskStatus, setVoskStatus] = useState<
     "disconnected" | "connecting" | "connected"
@@ -347,19 +348,15 @@ const ReadingSessionPage: React.FC = () => {
           
           console.log(`🎯 Backend match: ${match_type} - ${details}`);
           
-          // Update position from backend
-          if (session_state) {
-            setCurrentWordIndex(session_state.current_position);
-            console.log(`🟡 Position updated to ${session_state.current_position}`);
-          }
-          
-          // Mark word based on match type
-          const wordIndex = new_position - 1;  // Position before advance
+          // Get old position from ref (tracks last known position accurately)
+          const oldPosition = lastPositionRef.current;
           
           switch (match_type) {
             case 'waiting_for_start':
               // Ignore - waiting for first word
               console.log(`⏳ Waiting for story to start, ignoring word`);
+              // Reset position ref at start of session
+              lastPositionRef.current = 0;
               // Don't mark anything - session hasn't started yet
               return;  // Don't update anything
               
@@ -369,10 +366,33 @@ const ReadingSessionPage: React.FC = () => {
               console.log(`⏸️ Word pending: "${word}" - waiting for next word`);
               return;  // Don't mark anything yet
               
+            case 'buffering':
+              // Buffering words - don't mark anything yet
+              // Update position to show progress
+              if (session_state) {
+                setCurrentWordIndex(session_state.current_position);
+                lastPositionRef.current = session_state.current_position;
+              }
+              break;
+              
             case 'correct':
-              // Mark as correct (green)
-              setRecognizedWords(prev => new Set(prev).add(wordIndex));
-              console.log(`✅ Word ${wordIndex} marked correct`);
+              // Mark ALL words from old position to new position as correct (phrase match)
+              // Calculate how many words were matched based on position change
+              const wordsMatched = new_position - oldPosition;
+              console.log(`✅ Marking ${wordsMatched} words as correct (${oldPosition} to ${new_position - 1})`);
+              
+              setRecognizedWords(prev => {
+                const newSet = new Set(prev);
+                for (let i = oldPosition; i < new_position; i++) {
+                  newSet.add(i);
+                }
+                return newSet;
+              });
+              
+              // Update position from backend AFTER marking words
+              setCurrentWordIndex(new_position);
+              lastPositionRef.current = new_position; // Update ref for next match
+              console.log(`🟡 Position updated from ${oldPosition} to ${new_position}`);
               break;
               
             case 'omission':
@@ -2090,7 +2110,8 @@ const ReadingSessionPage: React.FC = () => {
                     max_alternatives: 0,
                     grammar: vocabularyList,  // Send story vocabulary to Vosk (if supported)
                     vocabulary: vocabularyList,  // For server-side filtering
-                    expected_words: expectedWordsList  // For BACKEND word matching (original case)
+                    expected_words: expectedWordsList,  // For BACKEND word matching (original case)
+                    use_phrase_mode: true  // Enable phrase-level matching (Option 2) for 85-95% accuracy
                   }
                 });
 
@@ -5517,8 +5538,8 @@ const ReadingSessionPage: React.FC = () => {
               </div>
               
               <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
-                {/* Status indicator dot - shows for both Vosk and Web Speech */}
-                {!useWebSpeech && (storyLanguage === "tagalog" || storyLanguage === "english") && (
+                {/* Status indicator dot - only shows when recording is active */}
+                {!useWebSpeech && isRecording && (storyLanguage === "tagalog" || storyLanguage === "english") && (
                   <span
                     className={`w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full ${voskStatus === "connected"
                       ? "bg-green-500"

@@ -1,0 +1,6 @@
+@echo off
+echo Killing all Python processes...
+taskkill /F /IM python.exe 2>nul
+timeout /t 2 /nobreak >nul
+echo Starting server on port 2700...
+python server.py --port 2700

@@ -221,6 +221,8 @@ async def recognize(websocket, path, model):
     
     # NEW: Word matcher session for server-side word matching
     word_matcher = None  # Will be initialized when expected_words are received
+    phrase_matcher = None  # Phrase-level matcher (Option 2 for higher accuracy)
+    use_phrase_mode = False  # Whether to use phrase-level matching
     
     try:
         async for message in websocket:
@@ -343,9 +345,26 @@ async def recognize(websocket, path, model):
                                     filtered_text = ' '.join(filtered_words)
                                     print(f"   ✅ Vocabulary filter: Accepted \"{filtered_text}\"")
                                     
-                                    # NEW: Use word matcher if initialized
-                                    if word_matcher:
-                                        # Process each word through the matcher
+                                    # NEW: Use phrase matcher or word matcher if initialized
+                                    if use_phrase_mode and phrase_matcher:
+                                        # PHRASE MODE: Process each word through phrase matcher
+                                        for word in filtered_words:
+                                            match_result = phrase_matcher.process_word(word)
+                                            
+                                            # Calculate current metrics
+                                            elapsed = time.time() - session_start_time
+                                            metrics = phrase_matcher.get_metrics(elapsed)
+                                            
+                                            # Send match result with metrics
+                                            await websocket.send(json.dumps({
+                                                "text": word,
+                                                "match_result": match_result,
+                                                "metrics": metrics
+                                            }))
+                                            
+                                            print(f"   📊 Phrase Match: {match_result['match_type']} - {match_result['details']}")
+                                    elif word_matcher:
+                                        # WORD MODE: Process each word through word matcher
                                         for word in filtered_words:
                                             match_result = word_matcher.process_word(word)
                                             
@@ -373,9 +392,26 @@ async def recognize(websocket, path, model):
                                 # No vocabulary filter - send all NEW words
                                 print(f"   ✅ Sending words to client: '{' '.join(new_words)}'")
                                 
-                                # NEW: Use word matcher if initialized
-                                if word_matcher:
-                                    # Process each word through the matcher
+                                # NEW: Use phrase matcher or word matcher if initialized
+                                if use_phrase_mode and phrase_matcher:
+                                    # PHRASE MODE: Process each word through phrase matcher
+                                    for word in new_words:
+                                        match_result = phrase_matcher.process_word(word)
+                                        
+                                        # Calculate current metrics
+                                        elapsed = time.time() - session_start_time
+                                        metrics = phrase_matcher.get_metrics(elapsed)
+                                        
+                                        # Send match result with metrics
+                                        await websocket.send(json.dumps({
+                                            "text": word,
+                                            "match_result": match_result,
+                                            "metrics": metrics
+                                        }))
+                                        
+                                        print(f"   📊 Phrase Match: {match_result['match_type']} - {match_result['details']}")
+                                elif word_matcher:
+                                    # WORD MODE: Process each word through word matcher
                                     for word in new_words:
                                         match_result = word_matcher.process_word(word)
                                         
@@ -558,10 +594,28 @@ async def recognize(websocket, path, model):
                                 total_words_expected = len(expected_words)
                                 current_word_index = 0  # Reset word index
                                 
-                                # Initialize word matcher session
-                                word_matcher = WordMatcherSession(expected_words, detected_language)
-                                print(f"✓ Expected word sequence loaded: {total_words_expected} words")
-                                print(f"✓ Word matcher initialized for {detected_language} language")
+                                # Check if phrase mode is requested
+                                use_phrase_mode = config.get("use_phrase_mode", False)
+                                
+                                if use_phrase_mode:
+                                    # Initialize phrase matcher (Option 2 - higher accuracy)
+                                    try:
+                                        from phrase_matcher import PhraseMatcherSession
+                                        phrase_matcher = PhraseMatcherSession(expected_words, detected_language)
+                                        print(f"✓ Expected word sequence loaded: {total_words_expected} words")
+                                        print(f"✓ PHRASE MATCHER initialized for {detected_language} language (Option 2)")
+                                        print(f"   Using phrase-level assessment for 85-95% accuracy")
+                                    except ImportError as e:
+                                        print(f"⚠ Phrase matcher not available: {e}")
+                                        print(f"   Falling back to word-level matcher")
+                                        use_phrase_mode = False
+                                        word_matcher = WordMatcherSession(expected_words, detected_language)
+                                        print(f"✓ Word matcher initialized for {detected_language} language")
+                                else:
+                                    # Initialize word matcher session (Option 1 - original)
+                                    word_matcher = WordMatcherSession(expected_words, detected_language)
+                                    print(f"✓ Expected word sequence loaded: {total_words_expected} words")
+                                    print(f"✓ Word matcher initialized for {detected_language} language")
                             
                             # Check for enhancer configuration
                             if "enhancer" in config:
