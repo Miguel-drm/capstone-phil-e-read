@@ -30,6 +30,7 @@ import { collection, getDocs } from "firebase/firestore";
 import { isrResultService } from "@/services/ISRresultService";
 import { useAuth } from "@/contexts/AuthContext";
 import { getUserProfile } from "@/services/authService";
+import gsap from "gsap";
 
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -4507,7 +4508,107 @@ const ReadingSessionPage: React.FC = () => {
     }
   }, [tests, currentSession]);
 
-  // Auto-scroll to current word when it changes
+  // GSAP: Configure for 99fps performance
+  useEffect(() => {
+    gsap.ticker.fps(99);
+    return () => {
+      gsap.ticker.fps(60); // Reset to default on unmount
+    };
+  }, []);
+
+  // GSAP: Smooth sliding yellow highlight animation (karaoke-style)
+  const yellowHighlightRef = useRef<HTMLDivElement | null>(null);
+  
+  useEffect(() => {
+    if (currentWordRef.current && isRecording && yellowHighlightRef.current && storyContentRef.current) {
+      const wordElement = currentWordRef.current;
+      const highlight = yellowHighlightRef.current;
+      
+      // Get positions relative to the scrollable container
+      const wordRect = wordElement.getBoundingClientRect();
+      
+      // Calculate position accounting for scroll
+      const left = wordElement.offsetLeft;
+      const top = wordElement.offsetTop;
+      
+      // Smooth slide animation to new word position
+      gsap.to(highlight, {
+        left: left,
+        top: top,
+        width: wordRect.width,
+        height: wordRect.height,
+        duration: 0.4,
+        ease: 'power2.out',
+        opacity: 1,
+      });
+      
+      // Subtle scale animation on the word itself
+      gsap.killTweensOf(wordElement);
+      gsap.fromTo(
+        wordElement,
+        {
+          scale: 1,
+        },
+        {
+          scale: 1.08,
+          duration: 0.3,
+          ease: 'power2.out',
+          yoyo: true,
+          repeat: 1,
+        }
+      );
+    }
+  }, [currentWordIndex, isRecording]);
+
+  // GSAP: Animate recognized words with smooth color transition
+  useEffect(() => {
+    recognizedWords.forEach((wordIndex) => {
+      const wordElement = document.querySelector(`[data-word-index="${wordIndex}"]`);
+      if (wordElement && !wordElement.classList.contains('gsap-animated')) {
+        wordElement.classList.add('gsap-animated');
+        
+        // Kill any existing animations
+        gsap.killTweensOf(wordElement);
+        
+        // Smooth transition to green (correct word)
+        gsap.to(wordElement, {
+          backgroundColor: 'rgba(220, 252, 231, 1)', // green-100
+          color: 'rgba(22, 101, 52, 1)', // green-800
+          scale: 1,
+          duration: 0.3,
+          ease: 'power2.out',
+        });
+      }
+    });
+  }, [recognizedWords]);
+
+  // GSAP: Animate miscue markings when they appear (subtle fade-in only)
+  useEffect(() => {
+    wordMiscues.forEach((_miscueType, wordIndex) => {
+      const wordElement = document.querySelector(`[data-word-index="${wordIndex}"]`);
+      if (wordElement && !wordElement.classList.contains('gsap-miscue-animated')) {
+        wordElement.classList.add('gsap-miscue-animated');
+        
+        // Kill any existing animations
+        gsap.killTweensOf(wordElement);
+        
+        // Subtle fade-in for miscue marking (no shake)
+        gsap.fromTo(
+          wordElement,
+          {
+            opacity: 0.5,
+          },
+          {
+            opacity: 1,
+            duration: 0.3,
+            ease: 'power2.out',
+          }
+        );
+      }
+    });
+  }, [wordMiscues]);
+
+  // Auto-scroll to keep yellow highlight centered (karaoke-style)
   useEffect(() => {
     if (currentWordRef.current && storyContentRef.current && isRecording) {
       const wordElement = currentWordRef.current;
@@ -4517,16 +4618,21 @@ const ReadingSessionPage: React.FC = () => {
       const wordRect = wordElement.getBoundingClientRect();
       const containerRect = container.getBoundingClientRect();
 
-      // Check if word is outside visible area
-      const isAboveView = wordRect.top < containerRect.top;
-      const isBelowView = wordRect.bottom > containerRect.bottom;
+      // Calculate the middle threshold (30% from top and bottom)
+      const middleThresholdTop = containerRect.top + (containerRect.height * 0.3);
+      const middleThresholdBottom = containerRect.bottom - (containerRect.height * 0.3);
 
-      if (isAboveView || isBelowView) {
-        // Smooth scroll to center the word in view
-        const scrollOffset = wordElement.offsetTop - container.offsetTop - (container.clientHeight / 2) + (wordRect.height / 2);
-        container.scrollTo({
-          top: scrollOffset,
-          behavior: 'smooth'
+      // Check if word is outside the middle zone
+      const isAboveMiddle = wordRect.top < middleThresholdTop;
+      const isBelowMiddle = wordRect.bottom > middleThresholdBottom;
+
+      if (isAboveMiddle || isBelowMiddle) {
+        // GSAP smooth scroll to center the word in view
+        const scrollOffset = wordElement.offsetTop - (container.clientHeight / 2) + (wordRect.height / 2);
+        gsap.to(container, {
+          scrollTop: scrollOffset,
+          duration: 0.6,
+          ease: 'power2.out',
         });
       }
     }
@@ -4852,10 +4958,7 @@ const ReadingSessionPage: React.FC = () => {
     return realWordIndex === currentWordIndex;
   }
 
-  // Helper to check if a word has been read/recognized (either advanced past it OR recognized it)
-  function isWordRead(realWordIndex: number): boolean {
-    return realWordIndex < currentWordIndex || recognizedWords.has(realWordIndex);
-  }
+
 
   // Helper to get miscue color based on type
   // @ts-ignore - Function IS used in template literal on line 5089, TS analyzer bug
@@ -4959,14 +5062,21 @@ const ReadingSessionPage: React.FC = () => {
         {/* Story Content */}
         <div className="flex-1">
           <div className="relative bg-white/80 rounded-2xl lg:rounded-3xl border border-blue-100 p-4 sm:p-6 lg:p-10 overflow-hidden max-h-[40rem] lg:max-h-[48rem]">
-            {/* Progress Bar */}
+            {/* Progress Bar - GSAP animated */}
             <div
-              className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 rounded-t-3xl animate-pulse"
+              ref={(el) => {
+                if (el && isRecording) {
+                  const progress = Math.min((currentWordIndex / words.length) * 100, 100);
+                  gsap.to(el, {
+                    width: `${progress}%`,
+                    duration: 0.5,
+                    ease: 'power2.out',
+                  });
+                }
+              }}
+              className="absolute top-0 left-0 h-2 bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 rounded-t-3xl"
               style={{
-                width: `${Math.min(
-                  (currentWordIndex / words.length) * 100,
-                  100
-                )}%`,
+                width: '0%',
               }}
             ></div>
             <div className="mb-4 sm:mb-6 lg:mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
@@ -4982,9 +5092,28 @@ const ReadingSessionPage: React.FC = () => {
             </div>
             <div
               ref={storyContentRef}
-              className="max-h-[20rem] sm:max-h-[30rem] lg:max-h-[38rem] overflow-y-auto custom-scrollbar prose prose-blue bg-white/60 rounded-lg sm:rounded-xl p-4 sm:p-6 lg:p-8 leading-relaxed tracking-wide"
+              className="max-h-[20rem] sm:max-h-[30rem] lg:max-h-[38rem] overflow-y-auto custom-scrollbar prose prose-blue bg-white/60 rounded-lg sm:rounded-xl p-4 sm:p-6 lg:p-8 leading-relaxed tracking-wide relative"
               style={recommendedFont}
             >
+              {/* Yellow border square (karaoke-style indicator) */}
+              {isRecording && (
+                <div
+                  ref={yellowHighlightRef}
+                  className="absolute pointer-events-none rounded-lg"
+                  style={{
+                    backgroundColor: 'transparent', // No background fill
+                    border: '4px solid #FCD34D', // Yellow-400 border
+                    boxShadow: '0 0 15px rgba(252, 211, 77, 0.6), inset 0 0 10px rgba(252, 211, 77, 0.2)',
+                    transition: 'none', // GSAP handles all transitions
+                    zIndex: 5,
+                    opacity: 0,
+                    left: 0,
+                    top: 0,
+                    width: 0,
+                    height: 0,
+                  }}
+                />
+              )}
               {storyText || pdfContent ? (
                 (storyText ? storyText : pdfContent)
                   .split("\n")  // Split by single line break to preserve original formatting
@@ -5051,7 +5180,6 @@ const ReadingSessionPage: React.FC = () => {
                             }
 
                             const isCurrent = !isSpecialChar && isWordCurrent(realWordIndex);
-                            const isRead = !isSpecialChar && isWordRead(realWordIndex);
                             const miscueType = !isSpecialChar ? wordMiscues.get(realWordIndex) : undefined;
 
                             // Hide all miscue colors while recording - only show AFTER Complete button is clicked
@@ -5136,42 +5264,27 @@ const ReadingSessionPage: React.FC = () => {
                                 {/* The actual story word */}
                                 <span
                                   ref={isCurrent ? currentWordRef : null}
+                                  data-word-index={!isSpecialChar ? realWordIndex : undefined}
                                   className={
                                     isSpecialChar
                                       ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"
                                       : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative ` +
-                                      (isCurrent && !isCompleted
-                                        ? "bg-transparent text-gray-900 font-extrabold z-10 border-4 border-yellow-400"
+                                      (isCurrent && isRecording && !isCompleted
+                                        ? "bg-transparent text-gray-900 font-extrabold z-10"
                                         : miscueType && showMiscueColors
                                           ? `${getMiscueColor(miscueType)} font-semibold`
                                           : recognizedWords.has(realWordIndex) && showMiscueColors
                                             ? "bg-green-100 text-green-800 font-bold shadow-lg border-2 border-green-400"
-                                            : realWordIndex < currentWordIndex
+                                            : realWordIndex < currentWordIndex && isRecording
                                               ? "bg-white text-gray-800 font-normal border border-gray-200"
                                               : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
                                   }
-                                style={
-                                  isCurrent
-                                    ? {
-                                      ...baseWordStyle,
-                                      transition: "background-color 0.2s ease-in-out, color 0.2s ease-in-out, border-color 0.2s ease-in-out"
-                                    }
-                                    : miscueType
-                                      ? {
-                                        ...baseWordStyle,
-                                        ...getMiscueMarkingStyle(miscueType),
-                                        transition: "background-color 0.2s ease-in-out, color 0.2s ease-in-out"
-                                      }
-                                      : isRead
-                                        ? {
-                                          ...baseWordStyle,
-                                          transition: "background-color 0.2s ease-in-out, color 0.2s ease-in-out"
-                                        }
-                                        : {
-                                          ...baseWordStyle,
-                                          transition: "background-color 0.2s ease-in-out, color 0.2s ease-in-out"
-                                        }
-                                }
+                                style={{
+                                    ...baseWordStyle,
+                                    ...getMiscueMarkingStyle(miscueType),
+                                    zIndex: isCurrent ? 10 : 6, // Ensure words are above yellow highlight (z-5)
+                                    // GSAP handles all animations - no CSS transitions needed
+                                  }}
                               >
                                 {word}
 
@@ -5484,9 +5597,32 @@ const ReadingSessionPage: React.FC = () => {
 
             {showMiscueDetails && (
             <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <div
+              ref={(el) => {
+                if (el && showMiscueDetails) {
+                  const cards = el.querySelectorAll('.miscue-card');
+                  gsap.fromTo(
+                    cards,
+                    {
+                      opacity: 0,
+                      y: 30,
+                      scale: 0.9,
+                    },
+                    {
+                      opacity: 1,
+                      y: 0,
+                      scale: 1,
+                      duration: 0.4,
+                      stagger: 0.08,
+                      ease: 'back.out(1.2)',
+                    }
+                  );
+                }
+              }}
+              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4"
+            >
               {/* 1. Mispronunciation */}
-              <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.mispronunciation > 0 ? 'bg-red-100 border-red-400 shadow-lg' : 'bg-white border-gray-200'}`}>
+              <div className={`miscue-card rounded-xl p-4 border-2 ${miscueTypes.mispronunciation > 0 ? 'bg-red-100 border-red-400 shadow-lg' : 'bg-white border-gray-200'}`}>
                 <div className="flex items-start justify-between mb-2">
                   <div>
                     <h4 className="font-bold text-red-900 text-sm">1. Mispronunciation</h4>
@@ -5502,7 +5638,7 @@ const ReadingSessionPage: React.FC = () => {
               </div>
 
               {/* 2. Omission */}
-              <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.omission > 0 ? 'bg-gray-100 border-gray-400 shadow-lg' : 'bg-white border-gray-200'}`}>
+              <div className={`miscue-card rounded-xl p-4 border-2 ${miscueTypes.omission > 0 ? 'bg-gray-100 border-gray-400 shadow-lg' : 'bg-white border-gray-200'}`}>
                 <div className="flex items-start justify-between mb-2">
                   <div>
                     <h4 className="font-bold text-gray-900 text-sm">2. Omission</h4>
@@ -5518,7 +5654,7 @@ const ReadingSessionPage: React.FC = () => {
               </div>
 
               {/* 3. Substitution */}
-              <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.substitution > 0 ? 'bg-yellow-100 border-yellow-400 shadow-lg' : 'bg-white border-gray-200'}`}>
+              <div className={`miscue-card rounded-xl p-4 border-2 ${miscueTypes.substitution > 0 ? 'bg-yellow-100 border-yellow-400 shadow-lg' : 'bg-white border-gray-200'}`}>
                 <div className="flex items-start justify-between mb-2">
                   <div>
                     <h4 className="font-bold text-yellow-900 text-sm">3. Substitution</h4>
@@ -5534,7 +5670,7 @@ const ReadingSessionPage: React.FC = () => {
               </div>
 
               {/* 4. Insertion */}
-              <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.insertion > 0 ? 'bg-cyan-100 border-cyan-400 shadow-lg' : 'bg-white border-gray-200'}`}>
+              <div className={`miscue-card rounded-xl p-4 border-2 ${miscueTypes.insertion > 0 ? 'bg-cyan-100 border-cyan-400 shadow-lg' : 'bg-white border-gray-200'}`}>
                 <div className="flex items-start justify-between mb-2">
                   <div>
                     <h4 className="font-bold text-cyan-900 text-sm">4. Insertion</h4>
@@ -5550,7 +5686,7 @@ const ReadingSessionPage: React.FC = () => {
               </div>
 
               {/* 5. Repetition */}
-              <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.repetition > 0 ? 'bg-blue-100 border-blue-400 shadow-lg' : 'bg-white border-gray-200'}`}>
+              <div className={`miscue-card rounded-xl p-4 border-2 ${miscueTypes.repetition > 0 ? 'bg-blue-100 border-blue-400 shadow-lg' : 'bg-white border-gray-200'}`}>
                 <div className="flex items-start justify-between mb-2">
                   <div>
                     <h4 className="font-bold text-blue-900 text-sm">5. Repetition</h4>
@@ -5566,7 +5702,7 @@ const ReadingSessionPage: React.FC = () => {
               </div>
 
               {/* 6. Transposition */}
-              <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.transposition > 0 ? 'bg-purple-100 border-purple-400 shadow-lg' : 'bg-white border-gray-200'}`}>
+              <div className={`miscue-card rounded-xl p-4 border-2 ${miscueTypes.transposition > 0 ? 'bg-purple-100 border-purple-400 shadow-lg' : 'bg-white border-gray-200'}`}>
                 <div className="flex items-start justify-between mb-2">
                   <div>
                     <h4 className="font-bold text-purple-900 text-sm">6. Transposition</h4>
@@ -5582,7 +5718,7 @@ const ReadingSessionPage: React.FC = () => {
               </div>
 
               {/* 7. Reversal */}
-              <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.reversal > 0 ? 'bg-pink-100 border-pink-400 shadow-lg' : 'bg-white border-gray-200'}`}>
+              <div className={`miscue-card rounded-xl p-4 border-2 ${miscueTypes.reversal > 0 ? 'bg-pink-100 border-pink-400 shadow-lg' : 'bg-white border-gray-200'}`}>
                 <div className="flex items-start justify-between mb-2">
                   <div>
                     <h4 className="font-bold text-pink-900 text-sm">7. Reversal</h4>
@@ -5598,7 +5734,7 @@ const ReadingSessionPage: React.FC = () => {
               </div>
 
               {/* 8. Self-Correction */}
-              <div className={`rounded-xl p-4 border-2 transition-all ${miscueTypes.selfCorrection > 0 ? 'bg-teal-100 border-teal-400 shadow-lg' : 'bg-white border-gray-200'}`}>
+              <div className={`miscue-card rounded-xl p-4 border-2 ${miscueTypes.selfCorrection > 0 ? 'bg-teal-100 border-teal-400 shadow-lg' : 'bg-white border-gray-200'}`}>
                 <div className="flex items-start justify-between mb-2">
                   <div>
                     <h4 className="font-bold text-teal-900 text-sm">8. Self-Correction</h4>
@@ -5900,8 +6036,36 @@ const ReadingSessionPage: React.FC = () => {
             
             {/* Content inside circle */}
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-6">
-              {/* Countdown Number */}
-              <span className="text-[180px] sm:text-[220px] font-black text-white drop-shadow-2xl animate-pulse leading-none">
+              {/* Countdown Number - GSAP animated */}
+              <span
+                ref={(el) => {
+                  if (el && showCountdown) {
+                    gsap.fromTo(
+                      el,
+                      {
+                        scale: 0.5,
+                        opacity: 0,
+                        rotation: -180,
+                      },
+                      {
+                        scale: 1.2,
+                        opacity: 1,
+                        rotation: 0,
+                        duration: 0.5,
+                        ease: 'back.out(2)',
+                        onComplete: () => {
+                          gsap.to(el, {
+                            scale: 1,
+                            duration: 0.3,
+                            ease: 'power2.inOut',
+                          });
+                        },
+                      }
+                    );
+                  }
+                }}
+                className="text-[180px] sm:text-[220px] font-black text-white drop-shadow-2xl leading-none"
+              >
                 {countdown}
               </span>
               
