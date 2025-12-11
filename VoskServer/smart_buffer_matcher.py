@@ -310,7 +310,25 @@ class SmartBufferMatcher:
                         is_insertion = False
                         break
             
-            # Only mark as insertion if word is NOT in story vocabulary at all
+            # STRICT FILTERING: Ignore very short words, filler sounds, and partial words
+            # These are likely Vosk hallucinations or speech artifacts, not real insertions
+            filler_words = ['um', 'uh', 'ah', 'eh', 'hmm', 'mm', 'er', 'oh', 'a', 'i']
+            is_filler = oldest_word.lower() in filler_words
+            is_too_short = len(oldest_word) < 2
+            is_partial = len(oldest_word) == 2 and not oldest_word.isalpha()
+            
+            # Discard filler words and fragments silently - don't count as insertion
+            if is_filler or is_too_short or is_partial:
+                print(f"   🗑️ Discarding filler/fragment: '{oldest_word}'")
+                self.word_buffer.popleft()
+                # Don't return - just discard and wait for more words
+                return None
+            
+            # Only mark as insertion if:
+            # 1. Word is NOT in story vocabulary
+            # 2. Word is NOT a filler sound
+            # 3. Word is at least 2 characters
+            # 4. Word is not a partial/fragment
             if is_insertion and not word_in_story:
                 print(f"   ➕ [P3] INSERTION detected: '{oldest_word}' not in story vocabulary")
                 
@@ -329,7 +347,8 @@ class SmartBufferMatcher:
                     "words_read": self.words_read,
                     "total_miscues": self.total_miscues,
                     "miscue_types": self.miscue_types.copy(),
-                    "details": f"Insertion: '{oldest_word}' inserted (not in story vocabulary)"
+                    "details": f"Insertion: '{oldest_word}' inserted (not in story vocabulary)",
+                    "inserted_word": oldest_word  # Include the actual inserted word
                 }
             
             # PRIORITY 4: REPETITION (already handled in add_word method)

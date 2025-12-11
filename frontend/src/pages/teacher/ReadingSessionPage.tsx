@@ -3276,7 +3276,7 @@ const ReadingSessionPage: React.FC = () => {
       let wordsMatched = 0;
       let currentTranscriptIndex = 0;
       const matchedWordIndices: number[] = []; // Track all matched word indices
-      const insertedWords: Array<{word: string, position: number}> = []; // Track insertions during matching
+      // insertedWords removed - insertion detection now handled by backend
       
       if (isFastReading && transcriptWords.length >= 3) {
         console.log(`⚡ FAST READING: Using fuzzy sequence matching for ${transcriptWords.length} words`);
@@ -3325,29 +3325,10 @@ const ReadingSessionPage: React.FC = () => {
             wordsMatched++;
             currentTranscriptIndex++;
           } else {
-            // INSERTION DETECTION: Check if this is an inserted word
-            // Word doesn't match expected word - might be insertion
-            // Check if next transcript word matches current expected word
-            // Pattern: transcript has "word1 INSERTION word2", story has "word1 word2"
-            if (currentTranscriptIndex + 1 < transcriptWords.length) {
-              const nextSpokenWord = transcriptWords[currentTranscriptIndex + 1];
-              
-              if (isWordMatch(nextSpokenWord, expectedWordToMatch, true)) {
-                // Next spoken word matches current expected word!
-                // This means current spoken word is an INSERTION
-                console.log(`⚠️ INSERTION DETECTED: "${spokenWord}" inserted before "${expectedWordToMatch}"`);
-                insertedWords.push({
-                  word: spokenWord,
-                  position: currentWordIndex + wordsMatched
-                });
-                
-                // Skip the inserted word and continue matching
-                currentTranscriptIndex++;
-                continue;
-              }
-            }
+            // INSERTION DETECTION: Now handled by backend phrase matcher
+            // Old frontend insertion detection disabled to prevent double-counting
             
-            // No match and not an insertion, stop trying to match more words
+            // No match, stop trying to match more words
             break;
           }
         }
@@ -3383,29 +3364,8 @@ const ReadingSessionPage: React.FC = () => {
           console.log(`📊 Reading speed: ${newSpeed.toFixed(1)} words/second`);
         }
         
-        // Process detected insertions
-        if (insertedWords.length > 0) {
-          console.log(`🔍 Processing ${insertedWords.length} insertions detected during matching`);
-          
-          for (const insertion of insertedWords) {
-            const position = insertion.position;
-            
-            if (!countedMiscuePositionsRef.current.has(position)) {
-              countedMiscuePositionsRef.current.add(position);
-              setMiscues(prev => prev + 1);
-              setMiscueTypes(prev => ({ ...prev, insertion: prev.insertion + 1 }));
-              
-              setWordMarkings(prev => new Map(prev).set(position, {
-                type: 'insertion',
-                marking: `Use caret (^) to show where word was inserted and write above: "${insertion.word}"`,
-                spokenWord: insertion.word,
-                correctWord: realWords[position] || ''
-              }));
-              
-              console.log(`⚠️ INSERTION MARKED: "${insertion.word}" at position ${position}`);
-            }
-          }
-        }
+        // Insertion detection now handled by backend phrase matcher
+        // Old frontend insertion processing removed to prevent double-counting
         
         // Update wordsRead
         setWordsRead(prev => Math.min(prev + wordsMatched, words.length));
@@ -3794,12 +3754,11 @@ const ReadingSessionPage: React.FC = () => {
       // This ensures we detect miscues even if the word was already in the transcript
       if (!foundFutureWord && wordsToCheck.length > 0) {
 
-        // 4. INSERTION - Child added extra words that DON'T match ANY story word
-        // STRICT: Only count words that are truly extra and not fragments of nearby words
-        // CRITICAL: Skip insertion check if we already counted a miscue for this position
+        // 4. INSERTION - Now handled by backend phrase matcher
+        // Old frontend insertion detection disabled to prevent double-counting
         const alreadyCountedMiscue = countedMiscuePositionsRef.current.has(currentWordIndex);
 
-        if (newWords.length > 0 && !alreadyCountedMiscue) {
+        if (false && newWords.length > 0 && !alreadyCountedMiscue) { // DISABLED - backend handles insertions
           console.log(`🔍 INSERTION CHECK: Analyzing ${newWords.length} new words: [${newWords.join(', ')}]`);
           let insertionCount = 0;
           const insertedWordsList: string[] = [];
