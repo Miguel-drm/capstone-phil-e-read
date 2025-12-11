@@ -4767,7 +4767,7 @@ const ReadingSessionPage: React.FC = () => {
             >
               {storyText || pdfContent ? (
                 (storyText ? storyText : pdfContent)
-                  .split("\n\n")
+                  .split("\n")  // Split by single line break to preserve original formatting
                   .filter((p) => p.trim().length > 0)
                   .map((paragraph, paragraphIndex, paragraphs) => {
                     // Detect leading whitespace before trimming
@@ -4795,7 +4795,10 @@ const ReadingSessionPage: React.FC = () => {
                         <p 
                           className="text-gray-800 leading-relaxed flex flex-wrap gap-y-1 sm:gap-y-2 lg:gap-y-3" 
                           style={{ 
-                            whiteSpace: 'pre-wrap'
+                            whiteSpace: 'pre-wrap',
+                            textAlign: (currentStory as any)?.textAlign || 'left',
+                            justifyContent: (currentStory as any)?.textAlign === 'center' ? 'center' : 
+                                          (currentStory as any)?.textAlign === 'right' ? 'flex-end' : 'flex-start'
                           }}
                         >
                           {leadingSpaces && leadingSpaces.length > 0 && (
