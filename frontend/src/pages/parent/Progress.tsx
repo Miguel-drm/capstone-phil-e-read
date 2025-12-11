@@ -5,8 +5,9 @@ import ParentLoader from '../../components/parent/ParentLoader';
 import { formatDateHuman } from '@/utils/date';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../config/firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
-import { UserGroupIcon, BookOpenIcon, ChartBarIcon, ClockIcon } from '@heroicons/react/24/outline';
+import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { UserGroupIcon, BookOpenIcon, ChartBarIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
+import DepEdISRViewer from '../../components/admin/DepEdISRViewer';
 
 interface ParentChild {
   id: string;
@@ -37,12 +38,31 @@ interface ReadingResult {
   createdAt: any;
 }
 
+interface SharedISRReport {
+  id: string;
+  parentId: string;
+  studentId: string;
+  studentName: string;
+  teacherId: string;
+  teacherName: string;
+  school: string;
+  language: string;
+  levelStarted: string;
+  readingData: any[];
+  observations: any;
+  sharedAt: any;
+  isRead: boolean;
+}
+
 const ProgressPage: React.FC = () => {
   const { currentUser } = useAuth();
   const [children, setChildren] = useState<ParentChild[]>([]);
   const [loading, setLoading] = useState(true);
   const [readingResults, setReadingResults] = useState<ReadingResult[]>([]);
   const [selectedChild, setSelectedChild] = useState<string>('');
+  const [sharedISRReports, setSharedISRReports] = useState<SharedISRReport[]>([]);
+  const [selectedISRReport, setSelectedISRReport] = useState<SharedISRReport | null>(null);
+  const [isISRModalOpen, setIsISRModalOpen] = useState(false);
 
 
   // Fetch parent's children (realtime, from students by parentId)
@@ -66,7 +86,6 @@ const ProgressPage: React.FC = () => {
         };
       });
       setChildren(childrenData);
-      if (!selectedChild && childrenData.length > 0) setSelectedChild(childrenData[0].id);
       setLoading(false);
     }, () => {
       setChildren([]);
@@ -77,121 +96,134 @@ const ProgressPage: React.FC = () => {
 
   // Fetch reading results for selected child
   useEffect(() => {
-    if (!selectedChild) return;
+    const unsubscribers: (() => void)[] = [];
+    setReadingResults([]);
 
-    const resultsRef = collection(db, 'readingResults');
-    const resultsQuery = query(resultsRef, where('studentId', '==', selectedChild));
+    const attachListenerForChild = (childId: string) => {
+      const resultsRef = collection(db, 'readingResults');
+      const resultsQuery = query(resultsRef, where('studentId', '==', childId));
 
-    const unsubscribe = onSnapshot(resultsQuery, (snapshot) => {
-      const results: ReadingResult[] = snapshot.docs.map(doc => ({
+      const unsubscribe = onSnapshot(resultsQuery, (snapshot) => {
+        const results: ReadingResult[] = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as ReadingResult[];
+
+        setReadingResults((prev) => {
+          const others = prev.filter(r => r.studentId !== childId);
+          return [...others, ...results];
+        });
+      }, (error) => {
+        console.error('Error fetching reading results:', error);
+        setReadingResults((prev) => prev.filter(r => r.studentId !== childId));
+      });
+
+      unsubscribers.push(unsubscribe);
+    };
+
+    if (selectedChild) {
+      attachListenerForChild(selectedChild);
+    } else if (children.length > 0) {
+      children.forEach((child) => attachListenerForChild(child.id));
+    }
+
+    return () => unsubscribers.forEach(unsub => unsub());
+  }, [selectedChild, children]);
+
+  // Fetch shared ISR reports for parent
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+
+    const isrRef = collection(db, 'sharedISRReports');
+    const isrQuery = query(isrRef, where('parentId', '==', currentUser.uid));
+
+    const unsubscribe = onSnapshot(isrQuery, (snapshot) => {
+      const reports: SharedISRReport[] = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
-      })) as ReadingResult[];
+      })) as SharedISRReport[];
 
-      setReadingResults(results);
+      // Sort by sharedAt date (newest first)
+      const sortedReports = reports.sort((a, b) => {
+        const aDate = a.sharedAt?.toDate?.() || new Date(0);
+        const bDate = b.sharedAt?.toDate?.() || new Date(0);
+        return bDate.getTime() - aDate.getTime();
+      });
+
+      setSharedISRReports(sortedReports);
     }, (error) => {
-      console.error('Error fetching reading results:', error);
-      setReadingResults([]);
+      console.error('Error fetching shared ISR reports:', error);
+      setSharedISRReports([]);
     });
 
     return () => unsubscribe();
-  }, [selectedChild]);
+  }, [currentUser?.uid]);
 
-
-
-  // Calculate real metrics from database reading results
-  const calculateMetrics = () => {
-    if (readingResults.length === 0) {
-      return {
-        booksRead: 0,
-        totalReadingTime: 0,
-        averageAccuracy: 0,
-        currentLevel: 'Beginner',
-        sessionsThisMonth: 0,
-        minutesThisWeek: 0
-      };
+  const handleMarkISRAsRead = async (reportId: string) => {
+    try {
+      await updateDoc(doc(db, 'sharedISRReports', reportId), {
+        isRead: true
+      });
+    } catch (error) {
+      console.error('Error marking ISR as read:', error);
     }
+  };
 
-    // Get current date for time-based calculations
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - now.getDay()); // Start of current week
+  const handleViewISR = (report: SharedISRReport) => {
+    setSelectedISRReport(report);
+    setIsISRModalOpen(true);
+    // Mark as read when viewing
+    if (!report.isRead) {
+      handleMarkISRAsRead(report.id);
+    }
+  };
 
-    // Filter to only reading sessions (exclude test results)
-    const readingSessions = readingResults.filter(r => {
-      // If type field exists, use it; otherwise assume it's a reading session if it has oralReadingScore
-      return r.type === 'reading-session' || (r.type !== 'test' && typeof r.oralReadingScore === 'number');
-    });
+  const handleCloseISRModal = () => {
+    setIsISRModalOpen(false);
+    setSelectedISRReport(null);
+  };
 
-    // Filter results for time periods
-    const thisMonthResults = readingSessions.filter(r => {
-      const resultDate = new Date((r as any).createdAt?.toDate?.() || (r as any).createdAt);
-      return resultDate >= startOfMonth;
-    });
-
-    const thisWeekResults = readingSessions.filter(r => {
-      const resultDate = new Date((r as any).createdAt?.toDate?.() || (r as any).createdAt);
-      return resultDate >= startOfWeek;
-    });
-
-    // Calculate unique books read this month
-    // Use book field if available, otherwise use sessionTitle as fallback
-    const uniqueBooksThisMonth = new Set<string>();
-    thisMonthResults.forEach(r => {
-      const bookName = r.book || r.sessionTitle || '';
-      if (bookName) {
-        uniqueBooksThisMonth.add(bookName.trim());
-      }
-    });
-    const booksRead = uniqueBooksThisMonth.size;
-
-    // Calculate total reading time from database (if available) or estimate
-    const totalReadingTime = readingSessions.reduce((total, r) => {
-      // Try to get actual reading time from database
-      const sessionTime = r.elapsedTime || r.readingTime || r.duration;
-      if (sessionTime) {
-        // Convert to minutes if it's in seconds (assuming values > 1000 are milliseconds)
-        return total + (sessionTime > 1000 ? Math.round(sessionTime / 60) : sessionTime);
-      }
-      // Fallback: estimate 15 minutes per session
-      return total + 15;
-    }, 0);
-
-    // Calculate average accuracy from oral reading scores (not comprehension)
-    // This represents the student's reading accuracy/fluency
-    const oralReadingScores = readingSessions.filter(r => typeof r.oralReadingScore === 'number' && r.oralReadingScore >= 0);
-    const averageAccuracy = oralReadingScores.length > 0
-      ? Math.round(oralReadingScores.reduce((sum, r) => sum + (r.oralReadingScore || 0), 0) / oralReadingScores.length)
-      : 0;
-
-    // Get current reading level from selected child data
-    const currentLevel = selectedChildData?.readingLevel || 'Beginner';
-
-    // Sessions this month (for reference, but we use unique books for display)
-    const sessionsThisMonth = thisMonthResults.length;
-
-    // Minutes this week
-    const minutesThisWeek = thisWeekResults.reduce((total, r) => {
-      const sessionTime = r.elapsedTime || r.readingTime || r.duration;
-      if (sessionTime) {
-        return total + (sessionTime > 1000 ? Math.round(sessionTime / 60) : sessionTime);
-      }
-      return total + 15; // Estimate 15 minutes per session
-    }, 0);
-
+  // Transform shared ISR report to DepEdISRViewer format
+  const transformISRData = (report: SharedISRReport) => {
+    // Get student's grade from children list
+    const studentChild = children.find(c => c.id === report.studentId);
+    
     return {
-      booksRead,
-      totalReadingTime,
-      averageAccuracy,
-      currentLevel,
-      sessionsThisMonth,
-      minutesThisWeek
+      studentName: report.studentName,
+      age: '', // Age not stored in shared report, could be added later
+      gradeSection: studentChild?.grade || '',
+      school: report.school || '',
+      teacher: report.teacherName || '',
+      language: (report.language || 'English') as 'English' | 'Filipino',
+      levelStarted: report.levelStarted || '',
+      readingData: (report.readingData || []).map((entry: any) => ({
+        level: entry.level || '',
+        levelStarted: entry.level === report.levelStarted,
+        set: entry.set || '',
+        wordReading: {
+          ind: entry.wordReading?.ind || false,
+          ins: entry.wordReading?.ins || false,
+          frus: entry.wordReading?.frus || false
+        },
+        comprehension: {
+          ind: entry.comprehension?.ind || false,
+          ins: entry.comprehension?.ins || false,
+          frus: entry.comprehension?.frus || false
+        },
+        dateTaken: entry.dateTaken || ''
+      })),
+      observations: report.observations || {
+        wordByWord: false,
+        lacksExpression: false,
+        hardlyAudible: false,
+        disregardsPunctuation: false,
+        pointsToWords: false,
+        littleAnalysis: false,
+        otherObservations: ''
+      }
     };
   };
 
-  const metrics = calculateMetrics();
-  const selectedChildData = children.find(c => c.id === selectedChild);
 
 
 
@@ -262,6 +294,11 @@ const ProgressPage: React.FC = () => {
     );
   }
 
+  const visibleChildren = selectedChild ? children.filter(c => c.id === selectedChild) : children;
+  const visibleISRReports = selectedChild
+    ? sharedISRReports.filter(r => r.studentId === selectedChild)
+    : sharedISRReports;
+
   return (
     <div className="p-6 space-y-6">
       {/* Hero */}
@@ -271,12 +308,27 @@ const ProgressPage: React.FC = () => {
             <h2 className="text-2xl font-extrabold text-blue-900">Progress</h2>
             <p className="text-sm text-blue-700 mt-1">Track your child's reading progress and achievements.</p>
           </div>
-
+          {/* Child filter */}
+          <div className="flex items-center gap-3 bg-white/60 backdrop-blur-sm border border-indigo-100 rounded-xl px-3 py-2 shadow-sm">
+            <label className="text-sm font-medium text-gray-700">Show progress for</label>
+            <select
+              value={selectedChild}
+              onChange={(e) => setSelectedChild(e.target.value)}
+              className="text-sm border border-indigo-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400 min-w-[180px]"
+            >
+              <option value="">All children</option>
+              {children.map(child => (
+                <option key={child.id} value={child.id}>
+                  {child.name} — {child.grade}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
       {/* Performance Charts for All Children */}
-      <div className="grid grid-cols-1 gap-6">
+      <div className="grid grid-cols-1 gap-4">
         {children.length === 0 ? (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8">
             <div className="text-center">
@@ -298,7 +350,7 @@ const ProgressPage: React.FC = () => {
             </div>
           </div>
         ) : (
-          children.map(child => (
+          visibleChildren.map(child => (
             <ParentProgressChart
               key={child.id}
               data={chartDataForChild(child.id)}
@@ -308,6 +360,155 @@ const ProgressPage: React.FC = () => {
           ))
         )}
       </div>
+
+      {/* Shared ISR Reports */}
+      {visibleISRReports.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-lg overflow-hidden">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+                  <DocumentTextIcon className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-white">Individual Summary Records (ISR)</h3>
+                  <p className="text-sm text-indigo-100">Comprehensive reading assessment reports</p>
+                </div>
+              </div>
+              {visibleISRReports.filter(r => !r.isRead).length > 0 && (
+                <div className="flex items-center gap-2 px-4 py-2 bg-white/20 backdrop-blur-sm rounded-full">
+                  <span className="w-2 h-2 bg-yellow-300 rounded-full animate-pulse"></span>
+                  <span className="text-sm font-semibold text-white">
+                    {visibleISRReports.filter(r => !r.isRead).length} new
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Reports List */}
+          <div className="p-6">
+            <div className="space-y-4">
+              {visibleISRReports.map((report) => {
+                const sharedDate = report.sharedAt?.toDate?.() || new Date();
+                const isNew = !report.isRead;
+                
+                return (
+                  <div
+                    key={report.id}
+                    className={`group relative border-2 rounded-xl p-5 transition-all duration-200 ${
+                      isNew
+                        ? 'bg-gradient-to-br from-indigo-50 to-purple-50 border-indigo-300 shadow-md hover:shadow-lg'
+                        : 'bg-white border-gray-200 hover:border-gray-300 hover:shadow-md'
+                    }`}
+                  >
+                    {/* New Badge */}
+                    {isNew && (
+                      <div className="absolute top-4 right-4">
+                        <span className="px-3 py-1 bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-xs font-bold rounded-full shadow-md">
+                          NEW
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="flex items-start gap-4">
+                      {/* Icon */}
+                      <div className={`flex-shrink-0 p-3 rounded-lg ${
+                        isNew 
+                          ? 'bg-gradient-to-br from-indigo-500 to-purple-500' 
+                          : 'bg-gray-100'
+                      }`}>
+                        <DocumentTextIcon className={`w-6 h-6 ${
+                          isNew ? 'text-white' : 'text-gray-600'
+                        }`} />
+                      </div>
+
+                      {/* Content */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1">
+                            <h4 className="text-lg font-bold text-gray-900 mb-2">
+                              ISR Report for {report.studentName}
+                            </h4>
+                            
+                            {/* Info Grid */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                              <div className="flex items-center gap-2 text-sm">
+                                <span className="font-semibold text-gray-700 min-w-[80px]">School:</span>
+                                <span className="text-gray-600">{report.school || 'N/A'}</span>
+                              </div>
+                              <div className="flex items-center gap-2 text-sm">
+                                <span className="font-semibold text-gray-700 min-w-[80px]">Teacher:</span>
+                                <span className="text-gray-600">{report.teacherName || 'N/A'}</span>
+                              </div>
+                              <div className="flex items-center gap-2 text-sm">
+                                <span className="font-semibold text-gray-700 min-w-[80px]">Language:</span>
+                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                  report.language === 'English' 
+                                    ? 'bg-blue-100 text-blue-700' 
+                                    : 'bg-green-100 text-green-700'
+                                }`}>
+                                  {report.language || 'English'}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 text-sm">
+                                <span className="font-semibold text-gray-700 min-w-[80px]">Level Started:</span>
+                                <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs font-semibold">
+                                  {report.levelStarted || 'N/A'}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Date */}
+                            <div className="flex items-center gap-2 text-xs text-gray-500">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              <span>Shared {formatDateHuman(sharedDate)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Action Button */}
+                      <div className="flex-shrink-0">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleViewISR(report);
+                          }}
+                          className={`px-6 py-3 rounded-lg font-semibold text-sm transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5 ${
+                            isNew
+                              ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700'
+                              : 'bg-gray-700 text-white hover:bg-gray-800'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                            View ISR
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ISR Viewer Modal */}
+      {isISRModalOpen && selectedISRReport && (
+        <DepEdISRViewer
+          data={transformISRData(selectedISRReport)}
+          onClose={handleCloseISRModal}
+        />
+      )}
 
       {/* Recent Sessions */}
       {readingResults.length > 0 && (

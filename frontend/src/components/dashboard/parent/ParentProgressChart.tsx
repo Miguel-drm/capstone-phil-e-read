@@ -2,7 +2,6 @@ import React, { useEffect, useState, useRef } from 'react';
 import * as echarts from 'echarts';
 import { type Student } from '../../../services/studentService';
 import { useAuth } from '../../../contexts/AuthContext';
-import ParentLoader from '../../parent/ParentLoader';
 
 interface ParentProgressChartProps {
   data: {
@@ -25,7 +24,6 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
   const [selectedMetric, setSelectedMetric] = useState<'oral' | 'comprehension' | 'reading-level'>('oral');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
-  const [forceChartInit, setForceChartInit] = useState(0);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const { currentUser, userRole } = useAuth();
 
@@ -121,14 +119,6 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
   };
 
   const currentMetric = getCurrentData(); */
-
-  // Helper function to convert hex color to rgba
-  const hexToRgba = (hex: string, alpha: number): string => {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  };
 
   // REAL-TIME: Fetch parent's children reading results from database
   useEffect(() => {
@@ -310,21 +300,35 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
       };
     }
 
+    // Responsive sizing
+    const containerWidth = chartRef.current?.clientWidth || window.innerWidth;
+    const isMobile = containerWidth < 640;
+    const isTablet = containerWidth < 1024;
+    const labelFontSize = isMobile ? 11 : isTablet ? 13 : 15;
+    const symbolSize = isMobile ? 8 : 12;
+    const lineWidth = isMobile ? 3 : 4;
+    const gridLeftRight = isMobile ? '7%' : '4%';
+    const gridBottom = isMobile ? '16%' : '9%';
+    const maxLabels = isMobile ? 3 : isTablet ? 6 : 10;
+    const labelInterval = Math.max(1, Math.ceil((safeData.assessmentPeriods.length || 1) / maxLabels));
+
     const option = {
       grid: {
-        left: '2%',
-        right: '2%',
-        bottom: '8%',
-        top: '3%',
+        left: gridLeftRight,
+        right: gridLeftRight,
+        bottom: gridBottom,
+        top: isMobile ? '6%' : '4%',
         containLabel: true
       },
       xAxis: {
         type: 'category',
         data: safeData.assessmentPeriods,
-        boundaryGap: false,
+        boundaryGap: true,
         axisLabel: {
           color: '#6b7280',
-          fontSize: 16
+          fontSize: labelFontSize,
+          interval: labelInterval,
+          align: 'center'
         },
         axisLine: {
           lineStyle: { color: '#e5e7eb' }
@@ -334,9 +338,10 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
         type: 'value',
         max: yMax,
         min: 0,
+        interval: selectedMetric === 'reading-level' ? 1 : undefined,
         axisLabel: {
           color: '#6b7280',
-          fontSize: 16,
+          fontSize: labelFontSize,
           formatter: (val: number) => {
             if (selectedMetric === 'reading-level') {
               if (val === 3) return 'Independent';
@@ -357,9 +362,9 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
         data: chartData,
         smooth: true,
         symbol: 'circle',
-        symbolSize: 12,
+        symbolSize,
         lineStyle: {
-          width: 4,
+          width: lineWidth,
           color: chartColor
         },
         itemStyle: {
@@ -388,7 +393,10 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
           const displayValue = selectedMetric === 'reading-level' ? formatter(value) : `${Number(value).toFixed(2)}%`;
           return `${params[0].axisValue}<br/>${chartName}: <b>${displayValue}</b>`;
         }
-      }
+      },
+      animation: true,
+      animationDuration: 800,
+      animationEasing: 'cubicOut' as const
     };
 
     chartInstance.current.setOption(option);
@@ -396,9 +404,20 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
     // Handle resize
     const handleResize = () => chartInstance.current?.resize();
     window.addEventListener('resize', handleResize);
+    let resizeObserver: ResizeObserver | null = null;
+    if (chartRef.current) {
+      resizeObserver = new ResizeObserver(() => handleResize());
+      resizeObserver.observe(chartRef.current);
+      if (chartRef.current.parentElement) {
+        resizeObserver.observe(chartRef.current.parentElement);
+      }
+    }
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
     };
   }, [safeData, selectedMetric]);
 
@@ -693,17 +712,17 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
   */
 
   return (
-    <div className="bg-white rounded-2xl p-3 transition-all duration-300 overflow-hidden flex flex-col h-full w-full">
-      <div className="p-3 flex flex-col flex-1 w-full">
-        <div className="flex flex-col lg:grid lg:grid-cols-3 lg:items-center mb-3 lg:mb-4 space-y-2 lg:space-y-0">
-          <div className="flex items-center gap-3">
-            <h3 className="text-xl md:text-2xl font-semibold text-[#2C3E50] whitespace-nowrap flex-shrink-0">
+    <div className="bg-white rounded-2xl p-2 sm:p-3 transition-all duration-300 overflow-hidden flex flex-col h-full w-full">
+      <div className="p-2 sm:p-3 flex flex-col flex-1 w-full gap-2">
+        <div className="flex flex-col lg:grid lg:grid-cols-3 lg:items-center gap-2 lg:gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <h3 className="text-lg md:text-xl font-semibold text-[#2C3E50] whitespace-nowrap flex-shrink-0">
               {title}
             </h3>
             {/* Real-time indicator */}
             <div className="flex items-center gap-2">
               <div className={`w-3 h-3 rounded-full ${isRefreshing ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
-              <span className="text-base text-gray-500">
+              <span className="text-sm sm:text-base text-gray-500">
                 {isRefreshing ? 'Updating...' : 'Live'}
               </span>
             </div>
@@ -711,13 +730,13 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
 
           {/* Metric Toggle Buttons - centered (same as TeacherProgressChart) */}
           <div className="flex justify-center lg:justify-center lg:col-start-2">
-            <div role="tablist" aria-label="Metric selector" className="inline-flex items-center bg-gray-100 rounded-full p-1.5 shadow-inner max-w-fit flex-wrap sm:flex-nowrap gap-1">
+            <div role="tablist" aria-label="Metric selector" className="inline-flex items-center bg-gray-100 rounded-full p-1 shadow-inner max-w-full flex-wrap sm:flex-nowrap gap-1">
               <button
                 type="button"
                 role="tab"
                 aria-selected={selectedMetric === 'oral'}
                 onClick={() => setSelectedMetric('oral')}
-                className={`px-4 py-2.5 text-base rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-400 whitespace-nowrap ${selectedMetric === 'oral'
+                className={`px-3 py-2 text-sm sm:text-base rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-400 whitespace-nowrap ${selectedMetric === 'oral'
                   ? 'bg-blue-600 text-white shadow'
                   : 'text-gray-700 hover:text-gray-900 hover:bg-white'
                   }`}
@@ -731,7 +750,7 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
                 role="tab"
                 aria-selected={selectedMetric === 'comprehension'}
                 onClick={() => setSelectedMetric('comprehension')}
-                className={`px-4 py-2.5 text-base rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-green-400 whitespace-nowrap ${selectedMetric === 'comprehension'
+                className={`px-3 py-2 text-sm sm:text-base rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-green-400 whitespace-nowrap ${selectedMetric === 'comprehension'
                   ? 'bg-green-600 text-white shadow'
                   : 'text-gray-700 hover:text-gray-900 hover:bg-white'
                   }`}
@@ -745,7 +764,7 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
                 role="tab"
                 aria-selected={selectedMetric === 'reading-level'}
                 onClick={() => setSelectedMetric('reading-level')}
-                className={`px-4 py-2.5 text-base rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-orange-400 whitespace-nowrap ${selectedMetric === 'reading-level'
+                className={`px-3 py-2 text-sm sm:text-base rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-orange-400 whitespace-nowrap ${selectedMetric === 'reading-level'
                   ? 'bg-orange-500 text-white shadow'
                   : 'text-gray-700 hover:text-gray-900 hover:bg-white'
                   }`}
@@ -787,7 +806,7 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
 
             {/* Last Updated Timestamp with Freshness Indicator */}
             <div className="text-base text-gray-500 mt-1 text-right">
-              <div className="flex items-center justify-end gap-1">
+              <div className="flex items-center justify-end gap-1 text-sm sm:text-base">
                 <span>Last updated: {lastUpdated.toLocaleTimeString()}</span>
                 {(() => {
                   const minutesAgo = Math.floor((new Date().getTime() - lastUpdated.getTime()) / 60000);
@@ -806,9 +825,13 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
           </div>
         </div>
 
-        {/* Line Chart Display - Maximized */}
-        <div className="w-full flex-1 h-full relative" style={{ minHeight: '400px' }}>
-          <div ref={chartRef} className="w-full h-full" style={{ minHeight: '400px' }} />
+        {/* Line Chart Display - Responsive height */}
+        <div className="w-full flex-1 h-full relative">
+          <div
+            ref={chartRef}
+            className="w-full h-full"
+            style={{ minHeight: '200px', height: 'clamp(200px, 32vh, 360px)' }}
+          />
 
           {/* No Data Overlay */}
           {safeData.oralReadingScores.every(score => score === 0) &&
@@ -828,28 +851,6 @@ const ParentProgressChart: React.FC<ParentProgressChartProps> = ({
               </div>
             )}
 
-          {/* Chart Loading/Retry Overlay - Only show if chart hasn't initialized yet */}
-          {!chartInstance.current && 
-            (safeData.oralReadingScores.some(score => score > 0) ||
-              safeData.comprehensionScores.some(score => score > 0) ||
-              safeData.readingLevels.some(level => level > 0)) && (
-              <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-90">
-                <div className="text-center text-gray-500">
-                  <ParentLoader label="Loading Chart..." size="sm" />
-                  <p className="text-sm mb-4">Preparing your child's progress data</p>
-                  <button
-                    onClick={() => {
-                      console.log('ParentProgressChart: Manual initialization triggered');
-                      setForceChartInit(prev => prev + 1);
-                    }}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                  >
-                    <i className="fas fa-sync-alt mr-2"></i>
-                    Retry Chart Loading
-                  </button>
-                </div>
-              </div>
-            )}
         </div>
       </div>
     </div>

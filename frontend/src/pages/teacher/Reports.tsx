@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { studentService, type Student } from '../../services/studentService';
 import { getUserProfile } from '../../services/authService';
@@ -7,6 +8,9 @@ import DepEdISRViewer from '../../components/admin/DepEdISRViewer';
 import TeacherLoader from '../../components/teacher/TeacherLoader';
 // import { gradeService } from '../../services/gradeService';
 import { isrResultService } from '../../services/ISRresultService';
+import { db } from '../../config/firebase';
+import { doc, getDoc, collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
+import Swal from 'sweetalert2';
 
 
 
@@ -40,8 +44,11 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
   const [shareOpen, setShareOpen] = useState(false);
   const [shareStudent, setShareStudent] = useState<Student | null>(null);
   const [parentEmail, setParentEmail] = useState('');
+  const [parentName, setParentName] = useState('');
   const [shareISRData, setShareISRData] = useState<any>(null);
   const [loadingShareISR, setLoadingShareISR] = useState(false);
+  const [loadingParentInfo, setLoadingParentInfo] = useState(false);
+  const [isAlreadyShared, setIsAlreadyShared] = useState(false);
 
   // Class ISR submission modal state
   const [submissionModalOpen, setSubmissionModalOpen] = useState(false);
@@ -1205,7 +1212,49 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     setShareOpen(true);
     setIsHeaderDarkened?.(true);
     setLoadingShareISR(true);
+    setLoadingParentInfo(true);
     setShareISRData(null);
+    setParentEmail('');
+    setParentName('');
+    setIsAlreadyShared(false);
+    
+    // Load parent information if student is linked to a parent
+    if (student.parentId) {
+      try {
+        const parentDoc = await getDoc(doc(db, 'users', student.parentId));
+        if (parentDoc.exists()) {
+          const parentData = parentDoc.data();
+          setParentEmail(parentData.email || '');
+          setParentName(parentData.displayName || parentData.name || parentData.email?.split('@')[0] || 'Unknown Parent');
+        } else {
+          // Fallback to parentName from student if parent doc doesn't exist
+          setParentName(student.parentName || 'Unknown Parent');
+        }
+      } catch (error) {
+        console.error('Error loading parent information:', error);
+        setParentName(student.parentName || 'Unknown Parent');
+      } finally {
+        setLoadingParentInfo(false);
+      }
+    } else {
+      setLoadingParentInfo(false);
+    }
+    
+    // Check if ISR has already been shared for this student-parent combination
+    if (student.parentId && student.id) {
+      try {
+        const existingReportsQuery = query(
+          collection(db, 'sharedISRReports'),
+          where('parentId', '==', student.parentId),
+          where('studentId', '==', student.id)
+        );
+        const existingReports = await getDocs(existingReportsQuery);
+        setIsAlreadyShared(!existingReports.empty);
+      } catch (error) {
+        console.error('Error checking existing shares:', error);
+        setIsAlreadyShared(false);
+      }
+    }
     
     // Load ISR data for the email
     try {
@@ -1222,115 +1271,77 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
     setShareOpen(false);
     setShareStudent(null);
     setParentEmail('');
+    setParentName('');
     setShareISRData(null);
+    setIsAlreadyShared(false);
     setIsHeaderDarkened?.(false);
   };
 
-  const latestReadingForShare = useMemo(() => {
-    if (!shareStudent?.id) return null;
-    const list = studentReadingResults[shareStudent.id] || [];
-    if (!list.length) return null;
-    return [...list].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-  }, [shareStudent, studentReadingResults]);
-
-  const latestTestForShare = useMemo(() => {
-    if (!shareStudent?.id) return null;
-    const list = studentTestResults[shareStudent.id] || [];
-    if (!list.length) return null;
-    return [...list].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-  }, [shareStudent, studentTestResults]);
-
-  const shareMailtoHref = useMemo(() => {
-    const to = encodeURIComponent(parentEmail.trim());
-    const subject = encodeURIComponent(`ISR Report for ${shareStudent?.name || ''}`);
-    const lines: string[] = [];
-    
-    if (shareStudent) {
-      lines.push(`Individual Summary Record (ISR) for ${shareStudent.name?.replace(/\|/g, ' ') || ''}`);
-      lines.push('');
-      lines.push('STUDENT INFORMATION:');
-      lines.push(`Name: ${shareStudent.name?.replace(/\|/g, ' ') || 'N/A'}`);
-      lines.push(`Age: ${shareStudent.age || 'N/A'}`);
-      lines.push(`Grade/Section: ${shareStudent.grade || 'N/A'}`);
+  const handleShareISR = async () => {
+    if (!shareStudent?.parentId || !shareISRData) {
+      return;
     }
-    
-    // Use ISR data if available, otherwise fall back to old data
-    if (shareISRData) {
-      lines.push('');
-      lines.push('SCHOOL INFORMATION:');
-      lines.push(`School: ${shareISRData.school || 'N/A'}`);
-      lines.push(`Teacher: ${shareISRData.teacher || 'N/A'}`);
-      lines.push(`Language: ${shareISRData.language || 'N/A'}`);
-      lines.push(`Level Started: ${shareISRData.levelStarted || 'N/A'}`);
-      
-      if (shareISRData.readingData && shareISRData.readingData.length > 0) {
-        lines.push('');
-        lines.push('READING ASSESSMENT DATA:');
-        shareISRData.readingData.forEach((entry: any, index: number) => {
-          lines.push(`\nAssessment ${index + 1}:`);
-          lines.push(`  Level: ${entry.level || 'N/A'}`);
-          lines.push(`  Set: ${entry.set || 'N/A'}`);
-          lines.push(`  Date: ${entry.dateTaken || 'N/A'}`);
-          
-          // Word Reading Level
-          let wordReadingLevel = 'N/A';
-          if (entry.wordReading?.ind) wordReadingLevel = 'Independent';
-          else if (entry.wordReading?.ins) wordReadingLevel = 'Instructional';
-          else if (entry.wordReading?.frus) wordReadingLevel = 'Frustration';
-          lines.push(`  Word Reading Level: ${wordReadingLevel}`);
-          
-          // Comprehension Level
-          let comprehensionLevel = 'N/A';
-          if (entry.comprehension?.ind) comprehensionLevel = 'Independent';
-          else if (entry.comprehension?.ins) comprehensionLevel = 'Instructional';
-          else if (entry.comprehension?.frus) comprehensionLevel = 'Frustration';
-          lines.push(`  Comprehension Level: ${comprehensionLevel}`);
-        });
-      }
-      
-      if (shareISRData.observations) {
-        lines.push('');
-        lines.push('OBSERVATIONS:');
-        const obs = shareISRData.observations;
-        if (obs.wordByWord) lines.push('- Reads word by word');
-        if (obs.lacksExpression) lines.push('- Lacks expression');
-        if (obs.hardlyAudible) lines.push('- Hardly audible');
-        if (obs.disregardsPunctuation) lines.push('- Disregards punctuation');
-        if (obs.pointsToWords) lines.push('- Points to words while reading');
-        if (obs.littleAnalysis) lines.push('- Shows little analysis');
-        if (obs.otherObservations) {
-          lines.push(`Additional Notes: ${obs.otherObservations}`);
+
+    // Check again if already shared (double-check)
+    if (shareStudent.parentId && shareStudent.id) {
+      try {
+        const existingReportsQuery = query(
+          collection(db, 'sharedISRReports'),
+          where('parentId', '==', shareStudent.parentId),
+          where('studentId', '==', shareStudent.id)
+        );
+        const existingReports = await getDocs(existingReportsQuery);
+        if (!existingReports.empty) {
+          await Swal.fire({
+            icon: 'info',
+            title: 'Already Shared',
+            text: 'This ISR report has already been shared with the parent.',
+            confirmButtonText: 'OK'
+          });
+          handleCloseShare();
+          return;
         }
-      }
-    } else {
-      // Fallback to old data if ISR data not loaded yet
-      if (latestReadingForShare) {
-        lines.push('');
-        lines.push('Latest Reading Assessment:');
-        if (latestReadingForShare.sessionTitle) lines.push(`- Session: ${latestReadingForShare.sessionTitle}`);
-        if (latestReadingForShare.book) lines.push(`- Story: ${latestReadingForShare.book}`);
-        if (latestReadingForShare.wordsRead != null) lines.push(`- Words Read: ${latestReadingForShare.wordsRead}`);
-        if (latestReadingForShare.miscues != null) lines.push(`- Miscues: ${latestReadingForShare.miscues}`);
-        if (latestReadingForShare.oralReadingScore != null) lines.push(`- Oral Reading Score: ${latestReadingForShare.oralReadingScore}%`);
-        if (latestReadingForShare.readingSpeed != null) lines.push(`- Speed: ${latestReadingForShare.readingSpeed} WPM`);
-        if (latestReadingForShare.createdAt) lines.push(`- Date: ${new Date(latestReadingForShare.createdAt).toLocaleString()}`);
-      }
-      if (latestTestForShare) {
-        lines.push('');
-        lines.push('Latest Comprehension Assessment:');
-        if (latestTestForShare.testName) lines.push(`- Test: ${latestTestForShare.testName}`);
-        if (latestTestForShare.score != null) lines.push(`- Score: ${latestTestForShare.score}`);
-        if (latestTestForShare.comprehension != null) lines.push(`- Comprehension: ${latestTestForShare.comprehension}%`);
-        if (latestTestForShare.correctAnswers != null && latestTestForShare.totalQuestions != null) lines.push(`- Correct: ${latestTestForShare.correctAnswers}/${latestTestForShare.totalQuestions}`);
-        if (latestTestForShare.createdAt) lines.push(`- Date: ${new Date(latestTestForShare.createdAt).toLocaleString()}`);
+      } catch (error) {
+        console.error('Error checking existing shares:', error);
       }
     }
-    
-    lines.push('');
-    lines.push('Please contact me if you have any questions about your child\'s reading progress.');
-    const body = encodeURIComponent(lines.join('\n'));
-    return `mailto:${to}?subject=${subject}&body=${body}`;
-  }, [parentEmail, shareStudent, shareISRData, latestReadingForShare, latestTestForShare]);
+
+    try {
+      await addDoc(collection(db, 'sharedISRReports'), {
+        parentId: shareStudent.parentId,
+        studentId: shareStudent.id,
+        studentName: shareStudent.name?.replace(/\|/g, ' ') || '',
+        teacherId: currentUser?.uid || '',
+        teacherName: shareISRData?.teacher || '',
+        school: shareISRData?.school || '',
+        language: shareISRData?.language || 'English',
+        levelStarted: shareISRData?.levelStarted || '',
+        readingData: shareISRData?.readingData || [],
+        observations: shareISRData?.observations || {},
+        sharedAt: serverTimestamp(),
+        isRead: false
+      });
+      
+      // Close modal first so the alert is on top
+      handleCloseShare();
+      // Show success message
+      await Swal.fire({
+        icon: 'success',
+        title: 'ISR Shared',
+        text: `ISR report has been successfully shared with ${parentName || 'the parent'}. They can now view it on their Progress page.`,
+        confirmButtonText: 'OK'
+      });
+    } catch (error) {
+      console.error('Error sharing ISR report:', error);
+      await Swal.fire({
+        icon: 'error',
+        title: 'Share Failed',
+        text: 'Failed to share ISR report. Please try again.',
+        confirmButtonText: 'OK'
+      });
+      // keep modal state untouched on failure
+    }
+  };
 
   // Toggle class collapse/expand
   const toggleClassCollapse = (className: string) => {
@@ -1860,9 +1871,9 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
       )}
 
       {/* Share to Parent Modal */}
-      {shareOpen && shareStudent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
-          <div className="bg-white rounded-2xl p-8 w-full max-w-lg relative border border-gray-200">
+      {shareOpen && shareStudent && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black bg-opacity-60" style={{ margin: 0, padding: 0, position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}>
+          <div className="bg-white rounded-2xl p-8 w-full max-w-lg relative border border-gray-200 shadow-2xl m-4">
             <button
               className="absolute top-3 right-4 text-gray-400 hover:text-red-500 text-2xl font-bold"
               onClick={handleCloseShare}
@@ -1871,52 +1882,106 @@ const Reports: React.FC<{ setIsHeaderDarkened?: (v: boolean) => void }> = ({ set
               ×
             </button>
             <h2 className="text-xl font-extrabold mb-4 text-gray-900 tracking-tight">Share ISR Report to Parent</h2>
-            {loadingShareISR ? (
+            {loadingShareISR || loadingParentInfo ? (
               <div className="flex items-center justify-center py-8">
                 <TeacherLoader label="Loading ISR data..." />
               </div>
             ) : (
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Parent email</label>
-                  <input
-                    type="email"
-                    value={parentEmail}
-                    onChange={(e) => setParentEmail(e.target.value)}
-                    placeholder="parent@example.com"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-                <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-900">
-                  This will open your email client with a pre-filled ISR summary for {shareStudent?.name?.replace(/\|/g, ' ') || 'this student'}.
-                </div>
-                <div className="flex items-center justify-end gap-3 pt-2">
-                  <button
-                    onClick={handleCloseShare}
-                    className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <a
-                    href={shareMailtoHref}
-                    onClick={(e) => {
-                      if (!parentEmail.trim()) {
-                        e.preventDefault();
-                        return;
-                      }
-                      handleCloseShare();
-                    }}
-                    className={`px-4 py-2 rounded-lg text-white font-medium transition-colors ${parentEmail.trim() ? 'bg-blue-600 hover:bg-blue-700 cursor-pointer' : 'bg-gray-400 cursor-not-allowed'}`}
-                    aria-disabled={!parentEmail.trim()}
-                  >
-                    Open Email
-                  </a>
-                </div>
+              <div className="space-y-4">
+                {shareStudent?.parentId ? (
+                  <>
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                      <p className="text-sm font-medium text-green-900 mb-3">
+                        This student is linked to a parent. The ISR report will be shared with:
+                      </p>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-gray-700">Parent Name:</span>
+                          <span className="text-sm font-semibold text-gray-900">{parentName || 'Unknown Parent'}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-gray-700">Email:</span>
+                          <span className="text-sm font-semibold text-gray-900">{parentEmail || 'N/A'}</span>
+                        </div>
+                      </div>
+                    </div>
+                    {isAlreadyShared ? (
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                        <div className="flex items-start gap-3">
+                          <svg className="w-5 h-5 text-yellow-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                          <div>
+                            <p className="text-sm font-medium text-yellow-900 mb-1">
+                              Already Shared
+                            </p>
+                            <p className="text-sm text-yellow-800">
+                              This ISR report has already been shared with {parentName || 'the parent'}. They can view it on their Progress page.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-900">
+                        The ISR report will be shared directly with {parentName || 'the parent'}. They can view it on their Progress page.
+                      </div>
+                    )}
+                    <div className="flex items-center justify-end gap-3 pt-2">
+                      <button
+                        onClick={handleCloseShare}
+                        className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      {!isAlreadyShared && (
+                        <button
+                          onClick={handleShareISR}
+                          disabled={!shareISRData || !shareStudent?.parentId}
+                          className={`px-4 py-2 rounded-lg text-white font-medium transition-colors ${
+                            shareISRData && shareStudent?.parentId
+                              ? 'bg-blue-600 hover:bg-blue-700 cursor-pointer'
+                              : 'bg-gray-400 cursor-not-allowed'
+                          }`}
+                        >
+                          Share to {parentName || 'Parent'}
+                        </button>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                      <div className="flex items-start gap-3">
+                        <svg className="w-5 h-5 text-yellow-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <div>
+                          <p className="text-sm font-medium text-yellow-900 mb-1">
+                            Student Not Linked to Parent
+                          </p>
+                          <p className="text-sm text-yellow-800">
+                            This student is not currently linked to any parent account. Please link the student to a parent first before sharing the ISR report.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-end gap-3 pt-2">
+                      <button
+                        onClick={handleCloseShare}
+                        className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium transition-colors"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
+
     </div>
   );
 };
