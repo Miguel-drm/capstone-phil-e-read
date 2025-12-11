@@ -89,6 +89,56 @@ const ReadingSessionPage: React.FC = () => {
   // Store ISR result ID for quiz navigation
   const [isrResultId, setIsrResultId] = useState<string | null>(null);
   
+  // Track if quiz has been completed
+  const [hasCompletedQuiz, setHasCompletedQuiz] = useState(false);
+  
+  // Check if quiz has been completed when ISR result ID is available
+  useEffect(() => {
+    const checkQuizCompletion = async () => {
+      if (!isrResultId) return;
+      
+      try {
+        const isrResult = await isrResultService.getISRResultById(isrResultId);
+        if (isrResult && isrResult.testId) {
+          // Quiz has been completed (testId is set)
+          setHasCompletedQuiz(true);
+          console.log('✅ Quiz already completed for this session');
+        } else {
+          // Reset if testId is not present
+          setHasCompletedQuiz(false);
+        }
+      } catch (error) {
+        console.error('Error checking quiz completion:', error);
+      }
+    };
+    
+    checkQuizCompletion();
+  }, [isrResultId]);
+  
+  // Re-check quiz completion when page becomes visible (user returns from quiz)
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible' && isrResultId) {
+        console.log('🔄 Page visible again, re-checking quiz completion...');
+        try {
+          const isrResult = await isrResultService.getISRResultById(isrResultId);
+          if (isrResult && isrResult.testId) {
+            setHasCompletedQuiz(true);
+            console.log('✅ Quiz completed - button will be disabled');
+          }
+        } catch (error) {
+          console.error('Error re-checking quiz completion:', error);
+        }
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isrResultId]);
+  
   // Countdown effect - preload Vosk connection during countdown
   useEffect(() => {
     let timer: NodeJS.Timeout | null = null;
@@ -2893,6 +2943,38 @@ const ReadingSessionPage: React.FC = () => {
             miscueTypes: sessionData.miscueTypes,
             recognizedWords: sessionData.recognizedWords?.length || 0
           });
+          
+          // Check if quiz has been completed for this session
+          // Get student ID to check for ISR results
+          const firstStudent = sessionData.students[0];
+          const studentId = typeof firstStudent === 'string' ? firstStudent : firstStudent.id;
+          
+          if (studentId) {
+            try {
+              // Fetch ISR results for this student
+              const isrResults = await isrResultService.getISRResultsByStudent(studentId);
+              
+              // Find ISR result that matches this session
+              const matchingResult = isrResults.find((result: any) => 
+                result.sessionId === sessionId || 
+                (result.sessionTitle === sessionData.title && result.book === sessionData.book)
+              );
+              
+              if (matchingResult) {
+                console.log('📋 Found ISR result for this session:', matchingResult._id || matchingResult.id);
+                const resultId = matchingResult._id || matchingResult.id;
+                setIsrResultId(resultId);
+                
+                // Check if quiz is completed (testId is set)
+                if (matchingResult.testId) {
+                  setHasCompletedQuiz(true);
+                  console.log('✅ Quiz already completed for this session');
+                }
+              }
+            } catch (error) {
+              console.error('Error checking for existing ISR results:', error);
+            }
+          }
         }
 
         // Get all stories
@@ -5957,6 +6039,12 @@ const ReadingSessionPage: React.FC = () => {
           <div className="max-w-6xl mx-auto">
             <button
               onClick={async () => {
+                // Prevent action if quiz already completed
+                if (hasCompletedQuiz) {
+                  console.log('⚠️ Quiz already completed, button should be disabled');
+                  return;
+                }
+                
                 if (!currentSession || !currentStory) return;
                 
                 // Get student info
@@ -6059,10 +6147,23 @@ const ReadingSessionPage: React.FC = () => {
                   });
                 }
               }}
-              disabled={false}
-              className="w-full py-4 rounded-2xl text-white font-bold text-lg transition-all duration-200 bg-gradient-to-r from-indigo-500 to-blue-500 hover:from-indigo-600 hover:to-blue-600 hover:scale-[1.01]"
+              disabled={hasCompletedQuiz}
+              className={`w-full py-4 rounded-2xl text-white font-bold text-lg transition-all duration-200 ${
+                hasCompletedQuiz
+                  ? 'bg-gray-400 cursor-not-allowed opacity-75'
+                  : 'bg-gradient-to-r from-indigo-500 to-blue-500 hover:from-indigo-600 hover:to-blue-600 hover:scale-[1.01]'
+              }`}
             >
-              Start Comprehension Quiz
+              {hasCompletedQuiz ? (
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Already Taken Quiz
+                </span>
+              ) : (
+                'Start Comprehension Quiz'
+              )}
             </button>
           </div>
         </div>
