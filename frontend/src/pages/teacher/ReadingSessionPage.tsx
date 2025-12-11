@@ -4380,7 +4380,7 @@ const ReadingSessionPage: React.FC = () => {
   useEffect(() => {
     if (!currentSession) return;
     const storyKey = (currentSession.book || "").toString().trim();
-    if (!storyKey) {
+    if (!storyKey && !currentStory) {
       console.log("⚠️ No story key found in currentSession.book");
       return;
     }
@@ -4391,39 +4391,46 @@ const ReadingSessionPage: React.FC = () => {
     // Helper function to normalize strings for comparison (handle different apostrophe types)
     const normalizeForMatch = (str: string) => {
       return str.toLowerCase()
-        .replace(/['']/g, "'")  // Normalize all apostrophe types to straight apostrophe
+        .replace(/['’]/g, "'")  // Normalize curly apostrophes to straight apostrophe
         .replace(/\s+/g, ' ')    // Normalize whitespace
         .trim();
     };
 
-    const normalizedStoryKey = normalizeForMatch(storyKey);
-    console.log("🔑 Normalized story key:", normalizedStoryKey);
+    const normalizedStoryKey = storyKey ? normalizeForMatch(storyKey) : "";
+    const normalizedStoryTitle = currentStory?.title ? normalizeForMatch(currentStory.title) : "";
+    const storySet = (currentStory as any)?.storySet || (currentStory as any)?.set || (currentSession as any)?.storySet || "";
+    const normalizedStorySet = storySet ? normalizeForMatch(storySet) : "";
 
-    // IMPROVED MATCHING: Try multiple strategies
-    let match = tests.find(
+    // Collect possible story IDs to match against test.storyId
+    const storyIdCandidates = [
+      currentSession.book || "",
+      (currentStory as any)?.id || "",
+      (currentStory as any)?._id || "",
+      (currentStory as any)?.storyId || ""
+    ].filter(Boolean);
+
+    console.log("🔑 Normalized story key:", normalizedStoryKey, "Story IDs:", storyIdCandidates);
+
+    // Filter tests by story set if available; if none remain, fall back to all tests
+    let candidateTests = tests;
+    if (normalizedStorySet) {
+      const filtered = tests.filter(t => t.storySet && normalizeForMatch(String(t.storySet)) === normalizedStorySet);
+      if (filtered.length > 0) {
+        candidateTests = filtered;
+      }
+    }
+
+    // STRICT MATCHING WITH SET CONTEXT: Only match by storyId or normalized title, within the set-filtered list
+    const match = candidateTests.find(
       (t) =>
-        // Strategy 1: Exact storyId match
-        (t.storyId && t.storyId === currentSession.book) ||
-        // Strategy 2: Exact storyTitle match (with normalization)
-        (t.storyTitle && normalizeForMatch(t.storyTitle) === normalizedStoryKey) ||
-        // Strategy 3: Test name contains story key
-        (t.testName && normalizeForMatch(t.testName).includes(normalizedStoryKey)) ||
-        // Strategy 4: Story key contains test name (reverse)
-        (t.testName && normalizedStoryKey.includes(normalizeForMatch(t.testName))) ||
-        // Strategy 5: Story key contains storyTitle
-        (t.storyTitle && normalizedStoryKey.includes(normalizeForMatch(t.storyTitle)))
+        // Strategy 1: Exact storyId match (any candidate)
+        (t.storyId && storyIdCandidates.some(id => id === t.storyId)) ||
+        // Strategy 2: Exact storyTitle match (with normalization) using session book/title or currentStory.title
+        (t.storyTitle && (
+          (normalizedStoryKey && normalizeForMatch(t.storyTitle) === normalizedStoryKey) ||
+          (normalizedStoryTitle && normalizeForMatch(t.storyTitle) === normalizedStoryTitle)
+        ))
     );
-
-    // If still no match, try fuzzy matching by checking if storyId matches any test's storyId
-    if (!match && currentSession.book) {
-      match = tests.find(t => t.storyId === currentSession.book);
-    }
-
-    // If STILL no match and there's only one test, use it (fallback)
-    if (!match && tests.length === 1) {
-      console.log("⚠️ Using single available test as fallback");
-      match = tests[0];
-    }
 
     if (match) {
       console.log("✅ Test found:", match.testName, "ID:", match.id);
