@@ -61,9 +61,15 @@ export function calculateWordReadingAccuracy(
 
 /**
  * Determine word reading level based on accuracy
+ * Based on Phil-IRI Oral Reading Profile (Table 7)
  * 
  * @param accuracy - Word reading accuracy percentage (0-100)
  * @returns Word reading level classification
+ * 
+ * Official Phil-IRI Thresholds:
+ * - Independent: 97-100%
+ * - Instructional: 90-96%
+ * - Frustration: 89% and below
  */
 export function determineWordReadingLevel(
   accuracy: number
@@ -73,6 +79,32 @@ export function determineWordReadingLevel(
   } else if (accuracy >= 90 && accuracy <= 96) {
     return 'Instructional';
   } else {
+    // 89% and below
+    return 'Frustration';
+  }
+}
+
+/**
+ * Determine comprehension level based on percentage
+ * Based on Phil-IRI Oral Reading Profile (Table 7)
+ * 
+ * @param percentage - Comprehension percentage (0-100)
+ * @returns Comprehension level classification
+ * 
+ * Official Phil-IRI Thresholds:
+ * - Independent: 80-100%
+ * - Instructional: 59-79%
+ * - Frustration: 58% and below
+ */
+export function determineComprehensionLevel(
+  percentage: number
+): 'Independent' | 'Instructional' | 'Frustration' {
+  if (percentage >= 80) {
+    return 'Independent';
+  } else if (percentage >= 59 && percentage <= 79) {
+    return 'Instructional';
+  } else {
+    // 58% and below
     return 'Frustration';
   }
 }
@@ -323,7 +355,8 @@ export const ISRReviewCalculator = {
   calculate: calculateISRReviewEntry,
   calculateFromISRResult: calculateFromISRResult,
   calculateAccuracy: calculateWordReadingAccuracy,
-  determineLevel: determineWordReadingLevel,
+  determineWordReadingLevel: determineWordReadingLevel,
+  determineComprehensionLevel: determineComprehensionLevel,
   wordReadingToFlags: wordReadingLevelToFlags,
   comprehensionToFlags: comprehensionLevelToFlags
 };
