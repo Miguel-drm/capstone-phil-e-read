@@ -3964,50 +3964,7 @@ const ReadingSessionPage: React.FC = () => {
             }
           }
 
-          // Method 2: Check if child is re-reading a word CONSECUTIVELY
-          // Example: Child reads "the the" or "wanted wanted" (said twice IN A ROW)
-          // This should ONLY trigger for consecutive repetitions, not words that appear multiple times in the story
-          if (recentWords.length >= 2) {
-            const lastWord = recentWords[recentWords.length - 1];
-            const secondLastWord = recentWords[recentWords.length - 2];
-            const normalizedLast = normalize(lastWord);
-            const normalizedSecondLast = normalize(secondLastWord);
-
-            // Check if the last two words are the same (CONSECUTIVE repetition)
-            if (normalizedLast === normalizedSecondLast && normalizedLast.length > 0) {
-              // Find which story word was repeated
-              let repeatedWordIndex = -1;
-              for (let i = Math.max(0, currentWordIndex - 3); i <= currentWordIndex && i < realWords.length; i++) {
-                if (isWordMatch(lastWord, realWords[i])) {
-                  repeatedWordIndex = i;
-                  break;
-                }
-              }
-
-              if (repeatedWordIndex >= 0) {
-                const alreadyCountedRepetition = wordMiscues.get(repeatedWordIndex) === 'repetition';
-
-                if (!alreadyCountedRepetition) {
-                  console.log(`⚠️ REPETITION! Child said "${lastWord}" twice in a row (story word #${repeatedWordIndex}: "${realWords[repeatedWordIndex]}") - DepEd Rule: Underline repeated portion`);
-                  setMiscues(prev => prev + 1);
-                  setMiscueTypes(prev => ({ ...prev, repetition: prev.repetition + 1 }));
-                  setWordMiscues(prev => new Map(prev).set(repeatedWordIndex, 'repetition'));
-                  setWordMarkings(prev => new Map(prev).set(repeatedWordIndex, {
-                    type: 'repetition',
-                    marking: `Underline repeated word: "${lastWord}" (said twice in a row)`,
-                    spokenWord: `${lastWord} ${lastWord}`,
-                    correctWord: realWords[repeatedWordIndex]
-                  }));
-
-                  // Mark this transcript position as processed
-                  processedTranscriptWordsRef.current = transcriptWords.length;
-                  return;
-                }
-              }
-            }
-          }
-
-          // Method 3: Check for phrase repetition (2 words repeated CONSECUTIVELY)
+          // Method 2: Check for phrase repetition (2 words repeated CONSECUTIVELY)
           // Example: "in the in the" (phrase said twice in a row)
           // BUT: Ignore if the phrase naturally appears in the story (e.g., "gutom na gutom na")
           if (recentWords.length >= 4) {
@@ -4168,10 +4125,23 @@ const ReadingSessionPage: React.FC = () => {
           const similarity = getCachedSimilarity(lastWord, expectedWord);
 
           // Check for self-correction first (DepEd Rule: Don't count self-correction as error)
-          // Pattern: child says wrong word then corrects themselves
+          // Pattern: child says wrong word for CURRENT position, then corrects themselves
+          // CRITICAL: Only detect if previous word was attempting the SAME expected word
           if (wordsForMiscueDetection.length >= 2) {
             const previousWord = wordsForMiscueDetection[wordsForMiscueDetection.length - 2];
-            if (isWordMatch(lastWord, expectedWord) && !isWordMatch(previousWord, expectedWord)) {
+            
+            // Self-correction only happens when:
+            // 1. Current word matches expected word (correct)
+            // 2. Previous word doesn't match expected word (was wrong)
+            // 3. Previous word was also attempting THIS SAME word (not a different word in the story)
+            // Check if previous word matches ANY other word in the story - if yes, it's not self-correction
+            const isPreviousWordInStory = realWords.some((storyWord, idx) => 
+              idx !== currentWordIndex && isWordMatch(previousWord, storyWord)
+            );
+            
+            if (isWordMatch(lastWord, expectedWord) && 
+                !isWordMatch(previousWord, expectedWord) && 
+                !isPreviousWordInStory) {
               console.log(`✓ SELF-CORRECTION! Child corrected "${previousWord}" to "${lastWord}" - DepEd Rule: Mark with 'S', don't count as error`);
               setMiscueTypes(prev => ({ ...prev, selfCorrection: prev.selfCorrection + 1 }));
               setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'selfCorrection'));

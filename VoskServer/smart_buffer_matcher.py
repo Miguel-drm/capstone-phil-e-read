@@ -124,9 +124,11 @@ class SmartBufferMatcher:
                 "details": f"Repetition: '{word_lower}' repeated"
             }
         
-        # SELF-CORRECTION DETECTION: Check if this corrects a recent error
-        # Pattern: Child says wrong word, then immediately says correct word
-        if len(self.recent_words) > 0 and self.current_position < len(self.expected_words):
+        # SELF-CORRECTION DETECTION DISABLED: Causes false positives during normal reading
+        # The frontend has proper self-correction detection that checks if the previous word
+        # was attempting the SAME expected word position, not just any previous word
+        # Backend logic was incorrectly flagging normal reading progression as self-correction
+        if False and len(self.recent_words) > 0 and self.current_position < len(self.expected_words):
             expected_word = self.expected_words[self.current_position].lower().strip()
             previous_word = self.recent_words[-1]
             
@@ -140,16 +142,27 @@ class SmartBufferMatcher:
                 # Add to recent words
                 self.recent_words.append(word_lower)
                 
-                # Add to buffer and continue with normal matching
+                # Add to buffer
                 self.word_buffer.append((word_lower, timestamp))
                 self.word_timestamps[word_lower] = timestamp
                 
-                expected_word_display = self.expected_words[self.current_position] if self.current_position < len(self.expected_words) else "END"
-                print(f"   📦 Buffer: {[w for w, _ in self.word_buffer]} (size: {len(self.word_buffer)})")
-                print(f"   🎯 Looking for: '{expected_word_display}' at position {self.current_position}")
+                # Return self-correction result to frontend for marking
+                # Note: Self-correction is tracked but NOT counted as a miscue
+                self.current_position += 1
+                self.words_read += 1
                 
-                # Try to match from buffer
-                return self._try_match_from_buffer()
+                return {
+                    "match_type": "selfCorrection",
+                    "advance": True,
+                    "new_position": self.current_position,
+                    "miscue_count": 0,  # Not counted as error
+                    "words_read": self.words_read,
+                    "total_miscues": self.total_miscues,
+                    "miscue_types": self.miscue_types.copy(),
+                    "details": f"Self-correction: Said '{previous_word}' then corrected to '{word_lower}'",
+                    "wrong_word": previous_word,
+                    "corrected_word": word_lower
+                }
         
         # Add to recent words tracking
         self.recent_words.append(word_lower)
