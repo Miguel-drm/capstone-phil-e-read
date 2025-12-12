@@ -9,7 +9,8 @@ import {
   UsersIcon,
   ChartBarIcon,
   ArrowRightIcon,
-  ClockIcon
+  ClockIcon,
+  CheckCircleIcon
 } from '@heroicons/react/24/outline';
 import { formatDateHuman } from '@/utils/date';
 import { db } from '../../../config/firebase';
@@ -139,15 +140,18 @@ const ChildrenOverviewWidget: React.FC<{
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-        <div className="group relative overflow-hidden bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-xl p-3 sm:p-4 transition-all hover:shadow-md hover:scale-[1.02]">
-          <div className="absolute -right-4 -top-4 w-16 h-16 rounded-full bg-blue-200/40 blur-xl group-hover:scale-110 transition-transform" />
-          <div className="relative">
-            <div className="text-lg font-medium text-blue-900 mb-1">Total Children</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 max-w-2xl mx-auto">
+        <div className="group relative overflow-hidden bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-2xl p-6 sm:p-8 transition-all hover:shadow-lg hover:scale-[1.02]">
+          <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-blue-200/40 blur-2xl group-hover:scale-110 transition-transform" />
+          <div className="relative text-center">
+            <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-blue-200/50 flex items-center justify-center">
+              <UsersIcon className="h-7 w-7 text-blue-600" />
+            </div>
+            <div className="text-lg font-medium text-blue-900 mb-2">Total Children</div>
             {isLoading ? (
-              <div className="h-8 bg-blue-200 rounded animate-pulse"></div>
+              <div className="h-12 bg-blue-200 rounded animate-pulse mx-auto w-20"></div>
             ) : (
-              <div className="text-3xl font-bold text-blue-900">
+              <div className="text-5xl font-bold text-blue-900 mb-2">
                 {stats?.total || 0}
               </div>
             )}
@@ -155,53 +159,21 @@ const ChildrenOverviewWidget: React.FC<{
           </div>
         </div>
 
-        <div className="group relative overflow-hidden bg-gradient-to-br from-green-50 to-green-100 border border-green-200 rounded-xl p-3 sm:p-4 transition-all hover:shadow-md hover:scale-[1.02]">
-          <div className="absolute -right-4 -top-4 w-16 h-16 rounded-full bg-green-200/40 blur-xl group-hover:scale-110 transition-transform" />
-          <div className="relative">
-            <div className="text-lg font-medium text-green-900 mb-1">Active Students</div>
+        <div className="group relative overflow-hidden bg-gradient-to-br from-green-50 to-green-100 border border-green-200 rounded-2xl p-6 sm:p-8 transition-all hover:shadow-lg hover:scale-[1.02]">
+          <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-green-200/40 blur-2xl group-hover:scale-110 transition-transform" />
+          <div className="relative text-center">
+            <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-green-200/50 flex items-center justify-center">
+              <CheckCircleIcon className="h-7 w-7 text-green-600" />
+            </div>
+            <div className="text-lg font-medium text-green-900 mb-2">Active Students</div>
             {isLoading ? (
-              <div className="h-8 bg-green-200 rounded animate-pulse"></div>
+              <div className="h-12 bg-green-200 rounded animate-pulse mx-auto w-20"></div>
             ) : (
-              <div className="text-3xl font-bold text-green-900">
+              <div className="text-5xl font-bold text-green-900 mb-2">
                 {stats?.active || 0}
               </div>
             )}
             <div className="text-base text-green-700">Currently enrolled</div>
-          </div>
-        </div>
-
-        <div className="group relative overflow-hidden bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 rounded-xl p-3 sm:p-4 transition-all hover:shadow-md hover:scale-[1.02]">
-          <div className="absolute -right-4 -top-4 w-16 h-16 rounded-full bg-purple-200/40 blur-xl group-hover:scale-110 transition-transform" />
-          <div className="relative">
-            <div className="text-lg font-medium text-purple-900 mb-1">Avg. Reading Level</div>
-            {isLoading ? (
-              <div className="h-8 bg-purple-200 rounded animate-pulse"></div>
-            ) : (
-              <div className={`text-2xl font-bold ${
-                stats?.avgLevel === 'Independent' ? 'text-green-700' :
-                stats?.avgLevel === 'Instructional' ? 'text-yellow-700' :
-                stats?.avgLevel === 'Frustration' ? 'text-red-700' :
-                'text-purple-900'
-              }`}>
-                {stats?.avgLevel || 'N/A'}
-              </div>
-            )}
-            <div className="text-base text-purple-700">From assessments</div>
-          </div>
-        </div>
-
-        <div className="group relative overflow-hidden bg-gradient-to-br from-orange-50 to-orange-100 border border-orange-200 rounded-xl p-3 sm:p-4 transition-all hover:shadow-md hover:scale-[1.02]">
-          <div className="absolute -right-4 -top-4 w-16 h-16 rounded-full bg-orange-200/40 blur-xl group-hover:scale-110 transition-transform" />
-          <div className="relative">
-            <div className="text-lg font-medium text-orange-900 mb-1">Avg. Performance</div>
-            {isLoading ? (
-              <div className="h-8 bg-orange-200 rounded animate-pulse"></div>
-            ) : (
-              <div className="text-3xl font-bold text-orange-900">
-                {stats?.avgPerf || 0}%
-              </div>
-            )}
-            <div className="text-base text-orange-700">Overall progress</div>
           </div>
         </div>
       </div>
