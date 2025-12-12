@@ -17,14 +17,20 @@ import { formatDateHuman } from '@/utils/date';
 
 type ToggleSwitchProps = {
   checked: boolean;
-  onChange: React.ChangeEventHandler<HTMLInputElement>;
+  onChange: () => void;
   label: string;
 };
 
 const ToggleSwitch: React.FC<ToggleSwitchProps> = ({ checked, onChange, label }) => (
   <label className="flex items-center cursor-pointer select-none gap-2">
-    <div className="relative">
-      <input type="checkbox" checked={checked} onChange={onChange} className="sr-only peer" />
+    <div className="relative inline-flex items-center">
+      <input 
+        type="checkbox" 
+        checked={checked} 
+        onChange={onChange} 
+        className="sr-only peer absolute opacity-0 w-0 h-0" 
+        style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }}
+      />
       <div className="w-11 h-6 bg-gray-200 rounded-full peer-checked:bg-green-500 transition-colors duration-200"></div>
       <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full shadow peer-checked:translate-x-5 transition-transform duration-200"></div>
     </div>
