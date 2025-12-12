@@ -618,14 +618,18 @@ class SmartBufferMatcher:
         - "pam" → "map"
         
         Args:
-            word1: First word
-            word2: Second word
+            word1: First word (spoken)
+            word2: Second word (expected)
             
         Returns:
             True if word1 is the reverse of word2
         """
         word1_lower = word1.lower().strip()
         word2_lower = word2.lower().strip()
+        
+        # CRITICAL: If words are the same, it's NOT a reversal!
+        if word1_lower == word2_lower:
+            return False
         
         # Must be at least 2 characters to be a meaningful reversal
         if len(word1_lower) >= 2 and len(word2_lower) >= 2:

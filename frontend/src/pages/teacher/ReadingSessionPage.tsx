@@ -5014,6 +5014,53 @@ const ReadingSessionPage: React.FC = () => {
         }
       }
 
+      // CRITICAL: Recalculate miscue types from finalWordMiscues to include end-of-session omissions
+      const finalMiscueTypes = {
+        omission: 0,
+        substitution: 0,
+        insertion: 0,
+        mispronunciation: 0,
+        repetition: 0,
+        transposition: 0,
+        reversal: 0,
+        selfCorrection: 0
+      };
+      
+      // Count miscues, but handle transposition specially (count as ONE per pair, not two)
+      finalWordMiscues.forEach((miscueType, wordIndex) => {
+        if (miscueType in finalMiscueTypes) {
+          // For transposition, only count the FIRST word of the pair (DepEd: count as one error per transposition)
+          if (miscueType === 'transposition') {
+            const marking = finalWordMarkings.get(wordIndex);
+            // Only count if this is the first word of the transposition pair
+            if (marking?.isFirstWord === true) {
+              finalMiscueTypes.transposition++;
+            }
+            // Skip the second word of the pair (isFirstWord === false)
+          } else {
+            finalMiscueTypes[miscueType as keyof typeof finalMiscueTypes]++;
+          }
+        }
+      });
+      
+      // Calculate total miscues (transposition counts as 1, not 2)
+      const finalTotalMiscues = 
+        finalMiscueTypes.omission +
+        finalMiscueTypes.substitution +
+        finalMiscueTypes.insertion +
+        finalMiscueTypes.mispronunciation +
+        finalMiscueTypes.repetition +
+        finalMiscueTypes.transposition +
+        finalMiscueTypes.reversal;
+      // Note: selfCorrection is NOT counted as an error per DepEd rules
+      
+      console.log('📊 Final miscue counts:', {
+        total: finalTotalMiscues,
+        breakdown: finalMiscueTypes,
+        stateTotal: miscues,
+        stateBreakdown: miscueTypes
+      });
+
       // Clean wordMarkings to remove undefined values (Firebase doesn't accept undefined)
       const cleanedWordMarkings: any = {};
       finalWordMarkings.forEach((marking, index) => {
@@ -5040,8 +5087,8 @@ const ReadingSessionPage: React.FC = () => {
         status: "completed" as const,
         completedAt: new Date(),
         wordsRead,
-        totalMiscues: miscues,
-        miscueTypes, // Save miscue types breakdown for Phil-IRI results
+        totalMiscues: finalTotalMiscues, // Use recalculated total
+        miscueTypes: finalMiscueTypes, // Use recalculated breakdown including end omissions
         elapsedTime,
         readingSpeedWPM: parseInt(readingSpeedWPM) || 0,
         oralReadingScore: parseFloat(oralReadingScore) || 0,
@@ -5440,12 +5487,12 @@ const ReadingSessionPage: React.FC = () => {
                                       : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative ` +
                                       (isCurrent && isRecording && !isCompleted
                                         ? "bg-transparent text-gray-900 font-extrabold z-10"
-                                        : miscueType && showMiscueColors
-                                          ? `${getMiscueColor(miscueType)} font-semibold`
-                                          : recognizedWords.has(realWordIndex) && showMiscueColors
-                                            ? "bg-green-100 text-green-800 font-bold shadow-lg border-2 border-green-400"
-                                            : realWordIndex < currentWordIndex && isRecording
-                                              ? "bg-white text-gray-800 font-normal border border-gray-200"
+                                        : isRecording && !isCompleted
+                                          ? "bg-white text-gray-800 font-normal border border-gray-200" // NO colors during recording - keep reader focused
+                                          : miscueType && showMiscueColors
+                                            ? `${getMiscueColor(miscueType)} font-semibold`
+                                            : recognizedWords.has(realWordIndex) && showMiscueColors
+                                              ? "bg-green-100 text-green-800 font-bold shadow-lg border-2 border-green-400"
                                               : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
                                   }
                                 style={{
