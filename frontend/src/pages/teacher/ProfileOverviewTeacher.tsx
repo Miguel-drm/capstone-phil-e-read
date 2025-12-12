@@ -26,11 +26,7 @@ const ProfileOverviewTeacher: React.FC = () => {
     addressZip: (userProfile as any)?.addressZip || '',
   });
   const [settingsTab, setSettingsTab] = useState('personal');
-  const [preferences, setPreferences] = useState({
-    notifications: { email: true, push: false, sms: true },
-    privacy: { profileVisible: true, showEmail: false, showPhone: false },
-    display: { theme: 'light', language: 'en', timezone: 'America/New_York' }
-  });
+
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [isExportingData, setIsExportingData] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
@@ -261,9 +257,7 @@ const ProfileOverviewTeacher: React.FC = () => {
     }
   };
 
-  const handleUpdatePreferences = () => {
-    // showSuccess('Preferences Updated', 'Your preferences have been saved successfully!');
-  };
+
 
   const handleExportData = async () => {
     setIsExportingData(true);
@@ -514,12 +508,7 @@ const ProfileOverviewTeacher: React.FC = () => {
                 >
                   Classes
                 </button>
-                <button
-                  onClick={() => setSettingsTab('preferences')}
-                  className={`py-2 px-1 border-b-2 font-medium text-xs sm:text-sm ${settingsTab === 'preferences' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
-                >
-                  Preferences
-                </button>
+
                 <button
                   onClick={() => setSettingsTab('security')}
                   className={`py-2 px-1 border-b-2 font-medium text-xs sm:text-sm ${settingsTab === 'security' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
@@ -676,77 +665,7 @@ const ProfileOverviewTeacher: React.FC = () => {
                 </div>
               </div>
             )}
-            {settingsTab === 'preferences' && (
-              <div className="space-y-6">
-                <div className="bg-white rounded-lg border border-gray-200 p-6">
-                  <h2 className="text-lg font-semibold text-gray-900 mb-6">Notification Preferences</h2>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-sm font-medium text-gray-900">Email Notifications</h3>
-                        <p className="text-sm text-gray-600">Receive notifications via email</p>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={preferences.notifications.email}
-                          onChange={e => setPreferences({
-                            ...preferences,
-                            notifications: { ...preferences.notifications, email: e.target.checked }
-                          })}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                      </label>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-sm font-medium text-gray-900">Push Notifications</h3>
-                        <p className="text-sm text-gray-600">Receive push notifications in browser</p>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={preferences.notifications.push}
-                          onChange={e => setPreferences({
-                            ...preferences,
-                            notifications: { ...preferences.notifications, push: e.target.checked }
-                          })}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                      </label>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-sm font-medium text-gray-900">SMS Notifications</h3>
-                        <p className="text-sm text-gray-600">Receive notifications via SMS</p>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={preferences.notifications.sms}
-                          onChange={e => setPreferences({
-                            ...preferences,
-                            notifications: { ...preferences.notifications, sms: e.target.checked }
-                          })}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                      </label>
-                    </div>
-                  </div>
-                  <div className="mt-6 pt-6 border-t border-gray-200">
-                    <button
-                      onClick={handleUpdatePreferences}
-                      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
-                    >
-                      Save Preferences
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
+
             {settingsTab === 'security' && (
               <div className="space-y-6">
                 <div className="bg-white rounded-lg border border-gray-200 p-6">

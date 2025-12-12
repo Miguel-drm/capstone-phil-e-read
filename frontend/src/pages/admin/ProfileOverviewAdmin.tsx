@@ -15,9 +15,7 @@ const ProfileOverviewAdmin: React.FC = () => {
     email: userProfile?.email || '',
     phoneNumber: userProfile?.phoneNumber || '',
   });
-  const [preferences, setPreferences] = useState({
-    notifications: { email: true, push: false, sms: true },
-  });
+
   // Add state for security actions if not already present
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [isExportingData, setIsExportingData] = useState(false);
@@ -139,10 +137,7 @@ const ProfileOverviewAdmin: React.FC = () => {
     setCroppedAreaPixels(croppedAreaPixels);
   }, []);
 
-  // Handler for updating preferences
-  const handleUpdatePreferences = () => {
-    // showSuccess('Preferences Updated', 'Your preferences have been saved successfully!');
-  };
+
 
   // Handler for changing password
   const handleChangePassword = async () => {
@@ -191,7 +186,7 @@ const ProfileOverviewAdmin: React.FC = () => {
     }
   };
 
-  const tabs = ['Profile', 'Users', 'System Settings', 'Reports', 'Settings'];
+  const tabs = ['Profile', 'Users', 'Settings'];
   const formatPhoneDisplay = (raw?: string | null) => {
     if (!raw) return '-';
     const digits = String(raw).replace(/\D/g, '');
@@ -366,76 +361,11 @@ const ProfileOverviewAdmin: React.FC = () => {
             </div>
           </div>
         )}
-        {activeTab === 'System Settings' && (
-          <div className="bg-white rounded-3xl shadow-2xl p-10 md:p-14 border border-blue-100">
-            <div className="text-lg font-semibold text-gray-800 mb-6">System Settings</div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="p-6 bg-gray-50 rounded-xl">
-                <div className="text-lg font-semibold text-gray-800 mb-2">Content Management</div>
-                <div className="text-sm text-gray-600 mb-4">Manage stories, resources, and educational content</div>
-                <button 
-                  onClick={() => window.location.href = '/admin/resources'}
-                  className="w-full px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition"
-                >
-                  Manage Content
-                </button>
-              </div>
-              <div className="p-6 bg-orange-50 rounded-xl">
-                <div className="text-lg font-semibold text-gray-800 mb-2">Reports & Analytics</div>
-                <div className="text-sm text-gray-600 mb-4">Access comprehensive reports and system analytics</div>
-                <button 
-                  onClick={() => window.location.href = '/admin/reports'}
-                  className="w-full px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition"
-                >
-                  View Reports
-                </button>
-              </div>
-            </div>
-            <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-              <div className="text-sm text-blue-800">
-                <strong>Advanced Settings:</strong> For system configuration, database management, or technical support, 
-                please contact your system administrator or development team.
-              </div>
-            </div>
-          </div>
-        )}
-        {activeTab === 'Reports' && (
-          <div className="bg-white rounded-3xl shadow-2xl p-10 md:p-14 border border-blue-100">
-            <div className="text-lg font-semibold text-gray-800 mb-6">Reports & Analytics</div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="p-6 bg-green-50 rounded-xl">
-                <div className="text-lg font-semibold text-gray-800 mb-2">📊 Comprehensive Reports</div>
-                <div className="text-sm text-gray-600 mb-4">Generate detailed reports for students, teachers, parents, and performance analytics</div>
-                <button 
-                  onClick={() => window.location.href = '/admin/reports'}
-                  className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
-                >
-                  Open Reports
-                </button>
-              </div>
-              <div className="p-6 bg-blue-50 rounded-xl">
-                <div className="text-lg font-semibold text-gray-800 mb-2">📈 Dashboard Analytics</div>
-                <div className="text-sm text-gray-600 mb-4">View real-time analytics and insights on the main dashboard</div>
-                <button 
-                  onClick={() => window.location.href = '/admin/dashboard'}
-                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-                >
-                  View Dashboard
-                </button>
-              </div>
-            </div>
-            <div className="mt-6 p-4 bg-yellow-50 rounded-lg">
-              <div className="text-sm text-yellow-800">
-                <strong>Export Options:</strong> All reports support CSV and PDF export formats for easy sharing and record keeping.
-              </div>
-            </div>
-          </div>
-        )}
+
         {activeTab === 'Settings' && (
           <div className="bg-white rounded-2xl shadow-lg p-8 mt-6">
             <div className="flex border-b mb-6">
               <button className={`px-4 py-2 font-medium focus:outline-none ${settingsTab === 'personal' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500'}`} onClick={() => setSettingsTab('personal')}>Personal Information</button>
-              <button className={`px-4 py-2 font-medium focus:outline-none ml-4 ${settingsTab === 'preferences' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500'}`} onClick={() => setSettingsTab('preferences')}>Preferences</button>
               <button className={`px-4 py-2 font-medium focus:outline-none ml-4 ${settingsTab === 'security' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500'}`} onClick={() => setSettingsTab('security')}>Security</button>
             </div>
             {settingsTab === 'personal' && (
@@ -459,77 +389,7 @@ const ProfileOverviewAdmin: React.FC = () => {
                 </div>
               </form>
             )}
-            {settingsTab === 'preferences' && (
-              <div className="space-y-6">
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                  <h2 className="text-lg font-semibold text-gray-900 mb-6">Notification Preferences</h2>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-sm font-medium text-gray-900">Email Notifications</h3>
-                        <p className="text-sm text-gray-600">Receive notifications via email</p>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={preferences.notifications.email}
-                          onChange={e => setPreferences({
-                            ...preferences,
-                            notifications: { ...preferences.notifications, email: e.target.checked }
-                          })}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                      </label>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-sm font-medium text-gray-900">Push Notifications</h3>
-                        <p className="text-sm text-gray-600">Receive push notifications in browser</p>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={preferences.notifications.push}
-                          onChange={e => setPreferences({
-                            ...preferences,
-                            notifications: { ...preferences.notifications, push: e.target.checked }
-                          })}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                      </label>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-sm font-medium text-gray-900">SMS Notifications</h3>
-                        <p className="text-sm text-gray-600">Receive notifications via SMS</p>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={preferences.notifications.sms}
-                          onChange={e => setPreferences({
-                            ...preferences,
-                            notifications: { ...preferences.notifications, sms: e.target.checked }
-                          })}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                      </label>
-                    </div>
-                  </div>
-                  <div className="mt-6 pt-6 border-t border-gray-200">
-                    <button
-                      onClick={handleUpdatePreferences}
-                      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
-                    >
-                      Save Preferences
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
+
             {settingsTab === 'security' && (
               <div className="space-y-6">
                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
