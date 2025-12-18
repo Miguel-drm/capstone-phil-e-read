@@ -9,8 +9,6 @@ import type { Story } from "@/types/Story";
 import {
   ArrowLeftIcon,
   XCircleIcon,
-  ChartBarIcon,
-  MicrophoneIcon,
 } from "@heroicons/react/24/outline";
 import * as pdfjsLib from "pdfjs-dist";
 import type { TextItem } from "pdfjs-dist/types/src/display/api";
@@ -4774,7 +4772,6 @@ const ReadingSessionPage: React.FC = () => {
               </div>
             </div>
             <div className="flex items-center gap-2 sm:gap-4 mb-2">
-              <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 text-blue-500" />
               <h4 className="text-base sm:text-lg font-bold text-blue-900">
                 Controls
               </h4>
@@ -4786,7 +4783,6 @@ const ReadingSessionPage: React.FC = () => {
                     onClick={handleStartRecording}
                     className="flex items-center justify-center gap-2 sm:gap-3 px-8 sm:px-12 lg:px-16 py-4 sm:py-5 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white text-lg sm:text-xl lg:text-2xl font-bold hover:scale-105 hover:from-blue-600 hover:to-purple-600 transition-all duration-200 shadow-lg"
                   >
-                    <MicrophoneIcon className="h-7 w-7 sm:h-8 sm:w-8 lg:h-9 lg:w-9" />
                     <span>Start</span>
                   </button>
                   <p className="text-sm text-gray-500 text-center">
@@ -4807,7 +4803,6 @@ const ReadingSessionPage: React.FC = () => {
                   className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-green-500 to-blue-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
                   title="Finish"
                 >
-                  <ChartBarIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
                   <span>Finish</span>
                 </button>
               )}
@@ -4817,9 +4812,6 @@ const ReadingSessionPage: React.FC = () => {
                   className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-yellow-500 to-orange-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
                   title="Retry"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
                   <span>Retry</span>
                 </button>
               )}

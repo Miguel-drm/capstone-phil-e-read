@@ -11,8 +11,6 @@ import {
   XCircleIcon,
   BookOpenIcon,
   UserGroupIcon,
-  ChartBarIcon,
-  MicrophoneIcon,
 } from "@heroicons/react/24/outline";
 import * as pdfjsLib from "pdfjs-dist";
 import type { TextItem } from "pdfjs-dist/types/src/display/api";
@@ -83,6 +81,11 @@ const ReadingSessionPage: React.FC = () => {
   const [showCountdown, setShowCountdown] = useState(false);
   const [countdown, setCountdown] = useState(5);
   
+  // Microphone device selection
+  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedMicId, setSelectedMicId] = useState<string>('');
+  const [micVolume, setMicVolume] = useState<number>(100);
+  
   // Track if session has been started (to show Complete button)
   const [hasStarted, setHasStarted] = useState(false);
   
@@ -139,6 +142,47 @@ const ReadingSessionPage: React.FC = () => {
     };
   }, [isrResultId]);
   
+  // Enumerate available audio input devices
+  useEffect(() => {
+    const enumerateDevices = async () => {
+      try {
+        // Request permission first to get device labels
+        await navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+          stream.getTracks().forEach(track => track.stop());
+        });
+        
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const audioInputs = devices.filter(device => device.kind === 'audioinput');
+        setAudioDevices(audioInputs);
+        
+        // Set default device if not already selected
+        if (!selectedMicId && audioInputs.length > 0) {
+          setSelectedMicId(audioInputs[0].deviceId);
+        }
+        
+        console.log('🎤 Available microphones:', audioInputs.map(d => d.label || d.deviceId));
+      } catch (error) {
+        console.error('Failed to enumerate audio devices:', error);
+      }
+    };
+    
+    enumerateDevices();
+    
+    // Listen for device changes (e.g., plugging in a new mic)
+    navigator.mediaDevices.addEventListener('devicechange', enumerateDevices);
+    
+    return () => {
+      navigator.mediaDevices.removeEventListener('devicechange', enumerateDevices);
+    };
+  }, [selectedMicId]);
+  
+  // Update gain node when mic volume changes
+  useEffect(() => {
+    if (gainNodeRef.current) {
+      gainNodeRef.current.gain.value = micVolume / 100;
+    }
+  }, [micVolume]);
+  
   // Countdown effect - preload Vosk connection during countdown
   useEffect(() => {
     let timer: NodeJS.Timeout | null = null;
@@ -185,6 +229,7 @@ const ReadingSessionPage: React.FC = () => {
   const audioContextRef = useRef<AudioContext | null>(null);
   const scriptNodeRef = useRef<ScriptProcessorNode | null>(null);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
   const voskSocketRef = useRef<WebSocket | null>(null);
   const voskReconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const voskReconnectAttemptsRef = useRef<number>(0);
@@ -325,25 +370,31 @@ const ReadingSessionPage: React.FC = () => {
   /**
    * Initialize microphone access with optimal audio settings for Vosk.
    * Returns a MediaStream configured for speech recognition.
+   * Uses the selected microphone device if available.
    */
   const initializeMicrophone = async (): Promise<MediaStream> => {
+    const audioConstraints: MediaTrackConstraints = {
+      channelCount: 1,
+      sampleRate: 48000,
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+      ...(selectedMicId && { deviceId: { exact: selectedMicId } })
+    };
+    
     try {
       // Vosk works best with minimal audio processing
       return await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          sampleRate: 48000,
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false
-        },
+        audio: audioConstraints,
       });
     } catch (error) {
+      console.warn('Failed with selected device, trying default:', error);
       // Fallback to default settings if constraints are not supported
       return await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
-          sampleRate: 48000
+          sampleRate: 48000,
+          ...(selectedMicId && { deviceId: selectedMicId })
         },
       });
     }
@@ -459,236 +510,39 @@ const ReadingSessionPage: React.FC = () => {
               break;
               
             case 'correct':
-              // Mark ALL words from old position to new position as correct (phrase match)
-              // Calculate how many words were matched based on position change
-              const wordsMatched = new_position - oldPosition;
-              console.log(`✅ Marking ${wordsMatched} words as correct (${oldPosition} to ${new_position - 1})`);
-              
-              setRecognizedWords(prev => {
-                const newSet = new Set(prev);
-                for (let i = oldPosition; i < new_position; i++) {
-                  newSet.add(i);
-                }
-                return newSet;
-              });
-              
-              // Update position from backend AFTER marking words
+              // Update position from backend - no visual marking
               setCurrentWordIndex(new_position);
-              lastPositionRef.current = new_position; // Update ref for next match
+              lastPositionRef.current = new_position;
               console.log(`🟡 Position updated from ${oldPosition} to ${new_position}`);
               break;
               
-            // Handle miscue types from phrase matcher
+            // Miscue types are no longer tracked or displayed
             case 'omission':
-              console.log(`⚠️ Omission detected at position ${new_position - 1}`);
-              setWordMiscues(prev => new Map(prev).set(new_position - 1, 'omission'));
-              
-              // Add word marking for visual display
-              setWordMarkings(prev => {
-                const newMap = new Map(prev);
-                const omittedWord = realWords[new_position - 1];
-                newMap.set(new_position - 1, {
-                  type: 'omission',
-                  marking: `Omitted word "${omittedWord}"`,
-                  spokenWord: '',
-                  correctWord: omittedWord
-                });
-                return newMap;
-              });
-              
-              setMiscueTypes(prev => ({ ...prev, omission: prev.omission + 1 }));
-              // Don't mark as recognized - omitted words are not read
-              setCurrentWordIndex(new_position);
-              lastPositionRef.current = new_position;
-              break;
-              
             case 'mispronunciation':
-              console.log(`⚠️ Mispronunciation detected at position ${new_position - 1}`);
-              setWordMiscues(prev => new Map(prev).set(new_position - 1, 'mispronunciation'));
-              
-              // Add word marking for visual display
-              setWordMarkings(prev => {
-                const newMap = new Map(prev);
-                const expectedWord = realWords[new_position - 1];
-                newMap.set(new_position - 1, {
-                  type: 'mispronunciation',
-                  marking: `Mispronounced word "${expectedWord}"`,
-                  spokenWord: word || 'unknown',
-                  correctWord: expectedWord
-                });
-                return newMap;
-              });
-              
-              setMiscueTypes(prev => ({ ...prev, mispronunciation: prev.mispronunciation + 1 }));
-              setRecognizedWords(prev => new Set(prev).add(new_position - 1)); // Mark as read (with error)
-              setCurrentWordIndex(new_position);
-              lastPositionRef.current = new_position;
-              break;
-              
             case 'reversal':
-              console.log(`⚠️ Reversal detected at position ${new_position - 1}`);
-              setWordMiscues(prev => new Map(prev).set(new_position - 1, 'reversal'));
-              
-              // Add word marking for visual display
-              setWordMarkings(prev => {
-                const newMap = new Map(prev);
-                const expectedWord = realWords[new_position - 1];
-                newMap.set(new_position - 1, {
-                  type: 'reversal',
-                  marking: `Reversed word "${expectedWord}"`,
-                  spokenWord: word || 'unknown',
-                  correctWord: expectedWord
-                });
-                return newMap;
-              });
-              
-              setMiscueTypes(prev => ({ ...prev, reversal: prev.reversal + 1 }));
-              setRecognizedWords(prev => new Set(prev).add(new_position - 1)); // Mark as read (with error)
-              setCurrentWordIndex(new_position);
-              lastPositionRef.current = new_position;
-              break;
-              
-            // SUBSTITUTION DISABLED per user request
             case 'substitution':
-              console.warn(`⚠️ Substitution detection is disabled - treating as omission`);
-              break;
-              
             case 'insertion':
-              console.log(`⚠️ Insertion detected at position ${new_position} - extra word "${word}" spoken`);
-              setMiscueTypes(prev => ({ ...prev, insertion: prev.insertion + 1 }));
-              // Mark the current position where insertion occurred
-              setWordMiscues(prev => new Map(prev).set(new_position, 'insertion'));
-              
-              // Add word marking for visual display
-              setWordMarkings(prev => {
-                const newMap = new Map(prev);
-                newMap.set(new_position, {
-                  type: 'insertion',
-                  marking: `Inserted word "${word}"`,
-                  spokenWord: word,
-                  correctWord: realWords[new_position] || ''
-                });
-                return newMap;
-              });
-              
-              // Add the inserted word to show as a cyan box before the current word
-              setInsertedWords(prev => {
-                const newMap = new Map(prev);
-                const existing = newMap.get(new_position) || [];
-                newMap.set(new_position, [...existing, word]);
-                return newMap;
-              });
-              break;
-              
             case 'repetition':
-              console.log(`⚠️ Repetition detected at current position ${new_position}`);
-              // Mark the current word that was repeated
-              // For repetition, new_position is the current position (doesn't advance)
-              setWordMiscues(prev => new Map(prev).set(new_position, 'repetition'));
-              
-              // Add word marking for visual display
-              setWordMarkings(prev => {
-                const newMap = new Map(prev);
-                const repeatedWord = realWords[new_position];
-                newMap.set(new_position, {
-                  type: 'repetition',
-                  marking: `Underline repeated word "${repeatedWord}"`,
-                  spokenWord: repeatedWord,
-                  correctWord: repeatedWord
-                });
-                return newMap;
-              });
-              
-              setMiscueTypes(prev => ({ ...prev, repetition: prev.repetition + 1 }));
-              // Don't advance position - word was repeated
-              break;
-              
             case 'selfCorrection':
-              console.log(`✅ Self-correction detected at position ${new_position - 1}`);
-              // Mark the word that was self-corrected
-              setWordMiscues(prev => new Map(prev).set(new_position - 1, 'selfCorrection'));
-              
-              // Add word marking for visual display
-              setWordMarkings(prev => {
-                const newMap = new Map(prev);
-                const correctedWord = realWords[new_position - 1];
-                newMap.set(new_position - 1, {
-                  type: 'selfCorrection',
-                  marking: `Self-corrected word "${correctedWord}"`,
-                  spokenWord: correctedWord,
-                  correctWord: correctedWord
-                });
-                return newMap;
-              });
-              
-              setMiscueTypes(prev => ({ ...prev, selfCorrection: prev.selfCorrection + 1 }));
-              // Self-correction is tracked but NOT counted as error (Phil-IRI rule)
-              // Mark as recognized since child eventually said it correctly
-              setRecognizedWords(prev => new Set(prev).add(new_position - 1));
-              setCurrentWordIndex(new_position);
-              lastPositionRef.current = new_position;
-              break;
-              
             case 'transposition':
-              console.log(`⚠️ Transposition detected at position ${new_position - 2} to ${new_position - 1}`);
-              setWordMiscues(prev => {
-                const newMap = new Map(prev);
-                newMap.set(new_position - 2, 'transposition');
-                newMap.set(new_position - 1, 'transposition');
-                return newMap;
-              });
-              
-              // Add word markings for BOTH transposed words
-              setWordMarkings(prev => {
-                const newMap = new Map(prev);
-                const word1 = realWords[new_position - 2];
-                const word2 = realWords[new_position - 1];
-                newMap.set(new_position - 2, {
-                  type: 'transposition',
-                  marking: `Transpositional symbol over and under "${word1}"`,
-                  spokenWord: `${word2} ${word1}`,
-                  correctWord: `${word1} ${word2}`,
-                  isFirstWord: true  // Mark as first word of transposition pair
-                });
-                newMap.set(new_position - 1, {
-                  type: 'transposition',
-                  marking: `Transpositional symbol over and under "${word2}"`,
-                  spokenWord: `${word2} ${word1}`,
-                  correctWord: `${word1} ${word2}`,
-                  isFirstWord: false  // Mark as second word of transposition pair
-                });
-                return newMap;
-              });
-              
-              setMiscueTypes(prev => ({ ...prev, transposition: prev.transposition + 1 }));
-              setRecognizedWords(prev => {
-                const newSet = new Set(prev);
-                newSet.add(new_position - 2);
-                newSet.add(new_position - 1);
-                return newSet;
-              });
+              // Just update position, no miscue tracking
               setCurrentWordIndex(new_position);
               lastPositionRef.current = new_position;
               break;
           }
           
-          // Update metrics from backend (source of truth)
+          // Update basic metrics from backend (source of truth)
           if (metrics) {
-            console.log(`📊 Metrics: WPM=${metrics.wpm}, Accuracy=${metrics.oral_reading_score}%, Words=${metrics.words_read}, Miscues=${metrics.total_miscues}`);
+            console.log(`📊 Metrics: WPM=${metrics.wpm}, Words=${metrics.words_read}`);
             
             setWordsRead(metrics.words_read);
-            setMiscues(metrics.total_miscues);
-            
-            if (metrics.miscue_types) {
-              setMiscueTypes(metrics.miscue_types);
-            }
             
             setServerMetrics({
               wpm: metrics.wpm,
               accuracy: metrics.accuracy,
               oralReadingScore: metrics.oral_reading_score,
               wordsRead: metrics.words_read,
-              totalMiscues: metrics.total_miscues
+              totalMiscues: 0
             });
           }
           
@@ -860,8 +714,7 @@ const ReadingSessionPage: React.FC = () => {
   // @ts-expect-error - Unused variable kept for future feature
   const [repeatedWords, setRepeatedWords] = useState<Map<number, string[]>>(new Map());
 
-  // Toggle visibility of Miscue Types Detection section (hidden by default)
-  const [showMiscueDetails, setShowMiscueDetails] = useState(false);
+  // Miscue Types Detection section removed - no longer needed
 
 
 
@@ -2117,10 +1970,15 @@ const ReadingSessionPage: React.FC = () => {
             audioContextRef.current = ctx;
             sourceNodeRef.current = src;
             scriptNodeRef.current = script;
+            
+            // Create gain node for mic volume control
+            const gainNode = ctx.createGain();
+            gainNode.gain.value = micVolume / 100;
+            gainNodeRef.current = gainNode;
 
-            // Connect audio nodes immediately (before WebSocket connection)
-            // This ensures audio processing starts regardless of WebSocket state
-            src.connect(script);
+            // Connect audio nodes: source -> gain -> script -> destination
+            src.connect(gainNode);
+            gainNode.connect(script);
             script.connect(ctx.destination);
             
             // Ensure audio context is running
@@ -2510,9 +2368,15 @@ const ReadingSessionPage: React.FC = () => {
               // Smaller buffer (2048) = faster processing, lower latency for real-time recognition
               const script = ctx.createScriptProcessor(2048, 1, 1);
               scriptNodeRef.current = script;
+              
+              // Create gain node for mic volume control
+              const gainNode = ctx.createGain();
+              gainNode.gain.value = micVolume / 100;
+              gainNodeRef.current = gainNode;
 
-              // Connect audio nodes immediately (before WebSocket connection)
-              src.connect(script);
+              // Connect audio nodes: source -> gain -> script -> destination
+              src.connect(gainNode);
+              gainNode.connect(script);
               script.connect(ctx.destination);
               
               // Ensure audio context is running (already done above, but double-check)
@@ -5396,76 +5260,7 @@ const ReadingSessionPage: React.FC = () => {
                             }
 
                             const isCurrent = !isSpecialChar && isWordCurrent(realWordIndex);
-                            const miscueType = !isSpecialChar ? wordMiscues.get(realWordIndex) : undefined;
 
-                            // Hide all miscue colors while recording - only show AFTER Complete button is clicked
-                            const showMiscueColors = isCompleted || (!isRecording && wordsRead > 0);
-
-                            // Color mapping for miscue types - Balanced: DepEd format + color coding for visibility
-                            const getMiscueColor = (type: MiscueType | undefined) => {
-                              if (!type || !showMiscueColors) return null; // Hide during recording
-                              const colors = {
-                                mispronunciation: 'text-red-600 font-bold', // Solid red text for mispronunciation
-                                omission: 'text-gray-800 font-bold', // Solid dark gray text for omission (distinct from green correct words)
-                                substitution: 'text-amber-600 font-bold', // Solid amber text for substitution
-                                insertion: '', // Don't color story word - inserted word shown separately
-                                repetition: 'text-blue-800 font-bold', // Solid blue text for repetition (underline only, no background)
-                                transposition: 'text-purple-600 font-bold', // Solid purple text for transposition
-                                reversal: 'text-pink-600 font-bold', // Solid pink text for reversal
-                                selfCorrection: 'text-teal-600 font-bold' // Solid teal text for self-correction (NOT counted as error)
-                              };
-                              return colors[type];
-                            };
-
-                            // Add DepEd marking indicators - Color-coded underlines for visibility
-                            const getMiscueMarkingStyle = (type: MiscueType | undefined) => {
-                              if (!type || !showMiscueColors) return {};
-
-                              const styles: { [key in MiscueType]: React.CSSProperties } = {
-                                mispronunciation: {
-                                  textDecoration: 'underline',
-                                  textDecorationColor: '#dc2626', // red-600 - solid red underline
-                                  textDecorationThickness: '3px',
-                                  textDecorationStyle: 'solid'
-                                },
-                                omission: {
-                                  position: 'relative'
-                                  // Circle is rendered separately as overlay with solid orange color
-                                },
-                                substitution: {
-                                  textDecoration: 'underline',
-                                  textDecorationColor: '#d97706', // amber-600 - solid amber underline
-                                  textDecorationThickness: '3px',
-                                  textDecorationStyle: 'solid'
-                                },
-                                insertion: {
-                                  position: 'relative'
-                                  // Caret is rendered separately with solid cyan color
-                                },
-                                repetition: {
-                                  textDecoration: 'underline',
-                                  textDecorationColor: '#1e40af', // blue-800 - solid blue underline
-                                  textDecorationThickness: '3px',
-                                  textDecorationStyle: 'solid'
-                                },
-                                transposition: {
-                                  position: 'relative'
-                                  // Curved line is rendered separately with purple color
-                                },
-                                reversal: {
-                                  position: 'relative'
-                                  // No underline, just word above in pink
-                                },
-                                selfCorrection: {
-                                  position: 'relative'
-                                  // No underline, just 'S' above
-                                }
-                              };
-                              return styles[type] || {};
-                            };
-
-                            // Get marking details for this word
-                            const marking = !isSpecialChar ? wordMarkings.get(realWordIndex) : undefined;
                           const baseWordStyle = {
                             fontFamily: recommendedFont.fontFamily,
                             fontSize: recommendedFont.fontSize,
@@ -5487,141 +5282,17 @@ const ReadingSessionPage: React.FC = () => {
                                       : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative ` +
                                       (isCurrent && isRecording && !isCompleted
                                         ? "bg-transparent text-gray-900 font-extrabold z-10"
-                                        : isRecording && !isCompleted
-                                          ? "bg-white text-gray-800 font-normal border border-gray-200" // NO colors during recording - keep reader focused
-                                          : miscueType && showMiscueColors
-                                            ? `${getMiscueColor(miscueType)} font-semibold`
-                                            : recognizedWords.has(realWordIndex) && showMiscueColors
-                                              ? "bg-green-100 text-green-800 font-bold shadow-lg border-2 border-green-400"
-                                              : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
+                                        : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
                                   }
                                 style={{
                                     ...baseWordStyle,
-                                    ...getMiscueMarkingStyle(miscueType),
                                     zIndex: isCurrent ? 10 : 6, // Ensure words are above yellow highlight (z-5)
                                     // GSAP handles all animations - no CSS transitions needed
                                   }}
                               >
                                 {word}
 
-                                {/* DepEd Phil-IRI Table 4 Marking Annotations - Color-coded for visibility */}
-                                {!isSpecialChar && miscueType && showMiscueColors && marking && (
-                                  <>
-                                    {/* MISPRONUNCIATION: Italic mispronounced word above in solid red, underlined correct word (DepEd standard) */}
-                                    {marking.type === 'mispronunciation' && (
-                                      <span
-                                        className="absolute left-0 -top-7 text-base italic text-red-600 font-bold whitespace-nowrap z-20"
-                                        style={{ fontFamily: 'cursive' }}
-                                        title="DepEd: Underline correct word and write mispronounced word above in italic"
-                                      >
-                                        {marking.spokenWord}
-                                      </span>
-                                    )}
-
-                                    {/* OMISSION: Bold solid dark brown circle around word (DepEd standard - no background) */}
-                                    {marking.type === 'omission' && (
-                                      <span
-                                        className="absolute inset-0 border-[5px] border-amber-900 rounded-full z-10"
-                                        title="DepEd: Circle the omitted word with bold solid dark brown line"
-                                        style={{
-                                          width: 'calc(100% + 14px)',
-                                          height: 'calc(100% + 14px)',
-                                          left: '-7px',
-                                          top: '-7px'
-                                        }}
-                                      />
-                                    )}
-
-                                    {/* SUBSTITUTION: Italic substituted word above in solid amber, underlined correct word (DepEd standard) */}
-                                    {marking.type === 'substitution' && (
-                                      <span
-                                        className="absolute left-0 -top-7 text-base italic text-amber-600 font-bold whitespace-nowrap z-20"
-                                        style={{ fontFamily: 'cursive' }}
-                                        title="DepEd: Underline correct word and write substituted word above in italic"
-                                      >
-                                        {marking.spokenWord}
-                                      </span>
-                                    )}
-
-                                    {/* INSERTION: Caret (^) after word + italic inserted word above (DepEd standard) */}
-                                    {/* DepEd Format: "the^ flowers" with "lovely" above the caret */}
-                                    {marking.type === 'insertion' && (
-                                      <>
-                                        {/* Caret positioned after the word (insertion point) in solid cyan */}
-                                        <span
-                                          className="absolute -right-2 top-1/2 transform -translate-y-1/2 text-3xl text-cyan-600 font-extrabold z-20"
-                                          title={`DepEd: Caret shows insertion point for "${marking.spokenWord}"`}
-                                          style={{ lineHeight: '1' }}
-                                        >
-                                          ^
-                                        </span>
-                                        {/* Inserted word(s) above the caret in italic solid cyan - simple, no background */}
-                                        <span
-                                          className="absolute -right-2 -top-7 text-base italic text-cyan-600 font-bold whitespace-nowrap z-20"
-                                          style={{ fontFamily: 'cursive' }}
-                                          title={`DepEd: Inserted word "${marking.spokenWord}"`}
-                                        >
-                                          {marking.spokenWord}
-                                        </span>
-                                      </>
-                                    )}
-
-                                    {/* REPETITION: Underline applied via getMiscueMarkingStyle - no additional marking needed */}
-
-                                    {/* TRANSPOSITION: Visual indicator showing words are swapped */}
-                                    {marking.type === 'transposition' && (
-                                      <>
-                                        {/* Show arrow on first word (check if isFirstWord exists and is true) */}
-                                        {marking.isFirstWord && (
-                                          <div className="absolute left-full -top-6 z-20" style={{ marginLeft: '0.25rem' }}>
-                                            <span className="text-sm text-purple-600 font-bold" title="DepEd: Transposition - words swapped">
-                                              ⇄
-                                            </span>
-                                          </div>
-                                        )}
-                                      </>
-                                    )}
-
-                                    {/* REVERSAL: Italic correct word above in solid pink (DepEd standard) */}
-                                    {marking.type === 'reversal' && (
-                                      <span
-                                        className="absolute left-0 -top-8 text-lg italic text-pink-600 font-extrabold whitespace-nowrap z-30 bg-white px-1 rounded shadow-md"
-                                        style={{ fontFamily: 'cursive' }}
-                                        title="DepEd: Write correct word above the reversed word in italic"
-                                      >
-                                        {marking.correctWord}
-                                      </span>
-                                    )}
-
-                                    {/* SELF-CORRECTION: Simple 'S' above in solid teal (DepEd standard - NOT counted as error) */}
-                                    {marking.type === 'selfCorrection' && (
-                                      <span
-                                        className="absolute left-0 -top-7 text-xl font-extrabold text-teal-600 z-20"
-                                        title="DepEd: Write S above self-corrected word (NOT counted as error)"
-                                      >
-                                        S
-                                      </span>
-                                    )}
-                                  </>
-                                )}
                               </span>
-                              
-                              {/* Show repeated words as separate word boxes AFTER this word */}
-                              {!isSpecialChar && repeatedWords.has(realWordIndex) && showMiscueColors && repeatedWords.get(realWordIndex)!.map((repeatedWord, idx) => (
-                                <span
-                                  key={`repeat-${realWordIndex}-${idx}`}
-                                  className="inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative bg-blue-50 text-blue-900 border-2 border-blue-400 font-semibold"
-                                  style={{
-                                    textDecoration: 'underline',
-                                    textDecorationColor: '#2563eb',
-                                    textDecorationThickness: '2px',
-                                    textDecorationStyle: 'solid'
-                                  }}
-                                  title={`Repeated word: "${repeatedWord}"`}
-                                >
-                                  {repeatedWord}
-                                </span>
-                              ))}
                               </React.Fragment>
                             );
                           })}
@@ -5728,28 +5399,7 @@ const ReadingSessionPage: React.FC = () => {
                   {Math.min(wordsRead, words.length)}
                 </span>
               </div>
-              {/* Miscues */}
-              <div className="rounded-lg sm:rounded-xl bg-red-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
-                <span className="text-red-700 font-bold text-xs sm:text-sm lg:text-lg">
-                  Total Miscues
-                </span>
-                <span className="text-lg sm:text-xl lg:text-2xl font-extrabold text-red-700 mt-1">
-                  {miscues}
-                </span>
-                {/* Miscue Types Breakdown */}
-                {(miscues > 0 || miscueTypes.selfCorrection > 0) && (
-                  <div className="mt-2 text-xs text-red-600 space-y-0.5 w-full">
-                    {miscueTypes.mispronunciation > 0 && <div>Mispronunciation: {miscueTypes.mispronunciation}</div>}
-                    {miscueTypes.omission > 0 && <div>Omission: {miscueTypes.omission}</div>}
-                    {miscueTypes.substitution > 0 && <div>Substitution: {miscueTypes.substitution}</div>}
-                    {miscueTypes.insertion > 0 && <div>Insertion: {miscueTypes.insertion}</div>}
-                    {miscueTypes.repetition > 0 && <div>Repetition: {miscueTypes.repetition}</div>}
-                    {miscueTypes.transposition > 0 && <div>Transposition: {miscueTypes.transposition}</div>}
-                    {miscueTypes.reversal > 0 && <div>Reversal: {miscueTypes.reversal}</div>}
-                    {miscueTypes.selfCorrection > 0 && <div className="text-teal-600">Self-Correction: {miscueTypes.selfCorrection}</div>}
-                  </div>
-                )}
-              </div>
+
               {/* Oral Reading Score */}
               <div className="rounded-lg sm:rounded-xl bg-yellow-100 p-2 sm:p-3 lg:p-4 flex flex-col items-center">
                 <span className="text-yellow-700 font-bold text-xs sm:text-sm lg:text-lg">
@@ -5782,213 +5432,139 @@ const ReadingSessionPage: React.FC = () => {
         )}
       </section>
 
-      {/* Detailed Miscue Types Observation Panel - Only show after recording stops */}
-      {(!isRecording || isCompleted) && (
-        <section className="w-full px-4 sm:px-8 pb-4">
-          <div className="bg-gradient-to-br from-red-50 to-orange-50 rounded-2xl lg:rounded-3xl border-2 border-red-200 p-4 sm:p-6 lg:p-8">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-red-800 flex items-center gap-2">
-                <span className="text-2xl">🔍</span>
-                Miscue Types Detection (Phil-IRI) - Results
-              </h3>
-              <button
-                onClick={() => setShowMiscueDetails(!showMiscueDetails)}
-                className="px-3 py-1.5 sm:px-4 sm:py-2 bg-red-600 hover:bg-red-700 text-white text-xs sm:text-sm font-semibold rounded-lg transition-colors flex items-center gap-2"
-              >
-                {showMiscueDetails ? (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                    </svg>
-                    <span>Hide Details</span>
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
-                    <span>Show Details</span>
-                  </>
-                )}
-              </button>
-            </div>
 
-            {showMiscueDetails && (
-            <>
-            <div
-              ref={(el) => {
-                if (el && showMiscueDetails) {
-                  const cards = el.querySelectorAll('.miscue-card');
-                  gsap.fromTo(
-                    cards,
-                    {
-                      opacity: 0,
-                      y: 30,
-                      scale: 0.9,
-                    },
-                    {
-                      opacity: 1,
-                      y: 0,
-                      scale: 1,
-                      duration: 0.4,
-                      stagger: 0.08,
-                      ease: 'back.out(1.2)',
-                    }
-                  );
-                }
-              }}
-              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4"
-            >
-              {/* 1. Mispronunciation */}
-              <div className={`miscue-card rounded-xl p-4 border-2 ${miscueTypes.mispronunciation > 0 ? 'bg-red-100 border-red-400 shadow-lg' : 'bg-white border-gray-200'}`}>
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <h4 className="font-bold text-red-900 text-sm">1. Mispronunciation</h4>
-                    <p className="text-xs text-red-700 italic">Maling Bigkas</p>
-                  </div>
-                  <span className={`text-2xl font-extrabold ${miscueTypes.mispronunciation > 0 ? 'text-red-600' : 'text-gray-400'}`}>
-                    {miscueTypes.mispronunciation}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-700 mb-1"><strong>Marking:</strong> Underline text, write phonetic spelling above</p>
-                <p className="text-xs text-gray-600 italic"><strong>Example:</strong> "sleed" above underlined "slide"</p>
-                <p className="text-xs text-blue-600 mt-1"><strong>Scoring:</strong> Count as 1 error every mispronunciation (dialectal variations not counted)</p>
-              </div>
-
-              {/* 2. Omission */}
-              <div className={`miscue-card rounded-xl p-4 border-2 ${miscueTypes.omission > 0 ? 'bg-gray-100 border-gray-400 shadow-lg' : 'bg-white border-gray-200'}`}>
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <h4 className="font-bold text-gray-900 text-sm">2. Omission</h4>
-                    <p className="text-xs text-gray-700 italic">Pagkakaltas</p>
-                  </div>
-                  <span className={`text-2xl font-extrabold ${miscueTypes.omission > 0 ? 'text-gray-800' : 'text-gray-400'}`}>
-                    {miscueTypes.omission}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-700 mb-1"><strong>Marking:</strong> Circle the omitted unit of language</p>
-                <p className="text-xs text-gray-600 italic"><strong>Example:</strong> Circle "huge" in "The (huge) elephant"</p>
-                <p className="text-xs text-blue-600 mt-1"><strong>Scoring:</strong> Count as one error a word or phrase omitted</p>
-              </div>
-
-              {/* 3. Substitution */}
-              <div className={`miscue-card rounded-xl p-4 border-2 ${miscueTypes.substitution > 0 ? 'bg-yellow-100 border-yellow-400 shadow-lg' : 'bg-white border-gray-200'}`}>
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <h4 className="font-bold text-yellow-900 text-sm">3. Substitution</h4>
-                    <p className="text-xs text-yellow-700 italic">Pagpapalit</p>
-                  </div>
-                  <span className={`text-2xl font-extrabold ${miscueTypes.substitution > 0 ? 'text-yellow-600' : 'text-gray-400'}`}>
-                    {miscueTypes.substitution}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-700 mb-1"><strong>Marking:</strong> Underline text, write substituted word above</p>
-                <p className="text-xs text-gray-600 italic"><strong>Example:</strong> "money" above underlined "monkey"</p>
-                <p className="text-xs text-blue-600 mt-1"><strong>Scoring:</strong> Count as one error every substitution</p>
-              </div>
-
-              {/* 4. Insertion */}
-              <div className={`miscue-card rounded-xl p-4 border-2 ${miscueTypes.insertion > 0 ? 'bg-cyan-100 border-cyan-400 shadow-lg' : 'bg-white border-gray-200'}`}>
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <h4 className="font-bold text-cyan-900 text-sm">4. Insertion</h4>
-                    <p className="text-xs text-cyan-700 italic">Pagsisisingit</p>
-                  </div>
-                  <span className={`text-2xl font-extrabold ${miscueTypes.insertion > 0 ? 'text-cyan-600' : 'text-gray-400'}`}>
-                    {miscueTypes.insertion}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-700 mb-1"><strong>Marking:</strong> Use caret (^) to show where word was inserted, write above</p>
-                <p className="text-xs text-gray-600 italic"><strong>Example:</strong> "lovely" above caret in "the^ flowers in the vase"</p>
-                <p className="text-xs text-blue-600 mt-1"><strong>Scoring:</strong> Count a word or phrase inserted as one error</p>
-              </div>
-
-              {/* 5. Repetition */}
-              <div className={`miscue-card rounded-xl p-4 border-2 ${miscueTypes.repetition > 0 ? 'bg-blue-100 border-blue-400 shadow-lg' : 'bg-white border-gray-200'}`}>
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <h4 className="font-bold text-blue-900 text-sm">5. Repetition</h4>
-                    <p className="text-xs text-blue-700 italic">Pag-uulit</p>
-                  </div>
-                  <span className={`text-2xl font-extrabold ${miscueTypes.repetition > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
-                    {miscueTypes.repetition}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-700 mb-1"><strong>Marking:</strong> Underline the portion of text that was repeated</p>
-                <p className="text-xs text-gray-600 italic"><strong>Example:</strong> Underline "in the" in "They found it in the in the"</p>
-                <p className="text-xs text-blue-600 mt-1"><strong>Scoring:</strong> Count as one error every word or phrase repeated</p>
-              </div>
-
-              {/* 6. Transposition */}
-              <div className={`miscue-card rounded-xl p-4 border-2 ${miscueTypes.transposition > 0 ? 'bg-purple-100 border-purple-400 shadow-lg' : 'bg-white border-gray-200'}`}>
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <h4 className="font-bold text-purple-900 text-sm">6. Transposition</h4>
-                    <p className="text-xs text-purple-700 italic">Pagpapalit ng Lugar</p>
-                  </div>
-                  <span className={`text-2xl font-extrabold ${miscueTypes.transposition > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
-                    {miscueTypes.transposition}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-700 mb-1"><strong>Marking:</strong> Use transpositional symbol over and under letters/words</p>
-                <p className="text-xs text-gray-600 italic"><strong>Example:</strong> Curved line connecting "girl" and "is" in "The girl is pretty"</p>
-                <p className="text-xs text-blue-600 mt-1"><strong>Scoring:</strong> Count as one error every transposition made</p>
-              </div>
-
-              {/* 7. Reversal */}
-              <div className={`miscue-card rounded-xl p-4 border-2 ${miscueTypes.reversal > 0 ? 'bg-pink-100 border-pink-400 shadow-lg' : 'bg-white border-gray-200'}`}>
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <h4 className="font-bold text-pink-900 text-sm">7. Reversal</h4>
-                    <p className="text-xs text-pink-700 italic">Paglilipat</p>
-                  </div>
-                  <span className={`text-2xl font-extrabold ${miscueTypes.reversal > 0 ? 'text-pink-600' : 'text-gray-400'}`}>
-                    {miscueTypes.reversal}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-700 mb-1"><strong>Marking:</strong> Write correct word/nonword above the reversed word</p>
-                <p className="text-xs text-gray-600 italic"><strong>Example:</strong> "bad" above "dab"</p>
-                <p className="text-xs text-blue-600 mt-1"><strong>Scoring:</strong> Count as one error every reversal made</p>
-              </div>
-
-              {/* 8. Self-Correction */}
-              <div className={`miscue-card rounded-xl p-4 border-2 ${miscueTypes.selfCorrection > 0 ? 'bg-teal-100 border-teal-400 shadow-lg' : 'bg-white border-gray-200'}`}>
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <h4 className="font-bold text-teal-900 text-sm">8. Self-Correction</h4>
-                    <p className="text-xs text-teal-700 italic">Pagwawasto</p>
-                  </div>
-                  <span className={`text-2xl font-extrabold ${miscueTypes.selfCorrection > 0 ? 'text-teal-600' : 'text-gray-400'}`}>
-                    {miscueTypes.selfCorrection}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-700 mb-1"><strong>Marking:</strong> Write 'S' above the self-corrected word</p>
-                <p className="text-xs text-gray-600 italic"><strong>Example:</strong> "S" above "hasn't"</p>
-                <p className="text-xs text-teal-600 mt-1"><strong>Scoring:</strong> Don't count self-correction as an error (positive behavior!)</p>
-              </div>
-            </div>
-
-            {/* Summary */}
-            <div className="mt-4 p-3 bg-white/70 rounded-lg border border-red-200">
-              <p className="text-xs text-gray-700">
-                <span className="font-semibold">� DepEed Phil-IRI Summary:</span> These results follow the official DepEd Table 4 marking and scoring guidelines.
-                Each miscue type has specific marking conventions and scoring rules as defined in the Philippine Informal Reading Inventory.
-              </p>
-              <p className="text-xs text-gray-600 mt-1">
-                <span className="font-semibold">Note:</span> Self-corrections are marked but not counted as errors. Dialectal variations are not counted as mispronunciations.
-              </p>
-            </div>
-            </>
-            )}
-          </div>
-        </section>
-      )}
 
       {/* Session Controls */}
       {!isCompleted && (
         <section className="w-full px-4 sm:px-8 pb-8 relative z-10">
-          <div className="bg-white/80 rounded-2xl lg:rounded-3xl border border-blue-100 p-4 sm:p-6 lg:p-8 flex flex-col items-center gap-4 sm:gap-6">
+          <div className="relative bg-white/80 rounded-2xl lg:rounded-3xl border border-blue-100 p-4 sm:p-6 lg:p-8 flex flex-col items-center gap-4 sm:gap-6">
+            {/* Microphone Selection Dropdown - Top Right */}
+            <div className="absolute top-4 right-4 sm:top-6 sm:right-6 z-20">
+              <div className="flex items-center gap-2 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 shadow-sm border border-blue-100">
+                <label htmlFor="mic-select" className="text-xs sm:text-sm font-semibold text-blue-900">
+                  Microphone:
+                </label>
+                <select
+                  id="mic-select"
+                  value={selectedMicId}
+                  onChange={(e) => setSelectedMicId(e.target.value)}
+                  disabled={isRecording}
+                  className="px-2 py-1 text-xs sm:text-sm border border-blue-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed max-w-[150px] sm:max-w-[250px]"
+                >
+                  {audioDevices.length === 0 ? (
+                    <option value="">No microphones</option>
+                  ) : (
+                    audioDevices.map((device) => (
+                      <option key={device.deviceId} value={device.deviceId}>
+                        {device.label || `Mic ${device.deviceId.slice(0, 8)}...`}
+                      </option>
+                    ))
+                  )}
+                </select>
+                {/* Hear Me Test Button */}
+                <button
+                  onClick={async () => {
+                    try {
+                      const stream = await navigator.mediaDevices.getUserMedia({
+                        audio: selectedMicId ? { deviceId: { exact: selectedMicId } } : true
+                      });
+                      
+                      const audioContext = new AudioContext();
+                      const source = audioContext.createMediaStreamSource(stream);
+                      const analyser = audioContext.createAnalyser();
+                      analyser.fftSize = 256;
+                      
+                      const delayNode = audioContext.createDelay(0.1);
+                      delayNode.delayTime.value = 0.1;
+                      source.connect(analyser);
+                      source.connect(delayNode);
+                      delayNode.connect(audioContext.destination);
+                      
+                      Swal.fire({
+                        html: `
+                          <div style="text-align: center; padding: 10px 0;">
+                            <h2 style="font-size: 24px; font-weight: 700; color: #1f2937; margin-bottom: 8px;">Testing Microphone</h2>
+                            <p style="color: #6b7280; font-size: 14px; margin-bottom: 20px;">Speak now — you should hear yourself!</p>
+                            <div id="audio-bars" style="display: flex; justify-content: center; align-items: end; gap: 4px; height: 60px; margin-bottom: 20px;">
+                              <div class="audio-bar" style="width: 8px; background: linear-gradient(to top, #10b981, #34d399); border-radius: 4px; height: 8px;"></div>
+                              <div class="audio-bar" style="width: 8px; background: linear-gradient(to top, #10b981, #34d399); border-radius: 4px; height: 8px;"></div>
+                              <div class="audio-bar" style="width: 8px; background: linear-gradient(to top, #10b981, #34d399); border-radius: 4px; height: 8px;"></div>
+                              <div class="audio-bar" style="width: 8px; background: linear-gradient(to top, #10b981, #34d399); border-radius: 4px; height: 8px;"></div>
+                              <div class="audio-bar" style="width: 8px; background: linear-gradient(to top, #10b981, #34d399); border-radius: 4px; height: 8px;"></div>
+                              <div class="audio-bar" style="width: 8px; background: linear-gradient(to top, #10b981, #34d399); border-radius: 4px; height: 8px;"></div>
+                              <div class="audio-bar" style="width: 8px; background: linear-gradient(to top, #10b981, #34d399); border-radius: 4px; height: 8px;"></div>
+                              <div class="audio-bar" style="width: 8px; background: linear-gradient(to top, #10b981, #34d399); border-radius: 4px; height: 8px;"></div>
+                              <div class="audio-bar" style="width: 8px; background: linear-gradient(to top, #10b981, #34d399); border-radius: 4px; height: 8px;"></div>
+                              <div class="audio-bar" style="width: 8px; background: linear-gradient(to top, #10b981, #34d399); border-radius: 4px; height: 8px;"></div>
+                              <div class="audio-bar" style="width: 8px; background: linear-gradient(to top, #10b981, #34d399); border-radius: 4px; height: 8px;"></div>
+                              <div class="audio-bar" style="width: 8px; background: linear-gradient(to top, #10b981, #34d399); border-radius: 4px; height: 8px;"></div>
+                            </div>
+                            <p style="color: #9ca3af; font-size: 12px;">Click Stop when done testing</p>
+                          </div>
+                        `,
+                        showConfirmButton: true,
+                        confirmButtonText: 'Stop Test',
+                        confirmButtonColor: '#ef4444',
+                        allowOutsideClick: false,
+                        allowEscapeKey: false,
+                        didOpen: () => {
+                          const bars = document.querySelectorAll('.audio-bar');
+                          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                          let animationId: number;
+                          const animateBars = () => {
+                            analyser.getByteFrequencyData(dataArray);
+                            bars.forEach((bar, i) => {
+                              const value = dataArray[i * 2] || 0;
+                              const height = Math.max(8, (value / 255) * 60);
+                              (bar as HTMLElement).style.height = height + 'px';
+                            });
+                            animationId = requestAnimationFrame(animateBars);
+                          };
+                          animateBars();
+                        }
+                      }).then(() => {
+                        source.disconnect();
+                        analyser.disconnect();
+                        delayNode.disconnect();
+                        stream.getTracks().forEach(track => track.stop());
+                        audioContext.close();
+                      });
+                    } catch (error) {
+                      console.error('Mic test error:', error);
+                      Swal.fire({
+                        title: 'Microphone Error',
+                        text: 'Could not access the microphone. Please check permissions.',
+                        icon: 'error',
+                        confirmButtonColor: '#3b82f6'
+                      });
+                    }
+                  }}
+                  disabled={isRecording}
+                  className="px-3 py-1.5 text-xs sm:text-sm font-semibold text-white bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 rounded-lg transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Test your microphone"
+                >
+                  Test
+                </button>
+              </div>
+              {/* Mic Input Sensitivity Slider */}
+              <div className="flex items-center gap-2 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 shadow-sm border border-blue-100 mt-2">
+                <label htmlFor="mic-input" className="text-xs sm:text-sm font-semibold text-blue-900 whitespace-nowrap">
+                  Input Gain:
+                </label>
+                <input
+                  type="range"
+                  id="mic-input"
+                  min="0"
+                  max="200"
+                  value={micVolume}
+                  onChange={(e) => setMicVolume(Number(e.target.value))}
+                  disabled={isRecording}
+                  className="w-24 sm:w-32 h-2 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+                <span className="text-xs sm:text-sm text-gray-600 min-w-[2.5rem] text-right">{micVolume}%</span>
+              </div>
+            </div>
+            
             {/* Language selector + STT Provider/Vosk status badge */}
             <div className="w-full flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 -mt-2 -mb-2">
               {/* Speech Recognition Provider Toggle */}
@@ -6055,7 +5631,7 @@ const ReadingSessionPage: React.FC = () => {
                 )}
               </div>
               
-              <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+              <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
                 {/* Status indicator dot - only shows when recording is active */}
                 {!useWebSpeech && isRecording && (storyLanguage === "tagalog" || storyLanguage === "english") && (
                   <span
@@ -6081,8 +5657,8 @@ const ReadingSessionPage: React.FC = () => {
                 )}
               </div>
             </div>
+            
             <div className="flex items-center gap-2 sm:gap-4 mb-2">
-              <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 text-blue-500" />
               <h4 className="text-base sm:text-lg font-bold text-blue-900">
                 Controls
               </h4>
@@ -6094,7 +5670,6 @@ const ReadingSessionPage: React.FC = () => {
                     onClick={handleStartRecording}
                     className="flex items-center justify-center gap-2 sm:gap-3 px-8 sm:px-12 lg:px-16 py-4 sm:py-5 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white text-lg sm:text-xl lg:text-2xl font-bold hover:scale-105 hover:from-blue-600 hover:to-purple-600 transition-all duration-200 shadow-lg"
                   >
-                    <MicrophoneIcon className="h-7 w-7 sm:h-8 sm:w-8 lg:h-9 lg:w-9" />
                     <span>Start</span>
                   </button>
                   <p className="text-sm text-gray-500 text-center">
@@ -6113,20 +5688,6 @@ const ReadingSessionPage: React.FC = () => {
                     className="flex items-center justify-center gap-2 sm:gap-3 px-8 sm:px-12 lg:px-16 py-4 sm:py-5 rounded-2xl bg-gradient-to-r from-green-400 to-blue-400 text-white text-lg sm:text-xl lg:text-2xl font-bold hover:scale-105 transition-all duration-200 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Download audio recording"
                   >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      className="h-7 w-7 sm:h-8 sm:w-8 lg:h-9 lg:w-9"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"
-                      />
-                    </svg>
                     <span>Download Audio</span>
                   </button>
                 </div>
@@ -6137,7 +5698,6 @@ const ReadingSessionPage: React.FC = () => {
                   className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-green-500 to-blue-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
                   title="Complete"
                 >
-                  <ChartBarIcon className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
                   <span>Complete</span>
                 </button>
               )}
@@ -6147,9 +5707,6 @@ const ReadingSessionPage: React.FC = () => {
                   className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-yellow-500 to-orange-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
                   title="Retry"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
                   <span>Retry</span>
                 </button>
               )}
