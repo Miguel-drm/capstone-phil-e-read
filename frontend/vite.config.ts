@@ -81,6 +81,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),
+      '@detection': path.resolve(__dirname, '../DETECTION'),
     }
   }
 })

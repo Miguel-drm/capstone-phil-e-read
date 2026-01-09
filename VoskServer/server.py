@@ -103,8 +103,15 @@ def float32_to_pcm16(audio_data: np.ndarray) -> bytes:
     # Apply high-pass filter to remove low-frequency noise (rumble, hum)
     audio_data = apply_high_pass_filter(audio_data, sample_rate=16000, cutoff=80.0)
     
-    # Apply noise gate with smooth attack/release to remove background noise
-    audio_data = apply_noise_gate(audio_data, threshold=0.015, attack=0.001, release=0.05)
+    # Apply noise gate with HIGHER threshold to filter background noise that causes "the" hallucinations
+    # Increased from 0.015 to 0.04 to be more aggressive with noise filtering
+    audio_data = apply_noise_gate(audio_data, threshold=0.04, attack=0.001, release=0.05)
+    
+    # Check if audio is mostly silence (RMS below threshold) - skip processing if so
+    rms = np.sqrt(np.mean(audio_data ** 2))
+    if rms < 0.02:
+        # Audio is too quiet - likely just noise, return silence
+        return np.zeros(len(audio_data), dtype=np.int16).tobytes()
     
     # Apply gentle compression to normalize volume levels
     # This helps with varying microphone distances and volumes
@@ -261,22 +268,41 @@ async def recognize(websocket, path, model):
                         has_final = recognizer.AcceptWaveform(audio_to_process)
                         
                         text = ""
+                        is_final_result = False
                         if has_final:
                             # Final result - most accurate
                             res = json.loads(recognizer.Result())
                             text = res.get("text", "").strip()
+                            is_final_result = True
                             if text:
                                 print(f"🎤 Vosk FINAL result: '{text}'")
                                 # Reset partial tracking on final result
                                 if hasattr(recognizer, '_words_sent_count'):
                                     recognizer._words_sent_count = 0
                                     recognizer._last_partial_text = ""
+                                    recognizer._repeated_partial_count = 0
                         else:
                             # Partial result - faster but less accurate
                             pres = json.loads(recognizer.PartialResult())
                             text = pres.get("partial", "").strip()
                             if text:
                                 print(f"🎤 Vosk partial result: '{text}'")
+                                
+                                # NOISE FILTER: Detect repeated partial results (hallucination indicator)
+                                # If we get the same partial result many times, it's likely noise
+                                if not hasattr(recognizer, '_repeated_partial_count'):
+                                    recognizer._repeated_partial_count = 0
+                                    recognizer._last_repeated_text = ""
+                                
+                                if text == recognizer._last_repeated_text:
+                                    recognizer._repeated_partial_count += 1
+                                    # If same text repeated 5+ times without becoming final, it's noise
+                                    if recognizer._repeated_partial_count >= 5:
+                                        print(f"   ⚠️ Ignoring repeated partial '{text}' (likely noise)")
+                                        text = ""  # Ignore this result
+                                else:
+                                    recognizer._repeated_partial_count = 1
+                                    recognizer._last_repeated_text = text
                         
                         if text:
                             # REAL-TIME: Process partial results word-by-word

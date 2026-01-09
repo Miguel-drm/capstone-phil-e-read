@@ -18,7 +18,8 @@
     /* Path Aliases */
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@detection/*": ["../DETECTION/*"]
     },
 
     /* Linting */

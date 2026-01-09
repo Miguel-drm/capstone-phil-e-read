@@ -29,6 +29,8 @@ import { isrResultService } from "@/services/ISRresultService";
 import { useAuth } from "@/contexts/AuthContext";
 import { getUserProfile } from "@/services/authService";
 import gsap from "gsap";
+import { detectCorrectWord, type CorrectWordResult } from "@detection/correct";
+import { detectOmission, type OmissionResult } from "@detection/omission";
 
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -549,7 +551,7 @@ const ReadingSessionPage: React.FC = () => {
           return;  // Exit early - backend handled everything
         }
         
-        // FALLBACK: Old format (for backward compatibility)
+        // FALLBACK: Old format (for backward compatibility) - use client-side detection
         if (msg.text && msg.text.trim()) {
           const originalText = msg.text.trim();
           console.log(`🎯 Vosk recognized (final - old format): "${originalText}"`);
@@ -560,6 +562,47 @@ const ReadingSessionPage: React.FC = () => {
             console.log(`✅ Vocabulary filter: Accepted "${filteredText}"`);
             voskFinalTranscriptRef.current += (voskFinalTranscriptRef.current ? " " : "") + filteredText;
             setTranscript(voskFinalTranscriptRef.current);
+            
+            // Client-side correct word detection using DETECTION/correct.ts
+            const expectedWord = words[currentWordIndex] || '';
+            const result = detectCorrectWord(filteredText, expectedWord, currentWordIndex, storyLanguage);
+            
+            if (result.matchType === 'correct') {
+              console.log(`✅ Client-side detection: ${result.details}`);
+              setCurrentWordIndex(result.newPosition);
+              lastPositionRef.current = result.newPosition;
+              setWordsRead(prev => prev + 1);
+              setRecognizedWords(prev => new Set(prev).add(currentWordIndex));
+            } else {
+              // Check for omission - spoken word might match a word ahead in the story
+              const omissionResult = detectOmission(filteredText, words, currentWordIndex, { language: storyLanguage });
+              
+              if (omissionResult.matchType === 'omission') {
+                console.log(`⏭️ Omission detected: ${omissionResult.details}`);
+                // Update position to after the matched word
+                setCurrentWordIndex(omissionResult.newPosition);
+                lastPositionRef.current = omissionResult.newPosition;
+                // Count the matched word as read
+                setWordsRead(prev => prev + 1);
+                // Mark the matched word as recognized
+                if (omissionResult.matchedPosition !== null) {
+                  setRecognizedWords(prev => new Set(prev).add(omissionResult.matchedPosition!));
+                }
+                // Record omission miscue in metrics
+                setMiscues(prev => prev + omissionResult.miscueCount);
+                setMiscueTypes(prev => ({
+                  ...prev,
+                  omission: prev.omission + omissionResult.miscueCount
+                }));
+                // Mark omitted words with miscue type
+                omissionResult.omittedWords.forEach((_, idx) => {
+                  const omittedPosition = currentWordIndex + idx;
+                  setWordMiscues(prev => new Map(prev).set(omittedPosition, 'omission'));
+                });
+              } else {
+                console.log(`❌ Client-side detection: ${result.details}`);
+              }
+            }
           }
         } else if (msg.partial && msg.partial.trim()) {
           const originalPartial = msg.partial.trim();
@@ -4865,6 +4908,16 @@ const ReadingSessionPage: React.FC = () => {
       const realWords = words.filter(w => /\w+/.test(w));
       const lastReadIndex = currentWordIndex;
       
+      // Mark all correctly read words as recognized (green highlighting)
+      // Words that were read (up to lastReadIndex) and don't have miscues are correct
+      const finalRecognizedWords = new Set(recognizedWords);
+      for (let i = 0; i < lastReadIndex; i++) {
+        if (!finalWordMiscues.has(i)) {
+          finalRecognizedWords.add(i);
+        }
+      }
+      setRecognizedWords(finalRecognizedWords);
+      
       // Add omissions for all unread words at the end
       for (let i = lastReadIndex; i < realWords.length; i++) {
         if (!finalWordMiscues.has(i) && !recognizedWords.has(i)) {
@@ -5282,7 +5335,9 @@ const ReadingSessionPage: React.FC = () => {
                                       : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative ` +
                                       (isCurrent && isRecording && !isCompleted
                                         ? "bg-transparent text-gray-900 font-extrabold z-10"
-                                        : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
+                                        : recognizedWords.has(realWordIndex)
+                                          ? "bg-green-100 text-green-900 hover:bg-green-200 cursor-pointer"
+                                          : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
                                   }
                                 style={{
                                     ...baseWordStyle,
