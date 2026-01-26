@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import path from 'path';
 
 export default defineConfig({
   test: {
@@ -7,4 +8,10 @@ export default defineConfig({
     include: ['**/*.property.ts', '**/*.test.ts'],
     exclude: ['**/node_modules/**', '**/dist/**'],
   },
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, 'frontend/src'),
+      '@detection': path.resolve(__dirname, 'DETECTION'),
+    }
+  }
 });

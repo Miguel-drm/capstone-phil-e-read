@@ -6,6 +6,7 @@ import {
 } from "@/services/readingSessionService";
 import { UnifiedStoryService } from "@/services/UnifiedStoryService";
 import type { Story } from "@/types/Story";
+import { useWordStateManager, type WordState } from "@/hooks/useWordStateManager";
 import {
   ArrowLeftIcon,
   XCircleIcon,
@@ -31,6 +32,9 @@ import { getUserProfile } from "@/services/authService";
 import gsap from "gsap";
 import { detectCorrectWord, type CorrectWordResult } from "@detection/correct";
 import { detectOmission, type OmissionResult } from "@detection/omission";
+import { ColorLegend } from "@/components/reading/ColorLegend";
+import { WordDisplay } from "@/components/reading/WordDisplay";
+import { getWordStyles, getMiscueAnnotation, type DetectionType } from "@/utils/detectionColors";
 
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -46,6 +50,10 @@ const ReadingSessionPage: React.FC = () => {
   );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Initialize WordStateManager for word-by-word tracking
+  // Requirements: 1.2, 3.1
+  const wordStateManager = useWordStateManager();
 
   const [currentWordIndex, setCurrentWordIndex] = useState<number>(0);
   const [words, setWords] = useState<string[]>([]);
@@ -96,6 +104,10 @@ const ReadingSessionPage: React.FC = () => {
   
   // Track if quiz has been completed
   const [hasCompletedQuiz, setHasCompletedQuiz] = useState(false);
+  
+  // Track selected word for manual correction
+  const [selectedWordIndex, setSelectedWordIndex] = useState<number | null>(null);
+  const [showCorrectionOptions, setShowCorrectionOptions] = useState(false);
   
   // Check if quiz has been completed when ISR result ID is available
   useEffect(() => {
@@ -512,24 +524,171 @@ const ReadingSessionPage: React.FC = () => {
               break;
               
             case 'correct':
-              // Update position from backend - no visual marking
+              // Update position and mark word as recognized (correct)
               setCurrentWordIndex(new_position);
               lastPositionRef.current = new_position;
+              // Mark the word at oldPosition as correctly read
+              if (oldPosition >= 0 && oldPosition < words.length) {
+                setRecognizedWords(prev => new Set(prev).add(oldPosition));
+              }
+              // Update WordStateManager: mark current word as correct and advance
+              // Requirements: 1.2, 1.3, 2.1
+              wordStateManager.updateWordStatus(oldPosition, 'correct');
+              wordStateManager.advanceToWord(new_position);
               console.log(`🟡 Position updated from ${oldPosition} to ${new_position}`);
               break;
               
-            // Miscue types are no longer tracked or displayed
+            // Track miscue types for visual display
             case 'omission':
-            case 'mispronunciation':
-            case 'reversal':
-            case 'substitution':
-            case 'insertion':
-            case 'repetition':
-            case 'selfCorrection':
-            case 'transposition':
-              // Just update position, no miscue tracking
               setCurrentWordIndex(new_position);
               lastPositionRef.current = new_position;
+              // Mark omitted words between old and new position
+              for (let i = oldPosition; i < new_position; i++) {
+                if (!countedMiscuePositionsRef.current.has(i)) {
+                  countedMiscuePositionsRef.current.add(i);
+                  setWordMiscues(prev => new Map(prev).set(i, 'omission'));
+                  setMiscues(prev => prev + 1);
+                  setMiscueTypes(prev => ({ ...prev, omission: prev.omission + 1 }));
+                  // Update WordStateManager: mark omitted word
+                  // Requirements: 1.2, 1.3, 2.2, 2.4
+                  wordStateManager.updateWordStatus(i, 'miscue', 'omission', '');
+                }
+              }
+              wordStateManager.advanceToWord(new_position);
+              console.log(`⭕ Omission detected at position ${oldPosition}`);
+              break;
+              
+            case 'mispronunciation':
+              setCurrentWordIndex(new_position);
+              lastPositionRef.current = new_position;
+              if (!countedMiscuePositionsRef.current.has(oldPosition)) {
+                countedMiscuePositionsRef.current.add(oldPosition);
+                setWordMiscues(prev => new Map(prev).set(oldPosition, 'mispronunciation'));
+                setRecognizedWords(prev => new Set(prev).add(oldPosition));
+                setMiscues(prev => prev + 1);
+                setMiscueTypes(prev => ({ ...prev, mispronunciation: prev.mispronunciation + 1 }));
+                // Update WordStateManager
+                // Requirements: 1.2, 1.3, 2.2, 2.4
+                wordStateManager.updateWordStatus(oldPosition, 'miscue', 'mispronunciation', word);
+              }
+              wordStateManager.advanceToWord(new_position);
+              console.log(`🔴 Mispronunciation detected at position ${oldPosition}`);
+              break;
+              
+            case 'reversal':
+              setCurrentWordIndex(new_position);
+              lastPositionRef.current = new_position;
+              if (!countedMiscuePositionsRef.current.has(oldPosition)) {
+                countedMiscuePositionsRef.current.add(oldPosition);
+                setWordMiscues(prev => new Map(prev).set(oldPosition, 'reversal'));
+                setRecognizedWords(prev => new Set(prev).add(oldPosition));
+                setMiscues(prev => prev + 1);
+                setMiscueTypes(prev => ({ ...prev, reversal: prev.reversal + 1 }));
+                // Update WordStateManager
+                // Requirements: 1.2, 1.3, 2.2, 2.4
+                wordStateManager.updateWordStatus(oldPosition, 'miscue', 'reversal', word);
+              }
+              wordStateManager.advanceToWord(new_position);
+              console.log(`🔄 Reversal detected at position ${oldPosition}`);
+              break;
+              
+            case 'substitution':
+              setCurrentWordIndex(new_position);
+              lastPositionRef.current = new_position;
+              if (!countedMiscuePositionsRef.current.has(oldPosition)) {
+                countedMiscuePositionsRef.current.add(oldPosition);
+                setWordMiscues(prev => new Map(prev).set(oldPosition, 'substitution'));
+                setRecognizedWords(prev => new Set(prev).add(oldPosition));
+                setMiscues(prev => prev + 1);
+                setMiscueTypes(prev => ({ ...prev, substitution: prev.substitution + 1 }));
+                // Store the spoken word for annotation display
+                const expectedWord = words[oldPosition] || '';
+                if (word) {
+                  setWordMarkings(prev => new Map(prev).set(oldPosition, {
+                    type: 'substitution',
+                    marking: 'line-through',
+                    spokenWord: word,
+                    correctWord: expectedWord
+                  }));
+                }
+                // Update WordStateManager
+                // Requirements: 1.2, 1.3, 2.2, 2.4
+                wordStateManager.updateWordStatus(oldPosition, 'miscue', 'substitution', word);
+              }
+              wordStateManager.advanceToWord(new_position);
+              console.log(`🟡 Substitution detected at position ${oldPosition}: "${word}"`);
+              break;
+              
+            case 'insertion':
+              setCurrentWordIndex(new_position);
+              lastPositionRef.current = new_position;
+              // Insertions don't advance position, mark at current position
+              if (!countedMiscuePositionsRef.current.has(oldPosition)) {
+                countedMiscuePositionsRef.current.add(oldPosition);
+                setWordMiscues(prev => new Map(prev).set(oldPosition, 'insertion'));
+                setMiscues(prev => prev + 1);
+                setMiscueTypes(prev => ({ ...prev, insertion: prev.insertion + 1 }));
+                if (word) {
+                  setInsertedWords(prev => {
+                    const newMap = new Map(prev);
+                    const existing = newMap.get(oldPosition) || [];
+                    newMap.set(oldPosition, [...existing, word]);
+                    return newMap;
+                  });
+                }
+                // Update WordStateManager
+                // Requirements: 1.2, 1.3, 2.2, 2.4
+                wordStateManager.updateWordStatus(oldPosition, 'miscue', 'insertion', word);
+              }
+              wordStateManager.advanceToWord(new_position);
+              console.log(`➕ Insertion detected at position ${oldPosition}: "${word}"`);
+              break;
+              
+            case 'repetition':
+              setCurrentWordIndex(new_position);
+              lastPositionRef.current = new_position;
+              if (!countedMiscuePositionsRef.current.has(oldPosition)) {
+                countedMiscuePositionsRef.current.add(oldPosition);
+                setWordMiscues(prev => new Map(prev).set(oldPosition, 'repetition'));
+                setRecognizedWords(prev => new Set(prev).add(oldPosition));
+                setMiscues(prev => prev + 1);
+                setMiscueTypes(prev => ({ ...prev, repetition: prev.repetition + 1 }));
+                // Update WordStateManager
+                // Requirements: 1.2, 1.3, 2.2, 2.4
+                wordStateManager.updateWordStatus(oldPosition, 'miscue', 'repetition', word);
+              }
+              wordStateManager.advanceToWord(new_position);
+              console.log(`🔁 Repetition detected at position ${oldPosition}`);
+              break;
+              
+            case 'selfCorrection':
+              setCurrentWordIndex(new_position);
+              lastPositionRef.current = new_position;
+              // Self-corrections are NOT counted as miscues per DepEd standards
+              setWordMiscues(prev => new Map(prev).set(oldPosition, 'selfCorrection'));
+              setRecognizedWords(prev => new Set(prev).add(oldPosition));
+              // Update WordStateManager: mark as self-correction (not counted as miscue)
+              // Requirements: 1.2, 1.3, 2.2, 2.4
+              wordStateManager.updateWordStatus(oldPosition, 'miscue', 'selfCorrection', word);
+              wordStateManager.advanceToWord(new_position);
+              console.log(`✅ Self-correction detected at position ${oldPosition}`);
+              break;
+              
+            case 'transposition':
+              setCurrentWordIndex(new_position);
+              lastPositionRef.current = new_position;
+              if (!countedMiscuePositionsRef.current.has(oldPosition)) {
+                countedMiscuePositionsRef.current.add(oldPosition);
+                setWordMiscues(prev => new Map(prev).set(oldPosition, 'transposition'));
+                setRecognizedWords(prev => new Set(prev).add(oldPosition));
+                setMiscues(prev => prev + 1);
+                setMiscueTypes(prev => ({ ...prev, transposition: prev.transposition + 1 }));
+                // Update WordStateManager
+                // Requirements: 1.2, 1.3, 2.2, 2.4
+                wordStateManager.updateWordStatus(oldPosition, 'miscue', 'transposition', word);
+              }
+              wordStateManager.advanceToWord(new_position);
+              console.log(`↔️ Transposition detected at position ${oldPosition}`);
               break;
           }
           
@@ -544,7 +703,7 @@ const ReadingSessionPage: React.FC = () => {
               accuracy: metrics.accuracy,
               oralReadingScore: metrics.oral_reading_score,
               wordsRead: metrics.words_read,
-              totalMiscues: 0
+              totalMiscues: metrics.total_miscues || 0
             });
           }
           
@@ -1791,6 +1950,10 @@ const ReadingSessionPage: React.FC = () => {
               case 'correct':
                 const correctWordIndex = new_position - 1;
                 setRecognizedWords(prev => new Set(prev).add(correctWordIndex));
+                // Update WordStateManager
+                // Requirements: 1.2, 1.3, 2.1
+                wordStateManager.updateWordStatus(correctWordIndex, 'correct');
+                wordStateManager.advanceToWord(new_position);
                 break;
                 
               case 'insertion':
@@ -1807,6 +1970,10 @@ const ReadingSessionPage: React.FC = () => {
                   newMap.set(insertionWordIndex, [...existing, insertedWord]);
                   return newMap;
                 });
+                // Update WordStateManager
+                // Requirements: 1.2, 1.3, 2.2, 2.4
+                wordStateManager.updateWordStatus(insertionWordIndex, 'miscue', 'insertion', insertedWord);
+                wordStateManager.advanceToWord(new_position);
                 break;
             }
             
@@ -2964,6 +3131,10 @@ const ReadingSessionPage: React.FC = () => {
               .filter((word: string) => word.length > 0);
             console.log('📖 [Teacher] Setting words:', wordArray.length, 'words');
             setWords(wordArray);
+            
+            // Initialize WordStateManager with story words
+            // Requirements: 1.1, 1.4
+            wordStateManager.initialize(wordArray);
 
             // Extract vocabulary for vocabulary-constrained recognition
             const vocabulary = extractVocabulary(fullStory.textContent);
@@ -3046,6 +3217,27 @@ const ReadingSessionPage: React.FC = () => {
 
   const handleGoBack = () => {
     navigate(-1);
+  };
+
+  /**
+   * Handle word click for manual correction
+   * Enables teachers to select a word and show correction options
+   * Requirements: 5.1
+   */
+  const handleWordClick = (wordIndex: number) => {
+    // Only allow correction when not recording
+    if (isRecording) {
+      return;
+    }
+    
+    // Toggle selection - if clicking the same word, deselect it
+    if (selectedWordIndex === wordIndex) {
+      setSelectedWordIndex(null);
+      setShowCorrectionOptions(false);
+    } else {
+      setSelectedWordIndex(wordIndex);
+      setShowCorrectionOptions(true);
+    }
   };
 
   useEffect(() => {
@@ -5256,9 +5448,7 @@ const ReadingSessionPage: React.FC = () => {
                     const leadingMatch = paragraph.match(/^(\s+)/);
                     const leadingSpaces = leadingMatch ? leadingMatch[1] : '';
                     
-                    // Debug: Log ALL paragraphs to see which have spaces
-                    console.log(`Paragraph ${paragraphIndex}:`, JSON.stringify(paragraph.substring(0, 50)));
-                    console.log(`  Leading spaces: ${leadingSpaces.length}`);
+                    // Debug logging removed - was causing excessive console spam on every render
                     
                     const wordsInParagraph = paragraph.trim().split(/\s+/);
                     // Calculate the starting real word index for this paragraph
@@ -5320,34 +5510,37 @@ const ReadingSessionPage: React.FC = () => {
                             lineHeight: "1.6",
                           };
 
+                            // Get miscue type for this word (if any)
+                            const miscueType = wordMiscues.get(realWordIndex);
+                            
                             return (
                               <React.Fragment key={`${paragraphIndex}-${wordIndex}`}>
-                                {/* REMOVED: Blue boxes for inserted words - DepEd standard uses only caret (^) and italic word above */}
-                                {/* Insertion marking is now handled by wordMarkings overlay (caret + italic word above) */}
-                                
-                                {/* The actual story word */}
-                                <span
-                                  ref={isCurrent ? currentWordRef : null}
-                                  data-word-index={!isSpecialChar ? realWordIndex : undefined}
-                                  className={
-                                    isSpecialChar
-                                      ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"
-                                      : `inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl relative ` +
-                                      (isCurrent && isRecording && !isCompleted
-                                        ? "bg-transparent text-gray-900 font-extrabold z-10"
-                                        : recognizedWords.has(realWordIndex)
-                                          ? "bg-green-100 text-green-900 hover:bg-green-200 cursor-pointer"
-                                          : "bg-blue-50 text-blue-900 hover:bg-blue-100 hover:text-blue-700 cursor-pointer")
-                                  }
-                                style={{
-                                    ...baseWordStyle,
-                                    zIndex: isCurrent ? 10 : 6, // Ensure words are above yellow highlight (z-5)
-                                    // GSAP handles all animations - no CSS transitions needed
-                                  }}
-                              >
-                                {word}
-
-                              </span>
+                                {/* Use WordDisplay component for word-by-word marking */}
+                                {!isSpecialChar && (
+                                  <WordDisplay
+                                    word={wordStateManager.getWord(realWordIndex) || {
+                                      index: realWordIndex,
+                                      text: word,
+                                      status: 'pending',
+                                    } as WordState}
+                                    isCurrent={isCurrent && isRecording && !isCompleted}
+                                    onClick={() => handleWordClick(realWordIndex)}
+                                    isSelected={selectedWordIndex === realWordIndex}
+                                    className={`mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 font-serif text-sm sm:text-lg lg:text-2xl`}
+                                  />
+                                )}
+                                {/* Special characters (punctuation) rendered as-is */}
+                                {isSpecialChar && (
+                                  <span
+                                    className="inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"
+                                    style={{
+                                      fontFamily: recommendedFont.fontFamily,
+                                      fontSize: recommendedFont.fontSize,
+                                    }}
+                                  >
+                                    {word}
+                                  </span>
+                                )}
                               </React.Fragment>
                             );
                           })}
@@ -5404,6 +5597,13 @@ const ReadingSessionPage: React.FC = () => {
                 )}
               </div>
             )}
+            {/* Color Legend - Positioned at bottom-left, visible during reading sessions */}
+            <div className="absolute bottom-4 left-4 z-20">
+              <ColorLegend 
+                className="shadow-lg"
+                initialCollapsed={true}
+              />
+            </div>
           </div>
         </div>
         {/* Progress Column - Only show after Complete button is clicked */}
@@ -6001,6 +6201,45 @@ const ReadingSessionPage: React.FC = () => {
         </div>
       )}
 
+      {/* Correction Options Panel */}
+      {showCorrectionOptions && selectedWordIndex !== null && (
+        <div className="fixed bottom-6 right-6 z-40 bg-white rounded-lg shadow-lg p-4 border border-gray-200">
+          <div className="mb-3">
+            <p className="text-sm font-semibold text-gray-700">
+              Word: <span className="text-blue-600">{words[selectedWordIndex]}</span>
+            </p>
+          </div>
+          <div className="space-y-2">
+            <button
+              onClick={() => {
+                setShowCorrectionOptions(false);
+                setSelectedWordIndex(null);
+              }}
+              className="w-full px-3 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded transition-colors"
+            >
+              Mark as Correct
+            </button>
+            <button
+              onClick={() => {
+                setShowCorrectionOptions(false);
+                setSelectedWordIndex(null);
+              }}
+              className="w-full px-3 py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-medium rounded transition-colors"
+            >
+              Mark as Miscue
+            </button>
+            <button
+              onClick={() => {
+                setShowCorrectionOptions(false);
+                setSelectedWordIndex(null);
+              }}
+              className="w-full px-3 py-2 bg-gray-400 hover:bg-gray-500 text-white text-sm font-medium rounded transition-colors"
+            >
+              Clear Marking
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );

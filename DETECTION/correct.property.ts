@@ -102,7 +102,7 @@ describe('Property 3: Word normalization consistency', () => {
  */
 describe('Property 1: Exact match returns correct result with required fields', () => {
   // Generator for valid words (non-empty strings that normalize to non-empty)
-  const validWordArb = fc.stringMatching(/^[a-zA-Z]+$/, { minLength: 1, maxLength: 20 });
+  const validWordArb = fc.stringMatching(/^[a-zA-Z]{1,20}$/);
   
   // Generator for valid positions (non-negative integers)
   const positionArb = fc.nat({ max: 1000 });
@@ -332,9 +332,9 @@ describe('Property 4: Result object completeness', () => {
     fc.constant(''),
     fc.constant(null as unknown as string),
     fc.constant(undefined as unknown as string),
-    fc.stringMatching(/^[a-zA-Z]+$/, { minLength: 1, maxLength: 20 }),
-    fc.stringMatching(/^[\s]+$/, { minLength: 1, maxLength: 5 }),
-    fc.stringMatching(/^[!@#$%^&*()]+$/, { minLength: 1, maxLength: 5 })
+    fc.stringMatching(/^[a-zA-Z]{1,20}$/),
+    fc.stringMatching(/^[\s]{1,5}$/),
+    fc.stringMatching(/^[!@#$%^&*()]{1,5}$/)
   );
 
   const arbitraryPositionArb = fc.oneof(
@@ -479,7 +479,7 @@ describe('Property 5: Edge case handling', () => {
   ).map(arr => arr.join(''));
   const nullishArb = fc.constantFrom(null as unknown as string, undefined as unknown as string);
   const edgeCaseArb = fc.oneof(emptyStringArb, whitespaceOnlyArb, specialCharsOnlyArb, nullishArb);
-  const validWordArb = fc.stringMatching(/^[a-zA-Z]+$/, { minLength: 1, maxLength: 10 });
+  const validWordArb = fc.stringMatching(/^[a-zA-Z]{1,10}$/);
 
   it('empty string as spoken word does not throw', () => {
     fc.assert(

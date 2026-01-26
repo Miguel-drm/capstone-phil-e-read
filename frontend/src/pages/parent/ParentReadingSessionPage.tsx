@@ -24,6 +24,7 @@ import Swal from "sweetalert2";
 import { isrResultService } from "@/services/ISRresultService";
 import { useAuth } from "@/contexts/AuthContext";
 import { getUserProfile } from "@/services/authService";
+import { ColorLegend } from "@/components/reading/ColorLegend";
 
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -4377,9 +4378,7 @@ const ReadingSessionPage: React.FC = () => {
                     const leadingMatch = paragraph.match(/^(\s+)/);
                     const leadingSpaces = leadingMatch ? leadingMatch[1] : '';
                     
-                    // Debug: Log ALL paragraphs to see which have spaces
-                    console.log(`Paragraph ${paragraphIndex}:`, JSON.stringify(paragraph.substring(0, 50)));
-                    console.log(`  Leading spaces: ${leadingSpaces.length}`);
+                    // Debug logging removed - was causing excessive console spam on every render
                     
                     const wordsInParagraph = paragraph.trim().split(/\s+/);
                     // Calculate the starting real word index for this paragraph
@@ -4736,6 +4735,13 @@ const ReadingSessionPage: React.FC = () => {
                 )}
               </div>
             )}
+            {/* Color Legend - Positioned at bottom-left, visible during reading sessions */}
+            <div className="absolute bottom-4 left-4 z-20">
+              <ColorLegend 
+                className="shadow-lg"
+                initialCollapsed={true}
+              />
+            </div>
           </div>
         </div>
 
