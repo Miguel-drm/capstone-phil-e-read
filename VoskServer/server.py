@@ -90,8 +90,9 @@ def apply_noise_gate(audio_data: np.ndarray, threshold: float = 0.015, attack: f
             # Release (slow)
             envelope[i] = envelope[i-1] * 0.95 + abs_audio[i] * 0.05
     
-    # Create smooth gate based on envelope
-    gate = np.where(envelope > threshold, 1.0, envelope / threshold * 0.3)  # Partial attenuation below threshold
+    # Create smooth gate based on envelope - HARD GATE for noise below threshold
+    # Changed from partial attenuation (0.3) to complete silence (0.0) for noise
+    gate = np.where(envelope > threshold, 1.0, 0.0)  # Complete silence below threshold
     
     # Apply gate
     gated_audio = audio_data * gate
@@ -100,17 +101,24 @@ def apply_noise_gate(audio_data: np.ndarray, threshold: float = 0.015, attack: f
 
 def float32_to_pcm16(audio_data: np.ndarray) -> bytes:
     """Convert Float32 audio (-1.0 to 1.0) to PCM16 bytes (little-endian) with advanced noise filtering."""
+    # Check if audio is mostly silence FIRST (RMS below threshold) - skip processing if so
+    rms = np.sqrt(np.mean(audio_data ** 2))
+    if rms < 0.003:
+        # Audio is too quiet - likely just noise, return complete silence
+        return np.zeros(len(audio_data), dtype=np.int16).tobytes()
+    
     # Apply high-pass filter to remove low-frequency noise (rumble, hum)
     audio_data = apply_high_pass_filter(audio_data, sample_rate=16000, cutoff=80.0)
     
-    # Apply noise gate with HIGHER threshold to filter background noise that causes "the" hallucinations
-    # Increased from 0.015 to 0.04 to be more aggressive with noise filtering
-    audio_data = apply_noise_gate(audio_data, threshold=0.04, attack=0.001, release=0.05)
+    # Apply noise gate to filter background noise
+    # Threshold: 0.005 - very lenient, allows quiet speech through
+    # This prevents Vosk from hallucinating words from background noise
+    audio_data = apply_noise_gate(audio_data, threshold=0.005, attack=0.001, release=0.05)
     
-    # Check if audio is mostly silence (RMS below threshold) - skip processing if so
-    rms = np.sqrt(np.mean(audio_data ** 2))
-    if rms < 0.02:
-        # Audio is too quiet - likely just noise, return silence
+    # Check RMS again after filtering
+    rms_after = np.sqrt(np.mean(audio_data ** 2))
+    if rms_after < 0.003:
+        # Audio is too quiet after filtering - return silence
         return np.zeros(len(audio_data), dtype=np.int16).tobytes()
     
     # Apply gentle compression to normalize volume levels
@@ -151,7 +159,8 @@ def process_audio_message(message: bytes, source_sample_rate: int = 48000, debug
                 pcm16_result = float32_to_pcm16(downsampled)
                 
                 if debug_count % 100 == 0:
-                    print(f"   Output: {len(pcm16_result)} bytes PCM16")
+                    rms = np.sqrt(np.mean(downsampled ** 2))
+                    print(f"   Output: {len(pcm16_result)} bytes PCM16 (RMS: {rms:.4f})")
                 
                 return pcm16_result
             except Exception as e:
@@ -231,6 +240,14 @@ async def recognize(websocket, path, model):
     phrase_matcher = None  # Phrase-level matcher (Option 2 for higher accuracy)
     use_phrase_mode = False  # Whether to use phrase-level matching
     
+    # FALLBACK: Smart buffer matcher for when word_matcher is not initialized
+    fallback_buffer_matcher = None  # Will be initialized with expected_words if available
+    
+    # STUCK RECOGNIZER DETECTION: Track when recognizer gets stuck
+    stuck_recognizer_timeout = 0  # Counter for stuck state
+    max_stuck_attempts = 3  # Max times to try recovering before giving up
+    stuck_recovery_attempts = 0  # How many times we've tried to recover
+    
     try:
         async for message in websocket:
             try:
@@ -247,6 +264,17 @@ async def recognize(websocket, path, model):
                     # Process audio: convert format, downsampling if needed
                     pcm16_audio = process_audio_message(message, client_sample_rate, audio_chunks_received)
                     
+                    # Check if audio is silence (all zeros after filtering)
+                    # If so, don't accumulate it - skip this chunk entirely
+                    if len(pcm16_audio) > 0:
+                        # Check if audio is all zeros (silence)
+                        audio_int16 = np.frombuffer(pcm16_audio, dtype=np.int16)
+                        if np.max(np.abs(audio_int16)) < 100:  # Less than 100 in int16 = essentially silence
+                            # This is silence, skip it entirely
+                            if audio_chunks_received % 100 == 0:
+                                print(f"   🔇 Skipping silence chunk (max amplitude: {np.max(np.abs(audio_int16))})")
+                            continue
+                    
                     # Accumulate audio in buffer
                     audio_buffer.extend(pcm16_audio)
                     
@@ -256,6 +284,61 @@ async def recognize(websocket, path, model):
                     
                     # Only process when we have enough audio accumulated
                     if len(audio_buffer) >= buffer_size_target:
+                        # Check if recognizer is stuck in repeated partial loop
+                        if (hasattr(recognizer, '_repeated_partial_count') and 
+                            recognizer._repeated_partial_count >= 5):
+                            
+                            stuck_recognizer_timeout += 1
+                            
+                            # If stuck for too long, skip this audio chunk
+                            if stuck_recognizer_timeout > 2:
+                                print(f"   ⚠️ Recognizer stuck for {stuck_recognizer_timeout} chunks - skipping audio")
+                                audio_buffer.clear()
+                                
+                                # After 3 consecutive stuck chunks, try full recovery
+                                if stuck_recognizer_timeout >= 3:
+                                    stuck_recovery_attempts += 1
+                                    if stuck_recovery_attempts <= max_stuck_attempts:
+                                        print(f"   🔄 Attempting recovery {stuck_recovery_attempts}/{max_stuck_attempts}")
+                                        try:
+                                            # Get current grammar if it exists
+                                            grammar_json = None
+                                            if grammar_set and enhanced_grammar:
+                                                grammar_list = list(enhanced_grammar) if not isinstance(enhanced_grammar, list) else enhanced_grammar
+                                                grammar_json = json.dumps(grammar_list)
+                                            
+                                            # Create completely new recognizer instance
+                                            if grammar_json:
+                                                recognizer = KaldiRecognizer(model, sample_rate, grammar_json)
+                                            else:
+                                                recognizer = KaldiRecognizer(model, sample_rate)
+                                            
+                                            recognizer.SetWords(True)
+                                            recognizer.SetMaxAlternatives(3)
+                                            recognizer.SetPartialWords(True)
+                                            
+                                            # Reset all tracking variables
+                                            recognizer._repeated_partial_count = 0
+                                            recognizer._last_repeated_text = ""
+                                            recognizer._last_partial_text = ""
+                                            recognizer._words_sent_count = 0
+                                            
+                                            stuck_recognizer_timeout = 0  # Reset timeout counter
+                                            print(f"   ✅ Recognizer fully recovered")
+                                        except Exception as e:
+                                            print(f"   ❌ Recovery failed: {e}")
+                                    else:
+                                        print(f"   ❌ Max recovery attempts reached - recognizer may be permanently stuck")
+                                        # Skip audio for extended period to let noise settle
+                                        print(f"   ⏸️ Pausing audio processing for 2 seconds to let noise settle")
+                                        stuck_recognizer_timeout = 0
+                                        stuck_recovery_attempts = 0
+                                continue
+                        else:
+                            # Recognizer is not stuck, reset timeout
+                            stuck_recognizer_timeout = 0
+                            stuck_recovery_attempts = 0
+                        
                         # Send accumulated audio to Vosk
                         audio_to_process = bytes(audio_buffer)
                         audio_buffer.clear()
@@ -293,16 +376,20 @@ async def recognize(websocket, path, model):
                                 if not hasattr(recognizer, '_repeated_partial_count'):
                                     recognizer._repeated_partial_count = 0
                                     recognizer._last_repeated_text = ""
+                                    recognizer._repeat_start_time = time.time()
                                 
                                 if text == recognizer._last_repeated_text:
                                     recognizer._repeated_partial_count += 1
-                                    # If same text repeated 5+ times without becoming final, it's noise
-                                    if recognizer._repeated_partial_count >= 5:
-                                        print(f"   ⚠️ Ignoring repeated partial '{text}' (likely noise)")
+                                    # If same text repeated 3+ times within 2 seconds, it's noise
+                                    time_since_repeat_start = time.time() - recognizer._repeat_start_time
+                                    if recognizer._repeated_partial_count >= 3 and time_since_repeat_start < 2.0:
+                                        print(f"   ⚠️ Ignoring repeated partial '{text}' (likely noise) - {recognizer._repeated_partial_count} times in {time_since_repeat_start:.1f}s")
                                         text = ""  # Ignore this result
+                                        # Don't recreate yet, just skip this result
                                 else:
                                     recognizer._repeated_partial_count = 1
                                     recognizer._last_repeated_text = text
+                                    recognizer._repeat_start_time = time.time()
                         
                         if text:
                             # REAL-TIME: Process partial results word-by-word
@@ -407,11 +494,36 @@ async def recognize(websocket, path, model):
                                             
                                             print(f"   📊 Match: {match_result['match_type']} - {match_result['details']}")
                                     else:
-                                        # Fallback: Send filtered result without matching
-                                        await websocket.send(json.dumps({
-                                            "text": filtered_text,
-                                            "confidence": 1.0
-                                        }))
+                                        # Fallback: word_matcher not initialized - use fallback buffer matcher if available
+                                        if fallback_buffer_matcher:
+                                            for word in filtered_words:
+                                                match_result = fallback_buffer_matcher.add_word(word)
+                                                if match_result:
+                                                    # Calculate current metrics
+                                                    elapsed = time.time() - session_start_time
+                                                    metrics = {
+                                                        "wpm": 0,
+                                                        "accuracy": 0,
+                                                        "oral_reading_score": 0,
+                                                        "words_read": match_result.get("words_read", 0),
+                                                        "total_miscues": match_result.get("total_miscues", 0)
+                                                    }
+                                                    
+                                                    # Send match result with metrics
+                                                    await websocket.send(json.dumps({
+                                                        "text": word,
+                                                        "match_result": match_result,
+                                                        "metrics": metrics
+                                                    }))
+                                                    
+                                                    print(f"   📊 Fallback Match: {match_result['match_type']} - {match_result['details']}")
+                                        else:
+                                            # No fallback matcher - send without matching
+                                            print(f"   ⚠️ No matcher available - sending without match_result")
+                                            await websocket.send(json.dumps({
+                                                "text": filtered_text,
+                                                "confidence": 1.0
+                                            }))
                                 else:
                                     print(f"   ⚠️ All words rejected by vocabulary filter")
                             elif new_words:
@@ -454,11 +566,36 @@ async def recognize(websocket, path, model):
                                         
                                         print(f"   📊 Match: {match_result['match_type']} - {match_result['details']}")
                                 else:
-                                    # Fallback: Send text without matching
-                                    await websocket.send(json.dumps({
-                                        "text": ' '.join(new_words),
-                                        "confidence": 1.0
-                                    }))
+                                    # Fallback: word_matcher not initialized - use fallback buffer matcher if available
+                                    if fallback_buffer_matcher:
+                                        for word in new_words:
+                                            match_result = fallback_buffer_matcher.add_word(word)
+                                            if match_result:
+                                                # Calculate current metrics
+                                                elapsed = time.time() - session_start_time
+                                                metrics = {
+                                                    "wpm": 0,
+                                                    "accuracy": 0,
+                                                    "oral_reading_score": 0,
+                                                    "words_read": match_result.get("words_read", 0),
+                                                    "total_miscues": match_result.get("total_miscues", 0)
+                                                }
+                                                
+                                                # Send match result with metrics
+                                                await websocket.send(json.dumps({
+                                                    "text": word,
+                                                    "match_result": match_result,
+                                                    "metrics": metrics
+                                                }))
+                                                
+                                                print(f"   📊 Fallback Match: {match_result['match_type']} - {match_result['details']}")
+                                    else:
+                                        # No fallback matcher - send without matching
+                                        print(f"   ⚠️ No matcher available - sending without match_result")
+                                        await websocket.send(json.dumps({
+                                            "text": ' '.join(new_words),
+                                            "confidence": 1.0
+                                        }))
                             
                             # OLD CODE - COMPLETELY DISABLED
                             if False:
@@ -588,9 +725,9 @@ async def recognize(websocket, path, model):
                             partial = pres.get("partial", "").strip()
                             if partial:
                                 # Track partial for stability, but don't send to prevent jumping
-                                word_enhancer.process_vosk_result(pres)
+                                # (word_enhancer removed - was not being used)
+                                pass
                                 # Optionally send partial only if very stable (uncomment if needed)
-                            # enhanced_partial = word_enhancer.process_vosk_result(pres)
                             # if enhanced_partial:
                             #     await websocket.send(json.dumps({"partial": enhanced_partial['text']}))
                 elif isinstance(message, str):
@@ -619,6 +756,14 @@ async def recognize(websocket, path, model):
                                 expected_words = [word.strip() for word in config["expected_words"]]  # Keep original case
                                 total_words_expected = len(expected_words)
                                 current_word_index = 0  # Reset word index
+                                
+                                # Initialize fallback buffer matcher
+                                try:
+                                    from smart_buffer_matcher import SmartBufferMatcher
+                                    fallback_buffer_matcher = SmartBufferMatcher(expected_words, buffer_size=8)
+                                    print(f"✓ Fallback buffer matcher initialized")
+                                except ImportError:
+                                    print(f"⚠ Fallback buffer matcher not available")
                                 
                                 # Check if phrase mode is requested
                                 use_phrase_mode = config.get("use_phrase_mode", False)

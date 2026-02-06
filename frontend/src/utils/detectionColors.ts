@@ -137,13 +137,20 @@ export interface WordStyleObject {
 /**
  * Returns CSS style object for a given detection type.
  * Falls back to 'unread' styling for invalid/unknown detection types.
+ * Handles both camelCase and snake_case naming conventions.
  * 
  * @param detectionType - The type of detection to get styles for
  * @returns CSS style object suitable for React inline styles
  */
 export function getWordStyles(detectionType: string | null | undefined): WordStyleObject {
+  // Normalize naming: convert camelCase to snake_case for consistency
+  let normalizedType = detectionType;
+  if (normalizedType === 'selfCorrection') {
+    normalizedType = 'self_correction';
+  }
+  
   // Handle invalid/unknown detection types with fallback to 'unread'
-  const validType = isValidDetectionType(detectionType) ? detectionType : 'unread';
+  const validType = isValidDetectionType(normalizedType) ? normalizedType : 'unread';
   const config = DETECTION_COLORS[validType];
 
   const styles: WordStyleObject = {
@@ -245,6 +252,7 @@ export interface MiscueAnnotationResult {
 
 /**
  * Returns the miscue annotation for a given detection type with optional context.
+ * Handles both camelCase and snake_case naming conventions.
  * 
  * @param detectionType - The type of detection to get annotation for
  * @param context - Optional context with spoken/expected words for display text
@@ -263,12 +271,18 @@ export function getMiscueAnnotation(
   detectionType: string | null | undefined,
   context?: MiscueContext
 ): MiscueAnnotationResult | null {
+  // Normalize naming: convert camelCase to snake_case for consistency
+  let normalizedType = detectionType;
+  if (normalizedType === 'selfCorrection') {
+    normalizedType = 'self_correction';
+  }
+  
   // Handle invalid/unknown detection types
-  if (!isValidDetectionType(detectionType)) {
+  if (!isValidDetectionType(normalizedType)) {
     return null;
   }
 
-  const annotation = DETECTION_ANNOTATIONS[detectionType];
+  const annotation = DETECTION_ANNOTATIONS[normalizedType];
   
   // Return null for detection types without annotations
   if (!annotation) {
@@ -284,7 +298,7 @@ export function getMiscueAnnotation(
 
   // Add context-specific display text based on detection type
   if (context) {
-    switch (detectionType) {
+    switch (normalizedType) {
       case 'substitution':
         // Show the word that was spoken instead of expected word
         if (context.spokenWord) {

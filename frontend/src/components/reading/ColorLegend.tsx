@@ -142,7 +142,7 @@ export const ColorLegend: React.FC<ColorLegendProps> = ({
         </div>
       )}
 
-      <style jsx>{`
+      <style>{`
         .color-legend {
           background-color: #ffffff;
           border: 1px solid #e5e7eb;
