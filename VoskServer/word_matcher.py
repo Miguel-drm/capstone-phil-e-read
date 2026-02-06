@@ -550,9 +550,9 @@ class WordMatcherSession:
         # Initialize smart buffer matcher for handling Vosk's word reordering
         try:
             from smart_buffer_matcher import SmartBufferMatcher
-            # Use 80-word buffer for maximum accuracy with Vosk's severe reordering
+            # Use 8-word buffer for immediate response
             # Optimistic matching provides instant feedback when words arrive in order
-            self.smart_buffer = SmartBufferMatcher(expected_words, buffer_size=80)
+            self.smart_buffer = SmartBufferMatcher(expected_words, buffer_size=8)
             self.use_smart_buffer = True
             print("✓ Smart buffer matcher initialized with 80-word buffer + optimistic matching")
         except ImportError:
