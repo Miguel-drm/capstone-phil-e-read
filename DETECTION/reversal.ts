@@ -168,7 +168,29 @@ export function detectReversal(
     };
   }
   
-  // Handle undefined/empty next word (no word to reverse with)
+  // ============================================================================
+  // Task 3.2: Core Reversal Detection Logic
+  // ============================================================================
+  
+  // PRIORITY 1: Check for letter-level reversal (spoken word is reverse of expected word)
+  // Example: expected "was" but spoke "saw", expected "pot" but spoke "top"
+  // This check doesn't require nextWord, so do it first
+  const isLetterReversal = checkLetterReversal(normalizedSpoken, normalizedExpected);
+  
+  if (isLetterReversal) {
+    // Letter reversal detected: spoken word is the reverse of expected word
+    return {
+      matchType: 'reversal',
+      advance: true,
+      newPosition: safePosition + 1,
+      miscueCount: 1,
+      expectedWord: expectedWord,
+      spokenWord: spokenWord,
+      details: `Letter reversal detected: spoke "${spokenWord}" (reverse of expected "${expectedWord}")`
+    };
+  }
+  
+  // Handle undefined/empty next word (no word to check for word-order reversal)
   if (nextWord === undefined || nextWord === null) {
     return {
       matchType: 'no_match',
@@ -191,27 +213,6 @@ export function detectReversal(
       expectedWord: expectedWord,
       spokenWord: spokenWord,
       details: 'Empty next word'
-    };
-  }
-  
-  // ============================================================================
-  // Task 3.2: Core Reversal Detection Logic
-  // ============================================================================
-  
-  // PRIORITY 1: Check for letter-level reversal (spoken word is reverse of expected word)
-  // Example: expected "was" but spoke "saw", expected "pot" but spoke "top"
-  const isLetterReversal = checkLetterReversal(normalizedSpoken, normalizedExpected);
-  
-  if (isLetterReversal) {
-    // Letter reversal detected: spoken word is the reverse of expected word
-    return {
-      matchType: 'reversal',
-      advance: true,
-      newPosition: safePosition + 1,
-      miscueCount: 1,
-      expectedWord: expectedWord,
-      spokenWord: spokenWord,
-      details: `Letter reversal detected: spoke "${spokenWord}" (reverse of expected "${expectedWord}")`
     };
   }
   
