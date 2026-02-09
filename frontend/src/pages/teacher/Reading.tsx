@@ -25,6 +25,10 @@ const Reading: React.FC = () => {
   const [sessionResults, setSessionResults] = useState<Map<string, any[]>>(new Map());
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedStoryFilter, setSelectedStoryFilter] = useState<string>('all');
+  
+  // Multi-delete state
+  const [selectedSessions, setSelectedSessions] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const loadSessions = useCallback(async () => {
     if (!currentUser?.uid) return;
@@ -652,6 +656,107 @@ const Reading: React.FC = () => {
     }
   };
 
+  // Multi-delete handlers
+  const handleToggleSession = (sessionId: string) => {
+    setSelectedSessions(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(sessionId)) {
+        newSet.delete(sessionId);
+      } else {
+        newSet.add(sessionId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleSelectAll = () => {
+    const filteredSessionIds = readingSessions
+      .filter(session => selectedStoryFilter === 'all' || session.book === selectedStoryFilter)
+      .map(session => session.id)
+      .filter((id): id is string => !!id);
+    
+    if (selectedSessions.size === filteredSessionIds.length) {
+      // Deselect all
+      setSelectedSessions(new Set());
+    } else {
+      // Select all filtered sessions
+      setSelectedSessions(new Set(filteredSessionIds));
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedSessions.size === 0) return;
+
+    const result = await Swal.fire({
+      title: 'Delete Multiple Sessions?',
+      html: `Are you sure you want to delete <strong>${selectedSessions.size}</strong> reading session${selectedSessions.size > 1 ? 's' : ''}?<br><br>This action cannot be undone.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#3085d6',
+      confirmButtonText: 'Yes, delete them',
+      cancelButtonText: 'Cancel',
+      customClass: {
+        confirmButton: 'bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg',
+        cancelButton: 'bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg'
+      }
+    });
+
+    if (result.isConfirmed) {
+      setIsDeleting(true);
+      try {
+        // Delete all selected sessions in parallel
+        const deletePromises = Array.from(selectedSessions).map(sessionId =>
+          readingSessionService.deleteSession(sessionId)
+        );
+        
+        const results = await Promise.allSettled(deletePromises);
+        
+        // Count successes and failures
+        const successCount = results.filter(r => r.status === 'fulfilled').length;
+        const failureCount = results.filter(r => r.status === 'rejected').length;
+        
+        // Remove successfully deleted sessions from local state
+        setReadingSessions(prev => prev.filter(session => !selectedSessions.has(session.id || '')));
+        
+        // Remove from sessionResults
+        setSessionResults(prev => {
+          const newMap = new Map(prev);
+          selectedSessions.forEach(id => newMap.delete(id));
+          return newMap;
+        });
+        
+        // Clear selection
+        setSelectedSessions(new Set());
+
+        if (failureCount === 0) {
+          await Swal.fire({
+            icon: 'success',
+            title: 'Deleted!',
+            text: `Successfully deleted ${successCount} session${successCount > 1 ? 's' : ''}.`,
+            timer: 2000,
+            showConfirmButton: false
+          });
+        } else {
+          await Swal.fire({
+            icon: 'warning',
+            title: 'Partially Completed',
+            text: `Deleted ${successCount} session${successCount > 1 ? 's' : ''}, but ${failureCount} failed.`,
+          });
+        }
+      } catch (error) {
+        console.error('Error deleting sessions:', error);
+        await Swal.fire({
+          icon: 'error',
+          title: 'Error',
+          text: 'Failed to delete sessions. Please try again.',
+        });
+      } finally {
+        setIsDeleting(false);
+      }
+    }
+  };
+
   const handleRefresh = async () => {
     if (!currentUser?.uid || isRefreshing) return;
     
@@ -816,6 +921,60 @@ const Reading: React.FC = () => {
               </div>
             ) : (
               <>
+                {/* Bulk Actions Bar */}
+                {selectedSessions.size > 0 && (
+                  <div className="bg-indigo-50 border-2 border-indigo-200 rounded-xl p-4 mb-6 flex items-center justify-between shadow-sm">
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">
+                          {selectedSessions.size}
+                        </div>
+                        <span className="text-indigo-900 font-semibold">
+                          {selectedSessions.size} session{selectedSessions.size > 1 ? 's' : ''} selected
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => setSelectedSessions(new Set())}
+                        className="text-indigo-600 hover:text-indigo-800 text-sm font-medium underline"
+                      >
+                        Clear selection
+                      </button>
+                    </div>
+                    <button
+                      onClick={handleDeleteSelected}
+                      disabled={isDeleting}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isDeleting ? (
+                        <>
+                          <i className="fas fa-spinner fa-spin"></i>
+                          <span>Deleting...</span>
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-trash"></i>
+                          <span>Delete Selected</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                {/* Select All Checkbox */}
+                {readingSessions.filter(session => selectedStoryFilter === 'all' || session.book === selectedStoryFilter).length > 0 && (
+                  <div className="bg-white rounded-xl border border-slate-200 p-4 mb-4 flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedSessions.size > 0 && selectedSessions.size === readingSessions.filter(session => selectedStoryFilter === 'all' || session.book === selectedStoryFilter).length}
+                      onChange={handleSelectAll}
+                      className="w-5 h-5 text-indigo-600 border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <label className="text-sm font-medium text-slate-700 cursor-pointer" onClick={handleSelectAll}>
+                      Select all sessions
+                    </label>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
                   {readingSessions
                     .filter(session => selectedStoryFilter === 'all' || session.book === selectedStoryFilter)
@@ -852,15 +1011,27 @@ const Reading: React.FC = () => {
 
                   // Get the first student's name to display instead of title
                   const displayName = sessionStudents.length > 0 ? sessionStudents[0].name : 'No Student';
+                  const isSelected = selectedSessions.has(session.id || '');
 
                   return (
                     <div 
                       key={session.id} 
-                      className="group bg-white rounded-2xl shadow-sm hover:shadow-xl border border-slate-200 hover:border-indigo-300 overflow-hidden flex flex-col h-full transition-all duration-300"
+                      className={`group bg-white rounded-2xl shadow-sm hover:shadow-xl border-2 overflow-hidden flex flex-col h-full transition-all duration-300 ${
+                        isSelected 
+                          ? 'border-indigo-500 ring-2 ring-indigo-200' 
+                          : 'border-slate-200 hover:border-indigo-300'
+                      }`}
                     >
                       <div className="p-5 sm:p-6 flex-grow flex flex-col">
-                        {/* Header with student name and delete button */}
-                        <div className="flex items-start justify-between mb-4">
+                        {/* Checkbox and Header */}
+                        <div className="flex items-start gap-3 mb-4">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleToggleSession(session.id || '')}
+                            onClick={(e) => e.stopPropagation()}
+                            className="mt-1 w-5 h-5 text-indigo-600 border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 cursor-pointer flex-shrink-0"
+                          />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-2">
                               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-white font-bold text-sm shadow-md flex-shrink-0">
@@ -874,7 +1045,7 @@ const Reading: React.FC = () => {
                               e.stopPropagation();
                               handleDeleteSession(session.id || '', displayName);
                             }}
-                            className="ml-2 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200 flex-shrink-0 opacity-0 group-hover:opacity-100"
+                            className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200 flex-shrink-0 opacity-0 group-hover:opacity-100"
                             title="Delete session"
                           >
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

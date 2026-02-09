@@ -46,6 +46,33 @@ export interface ReversalConfig {
 // ============================================================================
 
 /**
+ * Checks if a spoken word is the letter-by-letter reverse of the expected word.
+ * This detects when students read words backwards (e.g., "was" → "saw", "pot" → "top").
+ * 
+ * @param normalizedSpoken - The normalized spoken word
+ * @param normalizedExpected - The normalized expected word
+ * @returns True if the spoken word is the reverse of the expected word
+ */
+export function checkLetterReversal(
+  normalizedSpoken: string,
+  normalizedExpected: string
+): boolean {
+  // Return false if either word is empty
+  if (!normalizedSpoken || !normalizedExpected) {
+    return false;
+  }
+  
+  // Words must be the same length to be reversals
+  if (normalizedSpoken.length !== normalizedExpected.length) {
+    return false;
+  }
+  
+  // Check if spoken word is the reverse of expected word
+  const reversedExpected = normalizedExpected.split('').reverse().join('');
+  return normalizedSpoken === reversedExpected;
+}
+
+/**
  * Checks if a spoken word matches the next word in the story
  * through exact match or pronunciation variants.
  * 
@@ -171,11 +198,12 @@ export function detectReversal(
   // Task 3.2: Core Reversal Detection Logic
   // ============================================================================
   
-  // Check if spoken word matches next word (exact or pronunciation variant)
-  const matchesNextWord = checkNextWordMatch(spokenWord, nextWord, language);
+  // PRIORITY 1: Check for letter-level reversal (spoken word is reverse of expected word)
+  // Example: expected "was" but spoke "saw", expected "pot" but spoke "top"
+  const isLetterReversal = checkLetterReversal(normalizedSpoken, normalizedExpected);
   
-  if (matchesNextWord) {
-    // Reversal detected: spoken word matches the next word instead of expected
+  if (isLetterReversal) {
+    // Letter reversal detected: spoken word is the reverse of expected word
     return {
       matchType: 'reversal',
       advance: true,
@@ -183,11 +211,27 @@ export function detectReversal(
       miscueCount: 1,
       expectedWord: expectedWord,
       spokenWord: spokenWord,
-      details: `Reversal detected: spoke "${spokenWord}" (matches next word "${nextWord}") instead of expected "${expectedWord}"`
+      details: `Letter reversal detected: spoke "${spokenWord}" (reverse of expected "${expectedWord}")`
     };
   }
   
-  // No match: spoken word does not match next word
+  // PRIORITY 2: Check if spoken word matches next word (word-order reversal)
+  const matchesNextWord = checkNextWordMatch(spokenWord, nextWord, language);
+  
+  if (matchesNextWord) {
+    // Word-order reversal detected: spoken word matches the next word instead of expected
+    return {
+      matchType: 'reversal',
+      advance: true,
+      newPosition: safePosition + 1,
+      miscueCount: 1,
+      expectedWord: expectedWord,
+      spokenWord: spokenWord,
+      details: `Word-order reversal detected: spoke "${spokenWord}" (matches next word "${nextWord}") instead of expected "${expectedWord}"`
+    };
+  }
+  
+  // No match: spoken word does not match next word or reversed expected word
   return {
     matchType: 'no_match',
     advance: false,
@@ -195,6 +239,6 @@ export function detectReversal(
     miscueCount: 0,
     expectedWord: expectedWord,
     spokenWord: spokenWord,
-    details: `No reversal: "${spokenWord}" does not match next word "${nextWord}"`
+    details: `No reversal: "${spokenWord}" does not match next word "${nextWord}" or reversed "${expectedWord}"`
   };
 }

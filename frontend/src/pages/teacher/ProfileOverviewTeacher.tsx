@@ -7,6 +7,7 @@ import Loader from '../../components/Loader';
 import { gradeService, type ClassGrade } from '../../services/gradeService';
 import { studentService, type Student } from '../../services/studentService';
 import { updateUserProfile } from '../../services/authService';
+import ReversalSettings from '../../components/ReversalSettings';
 
 const ProfileOverviewTeacher: React.FC = () => {
   const { userProfile, refreshUserProfile } = useAuth();
@@ -515,6 +516,13 @@ const ProfileOverviewTeacher: React.FC = () => {
                 >
                   Security
                 </button>
+                <button
+                  onClick={() => setSettingsTab('reversal')}
+                  className={`py-2 px-1 border-b-2 font-medium text-xs sm:text-sm ${settingsTab === 'reversal' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
+                >
+                  <span className="hidden sm:inline">Reversal Detection</span>
+                  <span className="sm:hidden">Reversal</span>
+                </button>
               </nav>
             </div>
             {settingsTab === 'personal' && (
@@ -875,6 +883,27 @@ const ProfileOverviewTeacher: React.FC = () => {
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+            {settingsTab === 'reversal' && (
+              <div className="space-y-6">
+                <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl p-4 sm:p-6 border border-amber-200 mb-6">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-2">Reversal Detection Settings</h3>
+                      <p className="text-sm text-gray-600">
+                        Configure how the system detects letter and word reversals during reading sessions. 
+                        These settings help identify when students reverse letters (like b/d) or words (like was/saw).
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <ReversalSettings />
               </div>
             )}
           </div>
