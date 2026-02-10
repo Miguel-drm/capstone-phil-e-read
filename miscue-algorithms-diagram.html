@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phil-E-Read Miscue Detection Algorithms</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Arial', sans-serif; background: white; padding: 20px; }
+        .page { max-width: 1400px; margin: 0 auto; background: white; padding: 30px; border: 2px solid #333; page-break-after: always; margin-bottom: 40px; }
+        .title { text-align: center; font-size: 24px; font-weight: bold; margin-bottom: 30px; color: #1a1a1a; }
+        .diagram { display: flex; justify-content: space-between; align-items: stretch; gap: 20px; }
+        .column { flex: 1; display: flex; flex-direction: column; gap: 12px; }
+        .column-title { font-size: 20px; font-weight: bold; text-align: center; padding: 12px; background: #f0f0f0; border: 3px solid #333; margin-bottom: 8px; }
+        .input-box, .output-box { padding: 15px; border: 3px solid #333; border-radius: 25px; background: white; min-height: 60px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 12px; line-height: 1.4; }
+        .process-box { padding: 15px; border: 3px solid #333; border-radius: 25px; background: white; min-height: 60px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 11px; font-weight: 600; line-height: 1.3; }
+        .arrow { width: 0; height: 0; border-left: 25px solid transparent; border-right: 25px solid transparent; border-top: 30px solid #1e40af; margin: 8px auto; }
+        .arrow-right { width: 0; height: 0; border-top: 35px solid transparent; border-bottom: 35px solid transparent; border-left: 40px solid #1e40af; align-self: center; }
+        .output-visual { border: 3px solid #333; padding: 15px; background: #f8f9fa; border-radius: 8px; min-height: 300px; font-size: 11px; }
+        .word-box { display: inline-block; padding: 8px 12px; margin: 3px; border: 2px solid #333; border-radius: 6px; font-weight: bold; }
+        .correct { background: #dcfce7; border-color: #16a34a; }
+        .omission { background: #fed7aa; border-color: #ea580c; border-radius: 50%; }
+        .substitution { background: #fef08a; border-color: #ca8a04; text-decoration: underline; }
+        .insertion { background: #e9d5ff; border-color: #9333ea; border-style: dashed; }
+        .mispronunciation { background: #fecaca; border-color: #dc2626; text-decoration: underline wavy; }
+        .repetition { background: #bfdbfe; border-color: #2563eb; border-style: dotted; }
+        .reversal { background: #fbcfe8; border-color: #db2777; }
+        .transposition { background: #c7d2fe; border-color: #4f46e5; }
+        .self-correction { background: #99f6e4; border-color: #0d9488; }
+        .legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; font-size: 10px; }
+        .legend-item { display: flex; align-items: center; gap: 5px; }
+        .legend-box { width: 20px; height: 20px; border: 2px solid #333; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+<!-- PAGE 1: OMISSION DETECTION -->
+<div class="page">
+    <div class="title">PHIL-E-READ MISCUE DETECTION: OMISSION ALGORITHM</div>
+    <div class="diagram">
+        <div class="column">
+            <div class="column-title">INPUTS</div>
+            <div class="input-box"><strong>Spoken word</strong><br>from speech recognition</div>
+            <div class="input-box"><strong>Story words array</strong><br>expected text sequence</div>
+            <div class="input-box"><strong>Current position</strong><br>reading progress index</div>
+            <div class="input-box"><strong>Look-ahead window</strong><br>search range (default: 5)</div>
+            <div class="input-box"><strong>Language mode</strong><br>English or Tagalog</div>
+        </div>
+        <div class="arrow-right"></div>
+        <div class="column">
+            <div class="column-title">ALGORITHM</div>
+            <div class="process-box">NORMALIZE INPUT<br>Lowercase, remove punctuation</div>
+            <div class="arrow"></div>
+            <div class="process-box">VALIDATE INPUTS<br>Check empty, bounds</div>
+            <div class="arrow"></div>
+            <div class="process-box">SEARCH WINDOW<br>Look ahead 5 positions</div>
+            <div class="arrow"></div>
+            <div class="process-box">CHECK MATCHES<br>Exact + pronunciation variants</div>
+            <div class="arrow"></div>
+            <div class="process-box">CALCULATE SKIP<br>Count omitted words</div>
+            <div class="arrow"></div>
+            <div class="process-box">RETURN RESULT<br>Position, count, words</div>
+        </div>
+        <div class="arrow-right"></div>
+        <div class="column">
+            <div class="column-title">OUTPUT</div>
+            <div class="output-visual">
+                <strong>Example: Student skips words</strong><br><br>
+                <strong>Story:</strong> "The cat sat on the mat"<br>
+                <strong>Student reads:</strong> "The mat"<br><br>
+                <div class="word-box correct">The</div>
+                <div class="word-box omission">cat</div>
+                <div class="word-box omission">sat</div>
+                <div class="word-box omission">on</div>
+                <div class="word-box omission">the</div>
+                <div class="word-box correct">mat</div>
+                <br><br>
+                <strong>Detection Result:</strong><br>
+                • Match Type: omission<br>
+                • Miscue Count: 4<br>
+                • Omitted: [cat, sat, on, the]<br>
+                • New Position: 5<br>
+                • Matched Word: "mat" at position 5
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- PAGE 2: SUBSTITUTION DETECTION -->
+<div class="page">
+    <div class="title">PHIL-E-READ MISCUE DETECTION: SUBSTITUTION ALGORITHM</div>
+    <div class="diagram">
+        <div class="column">
+            <div class="column-title">INPUTS</div>
+            <div class="input-box"><strong>Spoken word</strong><br>recognized from audio</div>
+            <div class="input-box"><strong>Expected word</strong><br>at current position</div>
+            <div class="input-box"><strong>Story words array</strong><br>full text sequence</div>
+            <div class="input-box"><strong>Similarity threshold</strong><br>default: 0.6</div>
+            <div class="input-box"><strong>Look-ahead window</strong><br>omission check range</div>
+        </div>
+        <div class="arrow-right"></div>
+        <div class="column">
+            <div class="column-title">ALGORITHM</div>
+            <div class="process-box">NORMALIZE WORDS<br>Clean and lowercase</div>
+            <div class="arrow"></div>
+            <div class="process-box">CHECK EXACT MATCH<br>If match → not substitution</div>
+            <div class="arrow"></div>
+            <div class="process-box">CHECK PRONUNCIATION<br>Variant match → not substitution</div>
+            <div class="arrow"></div>
+            <div class="process-box">CALCULATE SIMILARITY<br>Levenshtein distance</div>
+            <div class="arrow"></div>
+            <div class="process-box">CHECK THRESHOLD<br>High similarity → mispronunciation</div>
+            <div class="arrow"></div>
+            <div class="process-box">CHECK LOOK-AHEAD<br>Found ahead → omission</div>
+            <div class="arrow"></div>
+            <div class="process-box">CONFIRM SUBSTITUTION<br>Different word entirely</div>
+        </div>
+        <div class="arrow-right"></div>
+        <div class="column">
+            <div class="column-title">OUTPUT</div>
+            <div class="output-visual">
+                <strong>Example: Wrong word</strong><br><br>
+                <strong>Story:</strong> "The dog ran fast"<br>
+                <strong>Student reads:</strong> "The cat ran fast"<br><br>
+                <div class="word-box correct">The</div>
+                <div class="word-box substitution">cat<br><small>(dog)</small></div>
+                <div class="word-box correct">ran</div>
+                <div class="word-box correct">fast</div>
+                <br><br>
+                <strong>Detection Result:</strong><br>
+                • Match Type: substitution<br>
+                • Miscue Count: 1<br>
+                • Substituted: "cat"<br>
+                • Expected: "dog"<br>
+                • Similarity: 0.33<br>
+                • New Position: 2<br>
+                • Advance: true
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- PAGE 3: INSERTION DETECTION -->
+<div class="page">
+    <div class="title">PHIL-E-READ MISCUE DETECTION: INSERTION ALGORITHM</div>
+    <div class="diagram">
+        <div class="column">
+            <div class="column-title">INPUTS</div>
+            <div class="input-box"><strong>Spoken word</strong><br>extra word detected</div>
+            <div class="input-box"><strong>Expected word</strong><br>current position word</div>
+            <div class="input-box"><strong>Story words array</strong><br>complete text</div>
+            <div class="input-box"><strong>Current position</strong><br>reading index</div>
+            <div class="input-box"><strong>Look-ahead window</strong><br>search range</div>
+        </div>
+        <div class="arrow-right"></div>
+        <div class="column">
+            <div class="column-title">ALGORITHM</div>
+            <div class="process-box">NORMALIZE INPUT<br>Clean spoken word</div>
+            <div class="arrow"></div>
+            <div class="process-box">CHECK EXPECTED<br>Match current word?</div>
+            <div class="arrow"></div>
+            <div class="process-box">CHECK PRONUNCIATION<br>Variant of expected?</div>
+            <div class="arrow"></div>
+            <div class="process-box">SEARCH WINDOW<br>Word exists ahead?</div>
+            <div class="arrow"></div>
+            <div class="process-box">CONFIRM INSERTION<br>Not in story at all</div>
+            <div class="arrow"></div>
+            <div class="process-box">RETURN RESULT<br>No position advance</div>
+        </div>
+        <div class="arrow-right"></div>
+        <div class="column">
+            <div class="column-title">OUTPUT</div>
+            <div class="output-visual">
+                <strong>Example: Extra word added</strong><br><br>
+                <strong>Story:</strong> "Pam has a map"<br>
+                <strong>Student reads:</strong> "Pam has a big map"<br><br>
+                <div class="word-box correct">Pam</div>
+                <div class="word-box correct">has</div>
+                <div class="word-box correct">a</div>
+                <div class="word-box insertion">big</div>
+                <div class="word-box correct">map</div>
+                <br><br>
+                <strong>Detection Result:</strong><br>
+                • Match Type: insertion<br>
+                • Miscue Count: 1<br>
+                • Inserted Word: "big"<br>
+                • Advance: false<br>
+                • New Position: 3 (unchanged)<br>
+                • Details: Word not in story text
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- PAGE 4: REVERSAL DETECTION -->
+<div class="page">
+    <div class="title">PHIL-E-READ MISCUE DETECTION: REVERSAL ALGORITHM</div>
+    <div class="diagram">
+        <div class="column">
+            <div class="column-title">INPUTS</div>
+            <div class="input-box"><strong>Spoken word</strong><br>word read by student</div>
+            <div class="input-box"><strong>Expected word</strong><br>current position word</div>
+            <div class="input-box"><strong>Next word</strong><br>position + 1 word</div>
+            <div class="input-box"><strong>Current position</strong><br>reading index</div>
+            <div class="input-box"><strong>Language mode</strong><br>pronunciation rules</div>
+        </div>
+        <div class="arrow-right"></div>
+        <div class="column">
+            <div class="column-title">ALGORITHM</div>
+            <div class="process-box">NORMALIZE INPUTS<br>Clean all words</div>
+            <div class="arrow"></div>
+            <div class="process-box">VALIDATE WORDS<br>Check empty, undefined</div>
+            <div class="arrow"></div>
+            <div class="process-box">CHECK NEXT WORD<br>Exact match?</div>
+            <div class="arrow"></div>
+            <div class="process-box">CHECK PRONUNCIATION<br>Variant of next word?</div>
+            <div class="arrow"></div>
+            <div class="process-box">CONFIRM REVERSAL<br>Spoke next instead of current</div>
+            <div class="arrow"></div>
+            <div class="process-box">RETURN RESULT<br>Advance position</div>
+        </div>
+        <div class="arrow-right"></div>
+        <div class="column">
+            <div class="column-title">OUTPUT</div>
+            <div class="output-visual">
+                <strong>Example: Words swapped</strong><br><br>
+                <strong>Story:</strong> "was saw on no"<br>
+                <strong>Student reads:</strong> "saw was no on"<br><br>
+                <div class="word-box reversal">saw<br><small>(was)</small></div>
+                <div class="word-box reversal">was<br><small>(saw)</small></div>
+                <div class="word-box reversal">no<br><small>(on)</small></div>
+                <div class="word-box reversal">on<br><small>(no)</small></div>
+                <br><br>
+                <strong>Detection Result:</strong><br>
+                • Match Type: reversal<br>
+                • Miscue Count: 1<br>
+                • Expected: "was"<br>
+                • Spoken: "saw" (next word)<br>
+                • New Position: 1<br>
+                • Advance: true
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- PAGE 5: MISPRONUNCIATION DETECTION -->
+<div class="page">
+    <div class="title">PHIL-E-READ MISCUE DETECTION: MISPRONUNCIATION ALGORITHM</div>
+    <div class="diagram">
+        <div class="column">
+            <div class="column-title">INPUTS</div>
+            <div class="input-box"><strong>Spoken word</strong><br>mispronounced word</div>
+            <div class="input-box"><strong>Expected word</strong><br>correct pronunciation</div>
+            <div class="input-box"><strong>Similarity threshold</strong><br>default: 0.6</div>
+            <div class="input-box"><strong>Language mode</strong><br>pronunciation rules</div>
+            <div class="input-box"><strong>Story vocabulary</strong><br>valid word list</div>
+        </div>
+        <div class="arrow-right"></div>
+        <div class="column">
+            <div class="column-title">ALGORITHM</div>
+            <div class="process-box">NORMALIZE WORDS<br>Lowercase, clean</div>
+            <div class="arrow"></div>
+            <div class="process-box">CHECK EXACT MATCH<br>If match → correct</div>
+            <div class="arrow"></div>
+            <div class="process-box">CHECK PRONUNCIATION<br>Acceptable variant?</div>
+            <div class="arrow"></div>
+            <div class="process-box">CALCULATE SIMILARITY<br>Levenshtein distance</div>
+            <div class="arrow"></div>
+            <div class="process-box">COMPARE THRESHOLD<br>≥ 0.6 → mispronunciation</div>
+            <div class="arrow"></div>
+            <div class="process-box">RETURN RESULT<br>Similarity score</div>
+        </div>
+        <div class="arrow-right"></div>
+        <div class="column">
+            <div class="column-title">OUTPUT</div>
+            <div class="output-visual">
+                <strong>Example: Similar but wrong</strong><br><br>
+                <strong>Story:</strong> "The cat sat"<br>
+                <strong>Student reads:</strong> "The kat sat"<br><br>
+                <div class="word-box correct">The</div>
+                <div class="word-box mispronunciation">kat<br><small>(cat)</small></div>
+                <div class="word-box correct">sat</div>
+                <br><br>
+                <strong>Detection Result:</strong><br>
+                • Match Type: mispronunciation<br>
+                • Miscue Count: 1<br>
+                • Spoken: "kat"<br>
+                • Expected: "cat"<br>
+                • Similarity: 0.67<br>
+                • New Position: 2<br>
+                • Advance: true
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- PAGE 6: REPETITION & SELF-CORRECTION -->
+<div class="page">
+    <div class="title">PHIL-E-READ MISCUE DETECTION: REPETITION & SELF-CORRECTION</div>
+    <div class="diagram">
+        <div class="column">
+            <div class="column-title">INPUTS</div>
+            <div class="input-box"><strong>Word sequence</strong><br>consecutive words</div>
+            <div class="input-box"><strong>Previous word</strong><br>last spoken word</div>
+            <div class="input-box"><strong>Current word</strong><br>newly spoken word</div>
+            <div class="input-box"><strong>Expected word</strong><br>story text word</div>
+            <div class="input-box"><strong>Position history</strong><br>reading progress</div>
+        </div>
+        <div class="arrow-right"></div>
+        <div class="column">
+            <div class="column-title">ALGORITHM</div>
+            <div class="process-box">REPETITION:<br>Check if word = previous</div>
+            <div class="arrow"></div>
+            <div class="process-box">VERIFY POSITION<br>Same word repeated?</div>
+            <div class="arrow"></div>
+            <div class="process-box">SELF-CORRECTION:<br>Check error then fix</div>
+            <div class="arrow"></div>
+            <div class="process-box">DETECT PATTERN<br>Wrong → Correct sequence</div>
+            <div class="arrow"></div>
+            <div class="process-box">COUNT MISCUES<br>Repetition: +1<br>Self-correction: +0</div>
+            <div class="arrow"></div>
+            <div class="process-box">RETURN RESULT<br>Type and count</div>
+        </div>
+        <div class="arrow-right"></div>
+        <div class="column">
+            <div class="column-title">OUTPUT</div>
+            <div class="output-visual">
+                <strong>Repetition Example:</strong><br>
+                Story: "The cat sat"<br>
+                Student: "The cat cat sat"<br><br>
+                <div class="word-box correct">The</div>
+                <div class="word-box correct">cat</div>
+                <div class="word-box repetition">cat</div>
+                <div class="word-box correct">sat</div>
+                <br><br>
+                <strong>Self-Correction Example:</strong><br>
+                Story: "The cat sat"<br>
+                Student: "The dog... cat sat"<br><br>
+                <div class="word-box correct">The</div>
+                <div class="word-box self-correction">dog→cat</div>
+                <div class="word-box correct">sat</div>
+                <br><br>
+                <strong>Note:</strong> Self-corrections are marked but NOT counted as errors per DepEd Phil-IRI standards.
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- PAGE 7: TRANSPOSITION DETECTION -->
+<div class="page">
+    <div class="title">PHIL-E-READ MISCUE DETECTION: TRANSPOSITION ALGORITHM</div>
+    <div class="diagram">
+        <div class="column">
+            <div class="column-title">INPUTS</div>
+            <div class="input-box"><strong>Word sequence</strong><br>multiple words spoken</div>
+            <div class="input-box"><strong>Expected sequence</strong><br>story word order</div>
+            <div class="input-box"><strong>Position range</strong><br>words to check</div>
+            <div class="input-box"><strong>Window size</strong><br>transposition range</div>
+            <div class="input-box"><strong>Language mode</strong><br>matching rules</div>
+        </div>
+        <div class="arrow-right"></div>
+        <div class="column">
+            <div class="column-title">ALGORITHM</div>
+            <div class="process-box">COLLECT SEQUENCE<br>Get word group</div>
+            <div class="arrow"></div>
+            <div class="process-box">NORMALIZE WORDS<br>Clean all words</div>
+            <div class="arrow"></div>
+            <div class="process-box">CHECK ORDER<br>Compare positions</div>
+            <div class="arrow"></div>
+            <div class="process-box">DETECT SWAP<br>Words out of order?</div>
+            <div class="arrow"></div>
+            <div class="process-box">VERIFY CONTENT<br>Same words, wrong order</div>
+            <div class="arrow"></div>
+            <div class="process-box">RETURN RESULT<br>Transposed positions</div>
+        </div>
+        <div class="arrow-right"></div>
+        <div class="column">
+            <div class="column-title">OUTPUT</div>
+            <div class="output-visual">
+                <strong>Example: Word order changed</strong><br><br>
+                <strong>Story:</strong> "The big red ball"<br>
+                <strong>Student reads:</strong> "The red big ball"<br><br>
+                <div class="word-box correct">The</div>
+                <div class="word-box transposition">red<br><small>(big)</small></div>
+                <div class="word-box transposition">big<br><small>(red)</small></div>
+                <div class="word-box correct">ball</div>
+                <br><br>
+                <strong>Detection Result:</strong><br>
+                • Match Type: transposition<br>
+                • Miscue Count: 1<br>
+                • Transposed: positions 1↔2<br>
+                • Words: "big" and "red"<br>
+                • New Position: 4<br>
+                • Advance: true
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- PAGE 8: COMPLETE SYSTEM OVERVIEW -->
+<div class="page">
+    <div class="title">PHIL-E-READ: COMPLETE MISCUE DETECTION SYSTEM</div>
+    
+    <div style="margin-bottom: 30px;">
+        <h3 style="text-align: center; margin-bottom: 15px; font-size: 18px;">MISCUE TYPE LEGEND</h3>
+        <div class="legend" style="justify-content: center;">
+            <div class="legend-item">
+                <div class="legend-box correct"></div>
+                <span>Correct</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-box omission"></div>
+                <span>Omission</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-box substitution"></div>
+                <span>Substitution</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-box insertion"></div>
+                <span>Insertion</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-box mispronunciation"></div>
+                <span>Mispronunciation</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-box repetition"></div>
+                <span>Repetition</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-box reversal"></div>
+                <span>Reversal</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-box transposition"></div>
+                <span>Transposition</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-box self-correction"></div>
+                <span>Self-Correction</span>
+            </div>
+        </div>
+    </div>
+    
+    <div style="border: 3px solid #333; padding: 20px; border-radius: 10px; background: #f8f9fa;">
+        <h3 style="text-align: center; margin-bottom: 20px; font-size: 16px;">DETECTION PRIORITY & FLOW</h3>
+        
+        <div style="display: flex; flex-direction: column; gap: 15px; font-size: 12px;">
+            <div style="background: white; padding: 15px; border-radius: 8px; border: 2px solid #333;">
+                <strong>1. CORRECT WORD</strong><br>
+                ✓ Exact match or pronunciation variant<br>
+                → Advance position, no miscue
+            </div>
+            
+            <div style="background: white; padding: 15px; border-radius: 8px; border: 2px solid #333;">
+                <strong>2. OMISSION</strong><br>
+                ✓ Word found in look-ahead window (5 positions)<br>
+                → Skip omitted words, count miscues
+            </div>
+            
+            <div style="background: white; padding: 15px; border-radius: 8px; border: 2px solid #333;">
+                <strong>3. REVERSAL</strong><br>
+                ✓ Spoken word matches next word<br>
+                → Mark reversal, advance position
+            </div>
+            
+            <div style="background: white; padding: 15px; border-radius: 8px; border: 2px solid #333;">
+                <strong>4. MISPRONUNCIATION</strong><br>
+                ✓ Similarity ≥ 0.6 to expected word<br>
+                → Count miscue, advance position
+            </div>
+            
+            <div style="background: white; padding: 15px; border-radius: 8px; border: 2px solid #333;">
+                <strong>5. SUBSTITUTION</strong><br>
+                ✓ Similarity < 0.6, not in look-ahead<br>
+                → Count miscue, advance position
+            </div>
+            
+            <div style="background: white; padding: 15px; border-radius: 8px; border: 2px solid #333;">
+                <strong>6. INSERTION</strong><br>
+                ✓ Word not in story at all<br>
+                → Count miscue, no position advance
+            </div>
+            
+            <div style="background: white; padding: 15px; border-radius: 8px; border: 2px solid #333;">
+                <strong>7. REPETITION</strong><br>
+                ✓ Same word spoken twice<br>
+                → Count miscue, advance position
+            </div>
+            
+            <div style="background: white; padding: 15px; border-radius: 8px; border: 2px solid #333;">
+                <strong>8. TRANSPOSITION</strong><br>
+                ✓ Words in wrong order<br>
+                → Count miscue, advance position
+            </div>
+            
+            <div style="background: white; padding: 15px; border-radius: 8px; border: 2px solid #0d9488;">
+                <strong>9. SELF-CORRECTION</strong><br>
+                ✓ Error followed by correction<br>
+                → Mark but DON'T count (DepEd standard)
+            </div>
+        </div>
+    </div>
+    
+    <div style="margin-top: 20px; padding: 15px; background: #dbeafe; border: 2px solid #2563eb; border-radius: 8px; font-size: 11px;">
+        <strong>📊 SYSTEM METRICS:</strong><br>
+        • Real-time speech recognition via Vosk<br>
+        • Server-side word matching with pronunciation variants<br>
+        • Look-ahead window: 5 words<br>
+        • Similarity threshold: 0.6 (Levenshtein distance)<br>
+        • Supports: English & Tagalog<br>
+        • Aligned with DepEd Phil-IRI standards
+    </div>
+</div>
+
+</body>
+</html>

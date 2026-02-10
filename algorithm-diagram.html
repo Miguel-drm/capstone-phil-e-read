@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phil-E-Read Algorithm IPO Diagram</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            background: white;
+            padding: 40px;
+        }
+        
+        .diagram-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            border: 2px solid #333;
+        }
+        
+        .title {
+            text-align: center;
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 40px;
+            color: #1a1a1a;
+        }
+        
+        .diagram {
+            display: flex;
+            justify-content: space-between;
+            align-items: stretch;
+            gap: 30px;
+            margin-bottom: 60px;
+        }
+        
+        .column {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .column-title {
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            padding: 15px;
+            background: #f0f0f0;
+            border: 3px solid #333;
+            margin-bottom: 10px;
+        }
+        
+        .input-box, .output-box {
+            padding: 20px;
+            border: 3px solid #333;
+            border-radius: 30px;
+            background: white;
+            min-height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        
+        .process-box {
+            padding: 20px;
+            border: 3px solid #333;
+            border-radius: 30px;
+            background: white;
+            min-height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 600;
+            line-height: 1.5;
+        }
+        
+        .arrow {
+            width: 0;
+            height: 0;
+            border-left: 30px solid transparent;
+            border-right: 30px solid transparent;
+            border-top: 40px solid #1e40af;
+            margin: 10px auto;
+        }
+        
+        .arrow-right {
+            width: 0;
+            height: 0;
+            border-top: 40px solid transparent;
+            border-bottom: 40px solid transparent;
+            border-left: 50px solid #1e40af;
+            align-self: center;
+        }
+        
+        .output-screen {
+            border: 4px solid #333;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            min-height: 400px;
+        }
+        
+        .screen-header {
+            background: #1e40af;
+            color: white;
+            padding: 10px;
+            border-radius: 5px 5px 0 0;
+            font-weight: bold;
+            margin: -20px -20px 20px -20px;
+        }
+        
+        .session-card {
+            border: 2px solid #cbd5e1;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            background: white;
+            font-size: 12px;
+        }
+        
+        .session-card.selected {
+            border-color: #4f46e5;
+            background: #eef2ff;
+        }
+        
+        .checkbox {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #333;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        
+        .checkbox.checked::after {
+            content: '✓';
+            font-weight: bold;
+            color: #4f46e5;
+        }
+        
+        .bulk-actions {
+            background: #eef2ff;
+            border: 2px solid #4f46e5;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: none;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 11px;
+        }
+        
+        .btn-delete {
+            background: #dc2626;
+            color: white;
+        }
+        
+        .success-msg {
+            background: #dcfce7;
+            border: 2px solid #16a34a;
+            padding: 10px;
+            border-radius: 6px;
+            color: #166534;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+        
+        .page-break {
+            page-break-after: always;
+            margin: 60px 0;
+        }
+        
+        @media print {
+            body {
+                padding: 0;
+            }
+            .diagram-container {
+                border: none;
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- DIAGRAM 1: Multi-Delete -->
+    <div class="diagram-container">
+        <div class="title">PHIL-E-READ SYSTEM: MULTI-DELETE READING SESSIONS ALGORITHM</div>
+        
+        <div class="diagram">
+            <!-- INPUTS -->
+            <div class="column">
+                <div class="column-title">INPUTS</div>
+                
+                <div class="input-box">
+                    <strong>Teacher profile data</strong><br>
+                    - teacherId<br>
+                    - permissions
+                </div>
+                
+                <div class="input-box">
+                    <strong>Reading sessions data</strong><br>
+                    - sessionId<br>
+                    - studentName<br>
+                    - book title<br>
+                    - status
+                </div>
+                
+                <div class="input-box">
+                    <strong>User selection data</strong><br>
+                    - checkbox clicks<br>
+                    - select all<br>
+                    - session IDs
+                </div>
+                
+                <div class="input-box">
+                    <strong>Session results data</strong><br>
+                    - results Map<br>
+                    - student data
+                </div>
+                
+                <div class="input-box">
+                    <strong>Filter criteria</strong><br>
+                    - story filter<br>
+                    - active tab
+                </div>
+            </div>
+            
+            <div class="arrow-right"></div>
+            
+            <!-- PROCESS -->
+            <div class="column">
+                <div class="column-title">CONSTRAINT BASED<br>ALGORITHM</div>
+                
+                <div class="process-box">
+                    SESSION SELECTION AND<br>VALIDATION
+                </div>
+                <div class="arrow"></div>
+                
+                <div class="process-box">
+                    CONSTRAINT<br>IDENTIFICATION AND<br>PREPARATION
+                </div>
+                <div class="arrow"></div>
+                
+                <div class="process-box">
+                    SELECTION<br>MANAGEMENT LOOP
+                </div>
+                <div class="arrow"></div>
+                
+                <div class="process-box">
+                    CONFLICT DETECTION<br>AND RESOLUTION
+                </div>
+                <div class="arrow"></div>
+                
+                <div class="process-box">
+                    DELETION EXECUTION<br>AND FINALIZATION
+                </div>
+                <div class="arrow"></div>
+                
+                <div class="process-box">
+                    RESULT OUTPUT
+                </div>
+            </div>
+            
+            <div class="arrow-right"></div>
+            
+            <!-- OUTPUT -->
+            <div class="column">
+                <div class="column-title">OUTPUT</div>
+                
+                <div class="output-screen">
+                    <div class="screen-header">📊 Reading Sessions Dashboard</div>
+                    
+                    <div class="bulk-actions">
+                        <div>
+                            <strong>3 sessions selected</strong>
+                        </div>
+                        <button class="btn btn-delete">Delete Selected</button>
+                    </div>
+                    
+                    <div class="session-card selected">
+                        <span class="checkbox checked"></span>
+                        <strong>Session 1</strong><br>
+                        Student: Ana<br>
+                        Story: Pam and the Map
+                    </div>
+                    
+                    <div class="session-card selected">
+                        <span class="checkbox checked"></span>
+                        <strong>Session 2</strong><br>
+                        Student: Ben<br>
+                        Story: Pam and the Map
+                    </div>
+                    
+                    <div class="session-card selected">
+                        <span class="checkbox checked"></span>
+                        <strong>Session 3</strong><br>
+                        Student: Carl<br>
+                        Story: Pam and the Map
+                    </div>
+                    
+                    <div class="session-card">
+                        <span class="checkbox"></span>
+                        <strong>Session 4</strong><br>
+                        Student: Dana<br>
+                        Story: The Cat
+                    </div>
+                    
+                    <div class="success-msg">
+                        ✅ Successfully deleted 3 sessions
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="page-break"></div>
+    
+    <!-- DIAGRAM 2: Reversal Detection -->
+    <div class="diagram-container">
+        <div class="title">PHIL-E-READ SYSTEM: REVERSAL DETECTION CONFIGURATION ALGORITHM</div>
+        
+        <div class="diagram">
+            <!-- INPUTS -->
+            <div class="column">
+                <div class="column-title">INPUTS</div>
+                
+                <div class="input-box">
+                    <strong>Teacher profile data</strong><br>
+                    - teacherId<br>
+                    - grade level<br>
+                    - preferences
+                </div>
+                
+                <div class="input-box">
+                    <strong>Configuration settings</strong><br>
+                    - enabled toggle<br>
+                    - min word length<br>
+                    - custom pairs<br>
+                    - exclude words
+                </div>
+                
+                <div class="input-box">
+                    <strong>User input data</strong><br>
+                    - word1 text<br>
+                    - word2 text<br>
+                    - exclude word<br>
+                    - button clicks
+                </div>
+                
+                <div class="input-box">
+                    <strong>Existing config data</strong><br>
+                    - localStorage<br>
+                    - default config
+                </div>
+                
+                <div class="input-box">
+                    <strong>Validation rules</strong><br>
+                    - length check<br>
+                    - reverse check<br>
+                    - duplicate check
+                </div>
+            </div>
+            
+            <div class="arrow-right"></div>
+            
+            <!-- PROCESS -->
+            <div class="column">
+                <div class="column-title">CONSTRAINT BASED<br>ALGORITHM</div>
+                
+                <div class="process-box">
+                    CONFIGURATION<br>RETRIEVAL AND<br>INITIALIZATION
+                </div>
+                <div class="arrow"></div>
+                
+                <div class="process-box">
+                    CONSTRAINT<br>IDENTIFICATION AND<br>PREPARATION
+                </div>
+                <div class="arrow"></div>
+                
+                <div class="process-box">
+                    INPUT VALIDATION<br>LOOP
+                </div>
+                <div class="arrow"></div>
+                
+                <div class="process-box">
+                    CONFLICT DETECTION<br>AND RESOLUTION
+                </div>
+                <div class="arrow"></div>
+                
+                <div class="process-box">
+                    SAVING AND<br>FINALIZATION OF<br>CONFIGURATION
+                </div>
+                <div class="arrow"></div>
+                
+                <div class="process-box">
+                    RESULT OUTPUT
+                </div>
+            </div>
+            
+            <div class="arrow-right"></div>
+            
+            <!-- OUTPUT -->
+            <div class="column">
+                <div class="column-title">OUTPUT</div>
+                
+                <div class="output-screen">
+                    <div class="screen-header">⚙️ Reversal Detection Settings</div>
+                    
+                    <div class="success-msg" style="margin-bottom: 15px;">
+                        ✅ Settings saved successfully!
+                    </div>
+                    
+                    <div style="padding: 15px; background: white; border-radius: 8px; margin-bottom: 15px; border: 2px solid #e5e7eb;">
+                        <strong>Enable Reversal Detection:</strong>
+                        <span style="float: right; color: #16a34a;">● ON</span>
+                    </div>
+                    
+                    <div style="padding: 15px; background: white; border-radius: 8px; margin-bottom: 15px; border: 2px solid #e5e7eb;">
+                        <strong>Minimum Word Length:</strong>
+                        <span style="float: right;">2 letters</span>
+                    </div>
+                    
+                    <div style="padding: 15px; background: white; border-radius: 8px; margin-bottom: 15px; border: 2px solid #e5e7eb;">
+                        <strong>Custom Reversal Pairs:</strong>
+                        <div style="margin-top: 10px; font-size: 12px;">
+                            <div style="padding: 8px; background: #f8f9fa; margin: 5px 0; border-radius: 4px;">
+                                was ↔ saw <span style="float: right; color: #dc2626; cursor: pointer;">×</span>
+                            </div>
+                            <div style="padding: 8px; background: #f8f9fa; margin: 5px 0; border-radius: 4px;">
+                                on ↔ no <span style="float: right; color: #dc2626; cursor: pointer;">×</span>
+                            </div>
+                            <div style="padding: 8px; background: #f8f9fa; margin: 5px 0; border-radius: 4px;">
+                                pot ↔ top <span style="float: right; color: #dc2626; cursor: pointer;">×</span>
+                            </div>
+                            <div style="padding: 8px; background: #f8f9fa; margin: 5px 0; border-radius: 4px;">
+                                bad ↔ dab <span style="float: right; color: #dc2626; cursor: pointer;">×</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="padding: 15px; background: white; border-radius: 8px; border: 2px solid #e5e7eb;">
+                        <strong>Exclude Words:</strong>
+                        <div style="margin-top: 10px; font-size: 11px;">
+                            <span style="display: inline-block; padding: 5px 10px; background: #f1f5f9; border-radius: 12px; margin: 3px;">the ×</span>
+                            <span style="display: inline-block; padding: 5px 10px; background: #f1f5f9; border-radius: 12px; margin: 3px;">and ×</span>
+                            <span style="display: inline-block; padding: 5px 10px; background: #f1f5f9; border-radius: 12px; margin: 3px;">or ×</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Print instructions
+        console.log('To save as image:');
+        console.log('1. Right-click on the page');
+        console.log('2. Select "Print" or press Ctrl+P');
+        console.log('3. Choose "Save as PDF" or "Microsoft Print to PDF"');
+        console.log('4. Or use browser screenshot tools');
+    </script>
+</body>
+</html>
