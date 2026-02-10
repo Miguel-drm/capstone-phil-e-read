@@ -52,6 +52,7 @@ export interface OmissionConfig {
 /**
  * Searches for a matching word within a look-ahead window.
  * Checks both exact matches and pronunciation variants.
+ * Uses stricter matching to reduce false positives.
  * 
  * @param spokenWord - The word that was spoken
  * @param storyWords - Array of words from the story
@@ -78,7 +79,7 @@ export function findMatchInWindow(
   const searchStart = startPosition + 1;
   const searchEnd = Math.min(startPosition + windowSize + 1, storyWords.length);
   
-  // Search through the window
+  // Search through the window - prioritize closer matches
   for (let i = searchStart; i < searchEnd; i++) {
     const storyWord = storyWords[i];
     const normalizedStory = normalizeWord(storyWord);
@@ -102,12 +103,15 @@ export function findMatchInWindow(
 // Main Detection Function
 // ============================================================================
 
-/** Default look-ahead window size */
-const DEFAULT_LOOK_AHEAD_WINDOW = 5;
+/** Default look-ahead window size - reduced to 1 to minimize false positives (only check next word) */
+const DEFAULT_LOOK_AHEAD_WINDOW = 1;
 
 /**
  * Detects if a spoken word indicates an omission (skipped words)
  * by searching for a match in the look-ahead window.
+ * 
+ * IMPORTANT: Only marks as omission if the word does NOT match the current position.
+ * If it matches the current position, it's a correct word, not an omission.
  * 
  * @param spokenWord - The word recognized from speech
  * @param storyWords - Array of words from the story
@@ -168,7 +172,26 @@ export function detectOmission(
     };
   }
   
-  // Search for match in look-ahead window
+  // CRITICAL: Check if the spoken word matches the CURRENT position first
+  // If it does, it's NOT an omission - it's a correct word (should have been caught by detectCorrectWord)
+  const currentWord = storyWords[currentPosition];
+  const normalizedCurrent = normalizeWord(currentWord || '');
+  
+  if (normalizedSpoken === normalizedCurrent || 
+      checkPronunciationMatch(normalizedSpoken, normalizedCurrent, language)) {
+    return {
+      matchType: 'no_match',
+      advance: false,
+      newPosition: currentPosition,
+      miscueCount: 0,
+      omittedWords: [],
+      matchedWord: null,
+      matchedPosition: null,
+      details: `Word matches current position - not an omission: "${spokenWord}" matches "${currentWord}"`
+    };
+  }
+  
+  // Search for match in look-ahead window (only positions AFTER current)
   const match = findMatchInWindow(
     spokenWord,
     storyWords,

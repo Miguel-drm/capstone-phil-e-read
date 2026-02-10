@@ -23,6 +23,10 @@ export interface WordDisplayProps {
   className?: string;
   /** Optional flag to show as selected */
   isSelected?: boolean;
+  /** Optional pending miscue type for instant visual feedback */
+  pendingMiscueType?: string;
+  /** Optional flag indicating word is pending recognition */
+  isPendingRecognized?: boolean;
 }
 
 /**
@@ -39,7 +43,9 @@ export const WordDisplay: React.FC<WordDisplayProps> = ({
   isCurrent,
   onClick,
   className = '',
-  isSelected = false
+  isSelected = false,
+  pendingMiscueType,
+  isPendingRecognized = false
 }) => {
   const handleClick = useCallback(() => {
     onClick?.(word.index);
@@ -59,6 +65,19 @@ export const WordDisplay: React.FC<WordDisplayProps> = ({
       borderStyle: 'solid',
       fontWeight: 'bold',
     }),
+    // Apply pending recognized styling (pulsing green)
+    ...(isPendingRecognized && !word.miscueType && {
+      backgroundColor: '#dcfce7', // green-100
+      borderColor: '#22c55e', // green-500
+      borderWidth: '2px',
+      borderStyle: 'solid',
+      animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+    }),
+    // Apply pending miscue styling (pulsing colored)
+    ...(pendingMiscueType && {
+      animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+      opacity: 0.9,
+    }),
     // Apply selection styling if selected
     ...(isSelected && {
       outline: '2px solid #3b82f6',
@@ -75,26 +94,35 @@ export const WordDisplay: React.FC<WordDisplayProps> = ({
   };
 
   // Build accessibility attributes
-  const ariaLabel = buildAriaLabel(word, isCurrent);
+  const ariaLabel = buildAriaLabel(word, isCurrent, isPendingRecognized, pendingMiscueType);
 
   return (
-    <span
-      style={finalStyle}
-      onClick={handleClick}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          handleClick();
+    <>
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.7; }
         }
-      }}
-      role={onClick ? 'button' : 'text'}
-      tabIndex={onClick ? 0 : -1}
-      aria-label={ariaLabel}
-      aria-pressed={isSelected}
-      className={`word-display ${className}`}
-    >
-      {word.text}
-    </span>
+      `}</style>
+      <span
+        style={finalStyle}
+        onClick={handleClick}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleClick();
+          }
+        }}
+        role={onClick ? 'button' : 'text'}
+        tabIndex={onClick ? 0 : -1}
+        aria-label={ariaLabel}
+        aria-pressed={isSelected}
+        className={`word-display ${className}`}
+        title={isPendingRecognized ? 'Pending confirmation' : pendingMiscueType ? `Pending: ${pendingMiscueType}` : ''}
+      >
+        {word.text}
+      </span>
+    </>
   );
 };
 
@@ -104,13 +132,23 @@ export const WordDisplay: React.FC<WordDisplayProps> = ({
  * 
  * @param word - The word state
  * @param isCurrent - Whether this is the current word
+ * @param isPendingRecognized - Whether word is pending recognition
+ * @param pendingMiscueType - Pending miscue type if any
  * @returns Aria label string
  */
-function buildAriaLabel(word: WordState, isCurrent: boolean): string {
+function buildAriaLabel(word: WordState, isCurrent: boolean, isPendingRecognized: boolean = false, pendingMiscueType?: string): string {
   const parts: string[] = [word.text];
 
   if (isCurrent) {
     parts.push('current word');
+  }
+
+  if (isPendingRecognized) {
+    parts.push('pending recognition');
+  }
+
+  if (pendingMiscueType) {
+    parts.push(`pending ${pendingMiscueType}`);
   }
 
   switch (word.status) {

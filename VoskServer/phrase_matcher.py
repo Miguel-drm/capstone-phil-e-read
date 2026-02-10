@@ -26,8 +26,8 @@ class PhraseMatcherSession:
         self.language = language
         
         # Use SmartBufferMatcher for intelligent matching
-        # Buffer size of 80 words handles Vosk's severe reordering
-        self.matcher = SmartBufferMatcher(expected_words, buffer_size=80)
+        # Buffer size of 8 words for immediate response
+        self.matcher = SmartBufferMatcher(expected_words, buffer_size=8)
         
         print(f"✓ Phrase matcher initialized: {len(expected_words)} words, language={language}")
     
