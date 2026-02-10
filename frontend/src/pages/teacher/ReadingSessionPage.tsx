@@ -37,6 +37,7 @@ import { detectReversal } from "@detection/reversal";
 import { detectSubstitution } from "@detection/substitution";
 import { detectInsertion } from "@detection/insertion";
 import { detectTransposition } from "@detection/transposition";
+import { clearGlobalCache, getGlobalCacheStats } from "@detection/phonetic";
 import { ColorLegend } from "@/components/reading/ColorLegend";
 import { WordDisplay } from "@/components/reading/WordDisplay";
 import { type DetectionType } from "@/utils/detectionColors";
@@ -442,6 +443,12 @@ const ReadingSessionPage: React.FC = () => {
       if (voskSocketRef.current) {
         voskSocketRef.current.close(1000, "Cleanup");
       }
+    } catch { }
+
+    // Clear phonetic cache to free memory
+    try {
+      clearGlobalCache();
+      console.log("🧹 Phonetic cache cleared");
     } catch { }
 
     // Clear refs
@@ -928,11 +935,45 @@ const ReadingSessionPage: React.FC = () => {
                   wordStateManager.updateWordStatus(currentWordIndex, 'miscue', 'mispronunciation', filteredText);
                 } else {
                   // Check for reversal (word matches next word instead of current)
-                  const nextWord = words[currentWordIndex + 1];
-                  const reversalResult = detectReversal(filteredText, expectedWord, nextWord, currentWordIndex, { language: storyLanguage });
+                  // Extract next 3 words from story at current position for lookahead buffer
+                  const lookaheadWords = words.slice(currentWordIndex + 1, currentWordIndex + 4);
+                  
+                  // Task 5.2: Performance monitoring - track reversal detection time
+                  const startTime = performance.now();
+                  
+                  const reversalResult = detectReversal(
+                    filteredText,
+                    expectedWord,
+                    lookaheadWords,
+                    currentWordIndex,
+                    {
+                      language: storyLanguage,
+                      maxLookahead: 3,
+                      confidenceThreshold: 0.8,
+                      enablePhonetic: true,
+                      minWordLength: 3
+                    }
+                  );
+                  
+                  // Task 5.2: Calculate detection time and log warning if > 50ms
+                  const detectionTime = performance.now() - startTime;
+                  if (detectionTime > 50) {
+                    console.warn(`⚠️ Reversal detection took ${detectionTime.toFixed(2)}ms (threshold: 50ms)`);
+                  } else {
+                    console.log(`⏱️ Reversal detection: ${detectionTime.toFixed(2)}ms`);
+                  }
                   
                   if (reversalResult.matchType === 'reversal') {
+                    // Task 4.4: Enhanced logging for reversal detection
                     console.log(`🔄 Reversal detected: ${reversalResult.details}`);
+                    console.log(`   Type: ${reversalResult.reversalType || 'unknown'}`);
+                    console.log(`   Confidence: ${reversalResult.confidence?.toFixed(2) || 'N/A'}`);
+                    console.log(`   Lookahead distance: ${reversalResult.lookaheadDistance !== undefined ? reversalResult.lookaheadDistance : 'N/A'}`);
+                    
+                    // Task 5.2: Log cache statistics for performance monitoring
+                    const cacheStats = getGlobalCacheStats();
+                    console.log(`   Cache stats: ${cacheStats.hits} hits, ${cacheStats.misses} misses, ${(cacheStats.hitRate * 100).toFixed(1)}% hit rate`);
+                    
                     updatePositionSequentially(reversalResult.newPosition);
                     lastPositionRef.current = reversalResult.newPosition;
                     setWordsRead(prev => prev + 1);
@@ -943,8 +984,35 @@ const ReadingSessionPage: React.FC = () => {
                       reversal: prev.reversal + reversalResult.miscueCount
                     }));
                     setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'reversal'));
-                    // Update WordStateManager
-                    wordStateManager.updateWordStatus(currentWordIndex, 'miscue', 'reversal', filteredText);
+                    
+                    // Task 4.2: Implement dual-position marking for word-order reversals
+                    if (reversalResult.reversalType === 'word-order') {
+                      // Mark both the skipped position and the matched position
+                      if (reversalResult.skippedPosition !== undefined) {
+                        // Mark the word that was skipped (current position)
+                        wordStateManager.updateWordStatus(
+                          reversalResult.skippedPosition,
+                          'miscue',
+                          'reversal',
+                          expectedWord
+                        );
+                        console.log(`   Skipped position: ${reversalResult.skippedPosition} ("${expectedWord}")`);
+                      }
+                      
+                      if (reversalResult.matchedPosition !== undefined) {
+                        // Mark the word that was read out of order (matched position)
+                        wordStateManager.updateWordStatus(
+                          reversalResult.matchedPosition,
+                          'miscue',
+                          'reversal',
+                          filteredText
+                        );
+                        console.log(`   Matched position: ${reversalResult.matchedPosition} ("${filteredText}")`);
+                      }
+                    } else {
+                      // For letter-level reversals, only mark the current position
+                      wordStateManager.updateWordStatus(currentWordIndex, 'miscue', 'reversal', filteredText);
+                    }
                   } else {
                     // Not a reversal - check for substitution (completely different word)
                     const substitutionResult = detectSubstitution(filteredText, expectedWord, currentWordIndex, words, { language: storyLanguage });

@@ -491,9 +491,9 @@ describe('Property 4: Pronunciation variant matching', () => {
           if (!variants || variants.length === 0) return;
           
           const variant = variants[0];
-          const result = checkNextWordMatch(variant, wordWithVariant, 'english');
+          const result = checkNextWordMatch(variant, [wordWithVariant], 'english');
           
-          expect(result).toBe(true);
+          expect(result.matched).toBe(true);
         }
       ),
       { numRuns: 100 }
@@ -541,11 +541,11 @@ describe('Property 4: Pronunciation variant matching', () => {
           const normalizedVariant = normalizeWord(variant);
           
           if (normalizedExpected !== normalizedVariant && normalizedExpected !== normalizedWord && normalizedExpected) {
-            const result1 = checkNextWordMatch(variant, wordWithVariant, 'english');
-            const result2 = checkNextWordMatch(wordWithVariant, variant, 'english');
+            const result1 = checkNextWordMatch(variant, [wordWithVariant], 'english');
+            const result2 = checkNextWordMatch(wordWithVariant, [variant], 'english');
             
-            expect(result1).toBe(true);
-            expect(result2).toBe(true);
+            expect(result1.matched).toBe(true);
+            expect(result2.matched).toBe(true);
           }
         }
       ),
