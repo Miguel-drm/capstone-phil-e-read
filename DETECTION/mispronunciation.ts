@@ -126,25 +126,49 @@ const DEFAULT_SIMILARITY_THRESHOLD = 0.6;
 const DEFAULT_LANGUAGE: 'english' | 'tagalog' = 'english';
 
 /**
+ * Configuration options for mispronunciation detection with variant support
+ */
+export interface MispronunciationConfigWithVariants extends MispronunciationConfig {
+  /** Optional variant service for story-level variants */
+  variantService?: any;
+  /** Optional story ID for story-level variant lookup */
+  storyId?: string;
+}
+
+/**
  * Detects if a spoken word is a mispronunciation of the expected word.
  * A mispronunciation is when the spoken word is phonetically similar to
  * the expected word but not an exact match or acceptable pronunciation variant.
  * 
+ * Integrates with VariantService to support both built-in and story-level variants.
+ * If a variant service is provided, it will be used for variant matching.
+ * Otherwise, falls back to built-in variants only.
+ * 
+ * Implements Requirements 6.1, 6.2, 6.3, 6.4, 6.5, 6.6:
+ * - Checks variants before marking as mispronunciation
+ * - Does not mark variant matches as mispronunciations
+ * - Does not increment mispronunciation count for variants
+ * - Uses same variant matching logic as correct word detection
+ * - Provides details indicating variant match
+ * - Does not mark variant matches as any type of miscue
+ * 
  * @param spokenWord - The word recognized from speech
  * @param expectedWord - The expected word at current position
  * @param currentPosition - Current position in the story (0-indexed)
- * @param config - Optional configuration for detection
+ * @param config - Optional configuration for detection (can include variantService and storyId)
  * @returns MispronunciationResult with detection details
  */
 export function detectMispronunciation(
   spokenWord: string,
   expectedWord: string,
   currentPosition: number,
-  config?: MispronunciationConfig
+  config?: MispronunciationConfig | MispronunciationConfigWithVariants
 ): MispronunciationResult {
   // Apply configuration defaults
   const threshold = config?.similarityThreshold ?? DEFAULT_SIMILARITY_THRESHOLD;
   const language = config?.language ?? DEFAULT_LANGUAGE;
+  const variantService = (config as MispronunciationConfigWithVariants)?.variantService;
+  const storyId = (config as MispronunciationConfigWithVariants)?.storyId;
   
   // Handle negative position - treat as 0
   const safePosition = currentPosition < 0 ? 0 : currentPosition;
@@ -187,7 +211,8 @@ export function detectMispronunciation(
   }
   
   // Check for pronunciation variant - not a mispronunciation
-  if (checkPronunciationMatch(normalizedSpoken, normalizedExpected, language)) {
+  // This uses the variant service if provided, otherwise falls back to built-in variants
+  if (checkPronunciationMatch(normalizedSpoken, normalizedExpected, language, variantService, storyId)) {
     return {
       matchType: 'no_match',
       advance: false,

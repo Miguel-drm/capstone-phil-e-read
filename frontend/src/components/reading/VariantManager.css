@@ -1,0 +1,275 @@
+.variant-manager {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 16px 0;
+  background-color: #f9f9f9;
+}
+
+.variant-manager-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.variant-manager-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+}
+
+.expand-button {
+  background: none;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+  color: #666;
+  transition: color 0.2s;
+}
+
+.expand-button:hover {
+  color: #333;
+}
+
+.variant-manager-content {
+  margin-top: 16px;
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Form Styles */
+.variant-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 12px;
+  background-color: #fff;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-group label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.form-group input {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: #4CAF50;
+  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.1);
+}
+
+.form-group input:disabled {
+  background-color: #f5f5f5;
+  color: #999;
+  cursor: not-allowed;
+}
+
+.add-button {
+  padding: 8px 16px;
+  background-color: #4CAF50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  align-self: flex-end;
+}
+
+.add-button:hover:not(:disabled) {
+  background-color: #45a049;
+}
+
+.add-button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+/* Message Styles */
+.error-message {
+  padding: 12px;
+  margin-bottom: 12px;
+  background-color: #ffebee;
+  color: #c62828;
+  border-radius: 4px;
+  font-size: 14px;
+  border-left: 4px solid #c62828;
+}
+
+.confirmation-message {
+  padding: 12px;
+  margin-bottom: 12px;
+  background-color: #e8f5e9;
+  color: #2e7d32;
+  border-radius: 4px;
+  font-size: 14px;
+  border-left: 4px solid #2e7d32;
+}
+
+/* Variants List Styles */
+.variants-list {
+  margin-top: 20px;
+}
+
+.variants-list h4 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+}
+
+.no-variants {
+  padding: 12px;
+  color: #999;
+  font-size: 14px;
+  font-style: italic;
+  text-align: center;
+}
+
+.variants-by-word {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.word-group {
+  padding: 12px;
+  background-color: #fff;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+}
+
+.word-label {
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 8px;
+  font-size: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.variant-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.variant-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background-color: #f5f5f5;
+  border-radius: 4px;
+  font-size: 13px;
+  border: 1px solid #e0e0e0;
+}
+
+.variant-item.built-in {
+  background-color: #e3f2fd;
+  border-color: #90caf9;
+}
+
+.variant-item.custom {
+  background-color: #fff3e0;
+  border-color: #ffe0b2;
+}
+
+.variant-text {
+  font-weight: 500;
+  color: #333;
+}
+
+.variant-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.variant-item.built-in .variant-badge {
+  background-color: #90caf9;
+  color: #1565c0;
+}
+
+.variant-item.custom .variant-badge {
+  background-color: #ffe0b2;
+  color: #e65100;
+}
+
+.delete-button {
+  background: none;
+  border: none;
+  color: #d32f2f;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+  transition: color 0.2s;
+  font-weight: bold;
+}
+
+.delete-button:hover:not(:disabled) {
+  color: #b71c1c;
+}
+
+.delete-button:disabled {
+  color: #ccc;
+  cursor: not-allowed;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .variant-form {
+    grid-template-columns: 1fr;
+  }
+
+  .add-button {
+    align-self: stretch;
+  }
+
+  .variant-items {
+    flex-direction: column;
+  }
+
+  .variant-item {
+    width: 100%;
+    justify-content: space-between;
+  }
+}

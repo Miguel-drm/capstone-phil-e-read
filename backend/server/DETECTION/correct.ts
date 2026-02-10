@@ -312,46 +312,21 @@ export function normalizeWord(word: string): string {
  * Checks if a spoken word matches an expected word through
  * pronunciation variants.
  * 
- * Integrates with VariantService to support both built-in and story-level variants.
- * If a variant service is provided, it will be used for variant matching.
- * Otherwise, falls back to built-in variants only.
- * 
- * Implements Requirement 4.1, 4.2, 4.4:
- * - Checks if spoken word matches any variant of expected word
- * - Treats exact matches as correct pronunciations
- * - Uses story-level variants first, then falls back to built-in
- * 
  * @param spoken - The word that was spoken
  * @param expected - The expected word from the story
  * @param language - The language mode ('english' or 'tagalog')
- * @param variantService - Optional variant service for story-level variants
- * @param storyId - Optional story ID for story-level variant lookup
  * @returns True if the spoken word is an acceptable variant
  */
 export function checkPronunciationMatch(
   spoken: string,
   expected: string,
-  language: 'english' | 'tagalog',
-  variantService?: any,
-  storyId?: string
+  language: 'english' | 'tagalog'
 ): boolean {
   const normalizedSpoken = normalizeWord(spoken);
   const normalizedExpected = normalizeWord(expected);
   
   if (!normalizedSpoken || !normalizedExpected) return false;
   
-  // If variant service is provided, use it for variant matching
-  // This supports both built-in and story-level variants
-  if (variantService && typeof variantService.matchesVariant === 'function') {
-    try {
-      return variantService.matchesVariant(normalizedSpoken, normalizedExpected, language, storyId);
-    } catch (error) {
-      console.error('Error checking variant match with service:', error);
-      // Fall through to built-in variant checking
-    }
-  }
-  
-  // Fall back to built-in variants only
   // Select appropriate dictionary
   const variants = language === 'tagalog' 
     ? TAGALOG_PRONUNCIATION_VARIANTS 
@@ -385,32 +360,17 @@ export function checkPronunciationMatch(
  * Detects if a spoken word correctly matches the expected word
  * at the current position in the story.
  * 
- * Integrates with VariantService to support both built-in and story-level variants.
- * If a variant service is provided, it will be used for variant matching.
- * Otherwise, falls back to built-in variants only.
- * 
- * Implements Requirements 5.1, 5.2, 5.3, 5.4, 5.5:
- * - Recognizes variant pronunciations as correct words
- * - Advances reading position for variant matches
- * - Does not increment miscue count for variant matches
- * - Provides details indicating variant match
- * - Checks variants before determining if word is a mispronunciation
- * 
  * @param spokenWord - The word recognized from speech
  * @param expectedWord - The expected word at current position
  * @param currentPosition - Current position in the story (0-indexed)
  * @param language - Language mode for pronunciation matching (default: 'english')
- * @param variantService - Optional variant service for story-level variants
- * @param storyId - Optional story ID for story-level variant lookup
  * @returns CorrectWordResult with match details
  */
 export function detectCorrectWord(
   spokenWord: string,
   expectedWord: string,
   currentPosition: number,
-  language: 'english' | 'tagalog' = 'english',
-  variantService?: any,
-  storyId?: string
+  language: 'english' | 'tagalog' = 'english'
 ): CorrectWordResult {
   // Handle edge cases
   const normalizedSpoken = normalizeWord(spokenWord || '');
@@ -449,8 +409,7 @@ export function detectCorrectWord(
   }
   
   // Check for pronunciation variant match
-  // This uses the variant service if provided, otherwise falls back to built-in variants
-  if (checkPronunciationMatch(normalizedSpoken, normalizedExpected, language, variantService, storyId)) {
+  if (checkPronunciationMatch(normalizedSpoken, normalizedExpected, language)) {
     return {
       matchType: 'correct',
       advance: true,

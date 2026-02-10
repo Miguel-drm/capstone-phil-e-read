@@ -13,6 +13,7 @@ import teacherRoutes from './routes/teacherRoutes.js';
 import parentRoutes from './routes/parentRoutes.js';
 import reportRoutes from './routes/reportRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
+import variantRoutes from './routes/variantRoutes.js';
 import { resultService } from './services/resultService.js';
 import { isrResultService } from './services/isrResultService.js';
 import { isrReviewRecordService } from './services/isrReviewRecordService.js';
@@ -946,6 +947,7 @@ app.get('/api/test', (req, res) => {
 
     app.use('/api/teachers', teacherRoutes);
     app.use('/api/parents', parentRoutes);
+    app.use('/api/variants', variantRoutes);
     const ADMIN_REPORTS_ENABLED = process.env.ADMIN_REPORTS_ENABLED === 'true';
     if (ADMIN_REPORTS_ENABLED) {
       console.log('Administrative Reports routes enabled');

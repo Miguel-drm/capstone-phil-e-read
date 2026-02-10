@@ -39,6 +39,7 @@ import { detectInsertion } from "@detection/insertion";
 import { detectTransposition } from "@detection/transposition";
 import { ColorLegend } from "@/components/reading/ColorLegend";
 import { WordDisplay } from "@/components/reading/WordDisplay";
+import { VariantManager } from "@/components/reading/VariantManager";
 import { type DetectionType } from "@/utils/detectionColors";
 import { generateDemoSequence, simulateReadingSession } from "@/utils/demoMode";
 
@@ -6058,6 +6059,22 @@ const ReadingSessionPage: React.FC = () => {
                 initialCollapsed={true}
               />
             </div>
+            
+            {/* Variant Manager - Positioned at bottom-right, allows teachers to manage pronunciation variants */}
+            {currentStory && currentSession && (
+              <div className="absolute bottom-4 right-4 z-20">
+                <VariantManager 
+                  storyId={currentStory._id || ''}
+                  language={storyLanguage}
+                  onVariantAdded={() => {
+                    console.log('✅ Variant added - detection system will use updated variants');
+                  }}
+                  onVariantRemoved={() => {
+                    console.log('✅ Variant removed - detection system will use updated variants');
+                  }}
+                />
+              </div>
+            )}
           </div>
         </div>
         {/* Progress Column - Only show after Complete button is clicked */}
