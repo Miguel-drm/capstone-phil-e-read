@@ -42,6 +42,9 @@ import { shouldRecordMiscue } from "@/utils/miscueFilter";
 import { useAdvancedSubstitutionDetection } from "@/hooks/useAdvancedSubstitutionDetection";
 import { useAdvancedMispronunciationDetection } from "@/hooks/useAdvancedMispronunciationDetection";
 import { useAdvancedSelfCorrectionDetection } from "@/hooks/useAdvancedSelfCorrectionDetection";
+import { useReadingMiscueOrchestrator } from "@/hooks/useReadingMiscueOrchestrator";
+import { convertOrchestratorToLegacy, type LegacyMiscueType } from "@/utils/orchestratorIntegrationAdapter";
+import type { SpokenWordWithMetadata } from "@detection/readingMiscueOrchestrator";
 
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -95,6 +98,15 @@ const ReadingSessionPage: React.FC = () => {
     language: 'english',
     strictMode: false,
     enableLogging: false
+  });
+
+  // Initialize reading miscue orchestrator for single-pass miscue detection
+  const orchestrator = useReadingMiscueOrchestrator({
+    language: 'english',
+    minConfidence: 0.5,
+    omissionTimeWindowMs: 2000,
+    enableLogging: false,
+    enableSelfCorrection: true
   });
 
   const [currentWordIndex, setCurrentWordIndex] = useState<number>(0);
@@ -518,6 +530,52 @@ const ReadingSessionPage: React.FC = () => {
   // Frontend just sends raw Float32 audio data
 
   /**
+   * Process orchestrator results and apply to component state
+   * 
+   * Converts orchestrator results to legacy format and updates all relevant state variables
+   * for backward compatibility with existing UI components.
+   */
+  const applyOrchestratorResults = (orchestratorResult: any) => {
+    if (!orchestratorResult || !orchestratorResult.sessionResult) {
+      console.warn('⚠️ Invalid orchestrator result');
+      return;
+    }
+
+    try {
+      const legacyResult = convertOrchestratorToLegacy(orchestratorResult.sessionResult);
+
+      // Update miscue counts
+      setMiscues(legacyResult.totalMiscues);
+      setMiscueTypes(legacyResult.miscueTypes);
+
+      // Update word-level miscue tracking
+      setWordMiscues(legacyResult.wordMiscues);
+
+      // Update inserted words tracking
+      setInsertedWords(legacyResult.insertedWords);
+
+      // Update recognized words (correct words)
+      const correctPositions = new Set<number>();
+      for (const miscue of orchestratorResult.sessionResult.miscues) {
+        if (miscue.miscueType === 'correct') {
+          correctPositions.add(miscue.referencePosition);
+        }
+      }
+      setRecognizedWords(correctPositions);
+
+      // Log orchestrator results for debugging
+      console.log('✅ Orchestrator results applied:', {
+        totalMiscues: legacyResult.totalMiscues,
+        accuracy: legacyResult.accuracy,
+        breakdown: legacyResult.miscueTypes,
+        processingTime: orchestratorResult.metrics?.processingTimeMs
+      });
+    } catch (error) {
+      console.error('❌ Error applying orchestrator results:', error);
+    }
+  };
+
+  /**
    * Set up WebSocket message handlers for Vosk recognition results.
    * Processes both final and partial recognition results with vocabulary validation.
    */
@@ -929,6 +987,53 @@ const ReadingSessionPage: React.FC = () => {
               wordStateManager.advanceToWord(new_position);
               console.log(`↔️ Transposition detected at position ${oldPosition}`);
               break;
+          }
+          
+          // 🎼 ORCHESTRATOR VALIDATION (Parallel Processing - Phase 1)
+          // Add orchestrator validation asynchronously (non-blocking)
+          // This allows us to compare orchestrator results with existing logic
+          if (words.length > 0 && spokenWords.length > 0) {
+            // Collect the current spoken word
+            const newSpokenWords = [...spokenWords, word];
+            
+            // Call orchestrator asynchronously
+            orchestrator.processSession(newSpokenWords, words, {
+              language: storyLanguage,
+              minConfidence: 0.5,
+              enableLogging: false
+            }).then(result => {
+              if (result.success && result.sessionResult) {
+                // Log orchestrator results for comparison
+                console.log('🎼 Orchestrator validation:', {
+                  totalMiscues: result.sessionResult.totalMiscues,
+                  accuracy: result.sessionResult.accuracy,
+                  breakdown: result.sessionResult.miscueBreakdown,
+                  processingTime: result.metrics?.processingTimeMs
+                });
+                
+                // Compare with existing logic
+                const legacyResult = convertOrchestratorToLegacy(result.sessionResult);
+                if (legacyResult.totalMiscues !== miscues) {
+                  console.warn('⚠️ Orchestrator miscue count differs:', {
+                    existing: miscues,
+                    orchestrator: legacyResult.totalMiscues,
+                    difference: legacyResult.totalMiscues - miscues
+                  });
+                }
+                
+                // Log accuracy comparison
+                if (Math.abs(legacyResult.accuracy - (wordsRead / words.length * 100)) > 5) {
+                  console.warn('⚠️ Orchestrator accuracy differs:', {
+                    existing: (wordsRead / words.length * 100).toFixed(1),
+                    orchestrator: legacyResult.accuracy.toFixed(1)
+                  });
+                }
+              } else {
+                console.warn('⚠️ Orchestrator validation failed:', result.error);
+              }
+            }).catch(error => {
+              console.error('❌ Orchestrator error:', error);
+            });
           }
           
           // Update basic metrics from backend (source of truth)

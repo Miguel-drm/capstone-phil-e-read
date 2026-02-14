@@ -5,10 +5,13 @@
  * the expected word but not an exact match or acceptable pronunciation variant.
  * This is distinct from substitutions (completely different words) and
  * correct readings (exact or variant matches).
+ * 
+ * Uses phoneme-level analysis with confidence scoring for improved accuracy.
  */
 
 import { normalizeWord, checkPronunciationMatch } from './correct';
 import { shouldIgnoreWord } from './ghostWordFilter';
+import { calculatePhonemesSimilarity } from './phonemeAnalysis';
 
 // ============================================================================
 // Types and Interfaces
@@ -30,6 +33,10 @@ export interface MispronunciationResult {
   details: string;
   /** Similarity score (only present for mispronunciation) */
   similarityScore?: number;
+  /** ASR confidence used (NEW) */
+  asrConfidence?: number;
+  /** Whether confidence passed validation (NEW) */
+  confidenceValid?: boolean;
 }
 
 /**
@@ -40,6 +47,14 @@ export interface MispronunciationConfig {
   similarityThreshold?: number;
   /** Language mode for pronunciation matching (default: 'english') */
   language?: 'english' | 'tagalog';
+  /** ASR confidence (0-1) (NEW) */
+  asrConfidence?: number;
+  /** Minimum confidence threshold (default: 0.5) (NEW) */
+  minConfidence?: number;
+  /** Weight for confidence in scoring (default: 0.2) (NEW) */
+  confidenceWeight?: number;
+  /** Enable debug logging (default: false) (NEW) */
+  enableLogging?: boolean;
 }
 
 // ============================================================================
@@ -126,10 +141,41 @@ const DEFAULT_SIMILARITY_THRESHOLD = 0.6;
 /** Default language mode */
 const DEFAULT_LANGUAGE: 'english' | 'tagalog' = 'english';
 
+/** Default minimum ASR confidence threshold (NEW) */
+const DEFAULT_MIN_CONFIDENCE = 0.5;
+
+/** Default weight for confidence in similarity calculation (NEW) */
+const DEFAULT_CONFIDENCE_WEIGHT = 0.2;
+
+/**
+ * Validates and clamps confidence value to valid range (0-1)
+ * 
+ * @param confidence - Confidence value to validate
+ * @param enableLogging - Whether to log validation
+ * @returns Validated confidence (0-1)
+ */
+function validateConfidence(
+  confidence: number | undefined,
+  enableLogging: boolean = false
+): number | undefined {
+  if (confidence === undefined) return undefined;
+  
+  if (confidence < 0 || confidence > 1) {
+    if (enableLogging) {
+      console.warn(`Invalid confidence: ${confidence} (must be 0-1), clamping to valid range`);
+    }
+    return Math.max(0, Math.min(1, confidence));
+  }
+  
+  return confidence;
+}
+
 /**
  * Detects if a spoken word is a mispronunciation of the expected word.
  * A mispronunciation is when the spoken word is phonetically similar to
  * the expected word but not an exact match or acceptable pronunciation variant.
+ * 
+ * Uses phoneme-level analysis with confidence scoring for improved accuracy.
  * 
  * @param spokenWord - The word recognized from speech
  * @param expectedWord - The expected word at current position
@@ -143,9 +189,15 @@ export function detectMispronunciation(
   currentPosition: number,
   config?: MispronunciationConfig
 ): MispronunciationResult {
-  // Apply configuration defaults
-  const threshold = config?.similarityThreshold ?? DEFAULT_SIMILARITY_THRESHOLD;
+  // Apply configuration defaults with validation (FIX 1.4)
+  const threshold = Math.max(0, Math.min(1, config?.similarityThreshold ?? DEFAULT_SIMILARITY_THRESHOLD));
   const language = config?.language ?? DEFAULT_LANGUAGE;
+  const minConfidence = Math.max(0, Math.min(1, config?.minConfidence ?? DEFAULT_MIN_CONFIDENCE));
+  const confidenceWeight = Math.max(0, Math.min(1, config?.confidenceWeight ?? DEFAULT_CONFIDENCE_WEIGHT));
+  const enableLogging = config?.enableLogging ?? false;
+  
+  // NEW (FIX 1.1): Validate and process ASR confidence
+  const asrConfidence = validateConfidence(config?.asrConfidence, enableLogging);
   
   // Handle negative position - treat as 0
   const safePosition = currentPosition < 0 ? 0 : currentPosition;
@@ -161,7 +213,9 @@ export function detectMispronunciation(
       advance: false,
       newPosition: safePosition,
       miscueCount: 0,
-      details: `Ghost word ignored: "${spokenWord}" is background noise`
+      details: `Ghost word ignored: "${spokenWord}" is background noise`,
+      asrConfidence,
+      confidenceValid: true
     };
   }
   
@@ -172,7 +226,9 @@ export function detectMispronunciation(
       advance: false,
       newPosition: safePosition,
       miscueCount: 0,
-      details: 'Empty spoken word input'
+      details: 'Empty spoken word input',
+      asrConfidence,
+      confidenceValid: true
     };
   }
   
@@ -183,7 +239,9 @@ export function detectMispronunciation(
       advance: false,
       newPosition: safePosition,
       miscueCount: 0,
-      details: 'Empty expected word'
+      details: 'Empty expected word',
+      asrConfidence,
+      confidenceValid: true
     };
   }
   
@@ -194,7 +252,9 @@ export function detectMispronunciation(
       advance: false,
       newPosition: safePosition,
       miscueCount: 0,
-      details: `Exact match: "${spokenWord}" matches "${expectedWord}" - not a mispronunciation`
+      details: `Exact match: "${spokenWord}" matches "${expectedWord}" - not a mispronunciation`,
+      asrConfidence,
+      confidenceValid: true
     };
   }
   
@@ -205,22 +265,64 @@ export function detectMispronunciation(
       advance: false,
       newPosition: safePosition,
       miscueCount: 0,
-      details: `Pronunciation variant: "${spokenWord}" is an acceptable variant of "${expectedWord}" - not a mispronunciation`
+      details: `Pronunciation variant: "${spokenWord}" is an acceptable variant of "${expectedWord}" - not a mispronunciation`,
+      asrConfidence,
+      confidenceValid: true
+    };
+  }
+  
+  // NEW (FIX 1.1): Check if confidence is too low
+  if (asrConfidence !== undefined && asrConfidence < minConfidence) {
+    if (enableLogging) {
+      console.warn(`Low ASR confidence: ${asrConfidence} < ${minConfidence} - rejecting mispronunciation`);
+    }
+    return {
+      matchType: 'no_match',
+      advance: false,
+      newPosition: safePosition,
+      miscueCount: 0,
+      details: `Low ASR confidence: ${asrConfidence.toFixed(2)} < ${minConfidence.toFixed(2)} - not a reliable mispronunciation`,
+      asrConfidence,
+      confidenceValid: false
     };
   }
   
   // Calculate similarity score
-  const similarity = calculateSimilarity(normalizedSpoken, normalizedExpected);
+  // NEW (FIX 1.2): Use phoneme-level similarity if available
+  let similarity = calculateSimilarity(normalizedSpoken, normalizedExpected);
+  
+  // Also calculate phoneme-level similarity for comparison
+  const phonemeSimilarity = calculatePhonemesSimilarity(normalizedSpoken, normalizedExpected);
+  
+  // Use phoneme similarity if it's higher (more accurate)
+  if (phonemeSimilarity > similarity) {
+    similarity = phonemeSimilarity;
+    if (enableLogging) {
+      console.log(`Using phoneme-level similarity: ${phonemeSimilarity.toFixed(2)}`);
+    }
+  }
   
   // Check if similarity meets threshold for mispronunciation
   if (similarity >= threshold) {
+    // NEW (FIX 1.1): Apply confidence weighting if available
+    let finalSimilarity = similarity;
+    if (asrConfidence !== undefined) {
+      // Weight the similarity by confidence
+      finalSimilarity = similarity * (1 - confidenceWeight) + asrConfidence * confidenceWeight;
+      if (enableLogging) {
+        console.log(`Confidence-weighted similarity: ${similarity.toFixed(2)} → ${finalSimilarity.toFixed(2)} (confidence: ${asrConfidence.toFixed(2)})`);
+      }
+    }
+    
     return {
       matchType: 'mispronunciation',
       advance: true,
       newPosition: safePosition + 1,
       miscueCount: 1,
-      details: `Mispronunciation detected: "${spokenWord}" for "${expectedWord}" (similarity: ${similarity.toFixed(2)})`,
-      similarityScore: similarity
+      details: `Mispronunciation detected: "${spokenWord}" for "${expectedWord}" (similarity: ${finalSimilarity.toFixed(2)})`,
+      similarityScore: finalSimilarity,
+      asrConfidence,
+      confidenceValid: true
     };
   }
   
@@ -230,6 +332,8 @@ export function detectMispronunciation(
     advance: false,
     newPosition: safePosition,
     miscueCount: 0,
-    details: `Low similarity: "${spokenWord}" is too different from "${expectedWord}" (similarity: ${similarity.toFixed(2)}) - likely a substitution`
+    details: `Low similarity: "${spokenWord}" is too different from "${expectedWord}" (similarity: ${similarity.toFixed(2)}) - likely a substitution`,
+    asrConfidence,
+    confidenceValid: true
   };
 }

@@ -75,7 +75,10 @@ function temporalProximityScore(timeBetweenMs: number): number {
   const optimalMax = 2000;
   const maxAcceptable = 5000; // 5 seconds
 
-  if (timeBetweenMs < 0) return 0; // Invalid time
+  if (timeBetweenMs < 0) {
+    console.warn(`Invalid timing: ${timeBetweenMs}ms (negative time)`);
+    return 0; // Invalid time
+  }
   if (timeBetweenMs > maxAcceptable) return 0; // Too late to be self-correction
 
   // Score is highest in optimal range
@@ -144,6 +147,13 @@ function semanticAppropriatenessScore(
   // Similar vowel count suggests similar word type
   if (Math.abs(errorVowels - correctionVowels) <= 1) {
     return 70;
+  }
+
+  // Fallback: Use phonetic similarity for unknown patterns
+  // If words sound similar, they're likely semantically related corrections
+  const phoneticScore = phoneticSimilarityScore(error, correction);
+  if (phoneticScore >= 60) {
+    return 55; // Moderate confidence for phonetically similar unknown patterns
   }
 
   return 40;
@@ -280,6 +290,9 @@ export function detectSelfCorrection(
     strictMode = false
   } = options;
 
+  // Validate confidence threshold is within valid range (0-100)
+  const validatedMinConfidence = Math.max(0, Math.min(100, minConfidence));
+
   const error = errorWord.toLowerCase().trim();
   const correction = correctionWord.toLowerCase().trim();
 
@@ -330,7 +343,7 @@ export function detectSelfCorrection(
     flowScore * weights.flowPattern;
 
   // Determine if it's a self-correction
-  const isSelfCorrection = overallConfidence >= minConfidence && temporalScore >= 30;
+  const isSelfCorrection = overallConfidence >= validatedMinConfidence && temporalScore >= 30;
 
   // Classify correction type
   const correctionType = classifyCorrectionType(error, correction);

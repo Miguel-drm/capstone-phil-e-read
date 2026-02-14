@@ -50,6 +50,8 @@ export interface ReversalConfig {
   language?: 'english' | 'tagalog';
   /** Optional confidence threshold (0-1) for reversal detection (default: 1.0 for exact match) */
   confidenceThreshold?: number;
+  /** Enable debug logging for reversal detection (default: false) */
+  enableLogging?: boolean;
 }
 
 /**
@@ -118,9 +120,13 @@ export function isExactReversal(
  */
 export function calculateReversalConfidence(
   normalizedSpoken: string,
-  normalizedExpected: string
+  normalizedExpected: string,
+  enableLogging?: boolean
 ): number {
   if (isExactReversal(normalizedSpoken, normalizedExpected)) {
+    if (enableLogging) {
+      console.log(`✅ Exact reversal: "${normalizedSpoken}" == reverse("${normalizedExpected}")`);
+    }
     return 1.0;
   }
   
@@ -132,6 +138,12 @@ export function calculateReversalConfidence(
   // Check if spoken word is phonetically similar to the reversed word
   if (arePhoneticallySimilar(normalizedSpoken, reversedExpected)) {
     const confidence = getPhoneticConfidence(normalizedSpoken, reversedExpected);
+    
+    // NEW: Log phonetic reversal match
+    if (enableLogging) {
+      console.log(`🔄 Phonetic reversal match: "${normalizedSpoken}" ≈ reverse("${normalizedExpected}") [confidence: ${confidence.toFixed(2)}]`);
+    }
+    
     // Return confidence but cap at 0.95 to distinguish from exact matches
     return Math.min(0.95, confidence);
   }
@@ -222,9 +234,12 @@ export function detectReversal(
   config?: ReversalConfig
 ): ReversalResult {
   // Apply configuration defaults
-  const minWordLength = config?.minWordLength ?? DEFAULT_MIN_WORD_LENGTH;
+  // NEW: Validate minimum word length is at least 1
+  const minWordLength = Math.max(1, config?.minWordLength ?? DEFAULT_MIN_WORD_LENGTH);
   const language = config?.language ?? DEFAULT_LANGUAGE;
-  const confidenceThreshold = config?.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD;
+  // NEW: Validate confidence threshold is within valid range (0-1)
+  const confidenceThreshold = Math.max(0, Math.min(1, config?.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD));
+  const enableLogging = config?.enableLogging ?? false;
 
   // Handle negative position - treat as 0
   const safePosition = currentPosition < 0 ? 0 : currentPosition;
@@ -312,7 +327,7 @@ export function detectReversal(
   }
 
   // Calculate reversal confidence
-  const confidence = calculateReversalConfidence(normalizedSpoken, normalizedExpected);
+  const confidence = calculateReversalConfidence(normalizedSpoken, normalizedExpected, enableLogging);
 
   // Check if confidence meets threshold
   if (confidence < confidenceThreshold) {
@@ -395,9 +410,12 @@ export function detectReversalInStory(
   config?: ReversalConfig
 ): ReversalResult {
   // Apply configuration defaults
-  const minWordLength = config?.minWordLength ?? DEFAULT_MIN_WORD_LENGTH;
+  // NEW: Validate minimum word length is at least 1
+  const minWordLength = Math.max(1, config?.minWordLength ?? DEFAULT_MIN_WORD_LENGTH);
   const language = config?.language ?? DEFAULT_LANGUAGE;
-  const confidenceThreshold = config?.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD;
+  // NEW: Validate confidence threshold is within valid range (0-1)
+  const confidenceThreshold = Math.max(0, Math.min(1, config?.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD));
+  const enableLogging = config?.enableLogging ?? false;
 
   // Handle negative position - treat as 0
   const safePosition = currentPosition < 0 ? 0 : currentPosition;
@@ -439,7 +457,7 @@ export function detectReversalInStory(
     
     if (normalizedExpected.length >= minWordLength) {
       // Check exact reversal
-      const confidence = calculateReversalConfidence(normalizedSpoken, normalizedExpected);
+      const confidence = calculateReversalConfidence(normalizedSpoken, normalizedExpected, enableLogging);
       
       if (confidence >= confidenceThreshold) {
         return {
@@ -456,6 +474,9 @@ export function detectReversalInStory(
       // Check phonetic similarity to reversed expected word
       const reversedExpected = reverseWord(normalizedExpected);
       if (arePhoneticallySimilar(normalizedSpoken, reversedExpected)) {
+        if (enableLogging) {
+          console.log(`🔄 Phonetic reversal in story: "${normalizedSpoken}" ≈ reverse("${expectedWord}") [confidence: ${getPhoneticConfidence(normalizedSpoken, reversedExpected).toFixed(2)}]`);
+        }
         return {
           matchType: 'reversal',
           advance: false,
@@ -497,6 +518,9 @@ export function detectReversalInStory(
       
       // Check phonetic similarity to reversed story word
       if (arePhoneticallySimilar(normalizedSpoken, reversedStory)) {
+        if (enableLogging) {
+          console.log(`🔄 Phonetic reversal in story: "${normalizedSpoken}" ≈ reverse("${storyWord}") [confidence: ${getPhoneticConfidence(normalizedSpoken, reversedStory).toFixed(2)}]`);
+        }
         return {
           matchType: 'reversal',
           advance: false,
