@@ -1,0 +1,6 @@
+vosk==0.3.45
+websockets==10.3
+huggingface_hub>=0.20.0
+numpy>=1.21.0  # Required: For audio processing (downsampling, format conversion)
+scipy>=1.9.0  # Optional: For high-quality audio resampling (falls back to numpy if not available)
+psutil>=5.9.0  # Optional: For memory monitoring (server works without it)

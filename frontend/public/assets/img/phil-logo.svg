@@ -1,0 +1,11 @@
+<svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Left page -->
+  <path d="M20 30 L60 50 L60 100 L20 80 Z" fill="#e0edff" stroke="#2563eb" stroke-width="4"/>
+  <!-- Right page -->
+  <path d="M100 30 L60 50 L60 100 L100 80 Z" fill="#e0edff" stroke="#2563eb" stroke-width="4"/>
+  <!-- Book spine (crease) -->
+  <line x1="60" y1="50" x2="60" y2="100" stroke="#2563eb" stroke-width="3"/>
+  <!-- Decorative lines (text) -->
+  <path d="M30 60 Q60 70 90 60" stroke="#2563eb" stroke-width="2" fill="none"/>
+  <path d="M32 70 Q60 80 88 70" stroke="#2563eb" stroke-width="1.5" fill="none"/>
+</svg>

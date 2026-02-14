@@ -1,0 +1,42 @@
+services:
+  # Tagalog & English Vosk WebSocket Server (Memory Optimized)
+  - type: web
+    name: phil-e-read-vosk-server
+    runtime: python
+    plan: free  # Optimized for 512MB. Change to 'starter' for better performance
+    buildCommand: bash build.sh
+    startCommand: python server.py
+    envVars:
+      - key: PORT
+        generateValue: true  # Render will assign the port
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      # AGGRESSIVE Memory optimization settings (CRITICAL for 512MB free tier)
+      - key: VOSK_LAZY_LOAD
+        value: "true"  # Load models on-demand, not at startup
+      - key: MAX_CONNECTIONS
+        value: "3"  # AGGRESSIVE: Reduced from 5 to 3 to stay under 512MB
+      - key: CONNECTION_TIMEOUT
+        value: "300"  # Close idle connections after 5 minutes
+      - key: MODEL_UNLOAD_TIMEOUT
+        value: "600"  # Unload unused models after 10 minutes
+      - key: VOSK_ENABLE_WORDS
+        value: "false"  # Disable word-level timestamps to save memory
+      - key: USE_SMALL_MODELS
+        value: "false"  # Set to true if you have small models uploaded
+      # Download both models (LGraph English model is memory efficient)
+      - key: DOWNLOAD_TAGALOG
+        value: "true"
+      - key: DOWNLOAD_ENGLISH
+        value: "true"  # LGraph model is memory efficient enough for free tier
+      # Model paths
+      - key: VOSK_TAGALOG_MODEL_PATH
+        value: ./model-tagalog
+      - key: VOSK_ENGLISH_MODEL_PATH
+        value: ./model-english
+      # Model repositories
+      - key: HUGGINGFACE_TAGALOG_MODEL_REPO
+        value: Migueldrm/vosk-model-tl-ph-generic-0.6
+      - key: HUGGINGFACE_ENGLISH_MODEL_REPO
+        value: Migueldrm/vosk-model-en-us-0.22-lgraph  # LGraph model - memory efficient
+

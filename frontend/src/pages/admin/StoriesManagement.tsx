@@ -1,0 +1,769 @@
+import { useState, useEffect } from 'react';
+import { UnifiedStoryService } from '../../services/UnifiedStoryService';
+import Swal from 'sweetalert2';
+import { collection, doc, getDoc, getDocs, query, where, deleteDoc } from 'firebase/firestore';
+import { db } from '../../config/firebase';
+import { useNavigate } from 'react-router-dom';
+import type { Story } from '../../types/Story';
+import AddStoryModal from './AddStoryModal';
+import { useAuth } from '../../contexts/AuthContext';
+import AdminLoader from '../../components/admin/AdminLoader';
+
+interface StoryFilters {
+  language?: string;
+  searchTerm?: string;
+  set?: string;
+}
+
+export default function StoriesManagement() {
+  const [stories, setStories] = useState<Story[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [targetGradeSet, setTargetGradeSet] = useState<{ grade: '3' | '4' | '5' | '6', set: 'A' | 'B' | 'C' | 'D' } | null>(null);
+  const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState<string>('');
+  const viewMode = 'sets'; // Fixed to sets view only
+  const [filters, setFilters] = useState<StoryFilters>({
+    language: 'english', // Default to English filter
+    set: ''
+  });
+  const { currentUser } = useAuth();
+  const navigate = useNavigate();
+  const [storyIdToTests, setStoryIdToTests] = useState<Record<string, { id: string; testName: string; questionsCount: number }[]>>({});
+  const [viewTest, setViewTest] = useState<{ id: string; testName: string; questions?: any[] } | null>(null);
+
+  // Prevent background scroll when modal is open
+  useEffect(() => {
+    if (viewTest) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = prev;
+      };
+    }
+  }, [viewTest]);
+
+  // Helper function to convert stored language codes to display names
+  const getDisplayLanguage = (language: string | undefined): string => {
+    if (!language) return '';
+    switch (language) {
+      case 'en':
+        console.log('Converting en to English');
+        return 'English';
+      case 'none':
+        console.log('Converting none to Tagalog');
+        return 'Tagalog';
+      default:
+        console.log('Returning default language:', language);
+        return language;
+    }
+  };
+
+  useEffect(() => {
+    loadStories();
+  }, [filters]);
+
+  const loadStories = async () => {
+    try {
+      setLoading(true);
+      const filterParams: any = {};
+      if (filters.language) filterParams.language = filters.language;
+      if (filters.set) filterParams.set = filters.set;
+
+      console.log('🔍 Loading stories with filter params:', filterParams);
+      const storiesData = await UnifiedStoryService.getInstance().getStories(filterParams);
+      console.log('📚 Received stories:', storiesData.length, storiesData.map(s => ({ title: s.title, language: s.language })));
+      if (!Array.isArray(storiesData)) {
+        console.error('API did not return an array:', storiesData);
+        setStories([]);
+      } else {
+
+        // Client-side filtering for language and set
+        let filteredStories = storiesData;
+        
+        // Filter by language
+        if (filters.language && filters.language !== '') {
+          filteredStories = filteredStories.filter(story => {
+            const storyLang = String(story.language || '').toLowerCase();
+            const filterLang = (filters.language || '').toLowerCase();
+            // Match exact language or legacy values (en -> english, none -> tagalog)
+            return storyLang === filterLang || 
+                   (filterLang === 'english' && storyLang === 'en') ||
+                   (filterLang === 'tagalog' && storyLang === 'none');
+          });
+        }
+        
+        // Filter by set
+        if (filters.set) {
+          filteredStories = filteredStories.filter(story => story.storySet === filters.set);
+        }
+        
+        setStories(filteredStories);
+      }
+    } catch (error) {
+      console.error('Error loading stories:', error);
+      Swal.fire('Error', 'Failed to load stories', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddStory = async (storyData: Partial<Story>, file: File) => {
+    try {
+      if (!currentUser?.uid) {
+        Swal.fire('Error', 'You must be logged in to add a story', 'error');
+        return;
+      }
+      if (!storyData.title?.trim()) {
+        Swal.fire('Error', 'Please enter a story title', 'error');
+        return;
+      }
+      if (!file) {
+        Swal.fire('Error', 'Please upload a file', 'error');
+        return;
+      }
+      // Accept both PDF files and text files (for manual input)
+      if (file.type !== 'application/pdf' && file.type !== 'text/plain') {
+        Swal.fire('Error', 'Please upload a valid PDF or text file', 'error');
+        return;
+      }
+
+      // If we have a target grade-set, assign the story directly to it
+      let finalStoryData = { ...storyData };
+
+      if (targetGradeSet) {
+        const key = `${targetGradeSet.grade}-${targetGradeSet.set}`;
+        // Check if target grade-set already has a story
+        if (groupedStories[key]) {
+          const result = await Swal.fire({
+            title: `Grade ${targetGradeSet.grade} Set ${targetGradeSet.set} already has a story`,
+            text: `Replace "${groupedStories[key].title}" with "${storyData.title}"?`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Replace',
+            cancelButtonText: 'Cancel'
+          });
+
+          if (!result.isConfirmed) {
+            return;
+          }
+
+          // Delete the existing story in this grade-set
+          await UnifiedStoryService.getInstance().deleteStory(groupedStories[key]._id!);
+        }
+
+        // Assign to the target grade-set
+        finalStoryData = {
+          ...storyData,
+          grade: targetGradeSet.grade,
+          storySet: targetGradeSet.set,
+          language: storyData.language // Explicitly preserve language
+        };
+
+        console.log('🔍 Frontend sending to backend:', {
+          targetGradeSet: targetGradeSet,
+          finalStoryData: finalStoryData,
+          expectedGrade: targetGradeSet.grade,
+          expectedSet: targetGradeSet.set,
+          language: finalStoryData.language
+        });
+      }
+
+      await UnifiedStoryService.getInstance().createStory(finalStoryData, file);
+      setShowAddModal(false);
+      setTargetGradeSet(null);
+      await loadStories();
+
+      if (targetGradeSet) {
+        Swal.fire('Success', `Story added to Grade ${targetGradeSet.grade} Set ${targetGradeSet.set}!`, 'success');
+      } else {
+        Swal.fire('Success', 'Story added successfully! You can now assign it to a set.', 'success');
+      }
+    } catch (error) {
+      console.error('Error adding story:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to add story';
+      Swal.fire('Error', errorMessage, 'error');
+    }
+  };
+
+  const handleStartEditTitle = (story: Story) => {
+    if (!story._id) return;
+    setEditingTitleId(story._id);
+    setEditingTitle(story.title);
+  };
+
+  const handleSaveTitle = async (storyId: string) => {
+    try {
+      if (!editingTitle.trim()) {
+        Swal.fire('Error', 'Title cannot be empty', 'error');
+        return;
+      }
+
+      // Fetch the story fresh from the backend to get all current values
+      const allStories = await UnifiedStoryService.getInstance().getStories({});
+      const freshStory = allStories.find(s => s._id === storyId);
+      
+      if (!freshStory) {
+        Swal.fire('Error', 'Story not found', 'error');
+        return;
+      }
+
+      // Build update object with only defined values
+      const updatePayload: any = {
+        title: editingTitle.trim(),
+        description: freshStory.description || 'A story for reading assessment.',
+        isActive: freshStory.isActive !== undefined ? freshStory.isActive : true
+      };
+      
+      // Only include fields that have values
+      if (freshStory.language) updatePayload.language = freshStory.language;
+      if (freshStory.grade) updatePayload.grade = freshStory.grade;
+      if (freshStory.storySet) updatePayload.storySet = freshStory.storySet;
+      if (freshStory.readingLevel) updatePayload.readingLevel = freshStory.readingLevel;
+      if (freshStory.categories && freshStory.categories.length > 0) updatePayload.categories = freshStory.categories;
+
+      await UnifiedStoryService.getInstance().updateStory(storyId, updatePayload);
+      
+      await loadStories();
+      setEditingTitleId(null);
+      setEditingTitle('');
+      Swal.fire('Success', 'Story title updated successfully', 'success');
+    } catch (error: any) {
+      console.error('Error updating story title:', error);
+      const errorMessage = error?.response?.data?.error || error?.response?.data?.details || error?.message || 'Failed to update story title';
+      Swal.fire('Error', errorMessage, 'error');
+    }
+  };
+
+  const handleCancelEditTitle = () => {
+    setEditingTitleId(null);
+    setEditingTitle('');
+  };
+
+  const handleDeleteStory = async (id: string) => {
+    try {
+      const result = await Swal.fire({
+        title: 'Are you sure?',
+        text: "You won't be able to revert this!",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#3085d6',
+        cancelButtonColor: '#d33',
+        confirmButtonText: 'Yes, delete it!'
+      });
+      if (result.isConfirmed) {
+        await UnifiedStoryService.getInstance().deleteStory(id);
+        await loadStories();
+        Swal.fire('Deleted!', 'Story has been deleted.', 'success');
+      }
+    } catch (error) {
+      console.error('Error deleting story:', error);
+      Swal.fire('Error', 'Failed to delete story', 'error');
+    }
+  };
+
+  // After stories load, fetch tests per story
+  useEffect(() => {
+    const loadTestsByStory = async () => {
+      const mapping: Record<string, { id: string; testName: string; questionsCount: number }[]> = {};
+      if (Array.isArray(stories)) {
+        for (const s of stories) {
+          if (!s._id) continue;
+          const q = query(collection(db, 'tests'), where('storyId', '==', String(s._id)));
+          const snap = await getDocs(q);
+          mapping[String(s._id)] = snap.docs.map(d => ({ id: d.id, testName: String((d.data() as any).testName || 'Untitled Test'), questionsCount: Array.isArray((d.data() as any).questions) ? (d.data() as any).questions.length : 0 }));
+        }
+      }
+      setStoryIdToTests(mapping);
+    };
+    if (Array.isArray(stories) && stories.length) loadTestsByStory();
+  }, [stories]);
+
+  const handleOpenViewTest = async (testId: string) => {
+    try {
+      const ref = doc(db, 'tests', testId);
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        const data = snap.data() as any;
+        setViewTest({ id: snap.id, testName: String(data.testName || 'Untitled Test'), questions: Array.isArray(data.questions) ? data.questions : [] });
+      }
+    } catch (e) {
+      // ignore for now
+    }
+  };
+
+  const handleDeleteTest = async (testId: string) => {
+    try {
+      const result = await Swal.fire({
+        title: 'Delete this test?',
+        text: 'This action cannot be undone.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#dc2626',
+        cancelButtonColor: '#6b7280',
+        confirmButtonText: 'Delete'
+      });
+      if (!result.isConfirmed) return;
+      
+      await deleteDoc(doc(db, 'tests', testId));
+      
+      console.log('Quiz deleted, refreshing test mapping...');
+      
+      // Refresh mapping after deletion - create a new object to ensure React detects the change
+      const mapping: Record<string, { id: string; testName: string; questionsCount: number }[]> = {};
+      if (Array.isArray(stories)) {
+        for (const s of stories) {
+          if (!s._id) continue;
+          const q = query(collection(db, 'tests'), where('storyId', '==', String(s._id)));
+          const snap = await getDocs(q);
+          const testsList = snap.docs.map(d => ({ id: d.id, testName: String((d.data() as any).testName || 'Untitled Test'), questionsCount: Array.isArray((d.data() as any).questions) ? (d.data() as any).questions.length : 0 }));
+          mapping[String(s._id)] = testsList;
+          console.log(`Story ${s._id}: ${testsList.length} tests found`);
+        }
+      }
+      
+      console.log('Updated mapping:', mapping);
+      // Force state update with a completely new object
+      setStoryIdToTests(mapping);
+      
+      await Swal.fire('Deleted', 'Test has been deleted.', 'success');
+    } catch (e) {
+      console.error('Error deleting test:', e);
+      Swal.fire('Error', 'Failed to delete test', 'error');
+    }
+  };
+
+  // Group stories by grade and set - each grade-set combination should have only ONE story
+  const groupedStories = Array.isArray(stories) ? stories.reduce((acc, story) => {
+    const grade = story.grade || '3';
+    const set = story.storySet || 'A';
+    const key = `${grade}-${set}`;
+
+    // If there's already a story in this slot, this one becomes unassigned
+    if (acc[key]) {
+      // Conflict: multiple stories in same grade-set
+    } else {
+      acc[key] = story; // Only one story per grade-set combination
+    }
+    return acc;
+  }, {} as Record<string, Story>) : {};
+
+
+
+  return (
+    <div className="p-6">
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Stories Management</h1>
+        </div>
+
+        <div className="inline-flex rounded-full bg-gray-100 p-1">
+          <button
+            onClick={() => setFilters({ ...filters, language: 'english' })}
+            className={`px-6 py-2 rounded-full text-sm font-medium transition-all ${filters.language === 'english'
+              ? 'bg-blue-500 text-white shadow-md'
+              : 'text-gray-600 hover:text-gray-800'
+              }`}
+          >
+            English
+          </button>
+          <button
+            onClick={() => setFilters({ ...filters, language: 'tagalog' })}
+            className={`px-6 py-2 rounded-full text-sm font-medium transition-all ${filters.language === 'tagalog'
+              ? 'bg-blue-500 text-white shadow-md'
+              : 'text-gray-600 hover:text-gray-800'
+              }`}
+          >
+            Tagalog
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <AdminLoader label="Loading stories..." />
+      ) : viewMode === 'sets' ? (
+        // Grade-based horizontal layout: Grade 3, 4, 5, 6 with sets A B C D for each
+        <div className="space-y-8">
+          {['3', '4', '5', '6'].map(grade => (
+            <div key={grade} className="space-y-4">
+              {/* Grade Header */}
+              <div className="text-center">
+                <h2 className="text-2xl font-bold text-gray-800 py-4 border-t border-b border-gray-300">
+                  Grade {grade}
+                </h2>
+              </div>
+
+              {/* Sets A B C D in horizontal row */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {['A', 'B', 'C', 'D'].map(setLetter => {
+                  const key = `${grade}-${setLetter}`;
+                  const setStory = groupedStories[key];
+                  const hasStory = !!setStory;
+                  const tests = setStory ? (storyIdToTests[String(setStory._id)] || []) : [];
+                  const hasTest = tests.length > 0;
+                  const isComplete = hasStory && hasTest;
+
+                  return (
+                    <div key={setLetter} className={`bg-white rounded-xl border-2 p-6 transition-all hover:shadow-lg ${isComplete ? 'border-green-200 hover:border-green-300' :
+                      hasStory ? 'border-yellow-200 hover:border-yellow-300' :
+                        'border-gray-200 hover:border-gray-300'
+                      }`}>
+                      {/* Set Header */}
+                      <div className="text-center mb-4">
+                        <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center text-2xl font-bold mb-3 ${isComplete ? 'bg-green-100 text-green-700' :
+                          hasStory ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-gray-100 text-gray-500'
+                          }`}>
+                          {setLetter}
+                        </div>
+                        <h3 className="text-xl font-bold text-gray-800">Set {setLetter}</h3>
+                        <div className="flex justify-center gap-2 mt-2">
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${hasStory ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'
+                            }`}>
+                            {hasStory ? '✓' : '○'} Story
+                          </span>
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${hasTest ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'
+                            }`}>
+                            {hasTest ? '✓' : '○'} Quiz
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Set Content */}
+                      {hasStory ? (
+                        <div className="space-y-3">
+                          {/* Story Info */}
+                          <div className="bg-gray-50 rounded-lg p-3 group">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                {editingTitleId === setStory._id ? (
+                                  <div className="flex items-center gap-1">
+                                    <svg className="w-4 h-4 text-gray-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                                    </svg>
+                                    <input
+                                      type="text"
+                                      value={editingTitle}
+                                      onChange={(e) => setEditingTitle(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          setStory._id && handleSaveTitle(setStory._id);
+                                        } else if (e.key === 'Escape') {
+                                          handleCancelEditTitle();
+                                        }
+                                      }}
+                                      className="flex-1 min-w-0 text-sm font-medium border-2 border-blue-400 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                      autoFocus
+                                    />
+                                    <button
+                                      onClick={() => setStory._id && handleSaveTitle(setStory._id)}
+                                      className="flex-shrink-0 p-1 text-green-600 hover:bg-green-50 rounded transition-colors"
+                                      title="Save"
+                                    >
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    </button>
+                                    <button
+                                      onClick={handleCancelEditTitle}
+                                      className="flex-shrink-0 p-1 text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                                      title="Cancel"
+                                    >
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-2">
+                                    <svg className="w-4 h-4 text-gray-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                                    </svg>
+                                    <h4 className="font-medium text-gray-900 text-sm truncate flex-1 min-w-0" title={setStory.title}>
+                                      {setStory.title}
+                                    </h4>
+                                    <button
+                                      onClick={() => handleStartEditTitle(setStory)}
+                                      className="flex-shrink-0 p-1 text-blue-600 hover:bg-blue-50 rounded opacity-0 group-hover:opacity-100 transition-all"
+                                      title="Edit title"
+                                    >
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                )}
+                                <p className="text-xs text-gray-600 mt-1">
+                                  {getDisplayLanguage(setStory.language)}
+                                </p>
+                              </div>
+                              {/* Only show delete button when editing is not active AND no quiz exists */}
+                              {editingTitleId !== setStory._id && !hasTest && (
+                                <button
+                                  onClick={() => setStory._id && handleDeleteStory(setStory._id)}
+                                  className="flex-shrink-0 p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                  title="Delete story"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Quiz Info */}
+                          {hasTest ? (
+                            <div className="bg-green-50 rounded-lg p-3">
+                              <div className="flex items-center justify-between">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <svg className="w-4 h-4 text-green-700 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                                    </svg>
+                                    <h4 className="font-medium text-green-900 text-sm">
+                                      {tests[0].testName}
+                                    </h4>
+                                  </div>
+                                  <p className="text-xs text-green-700 mt-1">
+                                    {tests[0].questionsCount} questions
+                                  </p>
+                                </div>
+                                <div className="flex gap-1 ml-2">
+                                  <button
+                                    onClick={() => handleOpenViewTest(tests[0].id)}
+                                    className="text-green-600 hover:text-green-800 p-1"
+                                    title="View quiz"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                    </svg>
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteTest(tests[0].id)}
+                                    className="text-red-600 hover:text-red-800 p-1"
+                                    title="Delete quiz"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="bg-yellow-50 rounded-lg p-3 text-center">
+                              <p className="text-yellow-700 text-sm mb-2">Quiz needed</p>
+                              <button
+                                onClick={() => navigate(`/admin/resources?tab=create&storyId=${String(setStory._id || '')}`)}
+                                className="bg-yellow-600 text-white py-1.5 px-3 rounded text-xs hover:bg-yellow-700"
+                              >
+                                Create Quiz
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-center py-6">
+                          <svg className="w-12 h-12 mx-auto mb-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                          </svg>
+                          <p className="text-gray-500 text-sm mb-4">Empty set</p>
+                          <button
+                            onClick={() => {
+                              const target = { grade: grade as '3' | '4' | '5' | '6', set: setLetter as 'A' | 'B' | 'C' | 'D' };
+                              console.log('🎯 BUTTON CLICKED:', {
+                                gradeFromLoop: grade,
+                                setFromLoop: setLetter,
+                                targetGradeSet: target
+                              });
+                              setTargetGradeSet(target);
+                              setShowAddModal(true);
+                            }}
+                            className="bg-blue-600 text-white py-2 px-4 rounded-lg text-sm hover:bg-blue-700 transition-colors"
+                          >
+                            Add Story
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+
+
+        </div>
+      ) : (
+        // List View - Original detailed view
+        <div className="grid gap-6">
+          {Array.isArray(stories) && stories.length === 0 ? (
+            <div className="text-center text-gray-500 py-10">No stories available.</div>
+          ) : (
+            (Array.isArray(stories) ? stories : []).map((story) => (
+              <div key={story._id} className="bg-white rounded-xl border p-6 transition-colors group">
+                {/* Header row: title + actions */}
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    {editingTitleId === story._id ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={editingTitle}
+                          onChange={(e) => setEditingTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              story._id && handleSaveTitle(story._id);
+                            } else if (e.key === 'Escape') {
+                              handleCancelEditTitle();
+                            }
+                          }}
+                          className="text-lg font-semibold border border-blue-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 flex-1"
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => story._id && handleSaveTitle(story._id)}
+                          className="text-green-600 hover:text-green-800 px-2"
+                          title="Save"
+                        >
+                          ✓
+                        </button>
+                        <button
+                          onClick={handleCancelEditTitle}
+                          className="text-gray-600 hover:text-gray-800 px-2"
+                          title="Cancel"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-lg font-semibold text-gray-900 truncate">{story.title}</h3>
+                        <button
+                          onClick={() => handleStartEditTitle(story)}
+                          className="text-blue-600 hover:text-blue-800 px-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="Edit title"
+                        >
+                          ✏️
+                        </button>
+                      </div>
+                    )}
+                    <div className="mt-1 flex flex-wrap gap-x-6 gap-y-1 text-sm text-gray-600">
+                      <span>Grade: {story.grade}</span>
+                      {story.language && (
+                        <span>Language: {getDisplayLanguage(story.language)} (raw: {story.language})</span>
+                      )}
+                      {story.storySet && (
+                        <span>Set: {story.storySet}</span>
+                      )}
+                    </div>
+                    {story.description && (
+                      <p className="text-sm text-gray-500 mt-1 line-clamp-2">Description: {story.description}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => navigate(`/admin/resources?tab=create&storyId=${String(story._id || '')}`)}
+                      disabled={Boolean(storyIdToTests[String(story._id)] && storyIdToTests[String(story._id)].length > 0)}
+                      className={`px-3 py-1.5 rounded-md text-sm ${storyIdToTests[String(story._id)] && storyIdToTests[String(story._id)].length > 0 ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-700'}`}
+                    >
+                      {storyIdToTests[String(story._id)] && storyIdToTests[String(story._id)].length > 0 ? 'Test Exists' : 'Create Test'}
+                    </button>
+
+                    <button onClick={() => story._id && handleDeleteStory(story._id)} className="px-3 py-1.5 rounded-md bg-red-600 text-white text-sm hover:bg-red-700">Delete</button>
+                  </div>
+                </div>
+                <div className="mt-4 border-t pt-4">
+                  <p className="text-sm font-medium text-gray-800 mb-2">Tests</p>
+                  {storyIdToTests[String(story._id)] && storyIdToTests[String(story._id)].length > 0 ? (
+                    <div className="grid grid-cols-1 gap-4">
+                      {(() => {
+                        const testsForStory = storyIdToTests[String(story._id)] || [];
+                        const canDelete = testsForStory.length > 1;
+                        return testsForStory.map(t => (
+                          <div key={t.id} className="w-full h-24 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors px-5 py-4 flex items-center justify-between">
+                            <div className="min-w-0 pr-4">
+                              <div className="flex items-center gap-3">
+                                <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-700 text-sm font-bold">T</span>
+                                <div className="min-w-0">
+                                  <div className="text-sm font-semibold text-gray-900 truncate" title={t.testName}>{t.testName}</div>
+                                  <div className="mt-1">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                                      {t.questionsCount} question{t.questionsCount === 1 ? '' : 's'}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => handleOpenViewTest(t.id)} className="px-3 py-1.5 rounded-md border border-blue-200 text-blue-700 text-xs font-medium hover:bg-blue-50">View</button>
+                              {canDelete && (
+                                <button onClick={() => handleDeleteTest(t.id)} className="px-3 py-1.5 rounded-md border border-red-200 text-red-600 text-xs font-medium hover:bg-red-50">Delete</button>
+                              )}
+                            </div>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400">No tests yet.</p>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+      {viewTest && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-[100]">
+          <div className="bg-white rounded-lg w-full max-w-2xl p-6">
+            <div className="flex items-start justify-between">
+              <h3 className="text-xl font-bold text-gray-900">{viewTest.testName}</h3>
+              <button onClick={() => setViewTest(null)} className="text-gray-500 hover:text-gray-700">✕</button>
+            </div>
+            <div className="mt-4">
+              {viewTest.questions && viewTest.questions.length > 0 ? (
+                <ul className="space-y-2 max-h-80 overflow-auto pr-2">
+                  {viewTest.questions.map((q: any, idx: number) => {
+                    const choices: string[] = Array.isArray(q.choices) ? q.choices : [];
+                    const correctIdx: number = typeof q.correctAnswer === 'number' ? q.correctAnswer : -1;
+                    const correctText = correctIdx >= 0 && correctIdx < choices.length ? choices[correctIdx] : '';
+                    return (
+                      <li key={idx} className="border rounded-md p-3">
+                        <div className="text-sm font-semibold text-gray-800">Question {idx + 1}</div>
+                        <div className="text-sm text-gray-700 mb-1">{String(q.question || '')}</div>
+                        <div className="text-xs text-green-700 font-medium">Correct answer: {correctText || 'N/A'}</div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="text-sm text-gray-500">No questions to display.</div>
+              )}
+            </div>
+            <div className="mt-5 text-right">
+              <button onClick={() => setViewTest(null)} className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <AddStoryModal
+        isOpen={showAddModal}
+        onClose={() => {
+          setShowAddModal(false);
+          setTargetGradeSet(null);
+        }}
+        onSave={handleAddStory}
+        targetGradeSet={targetGradeSet}
+        defaultLanguage={filters.language === 'tagalog' ? 'tagalog' : 'english'}
+      />
+
+
+    </div>
+  );
+}

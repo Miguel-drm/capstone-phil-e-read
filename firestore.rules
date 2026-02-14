@@ -1,0 +1,329 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() { return request.auth != null; }
+    
+    // Simplified role checks that don't cause circular dependencies
+    function isUserAdmin() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    function isUserTeacher() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
+    }
+    function isUserParent() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'parent';
+    }
+
+    // Users collection rules - SIMPLIFIED to avoid circular dependency
+    match /users/{userId} {
+      // Allow users to read their own document (no role check needed)
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      // Allow reading teacher documents (for parent to get teacher email)
+      allow read: if isAuthenticated() && resource.data.role == 'teacher';
+      // Allow reading parent documents (for teacher to see parent info)
+      allow read: if isAuthenticated() && resource.data.role == 'parent';
+      
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAuthenticated() && (
+        isUserAdmin() || 
+        (request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']))
+      );
+      allow delete: if isAuthenticated() && isUserAdmin();
+    }
+
+    // Class Grades collection rules
+    match /classGrades/{gradeId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isUserTeacher() || isUserAdmin());
+      allow update: if isAuthenticated() && (isUserTeacher() || isUserAdmin());
+      allow delete: if isAuthenticated() && (isUserTeacher() || isUserAdmin());
+      
+      match /students/{studentId} {
+        allow read: if isAuthenticated() && (isUserTeacher() || isUserAdmin());
+        allow write: if isAuthenticated() && (isUserTeacher() || isUserAdmin());
+        allow delete: if isAuthenticated() && (
+          (isUserTeacher() && get(/databases/$(database)/documents/classGrades/$(gradeId)).data.teacherId == request.auth.uid) ||
+          isUserAdmin()
+        );
+      }
+    }
+
+    // Students collection rules
+    match /students/{studentId} {
+      allow read: if isAuthenticated() && (
+        isUserTeacher() || 
+        isUserAdmin() ||
+        (isUserParent() && resource.data.parentId == request.auth.uid)
+      );
+      allow create: if isAuthenticated() && (isUserTeacher() || isUserAdmin());
+      allow update: if isAuthenticated() && (
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid) ||
+        isUserAdmin()
+      );
+      allow delete: if isAuthenticated() && (
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid) ||
+        isUserAdmin()
+      );
+    }
+
+    // Stories collection rules
+    match /stories/{storyId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isUserAdmin();
+    }
+
+    // Teacher scoped data
+    match /teachers/{teacherId} {
+      allow read: if isAuthenticated() && (request.auth.uid == teacherId || isUserAdmin());
+      allow create, update: if isAuthenticated() && (request.auth.uid == teacherId || isUserAdmin());
+      allow delete: if isAuthenticated() && isUserAdmin();
+
+      match /activities/{activityId} {
+        allow read: if isAuthenticated() && (request.auth.uid == teacherId || isUserAdmin());
+        allow create: if isAuthenticated() && (request.auth.uid == teacherId || isUserAdmin());
+        allow update, delete: if isAuthenticated() && (request.auth.uid == teacherId || isUserAdmin());
+      }
+    }
+
+    // Reading Sessions collection rules
+    match /readingSessions/{sessionId} {
+      function isSessionOwner() {
+        return request.auth.uid == resource.data.teacherId;
+      }
+      allow read: if isAuthenticated() && (
+        isUserTeacher() || 
+        isUserAdmin() ||
+        (isUserParent() && resource.data.teacherId == request.auth.uid)
+      );
+      allow create: if isAuthenticated() && (
+        (isUserTeacher() || isUserParent()) &&
+        request.resource.data.teacherId == request.auth.uid
+      );
+      allow update: if isAuthenticated() && (
+        ((isUserTeacher() || isUserParent()) && isSessionOwner()) ||
+        isUserAdmin()
+      );
+      allow delete: if isAuthenticated() && (
+        ((isUserTeacher() || isUserParent()) && isSessionOwner()) ||
+        isUserAdmin()
+      );
+    }
+    
+    // Tests collection rules
+    match /tests/{testId} {
+      allow read: if isAuthenticated() && (isUserTeacher() || isUserAdmin());
+      allow create: if isAuthenticated() && (isUserTeacher() || isUserAdmin());
+      allow update, delete: if isAuthenticated() && (isUserTeacher() || isUserAdmin());
+    }
+    
+    // Results collection rules
+    match /results/{resultId} {
+      function isResultOwner() {
+        return request.auth.uid == resource.data.teacherId;
+      }
+      allow read: if isAuthenticated() && (
+        isUserTeacher() && isResultOwner() ||
+        isUserAdmin() ||
+        (isUserParent() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.children.hasAny([resource.data.studentId]))
+      );
+      allow create: if isAuthenticated() && (
+        (isUserTeacher() && request.resource.data.teacherId == request.auth.uid) ||
+        (isUserParent() && request.resource.data.studentId == request.auth.uid)
+      );
+      allow update: if isAuthenticated() && (
+        (isUserTeacher() && isResultOwner()) ||
+        isUserAdmin()
+      );
+      allow delete: if isAuthenticated() && (
+        (isUserTeacher() && isResultOwner()) ||
+        isUserAdmin()
+      );
+    }
+
+    // Reading Results collection rules
+    match /readingResults/{resultId} {
+      function isResultOwner() {
+        return request.auth.uid == resource.data.teacherId;
+      }
+      allow read: if isAuthenticated() && (
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid) ||
+        isUserAdmin() ||
+        (isUserParent() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.children.hasAny([resource.data.studentId]))
+      );
+      allow create: if isAuthenticated() && (
+        (isUserTeacher() && request.resource.data.teacherId == request.auth.uid) ||
+        (isUserParent() && request.resource.data.studentId == request.auth.uid)
+      );
+      allow update: if isAuthenticated() && (
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid) ||
+        isUserAdmin()
+      );
+      allow delete: if isAuthenticated() && (
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid) ||
+        isUserAdmin()
+      );
+    }
+
+    // Test Results collection rules
+    match /testResults/{resultId} {
+      function isResultOwner() {
+        return request.auth.uid == resource.data.teacherId;
+      }
+      allow read: if isAuthenticated() && (
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid) ||
+        isUserAdmin() ||
+        (isUserParent() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.children.hasAny([resource.data.studentId]))
+      );
+      allow create: if isAuthenticated() && (
+        (isUserTeacher() && request.resource.data.teacherId == request.auth.uid) ||
+        (isUserParent() && request.resource.data.studentId == request.auth.uid)
+      );
+      allow update: if isAuthenticated() && (
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid) ||
+        isUserAdmin()
+      );
+      allow delete: if isAuthenticated() && (
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid) ||
+        isUserAdmin()
+      );
+    }
+
+    // Link Requests collection rules
+    match /linkRequests/{requestId} {
+      allow create: if isAuthenticated() && isUserParent() && 
+        request.resource.data.parentId == request.auth.uid;
+      
+      allow read: if isAuthenticated() && (
+        isUserAdmin() ||
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid) ||
+        (isUserParent() && resource.data.parentId == request.auth.uid)
+      );
+      
+      allow update: if isAuthenticated() && (
+        isUserAdmin() ||
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid)
+      );
+      
+      allow delete: if isAuthenticated() && isUserAdmin();
+    }
+
+    // Notifications collection rules
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.recipientId == request.auth.uid ||
+        isUserAdmin()
+      );
+      
+      allow create: if isAuthenticated() && (
+        isUserAdmin() ||
+        (isUserTeacher() && request.resource.data.userId != request.auth.uid) ||
+        (isUserParent() && request.resource.data.userId != request.auth.uid)
+      );
+      
+      allow update: if isAuthenticated() && (
+        (resource.data.userId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead'])) ||
+        isUserAdmin()
+      );
+      
+      allow delete: if isAuthenticated() && isUserAdmin();
+    }
+
+    // Parent Reports collection rules
+    match /parentReports/{reportId} {
+      allow read: if isAuthenticated() && resource.data.parentId == request.auth.uid;
+      allow create: if isAuthenticated() && isUserParent() && request.resource.data.parentId == request.auth.uid;
+      allow update, delete: if isAuthenticated() && isUserAdmin();
+    }
+
+    // Admin Inbox collection rules
+    match /adminInbox/{messageId} {
+      allow read: if isAuthenticated() && isUserAdmin();
+      allow create: if isAuthenticated() && (isUserTeacher() || isUserParent() || isUserAdmin());
+      allow update: if isAuthenticated() && (
+        isUserAdmin() ||
+        (resource.data.senderId == request.auth.uid && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead', 'isArchived']))
+      );
+      allow delete: if isAuthenticated() && isUserAdmin();
+    }
+
+    // Teacher Inbox collection rules
+    match /teacherInbox/{messageId} {
+      allow read: if isAuthenticated() && (
+        isUserAdmin() ||
+        (isUserTeacher() && resource.data.recipientId == request.auth.uid) ||
+        (isUserParent() && resource.data.senderId == request.auth.uid)
+      );
+      allow create: if isAuthenticated() && (isUserParent() || isUserAdmin());
+      allow update: if isAuthenticated() && (
+        isUserAdmin() ||
+        (isUserTeacher() && resource.data.recipientId == request.auth.uid) ||
+        (resource.data.senderId == request.auth.uid && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead', 'isArchived']))
+      );
+      allow delete: if isAuthenticated() && isUserAdmin();
+    }
+
+    // Parent Inbox collection rules
+    match /parentInbox/{messageId} {
+      allow read: if isAuthenticated() && (
+        isUserAdmin() ||
+        (isUserParent() && resource.data.recipientId == request.auth.uid) ||
+        (isUserTeacher() && resource.data.senderId == request.auth.uid)
+      );
+      allow create: if isAuthenticated() && (isUserTeacher() || isUserAdmin());
+      allow update: if isAuthenticated() && (
+        isUserAdmin() ||
+        (isUserParent() && resource.data.recipientId == request.auth.uid) ||
+        (resource.data.senderId == request.auth.uid && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead', 'isArchived']))
+      );
+      allow delete: if isAuthenticated() && isUserAdmin();
+    }
+
+    // Resources collection rules (for admin dashboard)
+    match /resources/{resourceId} {
+      allow read: if isAuthenticated() && isUserAdmin();
+      allow write: if isAuthenticated() && isUserAdmin();
+    }
+
+    // Teacher activities subcollection rules
+    match /teachers/{teacherId}/activities/{activityId} {
+      allow read: if isAuthenticated() && (
+        isUserAdmin() ||
+        (isUserTeacher() && request.auth.uid == teacherId)
+      );
+      allow create: if isAuthenticated() && (
+        isUserAdmin() ||
+        (isUserTeacher() && request.auth.uid == teacherId)
+      );
+      allow update, delete: if isAuthenticated() && (
+        isUserAdmin() ||
+        (isUserTeacher() && request.auth.uid == teacherId)
+      );
+    }
+
+    // Approved ISR Records collection rules (for approved ISR submissions)
+    match /approvedISRRecords/{recordId} {
+      allow read: if isAuthenticated() && (
+        isUserAdmin() ||
+        (isUserTeacher() && resource.data.teacherId == request.auth.uid)
+      );
+      allow create: if isAuthenticated() && isUserAdmin();
+      allow update: if isAuthenticated() && isUserAdmin();
+      allow delete: if isAuthenticated() && isUserAdmin();
+    }
+
+    // Default rule - deny all other access
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

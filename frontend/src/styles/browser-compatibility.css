@@ -1,0 +1,560 @@
+/* Browser Compatibility Fixes */
+
+/* Safari-specific fixes */
+@supports (-webkit-appearance: none) {
+  /* Fix Safari input appearance */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="search"],
+  textarea,
+  select {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  /* Fix Safari button appearance */
+  button,
+  [role="button"],
+  input[type="button"],
+  input[type="submit"],
+  input[type="reset"] {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  /* Fix Safari date input */
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"] {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  /* Fix Safari select dropdown */
+  select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+    background-position: right 0.5rem center;
+    background-repeat: no-repeat;
+    background-size: 1.5em 1.5em;
+    padding-right: 2.5rem;
+  }
+}
+
+/* Firefox-specific fixes */
+@-moz-document url-prefix() {
+  /* Fix Firefox button padding */
+  button::-moz-focus-inner,
+  [type="button"]::-moz-focus-inner,
+  [type="reset"]::-moz-focus-inner,
+  [type="submit"]::-moz-focus-inner {
+    border-style: none;
+    padding: 0;
+  }
+
+  /* Fix Firefox select dropdown */
+  select {
+    text-indent: 0.01px;
+    text-overflow: '';
+  }
+
+  /* Fix Firefox number input spinner */
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+}
+
+/* Remove number input spinners in Chrome, Safari, Edge, Opera */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Remove number input spinners in Firefox */
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Fix iOS Safari input zoom */
+@media screen and (max-width: 640px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="search"],
+  textarea,
+  select {
+    font-size: 16px !important; /* Prevents zoom on focus in iOS Safari */
+  }
+}
+
+/* Fix iOS Safari button active state */
+button,
+[role="button"],
+a[role="button"] {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+/* Fix iOS Safari momentum scrolling */
+.modal-container,
+.sidebar,
+.dropdown-menu,
+[role="dialog"],
+.overflow-auto,
+.overflow-y-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Fix Edge/IE flexbox bugs */
+@supports (-ms-ime-align: auto) {
+  /* Fix Edge flexbox min-height bug */
+  .flex,
+  .inline-flex {
+    min-height: 0;
+  }
+
+  /* Fix Edge grid bugs */
+  .grid {
+    display: -ms-grid;
+  }
+}
+
+/* Fix Chrome/Safari transform flickering */
+.card,
+.btn,
+.modal-container,
+[class*="hover:scale"],
+[class*="hover:shadow"] {
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+}
+
+/* Fix Safari flexbox gap fallback */
+@supports not (gap: 1rem) {
+  .flex.gap-1 > * + *,
+  .inline-flex.gap-1 > * + * {
+    margin-left: 0.25rem;
+  }
+
+  .flex.gap-2 > * + *,
+  .inline-flex.gap-2 > * + * {
+    margin-left: 0.5rem;
+  }
+
+  .flex.gap-3 > * + *,
+  .inline-flex.gap-3 > * + * {
+    margin-left: 0.75rem;
+  }
+
+  .flex.gap-4 > * + *,
+  .inline-flex.gap-4 > * + * {
+    margin-left: 1rem;
+  }
+
+  .flex.gap-6 > * + *,
+  .inline-flex.gap-6 > * + * {
+    margin-left: 1.5rem;
+  }
+}
+
+/* Fix Chrome autofill background color */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 30px white inset !important;
+  -webkit-text-fill-color: #374151 !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Fix Safari date input appearance */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: invert(0.5);
+}
+
+/* Fix Safari search input clear button */
+input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 16px;
+  width: 16px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M6 18L18 6M6 6l12 12'/%3E%3C/svg%3E");
+  background-size: 16px 16px;
+  cursor: pointer;
+}
+
+/* Fix Firefox placeholder opacity */
+::placeholder {
+  opacity: 1;
+}
+
+/* Fix Edge button border */
+button:not(:disabled),
+[type="button"]:not(:disabled),
+[type="reset"]:not(:disabled),
+[type="submit"]:not(:disabled) {
+  cursor: pointer;
+}
+
+/* Fix Safari sticky positioning */
+.sticky {
+  position: -webkit-sticky;
+  position: sticky;
+}
+
+/* Fix Chrome/Safari smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* Fix Safari backdrop-filter support */
+@supports ((-webkit-backdrop-filter: blur(10px)) or (backdrop-filter: blur(10px))) {
+  .backdrop-blur {
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+  }
+
+  .backdrop-blur-sm {
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+  }
+
+  .backdrop-blur-md {
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+  }
+
+  .backdrop-blur-lg {
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+  }
+}
+
+/* Fix Chrome/Safari text rendering */
+body,
+button,
+input,
+textarea,
+select {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Fix Safari button text alignment */
+button,
+[role="button"] {
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* Fix Edge SVG overflow */
+svg {
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+/* Fix Chrome/Safari focus outline */
+*:focus {
+  outline: none;
+}
+
+*:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* Fix Safari min-height with flexbox */
+.flex-col {
+  min-height: 0;
+}
+
+/* Fix Chrome/Safari animation performance */
+@media (prefers-reduced-motion: no-preference) {
+  /* Only apply will-change during animation */
+  .animate-fade-in,
+  .animate-slide-in-up,
+  .animate-scale-in {
+    will-change: transform, opacity;
+  }
+
+  /* Remove will-change after animation completes */
+  .animate-fade-in.animation-complete,
+  .animate-slide-in-up.animation-complete,
+  .animate-scale-in.animation-complete {
+    will-change: auto;
+  }
+
+  /* Optimize hover animations */
+  .btn:hover,
+  .card-interactive:hover,
+  [class*="hover:scale"]:hover,
+  [class*="hover:shadow"]:hover {
+    will-change: transform, box-shadow;
+  }
+
+  .btn:not(:hover),
+  .card-interactive:not(:hover),
+  [class*="hover:scale"]:not(:hover),
+  [class*="hover:shadow"]:not(:hover) {
+    will-change: auto;
+  }
+}
+
+/* Fix Safari gradient rendering */
+.gradient-primary,
+.gradient-accent,
+.gradient-primary-to-accent,
+.gradient-success,
+.gradient-sidebar {
+  background-attachment: fixed;
+}
+
+@media (max-width: 640px) {
+  .gradient-primary,
+  .gradient-accent,
+  .gradient-primary-to-accent,
+  .gradient-success,
+  .gradient-sidebar {
+    background-attachment: scroll; /* Fixed attachment causes issues on mobile Safari */
+  }
+}
+
+/* Fix Chrome/Safari select arrow positioning */
+select:not([multiple]):not([size]) {
+  background-position: right 0.5rem center;
+  padding-right: 2.5rem;
+}
+
+/* Fix Firefox select padding */
+@-moz-document url-prefix() {
+  select:not([multiple]):not([size]) {
+    padding-right: 2rem;
+  }
+}
+
+/* Fix Safari transform origin */
+.scale-in,
+.dropdown-scale-in,
+[class*="scale-"] {
+  -webkit-transform-origin: center;
+  transform-origin: center;
+}
+
+/* Fix Edge grid auto-placement */
+@supports (-ms-ime-align: auto) {
+  .grid {
+    -ms-grid-columns: 1fr;
+    -ms-grid-rows: auto;
+  }
+}
+
+/* Fix Safari position: sticky with overflow */
+.sticky-container {
+  overflow: visible;
+}
+
+/* Fix Chrome/Safari input height consistency */
+input,
+textarea,
+select {
+  line-height: normal;
+}
+
+/* Fix Safari button line-height */
+button,
+[role="button"] {
+  line-height: inherit;
+}
+
+/* Fix Firefox dotted outline on buttons */
+button::-moz-focus-inner {
+  border: 0;
+  padding: 0;
+}
+
+/* Fix Safari date/time input padding */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"] {
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+
+/* Fix Chrome/Safari checkbox and radio appearance */
+input[type="checkbox"],
+input[type="radio"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 2px solid #d1d5db;
+  border-radius: 0.25rem;
+  background-color: white;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+input[type="radio"] {
+  border-radius: 50%;
+}
+
+input[type="checkbox"]:checked,
+input[type="radio"]:checked {
+  background-color: #2563eb;
+  border-color: #2563eb;
+}
+
+input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 0.3rem;
+  top: 0.1rem;
+  width: 0.4rem;
+  height: 0.7rem;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+input[type="radio"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background-color: white;
+}
+
+input[type="checkbox"]:focus,
+input[type="radio"]:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* Fix Safari file input button */
+input[type="file"]::file-selector-button {
+  padding: 0.5rem 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  background-color: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+input[type="file"]::file-selector-button:hover {
+  background-color: #f3f4f6;
+}
+
+/* Fix Chrome file input button */
+input[type="file"]::-webkit-file-upload-button {
+  padding: 0.5rem 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  background-color: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+input[type="file"]::-webkit-file-upload-button:hover {
+  background-color: #f3f4f6;
+}
+
+/* Fix Safari range input */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 0.5rem;
+  border-radius: 0.25rem;
+  background: #e5e7eb;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  background: #2563eb;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  background: #1d4ed8;
+  transform: scale(1.1);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 1.25rem;
+  height: 1.25rem;
+  border: none;
+  border-radius: 50%;
+  background: #2563eb;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+input[type="range"]::-moz-range-thumb:hover {
+  background: #1d4ed8;
+  transform: scale(1.1);
+}
+
+/* Fix Edge range input */
+input[type="range"]::-ms-thumb {
+  width: 1.25rem;
+  height: 1.25rem;
+  border: none;
+  border-radius: 50%;
+  background: #2563eb;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+input[type="range"]::-ms-thumb:hover {
+  background: #1d4ed8;
+  transform: scale(1.1);
+}
+
+input[type="range"]::-ms-track {
+  width: 100%;
+  height: 0.5rem;
+  cursor: pointer;
+  background: transparent;
+  border-color: transparent;
+  color: transparent;
+}
+
+input[type="range"]::-ms-fill-lower {
+  background: #2563eb;
+  border-radius: 0.25rem;
+}
+
+input[type="range"]::-ms-fill-upper {
+  background: #e5e7eb;
+  border-radius: 0.25rem;
+}

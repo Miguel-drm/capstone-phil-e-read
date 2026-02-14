@@ -1,0 +1,334 @@
+{
+  "info": {
+    "name": "Phil I-Ready - Reports API",
+    "description": "Postman collection for testing Reports functionality and data structures",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Sample Data Structures",
+      "item": [
+        {
+          "name": "Approved ISR Record - Sample",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"originalSubmissionId\": \"submission_123\",\n  \"teacherId\": \"teacher_001\",\n  \"teacherName\": \"Maria Santos\",\n  \"className\": \"Grade 3 - Section A\",\n  \"grade\": \"3\",\n  \"section\": \"A\",\n  \"studentCount\": 25,\n  \"submissionDate\": \"2024-01-15T00:00:00Z\",\n  \"approvedDate\": \"2024-01-16T00:00:00Z\",\n  \"approvedBy\": \"admin_001\",\n  \"approvedByName\": \"System Administrator\",\n  \"adminComments\": \"All records verified and approved\",\n  \"reportType\": \"class_isr\",\n  \"students\": [\n    {\n      \"studentName\": \"Juan Dela Cruz\",\n      \"gradeSection\": \"Grade 3 - Section A\",\n      \"language\": \"Filipino\",\n      \"teacher\": \"Maria Santos\",\n      \"school\": \"Elementary School\",\n      \"readingData\": [\n        {\n          \"dateTaken\": \"2024-01-10\",\n          \"wordReading\": {\n            \"ind\": true,\n            \"ins\": false\n          },\n          \"comprehension\": {\n            \"ind\": true,\n            \"ins\": false\n          }\n        }\n      ],\n      \"observations\": {\n        \"wordByWord\": false,\n        \"lacksExpression\": false,\n        \"hardlyAudible\": false,\n        \"disregardsPunctuation\": false,\n        \"pointsToWords\": false,\n        \"littleAnalysis\": false,\n        \"otherObservations\": \"\"\n      }\n    },\n    {\n      \"studentName\": \"Maria Garcia\",\n      \"gradeSection\": \"Grade 3 - Section A\",\n      \"language\": \"English\",\n      \"teacher\": \"Maria Santos\",\n      \"school\": \"Elementary School\",\n      \"readingData\": [\n        {\n          \"dateTaken\": \"2024-01-10\",\n          \"wordReading\": {\n            \"ind\": false,\n            \"ins\": true\n          },\n          \"comprehension\": {\n            \"ind\": false,\n            \"ins\": true\n          }\n        }\n      ],\n      \"observations\": {\n        \"wordByWord\": true,\n        \"lacksExpression\": false,\n        \"hardlyAudible\": false,\n        \"disregardsPunctuation\": false,\n        \"pointsToWords\": false,\n        \"littleAnalysis\": false,\n        \"otherObservations\": \"Needs more practice with fluency\"\n      }\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/approvedISRRecords",
+              "host": ["{{base_url}}"],
+              "path": ["api", "approvedISRRecords"]
+            },
+            "description": "Sample structure for an approved ISR record that would be stored in the 'approvedISRRecords' Firestore collection"
+          }
+        },
+        {
+          "name": "Admin Inbox Submission - Sample",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"teacher_report\",\n  \"senderId\": \"teacher_002\",\n  \"senderName\": \"John Reyes\",\n  \"createdAt\": \"2024-01-20T00:00:00Z\",\n  \"isRead\": false,\n  \"data\": {\n    \"reportType\": \"class_isr\",\n    \"className\": \"Grade 4 - Section B\",\n    \"grade\": \"4\",\n    \"section\": \"B\",\n    \"studentCount\": 30,\n    \"status\": \"pending\",\n    \"teacherName\": \"John Reyes\",\n    \"students\": [\n      {\n        \"studentName\": \"Ana Lopez\",\n        \"gradeSection\": \"Grade 4 - Section B\",\n        \"language\": \"Filipino\",\n        \"teacher\": \"John Reyes\",\n        \"school\": \"Elementary School\",\n        \"readingData\": [\n          {\n            \"dateTaken\": \"2024-01-18\",\n            \"wordReading\": {\n              \"ind\": false,\n              \"ins\": false\n            },\n            \"comprehension\": {\n              \"ind\": false,\n              \"ins\": false\n            }\n          }\n        ],\n        \"observations\": {\n          \"wordByWord\": true,\n          \"lacksExpression\": true,\n          \"hardlyAudible\": false,\n          \"disregardsPunctuation\": true,\n          \"pointsToWords\": true,\n          \"littleAnalysis\": true,\n          \"otherObservations\": \"Student needs intensive reading support\"\n        }\n      }\n    ]\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/adminInbox",
+              "host": ["{{base_url}}"],
+              "path": ["api", "adminInbox"]
+            },
+            "description": "Sample structure for a teacher ISR submission in the 'adminInbox' collection (pending approval)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Report Data Queries",
+      "item": [
+        {
+          "name": "Get Phil-IRI Summary Data",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reports/phil-iri-summary?academicPeriod=current-quarter&grade=3&language=Filipino",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "phil-iri-summary"],
+              "query": [
+                {
+                  "key": "academicPeriod",
+                  "value": "current-quarter",
+                  "description": "Options: current-quarter, q1-2024-25, q2-2024-25, q3-2024-25, q4-2024-25, semester1-2024-25, semester2-2024-25, school-year-2024-25"
+                },
+                {
+                  "key": "grade",
+                  "value": "3",
+                  "description": "Filter by grade level"
+                },
+                {
+                  "key": "language",
+                  "value": "Filipino",
+                  "description": "Filter by language: Filipino or English"
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "description": "Filter by status: pending, approved, rejected",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Limit number of results",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Fetches Phil-IRI Assessment Summary data combining approved ISR records and pending submissions"
+          }
+        },
+        {
+          "name": "Get Reading Level Distribution",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reports/reading-level-distribution?academicPeriod=current-quarter&language=Filipino",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "reading-level-distribution"],
+              "query": [
+                {
+                  "key": "academicPeriod",
+                  "value": "current-quarter"
+                },
+                {
+                  "key": "grade",
+                  "value": "",
+                  "description": "Filter by grade level",
+                  "disabled": true
+                },
+                {
+                  "key": "language",
+                  "value": "Filipino"
+                }
+              ]
+            },
+            "description": "Fetches reading level distribution statistics by grade level"
+          }
+        },
+        {
+          "name": "Get Teacher ISR Submissions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reports/teacher-isr-submissions?status=pending&grade=4",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "teacher-isr-submissions"],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "pending",
+                  "description": "Filter by status: pending, approved, rejected"
+                },
+                {
+                  "key": "grade",
+                  "value": "4",
+                  "description": "Filter by grade level"
+                },
+                {
+                  "key": "academicPeriod",
+                  "value": "",
+                  "description": "Filter by academic period",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Fetches teacher ISR submission tracking data"
+          }
+        },
+        {
+          "name": "Get Comprehension Analysis",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reports/comprehension-analysis?grade=3&language=Filipino",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "comprehension-analysis"],
+              "query": [
+                {
+                  "key": "grade",
+                  "value": "3"
+                },
+                {
+                  "key": "language",
+                  "value": "Filipino"
+                }
+              ]
+            },
+            "description": "Fetches comprehension analysis data with observations"
+          }
+        },
+        {
+          "name": "Get Report Statistics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reports/statistics",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "statistics"]
+            },
+            "description": "Fetches overall report statistics including total students, submissions, and breakdowns by grade and language"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Report Generation",
+      "item": [
+        {
+          "name": "Generate Report - Excel",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"templateId\": \"phil-iri-summary\",\n  \"format\": \"xlsx\",\n  \"parameters\": {\n    \"academicPeriod\": \"current-quarter\",\n    \"grade\": \"3\",\n    \"language\": \"Filipino\",\n    \"status\": \"all\"\n  },\n  \"generatedBy\": \"admin_001\",\n  \"generatedByName\": \"System Administrator\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/reports/generate",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "generate"]
+            },
+            "description": "Generates a report in Excel format (.xlsx)"
+          }
+        },
+        {
+          "name": "Generate Report - PDF",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"templateId\": \"reading-level-distribution\",\n  \"format\": \"pdf\",\n  \"parameters\": {\n    \"academicPeriod\": \"school-year-2024-25\",\n    \"language\": \"all\"\n  },\n  \"generatedBy\": \"admin_001\",\n  \"generatedByName\": \"System Administrator\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/reports/generate",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "generate"]
+            },
+            "description": "Generates a report in PDF format"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Firebase Firestore Direct (if using REST API)",
+      "item": [
+        {
+          "name": "Get Approved ISR Records",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{firebase_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://firestore.googleapis.com/v1/projects/{{project_id}}/databases/(default)/documents/approvedISRRecords?orderBy=approvedDate&pageSize=50",
+              "protocol": "https",
+              "host": ["firestore.googleapis.com"],
+              "path": ["v1", "projects", "{{project_id}}", "databases", "(default)", "documents", "approvedISRRecords"],
+              "query": [
+                {
+                  "key": "orderBy",
+                  "value": "approvedDate"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "50"
+                }
+              ]
+            },
+            "description": "Direct Firestore REST API call to get approved ISR records"
+          }
+        },
+        {
+          "name": "Get Admin Inbox Submissions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{firebase_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://firestore.googleapis.com/v1/projects/{{project_id}}/databases/(default)/documents/adminInbox?where=type==teacher_report&pageSize=50",
+              "protocol": "https",
+              "host": ["firestore.googleapis.com"],
+              "path": ["v1", "projects", "{{project_id}}", "databases", "(default)", "documents", "adminInbox"],
+              "query": [
+                {
+                  "key": "where",
+                  "value": "type==teacher_report"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "50"
+                }
+              ]
+            },
+            "description": "Direct Firestore REST API call to get teacher report submissions from admin inbox"
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:5001/your-project-id/us-central1",
+      "type": "string",
+      "description": "Base URL for your backend API (if using Firebase Functions or custom backend)"
+    },
+    {
+      "key": "project_id",
+      "value": "your-firebase-project-id",
+      "type": "string",
+      "description": "Your Firebase project ID"
+    },
+    {
+      "key": "firebase_token",
+      "value": "your-firebase-auth-token",
+      "type": "string",
+      "description": "Firebase authentication token for REST API calls"
+    }
+  ]
+}
+

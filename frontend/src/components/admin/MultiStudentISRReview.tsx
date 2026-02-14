@@ -1,0 +1,700 @@
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  UserIcon,
+  CheckIcon,
+  XMarkIcon,
+  ExclamationTriangleIcon,
+  PencilSquareIcon,
+  ChatBubbleLeftRightIcon,
+  InformationCircleIcon
+} from '@heroicons/react/24/outline';
+import DepEdISRViewer from './DepEdISRViewer';
+
+interface ISRStudentData {
+  studentId: string;
+  studentName: string;
+  age?: string;
+  gradeSection: string;
+  school: string;
+  teacher: string;
+  language: 'English' | 'Filipino';
+  readingData: {
+    level: string;
+    wordReading: {
+      ind: boolean;
+      ins: boolean;
+      frus: boolean;
+    };
+    comprehension: {
+      ind: boolean;
+      ins: boolean;
+      frus: boolean;
+    };
+    dateTaken: string;
+  }[];
+  observations: {
+    wordByWord: boolean;
+    lacksExpression: boolean;
+    hardlyAudible: boolean;
+    disregardsPunctuation: boolean;
+    pointsToWords: boolean;
+    littleAnalysis: boolean;
+    otherObservations: string;
+  };
+}
+
+interface ISRSubmissionData {
+  id: string;
+  teacherId: string;
+  teacherName: string;
+  className: string;
+  grade: string;
+  section: string;
+  studentCount: number;
+  submissionDate: Date;
+  status: 'pending' | 'approved' | 'rejected';
+  students: ISRStudentData[];
+}
+
+interface MultiStudentISRReviewProps {
+  submission: ISRSubmissionData;
+  onApproveAll: () => void;
+  onClose: () => void;
+  isLoading?: boolean;
+}
+
+const MultiStudentISRReview: React.FC<MultiStudentISRReviewProps> = ({
+  submission,
+  onApproveAll,
+  onClose,
+  isLoading = false
+}) => {
+  const [selectedStudentIndex, setSelectedStudentIndex] = useState(0);
+  const [showISRViewer, setShowISRViewer] = useState(false);
+  const [showAutoSelectNotification, setShowAutoSelectNotification] = useState(false);
+
+  // Memoized values for better performance
+  const isSubmissionApproved = useMemo(() => submission.status === 'approved', [submission.status]);
+  const isSubmissionRejected = useMemo(() => submission.status === 'rejected', [submission.status]);
+  const currentStudent = useMemo(() => submission.students[selectedStudentIndex], [submission.students, selectedStudentIndex]);
+
+  // Modal focus management and keyboard navigation
+  useEffect(() => {
+    // Prevent body scroll and interaction with background elements
+    const originalOverflow = document.body.style.overflow;
+    const originalPointerEvents = document.body.style.pointerEvents;
+
+    document.body.style.overflow = 'hidden';
+    document.body.style.pointerEvents = 'none';
+
+    // Add a class to body to help with CSS targeting
+    document.body.classList.add('modal-open');
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (showISRViewer) return; // Don't handle keys when ISR viewer is open
+
+      switch (e.key) {
+        case 'ArrowLeft':
+          e.preventDefault();
+          handlePreviousStudent();
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          handleNextStudent();
+          break;
+        case 'Escape':
+          e.preventDefault();
+          onClose();
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      // Restore body interaction and scroll
+      document.body.style.overflow = originalOverflow;
+      document.body.style.pointerEvents = originalPointerEvents;
+      document.body.classList.remove('modal-open');
+    };
+  }, [showISRViewer, selectedStudentIndex, submission.students.length, onClose]);
+
+  const handlePreviousStudent = useCallback(() => {
+    setSelectedStudentIndex(prev => Math.max(0, prev - 1));
+  }, []);
+
+  const handleNextStudent = useCallback(() => {
+    setSelectedStudentIndex(prev => Math.min(submission.students.length - 1, prev + 1));
+  }, [submission.students.length]);
+
+  const handleViewStudentISR = useCallback(() => {
+    setShowISRViewer(true);
+  }, []);
+
+  const handleStudentSelect = useCallback((index: number) => {
+    setSelectedStudentIndex(index);
+  }, []);
+
+  // Memoized helper functions for better performance
+  const getReadingLevel = useCallback((student: ISRStudentData) => {
+    const latestReading = student.readingData?.[0];
+    if (!latestReading) return 'No data';
+
+    if (latestReading.wordReading.ind && latestReading.comprehension.ind) return 'Independent';
+    if (latestReading.wordReading.ins && latestReading.comprehension.ins) return 'Instructional';
+    return 'Frustration';
+  }, []);
+
+  // Memoized data completeness analysis
+  const analyzeDataCompleteness = useCallback((student: ISRStudentData) => {
+    const issues: string[] = [];
+    const warnings: string[] = [];
+
+    // Check basic information
+    if (!student.age || student.age.trim() === '') {
+      issues.push('Age not specified');
+    }
+
+    // Check reading data
+    if (!student.readingData || student.readingData.length === 0) {
+      issues.push('No reading assessment data');
+    } else {
+      const latestReading = student.readingData[0];
+      if (!latestReading.dateTaken || latestReading.dateTaken.trim() === '') {
+        warnings.push('Assessment date missing');
+      }
+
+      // Check if reading levels are properly set
+      const hasWordReading = latestReading.wordReading.ind || latestReading.wordReading.ins || latestReading.wordReading.frus;
+      const hasComprehension = latestReading.comprehension.ind || latestReading.comprehension.ins || latestReading.comprehension.frus;
+
+      if (!hasWordReading) {
+        issues.push('Word reading level not set');
+      }
+      if (!hasComprehension) {
+        issues.push('Comprehension level not set');
+      }
+    }
+
+    // Check observations - if all are false, it might indicate incomplete data
+    const observations = student.observations;
+    const hasAnyObservation = observations.wordByWord || observations.lacksExpression ||
+      observations.hardlyAudible || observations.disregardsPunctuation ||
+      observations.pointsToWords || observations.littleAnalysis ||
+      (observations.otherObservations && observations.otherObservations.trim() !== '');
+
+    if (!hasAnyObservation) {
+      warnings.push('No reading observations recorded');
+    }
+
+    return {
+      isComplete: issues.length === 0,
+      hasWarnings: warnings.length > 0,
+      issues,
+      warnings,
+      status: issues.length === 0 ? (warnings.length === 0 ? 'complete' : 'warning') : 'incomplete'
+    };
+  }, []);
+
+
+  // Memoized status indicator
+  const getStatusIndicator = useCallback((student: ISRStudentData) => {
+    // If submission is approved, all students show as approved
+    if (isSubmissionApproved) {
+      return {
+        icon: <CheckIcon className="h-5 w-5 text-green-500" />,
+        tooltip: 'Class approved - All students included'
+      };
+    }
+
+    // If submission is rejected, all students show as rejected
+    if (isSubmissionRejected) {
+      return {
+        icon: <XMarkIcon className="h-5 w-5 text-red-500" />,
+        tooltip: 'Class rejected - All students included'
+      };
+    }
+
+    // For pending submissions, analyze data completeness
+    const analysis = analyzeDataCompleteness(student);
+
+    if (analysis.status === 'complete') {
+      return {
+        icon: (
+          <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
+            <div className="w-2 h-2 rounded-full bg-white"></div>
+          </div>
+        ),
+        tooltip: 'Complete data - Ready for review'
+      };
+    } else if (analysis.status === 'warning') {
+      return {
+        icon: (
+          <div className="w-5 h-5 rounded-full bg-yellow-500 flex items-center justify-center">
+            <div className="w-2 h-2 rounded-full bg-white"></div>
+          </div>
+        ),
+        tooltip: `Minor issues: ${analysis.warnings.join(', ')}`
+      };
+    } else {
+      return {
+        icon: (
+          <div className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center">
+            <div className="w-2 h-2 rounded-full bg-white"></div>
+          </div>
+        ),
+        tooltip: `Missing data: ${analysis.issues.join(', ')}`
+      };
+    }
+  }, [isSubmissionApproved, isSubmissionRejected, analyzeDataCompleteness]);
+
+  // Memoized data quality analysis for better performance
+  const dataQualityAnalysis = useMemo(() => {
+    return submission.students.reduce((acc, student) => {
+      const analysis = analyzeDataCompleteness(student);
+      if (analysis.status === 'complete') acc.complete++;
+      else if (analysis.status === 'warning') acc.warning++;
+      else acc.incomplete++;
+      return acc;
+    }, { complete: 0, warning: 0, incomplete: 0 });
+  }, [submission.students, analyzeDataCompleteness]);
+
+  // Memoized current student analysis
+  const currentStudentAnalysis = useMemo(() =>
+    analyzeDataCompleteness(currentStudent),
+    [currentStudent, analyzeDataCompleteness]
+  );
+
+  return (
+    <>
+      {/* Full screen overlay to block all interactions behind modal */}
+      <div
+        className="fixed inset-0 z-[999998] bg-transparent"
+        style={{
+          pointerEvents: 'auto',
+          cursor: 'default'
+        }}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+      />
+
+      <div
+        className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[999999] p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
+        onClick={(e) => {
+          // Close modal when clicking on backdrop
+          if (e.target === e.currentTarget) {
+            onClose();
+          }
+        }}
+        style={{ pointerEvents: 'auto' }}
+      >
+        <div className="bg-white rounded-lg max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl pointer-events-auto">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 id="modal-title" className="text-xl font-bold">Class ISR Review</h2>
+                <p className="text-blue-100 text-sm">
+                  {submission.className} • {submission.teacherName} • {submission.students.length} students
+                </p>
+              </div>
+              <button
+                onClick={onClose}
+                className="text-white hover:text-gray-200 text-2xl font-bold p-1 rounded hover:bg-white hover:bg-opacity-20 transition-colors"
+                aria-label="Close modal"
+                title="Close (Esc)"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Status and Data Quality Summary */}
+            <div className="mt-4 flex gap-6 text-sm">
+              <div className="flex gap-4">
+                <div className="flex items-center gap-1">
+                  <div className={`w-3 h-3 rounded-full ${isSubmissionApproved ? 'bg-green-400' :
+                    isSubmissionRejected ? 'bg-red-500' : 'bg-yellow-400'
+                    }`}></div>
+                  <span className="font-medium">
+                    Status: {isSubmissionApproved ? 'Approved' : isSubmissionRejected ? 'Rejected' : 'Pending Review'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <UserIcon className="h-4 w-4 text-blue-300" />
+                  <span>Total Students: {submission.students.length}</span>
+                </div>
+              </div>
+
+              {/* Data Quality Summary */}
+              <div className="flex gap-4 border-l border-blue-400 pl-4">
+                <div className="flex items-center gap-1" title="Students with complete data">
+                  <div className="w-3 h-3 rounded-full bg-green-400"></div>
+                  <span>Complete: {dataQualityAnalysis.complete}</span>
+                </div>
+                <div className="flex items-center gap-1" title="Students with minor data issues">
+                  <div className="w-3 h-3 rounded-full bg-yellow-400"></div>
+                  <span>Warnings: {dataQualityAnalysis.warning}</span>
+                </div>
+                <div className="flex items-center gap-1" title="Students with missing critical data">
+                  <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                  <span>Incomplete: {dataQualityAnalysis.incomplete}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Main Content */}
+          <div className="flex flex-1 overflow-hidden">
+            {/* Student List Sidebar */}
+            <div className="w-80 bg-gray-50 border-r border-gray-200 overflow-y-auto">
+              <div className="p-4">
+                <h3 className="font-semibold text-gray-900 mb-3">Students ({submission.students.length})</h3>
+                <div className="space-y-2">
+                  {submission.students.map((student, index) => {
+                    const statusIndicator = getStatusIndicator(student);
+                    return (
+                      <button
+                        key={student.studentId}
+                        onClick={() => handleStudentSelect(index)}
+                        className={`w-full p-3 rounded-lg cursor-pointer transition-all duration-200 text-left ${selectedStudentIndex === index
+                          ? 'bg-blue-100 border-2 border-blue-300 shadow-sm'
+                          : 'bg-white border border-gray-200 hover:bg-gray-50 hover:shadow-sm'
+                          }`}
+                        aria-pressed={selectedStudentIndex === index}
+                        aria-label={`Select ${student.studentName}, ${getReadingLevel(student)} reading level`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <p className="font-medium text-gray-900 text-sm">{student.studentName}</p>
+                            <p className="text-xs text-gray-500">
+                              {student.age ? `Age: ${student.age}` : 'Age not specified'}
+                            </p>
+                            <p className="text-xs text-gray-600 mt-1">
+                              Reading: {getReadingLevel(student)}
+                            </p>
+                          </div>
+                          <div className="ml-2 flex-shrink-0">
+                            <div
+                              className="relative group"
+                              title={statusIndicator.tooltip}
+                              aria-label={statusIndicator.tooltip}
+                            >
+                              {statusIndicator.icon}
+
+                              {/* Enhanced Tooltip */}
+                              <div className="absolute bottom-full right-0 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none whitespace-nowrap z-20 shadow-lg">
+                                {statusIndicator.tooltip}
+                                <div className="absolute top-full right-3 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Student Details */}
+            <div className="flex-1 flex flex-col">
+              {/* Student Navigation */}
+              <div className="bg-white border-b border-gray-200 px-6 py-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <button
+                      onClick={handlePreviousStudent}
+                      disabled={selectedStudentIndex === 0}
+                      className="p-2 rounded-lg border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+                      aria-label="Previous student"
+                      title="Previous student (←)"
+                    >
+                      <ChevronLeftIcon className="h-4 w-4" />
+                    </button>
+
+                    <div className="text-center min-w-0 flex-1">
+                      <h3 className="text-lg font-semibold text-gray-900 truncate">{currentStudent.studentName}</h3>
+                      <p className="text-sm text-gray-500">
+                        Student {selectedStudentIndex + 1} of {submission.students.length}
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={handleNextStudent}
+                      disabled={selectedStudentIndex === submission.students.length - 1}
+                      className="p-2 rounded-lg border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+                      aria-label="Next student"
+                      title="Next student (→)"
+                    >
+                      <ChevronRightIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleViewStudentISR}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      aria-label="View full ISR report for current student"
+                    >
+                      View Full ISR
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Student Summary */}
+              <div className="flex-1 p-6 overflow-y-auto">
+                <div className="max-w-2xl">
+                  {/* Data Quality Alert - Optimized */}
+                  {currentStudentAnalysis.status === 'incomplete' && (
+                    <div className="bg-red-50 border-l-4 border-red-400 rounded-lg p-4 mb-6" role="alert">
+                      <div className="flex items-start gap-3">
+                        <ExclamationTriangleIcon className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <h4 className="font-medium text-red-800 mb-2">Missing Critical Data</h4>
+                          <ul className="text-sm text-red-700 space-y-1">
+                            {currentStudentAnalysis.issues.map((issue, index) => (
+                              <li key={index} className="flex items-center gap-2">
+                                <span className="w-1 h-1 bg-red-500 rounded-full flex-shrink-0"></span>
+                                {issue}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {currentStudentAnalysis.status === 'warning' && (
+                    <div className="bg-yellow-50 border-l-4 border-yellow-400 rounded-lg p-4 mb-6" role="alert">
+                      <div className="flex items-start gap-3">
+                        <ExclamationTriangleIcon className="h-5 w-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <h4 className="font-medium text-yellow-800 mb-2">Minor Data Issues</h4>
+                          <ul className="text-sm text-yellow-700 space-y-1">
+                            {currentStudentAnalysis.warnings.map((warning, index) => (
+                              <li key={index} className="flex items-center gap-2">
+                                <span className="w-1 h-1 bg-yellow-500 rounded-full flex-shrink-0"></span>
+                                {warning}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {currentStudentAnalysis.status === 'complete' && (
+                    <div className="bg-green-50 border-l-4 border-green-400 rounded-lg p-4 mb-6">
+                      <div className="flex items-center gap-3">
+                        <CheckIcon className="h-5 w-5 text-green-500 flex-shrink-0" />
+                        <div>
+                          <h4 className="font-medium text-green-800">Complete Data</h4>
+                          <p className="text-sm text-green-700">All required information is present and ready for review.</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Basic Info */}
+                  <div className="bg-gray-50 rounded-lg p-4 mb-6">
+                    <h4 className="font-semibold text-gray-900 mb-3">Student Information</h4>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="text-gray-500">Age:</span>
+                        <span className="ml-2 text-gray-900">{currentStudent.age || 'Not specified'}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Language:</span>
+                        <span className="ml-2 text-gray-900">{currentStudent.language}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Grade/Section:</span>
+                        <span className="ml-2 text-gray-900">{currentStudent.gradeSection}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">School:</span>
+                        <span className="ml-2 text-gray-900">{currentStudent.school}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Reading Performance */}
+                  <div className="bg-white border border-gray-200 rounded-lg p-4 mb-6">
+                    <h4 className="font-semibold text-gray-900 mb-3">Reading Performance</h4>
+                    {currentStudent.readingData.map((data, index) => (
+                      <div key={index} className="mb-4">
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <span className="text-gray-500">Word Reading:</span>
+                            <span className="ml-2 text-gray-900">
+                              {data.wordReading.ind ? 'Independent' :
+                                data.wordReading.ins ? 'Instructional' : 'Frustration'}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500">Comprehension:</span>
+                            <span className="ml-2 text-gray-900">
+                              {data.comprehension.ind ? 'Independent' :
+                                data.comprehension.ins ? 'Instructional' : 'Frustration'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Observations */}
+                  <div className="bg-white border border-gray-200 rounded-lg p-4 mb-6">
+                    <h4 className="font-semibold text-gray-900 mb-3">Reading Observations</h4>
+                    <div className="space-y-2 text-sm">
+                      {[
+                        { key: 'wordByWord', label: 'Word-by-word reading' },
+                        { key: 'lacksExpression', label: 'Lacks expression' },
+                        { key: 'hardlyAudible', label: 'Hardly audible' },
+                        { key: 'disregardsPunctuation', label: 'Disregards punctuation' },
+                        { key: 'pointsToWords', label: 'Points to words' },
+                        { key: 'littleAnalysis', label: 'Little analysis' }
+                      ].map(({ key, label }) => (
+                        <div key={key} className="flex items-center">
+                          <span className={`w-4 h-4 rounded border mr-2 flex items-center justify-center ${currentStudent.observations[key as keyof typeof currentStudent.observations]
+                            ? 'bg-red-100 border-red-300 text-red-600'
+                            : 'bg-green-100 border-green-300 text-green-600'
+                            }`}>
+                            {currentStudent.observations[key as keyof typeof currentStudent.observations] ? '✓' : '✗'}
+                          </span>
+                          <span className="text-gray-700">{label}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {currentStudent.observations.otherObservations && (
+                      <div className="mt-4">
+                        <span className="text-gray-500 text-sm">Other observations:</span>
+                        <p className="text-gray-900 text-sm mt-1">{currentStudent.observations.otherObservations}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Class Summary */}
+                  {(isSubmissionApproved || isSubmissionRejected) && (
+                    <div className={`${isSubmissionApproved ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'} border rounded-lg p-4`}>
+                      <div className="flex items-center gap-3">
+                        <div className={`w-5 h-5 rounded-full flex items-center justify-center ${isSubmissionApproved ? 'bg-green-500' : 'bg-red-500'}`}>
+                          {isSubmissionApproved ? (
+                            <CheckIcon className="h-3 w-3 text-white" />
+                          ) : (
+                            <XMarkIcon className="h-3 w-3 text-white" />
+                          )}
+                        </div>
+                        <div>
+                          <h4 className={`font-medium ${isSubmissionApproved ? 'text-green-900' : 'text-red-900'}`}>
+                            {isSubmissionApproved ? 'Class Approved' : 'Class Rejected'}
+                          </h4>
+                          <p className={`text-sm ${isSubmissionApproved ? 'text-green-700' : 'text-red-700'}`}>
+                            {isSubmissionApproved
+                              ? 'All students in this class have been approved.'
+                              : 'All students in this class have been rejected.'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer Actions */}
+          <div className="bg-gray-50 border-t border-gray-200 px-6 py-4">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-4">
+                <div className="text-sm text-gray-600">
+                  {isSubmissionApproved || isSubmissionRejected
+                    ? `Class ${submission.status}: All ${submission.students.length} students included`
+                    : `Reviewing class with ${submission.students.length} students`
+                  }
+                </div>
+
+                {!isSubmissionApproved && !isSubmissionRejected && dataQualityAnalysis.incomplete > 0 && (
+                  <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 px-3 py-1 rounded-full">
+                    <ExclamationTriangleIcon className="h-4 w-4" />
+                    <span>{dataQualityAnalysis.incomplete} students need attention</span>
+                  </div>
+                )}
+
+                <div className="text-xs text-gray-400 hidden sm:block">
+                  Use ← → to navigate • Esc to close
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={onClose}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={isLoading}
+                  aria-label="Cancel and close modal"
+                >
+                  Cancel
+                </button>
+
+                {/* Show action buttons for pending, status buttons for approved/rejected */}
+                {!isSubmissionApproved && !isSubmissionRejected ? (
+                  <>
+                    <button
+                      onClick={onApproveAll}
+                      className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-green-500 flex items-center gap-2"
+                      disabled={isLoading || dataQualityAnalysis.incomplete > 0}
+                      aria-label="Approve this class"
+                      title={dataQualityAnalysis.incomplete > 0 ? 'Cannot approve: Some students have incomplete data' : 'Approve this class'}
+                    >
+                      {isLoading && (
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      )}
+                      {isLoading ? 'Processing...' : 'Approve'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {/* Status buttons showing current state */}
+                    <button
+                      className={`px-6 py-2 rounded-lg flex items-center gap-2 cursor-default ${isSubmissionApproved
+                        ? 'bg-green-600 text-white'
+                        : 'bg-gray-200 text-gray-500'
+                        }`}
+                      disabled
+                      aria-label="Class approval status"
+                    >
+                      <CheckIcon className="h-4 w-4" />
+                      APPROVED
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Individual ISR Viewer Modal */}
+          {showISRViewer && (
+            <DepEdISRViewer
+              data={currentStudent}
+              onClose={() => setShowISRViewer(false)}
+              viewOnly={true}
+            />
+          )}
+
+          {/* Revision features removed - teachers can only submit complete ISR reports */}
+        </div>
+      </div>
+    </>
+  );
+};
+
+export default MultiStudentISRReview;

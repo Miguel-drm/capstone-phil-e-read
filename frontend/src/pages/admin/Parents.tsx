@@ -1,0 +1,291 @@
+import React, { useEffect, useState } from 'react';
+import { getAllParents, deleteParent } from '../../services/authService';
+import { Menu } from '@headlessui/react';
+import { EllipsisVerticalIcon, FunnelIcon, MagnifyingGlassIcon } from '@heroicons/react/24/solid';
+import ConfirmDeleteModal from '../../components/admin/ConfirmDeleteModal';
+import AdminLoader from '../../components/admin/AdminLoader';
+import { profileImageService } from '../../services/profileImageService';
+
+interface Parent {
+  id: string;
+  displayName?: string;
+  email?: string;
+  phoneNumber?: string;
+  school?: string;
+  gradeLevel?: string;
+  profileImage?: string;
+  children?: { name?: string; email?: string }[];
+}
+
+// Admin Parents list page for viewing all parents in the system
+const Parents: React.FC = () => {
+  const [parents, setParents] = useState<Parent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [searchValue, setSearchValue] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [parentToDelete, setParentToDelete] = useState<Parent | null>(null);
+  const [showSearch, setShowSearch] = useState(false);
+  const [filterOption, setFilterOption] = useState<'all' | 'hasLinked' | 'noLinked'>('all');
+
+  const fetchParents = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getAllParents();
+
+      // Load profile images using the teacher endpoint (shared UID).
+      // Avoid hitting a non-existent parents profile-image API to prevent 404s in console.
+      const withImages = await Promise.all(
+        data.map(async (p) => {
+          try {
+            const base64 = await profileImageService.getTeacherProfileImage(p.id);
+            return base64
+              ? { ...p, profileImage: profileImageService.convertBase64ToDataUrl(base64) }
+              : p;
+          } catch {
+            return p;
+          }
+        })
+      );
+
+      setParents(withImages);
+    } catch (err) {
+      setError('Failed to load parents.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteClick = (parent: Parent) => {
+    setParentToDelete(parent);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!parentToDelete) return;
+    setDeletingId(parentToDelete.id);
+    try {
+      await deleteParent(parentToDelete.id);
+      await fetchParents();
+      setIsDeleteModalOpen(false);
+      setParentToDelete(null);
+    } catch (err) {
+      alert('Failed to delete parent.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  useEffect(() => {
+    let isCancelled = false;
+    
+    const loadData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await getAllParents();
+        
+        if (isCancelled) return;
+
+        // Load profile images using the teacher endpoint (shared UID).
+        const withImages = await Promise.all(
+          data.map(async (p) => {
+            if (isCancelled) return p;
+            
+            try {
+              const base64 = await profileImageService.getTeacherProfileImage(p.id);
+              return base64
+                ? { ...p, profileImage: profileImageService.convertBase64ToDataUrl(base64) }
+                : p;
+            } catch {
+              return p;
+            }
+          })
+        );
+
+        if (!isCancelled) {
+          setParents(withImages);
+        }
+      } catch (err) {
+        if (!isCancelled) {
+          setError('Failed to load parents.');
+        }
+      } finally {
+        if (!isCancelled) {
+          setLoading(false);
+        }
+      }
+    };
+    
+    loadData();
+    
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  let displayedParents = [...parents];
+  // Sort by displayName A-Z by default
+  displayedParents.sort((a, b) => {
+    const nameA = (a.displayName || '').toLowerCase();
+    const nameB = (b.displayName || '').toLowerCase();
+    if (nameA < nameB) return -1;
+    if (nameA > nameB) return 1;
+    return 0;
+  });
+  if (searchValue) {
+    displayedParents = displayedParents.filter(p =>
+      p.displayName?.toLowerCase().includes(searchValue.toLowerCase()) ||
+      p.email?.toLowerCase().includes(searchValue.toLowerCase())
+    );
+  }
+  if (filterOption === 'hasLinked') {
+    displayedParents = displayedParents.filter(p => Array.isArray(p.children) && p.children.length > 0);
+  } else if (filterOption === 'noLinked') {
+    displayedParents = displayedParents.filter(p => !Array.isArray(p.children) || p.children.length === 0);
+  }
+
+  return (
+    <div className="p-8">
+      {loading ? (
+        <AdminLoader label="Loading parents..." fullScreen />
+      ) : error ? (
+        <div className="text-red-500">{error}</div>
+      ) : parents.length === 0 ? (
+        <div className="text-gray-500">No parents found.</div>
+      ) : (
+        <div className="bg-white rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.12)] p-2 sm:p-6">
+          <div className="flex justify-between mb-4 items-center">
+            <h2 className="text-2xl font-bold text-gray-800">Parents</h2>
+          </div>
+            <div className="overflow-x-auto">
+            <table className="min-w-full">
+              <thead>
+                <tr className="bg-gray-50">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wide border-b-2 border-gray-200">Name</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wide border-b-2 border-gray-200">Phone Number</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wide border-b-2 border-gray-200">Linked Students</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 uppercase tracking-wide border-b-2 border-gray-200" colSpan={2}>
+                    <div className="flex justify-end items-center gap-2">
+                      <Menu as="div" className="relative inline-block text-left">
+                        <Menu.Button type="button" className="bg-gray-100 hover:bg-gray-200 text-gray-700 p-2 rounded-full shadow flex items-center justify-center" aria-label="Filter">
+                          <FunnelIcon className="w-5 h-5" />
+                        </Menu.Button>
+                        <Menu.Items className="origin-top-right absolute right-0 mt-6 w-48 rounded-lg shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none z-50 p-1 flex flex-col gap-1">
+                          <Menu.Item>
+                            {({ active }) => (
+                              <button
+                                className={`w-full text-left px-4 py-2 text-sm rounded-md transition-colors ${active ? 'bg-blue-100 text-blue-700' : 'text-gray-700'}`}
+                                onClick={() => setFilterOption('all')}
+                              >
+                                All
+                              </button>
+                            )}
+                          </Menu.Item>
+                          <Menu.Item>
+                            {({ active }) => (
+                              <button
+                                className={`w-full text-left px-4 py-2 text-sm rounded-md transition-colors ${active ? 'bg-blue-100 text-blue-700' : 'text-gray-700'}`}
+                                onClick={() => setFilterOption('hasLinked')}
+                              >
+                                Has Linked Students
+                              </button>
+                            )}
+                          </Menu.Item>
+                          <Menu.Item>
+                            {({ active }) => (
+                              <button
+                                className={`w-full text-left px-4 py-2 text-sm rounded-md transition-colors ${active ? 'bg-blue-100 text-blue-700' : 'text-gray-700'}`}
+                                onClick={() => setFilterOption('noLinked')}
+                              >
+                                No Linked Students
+                              </button>
+                            )}
+                          </Menu.Item>
+                        </Menu.Items>
+                      </Menu>
+                      <span className="bg-gray-100 text-gray-700 p-2 rounded-full shadow flex items-center justify-center" aria-label="Search">
+                        <MagnifyingGlassIcon className="w-5 h-5" />
+                      </span>
+                      <input
+                        type="text"
+                        className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 transition-all duration-150 ml-2 w-56"
+                        placeholder="Search by name or email..."
+                        value={searchValue}
+                        onChange={e => setSearchValue(e.target.value)}
+                      />
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayedParents.map((parent, index) => (
+                  <tr
+                    key={parent.id}
+                    className={`transition-colors duration-150 hover:bg-gray-50 border-b border-gray-200 last:border-b-0 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}
+                  >
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-3">
+                        <span className="w-10 h-10 rounded-full bg-white border border-gray-200 shadow-sm flex items-center justify-center overflow-hidden flex-shrink-0">
+                          {parent.profileImage ? (
+                            <img src={parent.profileImage} alt={parent.displayName || 'Profile'} className="w-full h-full object-cover rounded-full" />
+                          ) : (
+                            <div className="w-full h-full rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white text-sm font-semibold">
+                              {(parent.displayName || parent.email || 'P').charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                        </span>
+                        <div className="flex flex-col min-w-0">
+                          <span className="font-semibold text-sm text-gray-900 truncate">{parent.displayName || '-'}</span>
+                          <span className="text-xs text-gray-500 truncate">{parent.email || '-'}</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 align-middle">{parent.phoneNumber || '-'}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 align-middle">{
+                      Array.isArray(parent.children) && parent.children.length > 0
+                        ? parent.children.map(child => child.name || child.email || '-').join(', ')
+                        : '-'
+                    }</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium relative align-middle">
+                      <Menu as="div" className="relative inline-block text-left">
+                        <Menu.Button className="flex items-center p-2 rounded-full hover:bg-gray-100 focus:outline-none">
+                          <EllipsisVerticalIcon className="w-5 h-5 text-gray-500" />
+                        </Menu.Button>
+                        <Menu.Items className="origin-top-right absolute right-0 mt-2 w-32 rounded-lg shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none z-10 p-1 flex flex-col gap-1">
+                          <Menu.Item>
+                            {({ active }) => (
+                              <button
+                                onClick={() => handleDeleteClick(parent)}
+                                className={`w-full text-left px-4 py-2 text-sm rounded-md transition-colors ${active ? 'bg-red-50 text-red-700' : 'text-red-600'}`}
+                                disabled={deletingId === parent.id}
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </Menu.Item>
+                        </Menu.Items>
+                      </Menu>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      <ConfirmDeleteModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => { setIsDeleteModalOpen(false); setParentToDelete(null); }}
+        onConfirm={handleConfirmDelete}
+        loading={!!deletingId}
+        message={parentToDelete ? `Are you sure you want to delete ${parentToDelete.displayName || parentToDelete.email || 'this parent'}? This action cannot be undone.` : ''}
+      />
+    </div>
+  );
+};
+
+export default Parents;
+// Route: /admin/parents 

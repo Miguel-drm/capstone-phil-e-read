@@ -1,0 +1,478 @@
+import { 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword, 
+  signOut, 
+  sendPasswordResetEmail,
+  updateProfile,
+  onAuthStateChanged,
+  signInWithPopup,
+  GoogleAuthProvider,
+  type User,
+  type UserCredential
+} from 'firebase/auth';
+import { auth, db } from '../config/firebase';
+import { doc, setDoc, getDoc, getDocs, collection, query, where, updateDoc, deleteDoc, disableNetwork, enableNetwork, setLogLevel } from 'firebase/firestore';
+
+export type UserRole = 'admin' | 'parent' | 'teacher';
+
+export interface AuthError {
+  code: string;
+  message: string;
+}
+
+export interface UserProfile {
+  displayName?: string;
+  email?: string;
+  photoURL?: string;
+  role?: UserRole;
+  phoneNumber?: string;
+  gradeLevel?: string;
+  school?: string;
+  schoolCode?: string; // 4-digit school code used for LRN generation
+  address?: string;
+  relationshipToChild?: string;
+  occupation?: string;
+  emergencyContactName?: string;
+  emergencyContactNumber?: string;
+  preferredContactMethod?: string;
+  alternateEmail?: string;
+  nationality?: string;
+  profilePhoto?: string;
+  languagesSpoken?: string;
+  notes?: string;
+  isProfileComplete?: boolean;
+  bio?: string;
+  banner?: string;
+}
+
+// Function to determine user role based on email domain
+const determineUserRole = (email: string): UserRole => {
+  const domain = email.split('@')[1]?.toLowerCase();
+  
+  if (domain === 'admin.com') {
+    return 'admin';
+  } else if (domain === 'teacher.edu.ph') {
+    return 'teacher';
+  } else {
+    return 'parent';
+  }
+};
+
+// Global suppression window to silence transient Firestore errors during sign-out
+let suppressFsErrorsUntil = 0;
+export const beginSuppressFirestoreErrors = (ms: number) => {
+  suppressFsErrorsUntil = Date.now() + Math.max(0, ms);
+};
+export const shouldSuppressFirestoreError = () => Date.now() < suppressFsErrorsUntil;
+
+// Sign up with email and password
+export const signUp = async (email: string, password: string, displayName?: string): Promise<UserCredential> => {
+  try {
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    
+    // Update profile with display name if provided
+    if (displayName && userCredential.user) {
+      await updateProfile(userCredential.user, {
+        displayName: displayName
+      });
+    }
+
+    // Create user document in Firestore with role determined by email
+    if (userCredential.user) {
+      const role = determineUserRole(email);
+      await setDoc(doc(db, 'users', userCredential.user.uid), {
+        email: email,
+        displayName: displayName || '',
+        role: role,
+        createdAt: new Date().toISOString()
+      });
+    }
+    
+    return userCredential;
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Sign in with email and password
+export const signIn = async (email: string, password: string): Promise<UserCredential> => {
+  try {
+    return await signInWithEmailAndPassword(auth, email, password);
+  } catch (error) {
+    throw error;
+  }
+};
+
+const createUserDoc = async (user: User) => {
+  const role = determineUserRole(user.email || '');
+  await setDoc(doc(db, 'users', user.uid), {
+    email: user.email,
+    displayName: user.displayName || '',
+    photoURL: user.photoURL || '',
+    role,
+    createdAt: new Date().toISOString()
+  });
+};
+
+// Google sign-in for existing accounts only
+export const signInWithGoogleExisting = async (): Promise<UserCredential> => {
+  try {
+    const provider = new GoogleAuthProvider();
+    const result = await signInWithPopup(auth, provider);
+    if (result.user) {
+      const userDoc = await getDoc(doc(db, 'users', result.user.uid));
+      if (!userDoc.exists()) {
+        const isNewUser = result.user.metadata?.creationTime === result.user.metadata?.lastSignInTime;
+        if (isNewUser) {
+          try {
+            await result.user.delete();
+          } catch (deleteErr) {
+            console.warn('Unable to delete unregistered Google auth user:', deleteErr);
+          }
+        }
+        await signOut(auth);
+        const error: AuthError = {
+          code: 'auth/user-not-registered',
+          message: 'Google account is not registered. Please sign up first.'
+        };
+        throw error;
+      }
+    }
+    return result;
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Google sign-up that creates account document
+export const signUpWithGoogle = async (): Promise<UserCredential> => {
+  try {
+    const provider = new GoogleAuthProvider();
+    const result = await signInWithPopup(auth, provider);
+    if (result.user) {
+      const userDoc = await getDoc(doc(db, 'users', result.user.uid));
+      if (!userDoc.exists()) {
+        await createUserDoc(result.user);
+      }
+    }
+    return result;
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Sign out
+export const signOutUser = async (): Promise<void> => {
+  try {
+    // Temporarily disable Firestore network to prevent snapshot listeners
+    // from emitting permission-denied during the auth transition.
+    beginSuppressFirestoreErrors(3000);
+    try { setLogLevel('silent'); } catch (_) {}
+    
+    // Disable network with better error handling
+    try { 
+      await Promise.race([
+        disableNetwork(db),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2000))
+      ]);
+    } catch (error) {
+      console.debug('Network disable handled during signout:', error);
+    }
+    
+    await signOut(auth);
+    
+    // Small delay before re-enabling to allow listeners to fully tear down
+    try { await new Promise(res => setTimeout(res, 500)); } catch (_) {}
+    
+    // Re-enable network with better error handling
+    try { 
+      await Promise.race([
+        enableNetwork(db),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2000))
+      ]);
+    } catch (error) {
+      console.debug('Network enable handled during signout:', error);
+    }
+    
+    // Restore normal logging shortly after network is back
+    setTimeout(() => { try { setLogLevel('error'); } catch (_) {} }, 1000);
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Send password reset email
+export const resetPassword = async (email: string): Promise<void> => {
+  try {
+    await sendPasswordResetEmail(auth, email);
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Get current user
+export const getCurrentUser = (): User | null => {
+  return auth.currentUser;
+};
+
+// Listen to auth state changes
+export const onAuthStateChange = (callback: (user: User | null) => void) => {
+  return onAuthStateChanged(auth, callback);
+};
+
+// Check if user profile is complete
+export const isProfileComplete = (profile: UserProfile): boolean => {
+  if (!profile) return false;
+  
+  // Basic required fields
+  const hasBasicInfo = Boolean(profile.displayName && profile.email);
+  
+  // Role-specific required fields
+  if (profile.role === 'teacher') {
+    return hasBasicInfo && 
+           Boolean(profile.phoneNumber) && 
+           Boolean(profile.school);
+  } else if (profile.role === 'parent') {
+    return hasBasicInfo && 
+           Boolean(profile.phoneNumber) && 
+           Boolean(profile.address);
+  } else if (profile.role === 'admin') {
+    return hasBasicInfo && 
+           Boolean(profile.phoneNumber) && 
+           Boolean(profile.school);
+  }
+  
+  return hasBasicInfo;
+};
+
+// Update user profile with completion check
+export const updateUserProfile = async (updates: UserProfile): Promise<void> => {
+  try {
+    if (auth.currentUser) {
+      console.log('updateUserProfile called with:', updates);
+      const authUpdates: { displayName?: string, photoURL?: string } = {};
+      if (updates.displayName !== undefined) {
+        authUpdates.displayName = updates.displayName;
+      }
+      if (updates.photoURL !== undefined) {
+        authUpdates.photoURL = updates.photoURL;
+      }
+
+      if (Object.keys(authUpdates).length > 0) {
+        await updateProfile(auth.currentUser, authUpdates);
+      }
+      
+      // Check if profile is complete after updates
+      const updatedProfile = { ...updates };
+      const isComplete = isProfileComplete(updatedProfile);
+      
+      // Update user document in Firestore with completion status and other fields
+      // Filter out undefined values, but keep empty strings for schoolCode (allows clearing the field)
+      const cleanedUpdates = Object.fromEntries(
+        Object.entries({
+          ...updates,
+          isProfileComplete: isComplete,
+          updatedAt: new Date().toISOString()
+        }).filter(([_, v]) => v !== undefined)
+      );
+      await setDoc(doc(db, 'users', auth.currentUser.uid), cleanedUpdates, { merge: true });
+    } else {
+      throw new Error('No user is currently signed in');
+    }
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Get user profile data including role
+export const getUserProfile = async (): Promise<UserProfile | null> => {
+  const user = auth.currentUser;
+  if (!user) return null;
+  
+  try {
+    // Short-circuit when clearly offline to avoid noisy errors
+    if (typeof navigator !== 'undefined' && navigator && (navigator as any).onLine === false) {
+      const defaultProfile: UserProfile = {
+        displayName: user.displayName || undefined,
+        email: user.email || undefined,
+        photoURL: user.photoURL || undefined,
+        role: determineUserRole(user.email || ''),
+        phoneNumber: '',
+        gradeLevel: '',
+        school: '',
+        address: '',
+      };
+      return {
+        ...defaultProfile,
+        isProfileComplete: isProfileComplete(defaultProfile),
+      };
+    }
+
+    let userData: any = null;
+    
+    try {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      userData = userDoc.data();
+      console.log('Loaded user profile from Firestore:', userData);
+      
+      if (!userData) {
+        // If no user document exists, just return a best-effort profile
+        // without creating any Firestore document. Account creation is
+        // handled explicitly in signUp/signUpWithGoogle.
+        const role = determineUserRole(user.email || '');
+        const initialProfile: UserProfile = {
+          displayName: user.displayName || undefined,
+          email: user.email || undefined,
+          photoURL: user.photoURL || undefined,
+          role: role,
+          phoneNumber: '',
+          gradeLevel: '',
+          school: '',
+          address: '',
+        };
+        return {
+          ...initialProfile,
+          isProfileComplete: isProfileComplete(initialProfile),
+        };
+      }
+    } catch (error) {
+      console.warn('Error reading user profile:', error);
+      // On read error, return a best-effort profile without creating data.
+      const role = determineUserRole(user.email || '');
+      const initialProfile: UserProfile = {
+        displayName: user.displayName || undefined,
+        email: user.email || undefined,
+        photoURL: user.photoURL || undefined,
+        role: role,
+        phoneNumber: '',
+        gradeLevel: '',
+        school: '',
+        address: '',
+      };
+      return {
+        ...initialProfile,
+        isProfileComplete: isProfileComplete(initialProfile),
+      };
+    }
+    
+    // If we get here, userData exists and we can use it
+    return {
+      displayName: user.displayName || userData.displayName || undefined,
+      email: user.email || undefined,
+      photoURL: user.photoURL || undefined,
+      role: userData.role || determineUserRole(user.email || ''),
+      phoneNumber: String(userData.phoneNumber || ''),
+      gradeLevel: String(userData.gradeLevel || ''),
+      school: String(userData.school || ''),
+      schoolCode: String(userData.schoolCode || ''),
+      address: String(userData.address || ''),
+      isProfileComplete: Boolean(userData.isProfileComplete || false),
+      banner: userData.banner || undefined,
+    };
+  } catch (error) {
+    // Downgrade known offline errors to a warning and return a best-effort profile
+    const code = (error as any)?.code as string | undefined;
+    const message = (error as any)?.message as string | undefined;
+    const isOffline = code === 'unavailable' || (message || '').toLowerCase().includes('offline') || (message || '').toLowerCase().includes('could not reach');
+    if (isOffline) {
+      // Silently handle offline mode - no console warning needed
+    } else {
+      console.error('Error fetching user profile:', error);
+    }
+    const defaultProfile: UserProfile = {
+      displayName: user.displayName || undefined,
+      email: user.email || undefined,
+      photoURL: user.photoURL || undefined,
+      role: determineUserRole(user.email || ''),
+      phoneNumber: '',
+      gradeLevel: '',
+      school: '',
+      address: '',
+    };
+    return {
+      ...defaultProfile,
+      isProfileComplete: isProfileComplete(defaultProfile),
+    };
+  }
+};
+
+// Fetch all teachers (optionally filtered by school if school info is present)
+export const getAllTeachers = async (schoolId?: string) => {
+  const q = schoolId
+    ? query(collection(db, 'users'), where('role', '==', 'teacher'), where('schoolId', '==', schoolId))
+    : query(collection(db, 'users'), where('role', '==', 'teacher'));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+};
+
+// Update any teacher's profile by ID (admin only)
+export const updateTeacherProfile = async (teacherId: string, updates: {
+  displayName?: string;
+  phoneNumber?: string | null;
+  school?: string | null;
+  gradeLevel?: string | null;
+}) => {
+  if (!teacherId) throw new Error('No teacher ID provided');
+  await updateDoc(doc(db, 'users', teacherId), updates);
+};
+
+// Delete a teacher by ID (admin only)
+export const deleteTeacher = async (teacherId: string) => {
+  if (!teacherId) throw new Error('No teacher ID provided');
+  await deleteDoc(doc(db, 'users', teacherId));
+};
+
+// Delete a parent by ID (admin only)
+export const deleteParent = async (parentId: string) => {
+  if (!parentId) throw new Error('No parent ID provided');
+  await deleteDoc(doc(db, 'users', parentId));
+};
+
+// Helper to get count of users by role
+const getUsersCountByRole = async (role?: UserRole): Promise<number> => {
+  let usersQuery = query(collection(db, 'users'));
+  if (role) {
+    usersQuery = query(usersQuery, where('role', '==', role));
+  }
+  const snapshot = await getDocs(usersQuery);
+  return snapshot.size;
+};
+
+// Get total count of all users
+export const getAllUsersCount = async (): Promise<number> => {
+  return getUsersCountByRole();
+};
+
+// Get total count of teachers
+export const getTeachersCount = async (): Promise<number> => {
+  return getUsersCountByRole('teacher');
+};
+
+// Get total count of parents
+export const getParentsCount = async (): Promise<number> => {
+  return getUsersCountByRole('parent');
+};
+
+// Fetch all parents
+export const getAllParents = async () => {
+  const q = query(collection(db, 'users'), where('role', '==', 'parent'));
+  const snapshot = await getDocs(q);
+
+  // Fetch all students once for efficiency
+  const studentsSnapshot = await getDocs(collection(db, 'students'));
+  const allStudents = studentsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+  return snapshot.docs.map(doc => {
+    const parentId = doc.id;
+    const linkedStudents = allStudents.filter(s => (s as any).parentId === parentId);
+    return {
+      id: parentId,
+      ...doc.data(),
+      children: linkedStudents.map(s => ({
+        name: (s as any).name,
+        email: (s as any).email,
+        id: s.id,
+      })),
+    };
+  });
+}; 
