@@ -46,7 +46,6 @@ const SELF_CORRECTION_PATTERNS: { [key: string]: string[] } = {
   'heard': ['herd'],
   'think': ['fink'],
   'ship': ['chip'],
-  'run': ['wun'],
   'like': ['rike'],
   
   // Semantic corrections

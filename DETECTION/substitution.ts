@@ -56,7 +56,7 @@ export interface SubstitutionConfig {
 // ============================================================================
 
 /** Default similarity threshold for substitution detection */
-const DEFAULT_SIMILARITY_THRESHOLD = 0.6;
+const DEFAULT_SIMILARITY_THRESHOLD = 0.55;
 
 /** Default look-ahead window size */
 const DEFAULT_LOOK_AHEAD_WINDOW = 5;
@@ -92,14 +92,17 @@ export function detectSubstitution(
 ): SubstitutionResult {
   // Apply configuration defaults
   const threshold = config?.similarityThreshold ?? DEFAULT_SIMILARITY_THRESHOLD;
-  const lookAheadWindow = config?.lookAheadWindow ?? DEFAULT_LOOK_AHEAD_WINDOW;
+  const lookAheadWindow = Math.max(1, config?.lookAheadWindow ?? DEFAULT_LOOK_AHEAD_WINDOW);
   const language = config?.language ?? DEFAULT_LANGUAGE;
 
   // Handle negative position - treat as 0
   const safePosition = currentPosition < 0 ? 0 : currentPosition;
 
-  // Filter out ghost words (background noise misrecognitions)
+  // Normalize inputs
   const normalizedSpoken = normalizeWord(spokenWord || '');
+  const normalizedExpected = normalizeWord(expectedWord || '');
+
+  // Filter out ghost words (background noise misrecognitions)
   if (shouldIgnoreWord(normalizedSpoken, language)) {
     return {
       matchType: 'no_match',
@@ -137,10 +140,6 @@ export function detectSubstitution(
       details: 'Position at or beyond end of story'
     };
   }
-
-  // Normalize inputs
-  const normalizedSpoken = normalizeWord(spokenWord || '');
-  const normalizedExpected = normalizeWord(expectedWord || '');
 
   // Handle empty/whitespace spoken word
   if (!normalizedSpoken) {

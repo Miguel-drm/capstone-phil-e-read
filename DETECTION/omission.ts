@@ -123,23 +123,15 @@ export function detectOmission(
   config?: OmissionConfig
 ): OmissionResult {
   // Apply defaults to config
-  const lookAheadWindow = config?.lookAheadWindow ?? DEFAULT_LOOK_AHEAD_WINDOW;
+  const lookAheadWindow = Math.max(1, config?.lookAheadWindow ?? DEFAULT_LOOK_AHEAD_WINDOW);
   const language = config?.language ?? 'english';
   
-  // Filter out ghost words (background noise misrecognitions)
+  // Normalize spoken word for comparison
   const normalizedSpoken = normalizeWord(spokenWord || '');
-  if (shouldIgnoreWord(normalizedSpoken, language)) {
-    return {
-      matchType: 'no_match',
-      advance: false,
-      newPosition: currentPosition,
-      miscueCount: 0,
-      omittedWords: [],
-      matchedWord: null,
-      matchedPosition: null,
-      details: `Ghost word ignored: "${spokenWord}" is background noise`
-    };
-  }
+  
+  // Note: Ghost word filtering is handled naturally by findMatchInWindow()
+  // since ghost words won't match any content words in the story.
+  // This avoids redundant checks and improves performance.
   
   // Handle empty story array
   if (!storyWords || storyWords.length === 0) {
