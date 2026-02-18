@@ -9,6 +9,10 @@
  * - Partial and final recognized words
  * - Confidence indicator
  * - Microphone status indicator
+ * 
+ * Note: This component displays text directly from the Vosk server without any
+ * client-side word validation. The server validates words using Dictionary API
+ * before sending them to the frontend (Requirement 2.5).
  */
 
 import React, { useEffect, useRef } from 'react';

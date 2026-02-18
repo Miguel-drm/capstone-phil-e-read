@@ -21,42 +21,14 @@ from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 
-# Import pronunciation dictionaries
+# Dictionary API integration (replaces old pronunciation dictionaries)
 try:
-    from tagalog_pronunciation_dictionary import (
-        PRONUNCIATION_DICT as TAGALOG_PRONUNCIATION_DICT,
-        get_pronunciation_variants as get_tagalog_variants,
-        is_pronunciation_match as is_tagalog_match,
-        match_word as match_tagalog_word
-    )
-    print("✓ Loaded Tagalog pronunciation dictionary")
+    from dictionary_api_service import get_dictionary_service
+    DICTIONARY_API_AVAILABLE = True
+    print("✓ Dictionary API service loaded")
 except ImportError as e:
-    print(f"⚠ Failed to load Tagalog pronunciation dictionary: {e}")
-    TAGALOG_PRONUNCIATION_DICT = {}
-    def get_tagalog_variants(word: str) -> List[str]:
-        return [word.lower().strip()]
-    def is_tagalog_match(spoken: str, expected: str) -> bool:
-        return spoken.lower().strip() == expected.lower().strip()
-    def match_tagalog_word(word: str) -> Optional[str]:
-        return word.lower().strip()
-
-try:
-    from english_pronunciation_dictionary import (
-        PRONUNCIATION_DICT as ENGLISH_PRONUNCIATION_DICT,
-        get_pronunciation_variants as get_english_variants,
-        is_pronunciation_match as is_english_match,
-        match_word as match_english_word
-    )
-    print("✓ Loaded English pronunciation dictionary")
-except ImportError as e:
-    print(f"⚠ Failed to load English pronunciation dictionary: {e}")
-    ENGLISH_PRONUNCIATION_DICT = {}
-    def get_english_variants(word: str) -> List[str]:
-        return [word.lower().strip()]
-    def is_english_match(spoken: str, expected: str) -> bool:
-        return spoken.lower().strip() == expected.lower().strip()
-    def match_english_word(word: str) -> Optional[str]:
-        return word.lower().strip()
+    print(f"⚠ Dictionary API service not available: {e}")
+    DICTIONARY_API_AVAILABLE = False
 
 # Import auto pronunciation generator
 try:
@@ -215,12 +187,10 @@ class WordRecognitionEnhancer:
         elif len(normalized) >= 3:
             confidence += 0.1
         
-        # Check if word is in pronunciation dictionary (higher confidence)
-        if self.language == "tagalog":
-            if normalized in TAGALOG_PRONUNCIATION_DICT:
-                confidence += 0.1  # Boost confidence for known words
-        elif self.language == "english":
-            if normalized in ENGLISH_PRONUNCIATION_DICT:
+        # Check if word exists in Dictionary API (higher confidence)
+        if DICTIONARY_API_AVAILABLE:
+            dictionary = get_dictionary_service()
+            if dictionary.check_word_exists(normalized):
                 confidence += 0.1  # Boost confidence for known words
         
         # Common words might be noise (lower confidence, but not for single letters)
@@ -266,53 +236,44 @@ class WordRecognitionEnhancer:
         
         normalized = self.normalize_word(word)
         
-        # Check if word is in pronunciation dictionary (helps with single letters like "A")
-        # This boosts confidence for known words and their variants
+        # Use Dictionary API to validate words (if available)
         is_known_word = False
         canonical_word = normalized
         
-        if self.language == "tagalog":
-            # Check if normalized word is a variant of any known word
-            for known_word, variants in TAGALOG_PRONUNCIATION_DICT.items():
-                if normalized == known_word or normalized in variants:
-                    is_known_word = True
-                    canonical_word = known_word  # Use canonical form
-                    break
-        elif self.language == "english":
-            # Check if normalized word is a variant of any known word
-            for known_word, variants in ENGLISH_PRONUNCIATION_DICT.items():
-                if normalized == known_word or normalized in variants:
-                    is_known_word = True
-                    canonical_word = known_word  # Use canonical form
-                    break
+        if DICTIONARY_API_AVAILABLE:
+            dictionary = get_dictionary_service()
             
-            # AUTO-GENERATION: If not found and expected word provided, generate variants
-            if not is_known_word and expected_word and AUTO_GENERATION_ENABLED:
-                expected_norm = self.normalize_word(expected_word)
-                auto_variants = generate_variants(expected_norm)
-                if normalized in auto_variants:
-                    is_known_word = True
-                    canonical_word = expected_norm
-                    print(f"🤖 Auto-matched: '{normalized}' -> '{expected_norm}' (generated variant)")
-        
-        # If expected word is provided, check pronunciation match
-        # This helps recognize words like "A" even if Vosk returns variations
-        if expected_word:
-            expected_norm = self.normalize_word(expected_word)
-            
-            # Check pronunciation match using dictionary
-            is_match = False
-            if self.language == "tagalog":
-                is_match = is_tagalog_match(normalized, expected_norm)
-            elif self.language == "english":
-                is_match = is_english_match(normalized, expected_norm)
-            
-            # If pronunciation matches, boost confidence significantly
-            if is_match:
-                confidence = 0.9  # High confidence for pronunciation match
-                # Use expected word as the confirmed word
-                canonical_word = expected_norm
+            # Check if word exists in dictionary
+            if dictionary.check_word_exists(normalized):
                 is_known_word = True
+                canonical_word = normalized
+        
+        # If expected word is provided, check if they match using Dictionary API
+        if expected_word and DICTIONARY_API_AVAILABLE:
+            expected_norm = self.normalize_word(expected_word)
+            dictionary = get_dictionary_service()
+            
+            # Check if both words exist and have matching phonetics
+            if dictionary.check_word_exists(normalized) and dictionary.check_word_exists(expected_norm):
+                spoken_phonetics = dictionary.get_phonetics(normalized)
+                expected_phonetics = dictionary.get_phonetics(expected_norm)
+                
+                # If they share phonetic representations, they match
+                is_match = False
+                if spoken_phonetics and expected_phonetics:
+                    for sp in spoken_phonetics:
+                        for ep in expected_phonetics:
+                            if sp == ep:
+                                is_match = True
+                                break
+                        if is_match:
+                            break
+                
+                # If pronunciation matches, boost confidence significantly
+                if is_match:
+                    confidence = 0.9  # High confidence for pronunciation match
+                    canonical_word = expected_norm
+                    is_known_word = True
         
         # Boost confidence for known words (especially single letters)
         if is_known_word:
@@ -500,105 +461,90 @@ def create_enhanced_recognizer(config: dict = None) -> WordRecognitionEnhancer:
 
 def match_pronunciation(spoken_word: str, expected_word: str, language: str = "english") -> bool:
     """
-    Check if a spoken word matches an expected word using pronunciation dictionaries.
-    Now checks BOTH English and Tagalog dictionaries regardless of language parameter.
+    Check if a spoken word matches an expected word using Dictionary API.
     
     Args:
         spoken_word: Word heard from microphone
         expected_word: Expected word from story
-        language: Language ("english" or "tagalog") - used for primary matching order
+        language: Language ("english" or "tagalog")
         
     Returns:
         True if words match (considering pronunciation variants), False otherwise
     """
-    language = language.lower()
+    spoken_norm = spoken_word.lower().strip()
+    expected_norm = expected_word.lower().strip()
     
-    # Try primary language first
-    if language == "tagalog":
-        if is_tagalog_match(spoken_word, expected_word):
-            return True
-        # Also try English dictionary
-        if is_english_match(spoken_word, expected_word):
-            return True
-    elif language == "english":
-        if is_english_match(spoken_word, expected_word):
-            return True
-        # Also try Tagalog dictionary
-        if is_tagalog_match(spoken_word, expected_word):
-            return True
-    else:
-        # Try both dictionaries
-        if is_english_match(spoken_word, expected_word):
-            return True
-        if is_tagalog_match(spoken_word, expected_word):
-            return True
+    # Exact match
+    if spoken_norm == expected_norm:
+        return True
+    
+    # Use Dictionary API if available
+    if DICTIONARY_API_AVAILABLE:
+        dictionary = get_dictionary_service()
+        
+        # Check if both words exist
+        if dictionary.check_word_exists(spoken_norm) and dictionary.check_word_exists(expected_norm):
+            # Get phonetics
+            spoken_phonetics = dictionary.get_phonetics(spoken_norm)
+            expected_phonetics = dictionary.get_phonetics(expected_norm)
+            
+            # Check if they share any phonetic representation
+            if spoken_phonetics and expected_phonetics:
+                for sp in spoken_phonetics:
+                    for ep in expected_phonetics:
+                        if sp == ep:
+                            return True
     
     # Fallback to simple string comparison
-    return spoken_word.lower().strip() == expected_word.lower().strip()
+    return False
 
 
 def normalize_with_pronunciation(word: str, language: str = "english") -> str:
     """
-    Normalize a word to its canonical form using pronunciation dictionaries.
-    Now checks BOTH English and Tagalog dictionaries regardless of language parameter.
+    Normalize a word to its canonical form using Dictionary API.
     
     Args:
         word: Word to normalize
-        language: Language ("english" or "tagalog") - used for primary matching order
+        language: Language ("english" or "tagalog")
         
     Returns:
         Canonical form of the word, or original word if not found
     """
-    language = language.lower()
+    word_norm = word.lower().strip()
     
-    # Try primary language first
-    if language == "tagalog":
-        canonical = match_tagalog_word(word)
-        if canonical:
-            return canonical
-        # Also try English dictionary
-        canonical = match_english_word(word)
-        if canonical:
-            return canonical
-    elif language == "english":
-        canonical = match_english_word(word)
-        if canonical:
-            return canonical
-        # Also try Tagalog dictionary
-        canonical = match_tagalog_word(word)
-        if canonical:
-            return canonical
-    else:
-        # Try both dictionaries
-        canonical = match_english_word(word)
-        if canonical:
-            return canonical
-        canonical = match_tagalog_word(word)
-        if canonical:
-            return canonical
+    # Use Dictionary API if available
+    if DICTIONARY_API_AVAILABLE:
+        dictionary = get_dictionary_service()
+        word_data = dictionary.get_word_data(word_norm)
+        
+        if word_data:
+            return word_data.get('word', word_norm)
     
-    return word.lower().strip()
+    return word_norm
 
 
 def get_word_variants(word: str, language: str = "english") -> List[str]:
     """
-    Get all pronunciation variants for a word.
+    Get all pronunciation variants for a word using Dictionary API.
     
     Args:
         word: Word to get variants for
         language: Language ("english" or "tagalog")
         
     Returns:
-        List of pronunciation variants
+        List of pronunciation variants (phonetic representations)
     """
-    language = language.lower()
+    word_norm = word.lower().strip()
     
-    if language == "tagalog":
-        return get_tagalog_variants(word)
-    elif language == "english":
-        return get_english_variants(word)
-    else:
-        return [word.lower().strip()]
+    # Use Dictionary API if available
+    if DICTIONARY_API_AVAILABLE:
+        dictionary = get_dictionary_service()
+        phonetics = dictionary.get_phonetics(word_norm)
+        
+        if phonetics:
+            return phonetics
+    
+    return [word_norm]
 
 
 # ============================================================================

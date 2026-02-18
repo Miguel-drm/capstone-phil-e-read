@@ -33,26 +33,13 @@ import argparse
 from typing import Set, Optional, List, Dict
 from difflib import get_close_matches
 
-# Import both language dictionaries
+# Dictionary API integration (replaces old pronunciation dictionaries)
 try:
-    from tagalog_pronunciation_dictionary import (
-        match_word as match_word_tagalog,
-        PRONUNCIATION_DICT as TAGALOG_DICT
-    )
-    TAGALOG_AVAILABLE = True
+    from dictionary_api_service import get_dictionary_service
+    DICTIONARY_API_AVAILABLE = True
 except ImportError:
-    TAGALOG_AVAILABLE = False
-    print("⚠️  Warning: Tagalog dictionary not available")
-
-try:
-    from english_pronunciation_dictionary import (
-        match_word as match_word_english,
-        PRONUNCIATION_DICT as ENGLISH_DICT
-    )
-    ENGLISH_AVAILABLE = True
-except ImportError:
-    ENGLISH_AVAILABLE = False
-    print("⚠️  Warning: English dictionary not available")
+    DICTIONARY_API_AVAILABLE = False
+    print("⚠️  Warning: Dictionary API not available")
 
 # ============================================================================
 # CONFIGURATION

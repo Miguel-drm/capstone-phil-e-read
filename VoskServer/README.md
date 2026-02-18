@@ -7,7 +7,8 @@ Speech recognition system for Tagalog reading sessions with story-constrained vo
 ### Core Files
 - **`server.py`** - Main Vosk WebSocket server
 - **`tagalog_story_reader.py`** - Story reading session with speech recognition
-- **`tagalog_pronunciation_dictionary.py`** - Tagalog pronunciation variants dictionary
+- **`dictionary_api_service.py`** - Dictionary API integration for word validation
+- **`dictionary_validator.py`** - Word validation using Dictionary API
 
 ### Integration Files
 - **`start_reading_session.py`** - Helper script for backend integration
@@ -80,7 +81,7 @@ See **`INTEGRATION_GUIDE.md`** for complete examples.
 
 1. **Story Loading**: Story content is loaded from database/file/API
 2. **Vocabulary Extraction**: All words in the story are extracted
-3. **Pronunciation Variants**: Each word gets pronunciation variants
+3. **Dictionary API**: Words are validated using https://api.dictionaryapi.dev
 4. **Speech Recognition**: Microphone input is processed in real-time
 5. **Word Validation**: Only story words are recognized, others blocked
 6. **Output**: Recognized words are output as "mic heard: <word>"
@@ -88,7 +89,7 @@ See **`INTEGRATION_GUIDE.md`** for complete examples.
 ## 🎯 Features
 
 - ✅ Story-constrained vocabulary (only recognizes story words)
-- ✅ Pronunciation variant matching (handles child speech)
+- ✅ Dictionary API integration (online word validation)
 - ✅ Real-time speech recognition
 - ✅ Aggressive noise filtering
 - ✅ Multiple input methods (content/file/API)
@@ -129,14 +130,15 @@ API_BASE_URL = "http://localhost:3000"  # Your backend URL
 python test_integration.py
 ```
 
+### Test Dictionary API
+```bash
+python dictionary_api_service.py
+python dictionary_validator.py
+```
+
 ### Test with Example Story
 ```bash
 python start_reading_session.py
-```
-
-### Test Pronunciation Dictionary
-```bash
-python tagalog_pronunciation_dictionary.py
 ```
 
 ## 📦 Dependencies
@@ -144,7 +146,7 @@ python tagalog_pronunciation_dictionary.py
 - `pyaudio` - Microphone input
 - `websockets` - WebSocket client
 - `asyncio` - Async operations
-- `requests` - HTTP requests (optional, for API method)
+- `requests` - HTTP requests (for Dictionary API and backend API)
 
 ## 🐛 Troubleshooting
 
@@ -211,7 +213,7 @@ start_reading_session(story_content, session_id="abc123")
 When modifying the system:
 1. Test with `test_integration.py`
 2. Update documentation
-3. Verify pronunciation dictionary coverage
+3. Test Dictionary API integration
 4. Test with real microphone input
 
 ## 📄 License

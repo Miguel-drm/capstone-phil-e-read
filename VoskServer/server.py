@@ -10,6 +10,15 @@ import numpy as np
 from vosk import Model, KaldiRecognizer
 from word_matcher import WordMatcherSession, check_pronunciation_match as match_pronunciation
 
+# Dictionary API integration for word validation
+try:
+    from dictionary_api_service import get_dictionary_service
+    DICTIONARY_API_AVAILABLE = True
+    print("✓ Dictionary API service loaded")
+except ImportError as e:
+    DICTIONARY_API_AVAILABLE = False
+    print(f"⚠ Dictionary API service not available: {e}")
+
 # Server accepts audio in multiple formats and handles processing server-side
 # Supported formats: Float32 (any sample rate), PCM16 (16kHz)
 
@@ -37,6 +46,45 @@ def downsample_to_16k(audio_data: np.ndarray, source_rate: int) -> np.ndarray:
         indices = np.linspace(0, len(audio_data) - 1, new_length)
         downsampled = np.interp(indices, np.arange(len(audio_data)), audio_data)
         return downsampled.astype(np.float32)
+def validate_word_for_display(word: str) -> bool:
+    """
+    Validate if a word should be displayed in mic display.
+    Uses Dictionary API to filter out non-words and noise.
+
+    Args:
+        word: Word to validate
+
+    Returns:
+        True if word should be displayed, False otherwise
+    """
+    # Skip very short words (likely noise)
+    if len(word) < 2:
+        print(f"   ❌ Validation: '{word}' too short (< 2 chars)")
+        return False
+
+    # Check if word exists in dictionary
+    if DICTIONARY_API_AVAILABLE:
+        dictionary = get_dictionary_service()
+        try:
+            exists = dictionary.check_word_exists(word)
+            if exists:
+                print(f"   ✅ Dictionary validation: '{word}' is valid")
+                return True
+            else:
+                print(f"   ❌ Dictionary validation: '{word}' not found")
+                return False
+        except Exception as e:
+            # Fail open - show word if validation fails
+            print(f"   ⚠️ Dictionary validation error for '{word}': {e}")
+            print(f"   → Failing open: showing word anyway")
+            return True
+
+    # No dictionary available - show all words (fail open)
+    print(f"   ℹ️ No dictionary available, accepting '{word}'")
+    return True
+
+
+
 
 def apply_high_pass_filter(audio_data: np.ndarray, sample_rate: int = 16000, cutoff: float = 80.0) -> np.ndarray:
     """
@@ -103,14 +151,16 @@ def float32_to_pcm16(audio_data: np.ndarray) -> bytes:
     # Apply high-pass filter to remove low-frequency noise (rumble, hum)
     audio_data = apply_high_pass_filter(audio_data, sample_rate=16000, cutoff=80.0)
     
-    # Apply noise gate with HIGHER threshold to filter background noise that causes "the" hallucinations
-    # Increased from 0.015 to 0.04 to be more aggressive with noise filtering
-    audio_data = apply_noise_gate(audio_data, threshold=0.04, attack=0.001, release=0.05)
+    # AGGRESSIVE NOISE GATE: Increased threshold to 0.06 to filter background noise more aggressively
+    # This prevents Vosk from hallucinating "the" from breath sounds and ambient noise
+    audio_data = apply_noise_gate(audio_data, threshold=0.06, attack=0.001, release=0.05)
     
+    # AGGRESSIVE SILENCE DETECTION: Increased RMS threshold to 0.03
     # Check if audio is mostly silence (RMS below threshold) - skip processing if so
     rms = np.sqrt(np.mean(audio_data ** 2))
-    if rms < 0.02:
+    if rms < 0.03:
         # Audio is too quiet - likely just noise, return silence
+        # This prevents Vosk from processing background noise that causes "the" hallucinations
         return np.zeros(len(audio_data), dtype=np.int16).tobytes()
     
     # Apply gentle compression to normalize volume levels
@@ -256,6 +306,21 @@ async def recognize(websocket, path, model):
                     
                     # Only process when we have enough audio accumulated
                     if len(audio_buffer) >= buffer_size_target:
+                        # AGGRESSIVE FIX: Check if we're in noise detection cooldown
+                        if hasattr(recognizer, '_noise_detected_time'):
+                            elapsed_since_noise = time.time() - recognizer._noise_detected_time
+                            if elapsed_since_noise < 2.0:  # 2 second cooldown
+                                # Still in cooldown - skip processing this audio
+                                audio_buffer.clear()
+                                if audio_chunks_received % 10 == 0:  # Log every 10 chunks during cooldown
+                                    remaining = 2.0 - elapsed_since_noise
+                                    print(f"   ⏸️ Skipping audio processing (noise cooldown: {remaining:.1f}s remaining)")
+                                continue
+                            else:
+                                # Cooldown expired - clear flag and resume processing
+                                delattr(recognizer, '_noise_detected_time')
+                                print(f"   ▶️ Resuming Vosk processing (cooldown expired)")
+                        
                         # Send accumulated audio to Vosk
                         audio_to_process = bytes(audio_buffer)
                         audio_buffer.clear()
@@ -300,9 +365,18 @@ async def recognize(websocket, path, model):
                                     if recognizer._repeated_partial_count >= 5:
                                         print(f"   ⚠️ Ignoring repeated partial '{text}' (likely noise)")
                                         text = ""  # Ignore this result
+                                        
+                                        # AGGRESSIVE FIX: Set a flag to temporarily stop processing audio
+                                        # This prevents Vosk from continuing to hallucinate
+                                        if not hasattr(recognizer, '_noise_detected_time'):
+                                            recognizer._noise_detected_time = time.time()
+                                            print(f"   🛑 NOISE DETECTED: Temporarily pausing Vosk processing for 2 seconds")
                                 else:
                                     recognizer._repeated_partial_count = 1
                                     recognizer._last_repeated_text = text
+                                    # Clear noise detection flag when we get different text
+                                    if hasattr(recognizer, '_noise_detected_time'):
+                                        delattr(recognizer, '_noise_detected_time')
                         
                         if text:
                             # REAL-TIME: Process partial results word-by-word
@@ -326,9 +400,15 @@ async def recognize(websocket, path, model):
                             
                             if new_words and vocabulary:
                                 # Filter NEW words - keep only those in vocabulary (with pronunciation matching)
+                                # AND validate with Dictionary API for mic display
                                 filtered_words = []
                                 rejected_words = []
                                 for word in new_words:
+                                    # First validate word for display (Dictionary API check)
+                                    if not validate_word_for_display(word):
+                                        print(f"   ❌ Word rejected by dictionary validation: '{word}'")
+                                        rejected_words.append(word)
+                                        continue
                                     word_lower = word.lower().strip()
                                     
                                     # Direct match
@@ -415,13 +495,27 @@ async def recognize(websocket, path, model):
                                 else:
                                     print(f"   ⚠️ All words rejected by vocabulary filter")
                             elif new_words:
-                                # No vocabulary filter - send all NEW words
-                                print(f"   ✅ Sending words to client: '{' '.join(new_words)}'")
+                                # No vocabulary filter - validate words with Dictionary API before sending
+                                validated_words = []
+                                rejected_words = []
+                                for word in new_words:
+                                    if validate_word_for_display(word):
+                                        validated_words.append(word)
+                                    else:
+                                        rejected_words.append(word)
+                                
+                                if rejected_words:
+                                    print(f"   ❌ Dictionary validation: Rejected {len(rejected_words)} word(s): {', '.join(rejected_words)}")
+                                
+                                if validated_words:
+                                    print(f"   ✅ Sending validated words to client: '{' '.join(validated_words)}'")
+                                else:
+                                    print(f"   ⚠️ All words rejected by dictionary validation")
                                 
                                 # NEW: Use phrase matcher or word matcher if initialized
                                 if use_phrase_mode and phrase_matcher:
                                     # PHRASE MODE: Process each word through phrase matcher
-                                    for word in new_words:
+                                    for word in validated_words:
                                         match_result = phrase_matcher.process_word(word)
                                         
                                         # Calculate current metrics
@@ -438,7 +532,7 @@ async def recognize(websocket, path, model):
                                         print(f"   📊 Phrase Match: {match_result['match_type']} - {match_result['details']}")
                                 elif word_matcher:
                                     # WORD MODE: Process each word through word matcher
-                                    for word in new_words:
+                                    for word in validated_words:
                                         match_result = word_matcher.process_word(word)
                                         
                                         # Calculate current metrics
@@ -454,11 +548,12 @@ async def recognize(websocket, path, model):
                                         
                                         print(f"   📊 Match: {match_result['match_type']} - {match_result['details']}")
                                 else:
-                                    # Fallback: Send text without matching
-                                    await websocket.send(json.dumps({
-                                        "text": ' '.join(new_words),
-                                        "confidence": 1.0
-                                    }))
+                                    # Fallback: Send text without matching (only if we have validated words)
+                                    if validated_words:
+                                        await websocket.send(json.dumps({
+                                            "text": ' '.join(validated_words),
+                                            "confidence": 1.0
+                                        }))
                             
                             # OLD CODE - COMPLETELY DISABLED
                             # This code is kept for reference but is not executed
@@ -528,37 +623,20 @@ async def recognize(websocket, path, model):
                                 # ACCURACY BOOST: Enhance grammar with pronunciation variants
                                 enhanced_grammar = []  # Use list to allow duplicates for boosting
                                 
-                                # Import pronunciation dictionaries
-                                try:
-                                    if detected_language == "english":
-                                        from english_pronunciation_dictionary import PRONUNCIATION_DICT
-                                    else:
-                                        from tagalog_pronunciation_dictionary import PRONUNCIATION_DICT
+                                # Grammar enhancement with short word boosting
+                                # Note: Pronunciation variants removed - using Dictionary API instead
+                                for word in grammar:
+                                    word_lower = word.lower().strip()
+                                    enhanced_grammar.append(word)  # Add original
                                     
-                                    # Add pronunciation variants for each word
-                                    for word in grammar:
-                                        word_lower = word.lower().strip()
-                                        enhanced_grammar.append(word)  # Add original
-                                        
-                                        # SHORT WORD BOOST: Repeat short words to increase recognition weight
-                                        if len(word_lower) <= 3:
-                                            # Boost short words (1-3 letters) by adding them multiple times
-                                            enhanced_grammar.extend([word] * 3)  # Add 3 more copies
-                                            print(f"   🔊 Boosted short word: '{word}' (4x weight)")
-                                        
-                                        if word_lower in PRONUNCIATION_DICT:
-                                            # Add all pronunciation variants
-                                            for variant in PRONUNCIATION_DICT[word_lower]:
-                                                enhanced_grammar.append(variant)
-                                                # Also boost short variants
-                                                if len(variant) <= 3:
-                                                    enhanced_grammar.extend([variant] * 2)
-                                    
-                                    unique_count = len(set(enhanced_grammar))
-                                    print(f"✓ Enhanced grammar: {len(grammar)} words → {unique_count} unique words ({len(enhanced_grammar)} total with boosting)")
-                                except ImportError:
-                                    print(f"⚠ Pronunciation dictionary not available, using basic grammar")
-                                    enhanced_grammar = grammar
+                                    # SHORT WORD BOOST: Repeat short words to increase recognition weight
+                                    if len(word_lower) <= 3:
+                                        # Boost short words (1-3 letters) by adding them multiple times
+                                        enhanced_grammar.extend([word] * 3)  # Add 3 more copies
+                                        print(f"   🔊 Boosted short word: '{word}' (4x weight)")
+                                
+                                unique_count = len(set(enhanced_grammar))
+                                print(f"✓ Enhanced grammar: {len(grammar)} words → {unique_count} unique words ({len(enhanced_grammar)} total with boosting)")
                                 
                                 # Try to apply enhanced grammar constraint (not all models support this)
                                 try:
@@ -665,7 +743,8 @@ async def recognize(websocket, path, model):
         
         print(f"{'='*60}\n")
     finally:
-        # CRITICAL: Send final result on close to catch last words
+        # CRITICAL FIX: Only send final result if it contains NEW words not already sent
+        # This prevents repeated partial results from being sent as final results
         try:
             fres = json.loads(recognizer.FinalResult())
             text = fres.get("text", "").strip()
@@ -673,15 +752,42 @@ async def recognize(websocket, path, model):
             if text:
                 print(f"🏁 FINAL RESULT on close: '{text}'")
                 
-                # Apply vocabulary filter to final result
+                # Check if this is the same as the last partial (repeated noise)
+                last_partial = getattr(recognizer, '_last_partial_text', '')
+                repeated_count = getattr(recognizer, '_repeated_partial_count', 0)
+                
+                # If final result is same as repeated partial (5+ times), it's noise - DON'T SEND
+                if text == last_partial and repeated_count >= 5:
+                    print(f"   🚫 IGNORING final result - same as repeated partial (noise)")
+                    print(f"   This was repeated {repeated_count} times as partial, likely background noise")
+                    return  # Exit without sending
+                
+                # Check if we already sent these words (avoid duplicate sends)
+                words_sent_count = getattr(recognizer, '_words_sent_count', 0)
+                final_words = text.split()
+                
+                # Only process if we have NEW words beyond what was already sent
+                if len(final_words) <= words_sent_count:
+                    print(f"   ℹ️ Final result contains no new words (already sent {words_sent_count} words)")
+                    return  # Exit without sending - no new words
+                
+                # Extract only NEW words not already sent
+                new_words = final_words[words_sent_count:]
+                print(f"   📝 New words in final result: {' '.join(new_words)} ({len(new_words)} words)")
+                
+                # Apply vocabulary filter AND dictionary validation to NEW words only
                 if vocabulary:
-                    words = text.split()
                     filtered_words = []
                     rejected_words = []
-                    for word in words:
+                    for word in new_words:
                         word_lower = word.lower().strip()
+                        # First check vocabulary
                         if word_lower in vocabulary:
-                            filtered_words.append(word)
+                            # Then validate with Dictionary API
+                            if validate_word_for_display(word):
+                                filtered_words.append(word)
+                            else:
+                                rejected_words.append(word)
                         else:
                             rejected_words.append(word)
                     
@@ -692,7 +798,7 @@ async def recognize(websocket, path, model):
                         filtered_text = ' '.join(filtered_words)
                         print(f"   ✅ Final result filter: Accepted \"{filtered_text}\"")
                         
-                        # Send filtered final result
+                        # Send filtered final result (only NEW words)
                         await websocket.send(json.dumps({
                             "text": filtered_text,
                             "confidence": 1.0,
@@ -701,13 +807,28 @@ async def recognize(websocket, path, model):
                     else:
                         print(f"   ⚠️ All final words rejected by vocabulary filter")
                 else:
-                    # No vocabulary filter - send all words
-                    print(f"   ✅ Sending final result: '{text}'")
-                    await websocket.send(json.dumps({
-                        "text": text,
-                        "confidence": 1.0,
-                        "final": True
-                    }))
+                    # No vocabulary filter - validate with Dictionary API before sending
+                    validated_words = []
+                    rejected_words = []
+                    for word in new_words:
+                        if validate_word_for_display(word):
+                            validated_words.append(word)
+                        else:
+                            rejected_words.append(word)
+                    
+                    if rejected_words:
+                        print(f"   ❌ Final result dictionary validation: Rejected {len(rejected_words)} word(s): {', '.join(rejected_words)}")
+                    
+                    if validated_words:
+                        validated_text = ' '.join(validated_words)
+                        print(f"   ✅ Sending validated final result: '{validated_text}'")
+                        await websocket.send(json.dumps({
+                            "text": validated_text,
+                            "confidence": 1.0,
+                            "final": True
+                        }))
+                    else:
+                        print(f"   ⚠️ All final words rejected by dictionary validation")
         except Exception as e:
             print(f"⚠️ Error sending final result: {e}")
             pass

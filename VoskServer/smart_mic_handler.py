@@ -160,11 +160,14 @@ class SmartMicHandler:
         """Extract vocabulary from story text."""
         vocabulary = set()
         
-        # Import pronunciation dictionary based on language
-        if self.language == "english":
-            from english_pronunciation_dictionary import PRONUNCIATION_DICT
-        else:
-            from tagalog_pronunciation_dictionary import PRONUNCIATION_DICT
+        # Use Dictionary API for word validation (if available)
+        try:
+            from dictionary_api_service import get_dictionary_service
+            dictionary = get_dictionary_service()
+            DICTIONARY_API_AVAILABLE = True
+        except ImportError:
+            dictionary = None
+            DICTIONARY_API_AVAILABLE = False
         
         # Extract all words
         words = re.findall(r'\b\w+(?:\'\w+)?\b', self.story_text, re.UNICODE)
@@ -177,10 +180,13 @@ class SmartMicHandler:
             # Add base word
             vocabulary.add(normalized)
             
-            # Add pronunciation variants
-            if normalized in PRONUNCIATION_DICT:
-                for variant in PRONUNCIATION_DICT[normalized]:
-                    vocabulary.add(self._normalize_word(variant))
+            # Add pronunciation variants from Dictionary API (if available)
+            if DICTIONARY_API_AVAILABLE and dictionary:
+                phonetics = dictionary.get_phonetics(normalized)
+                for phonetic in phonetics:
+                    # Phonetics are IPA representations, not variants
+                    # Just keep the base word for now
+                    pass
             
             # Add morphological variations
             if self.language == "english":

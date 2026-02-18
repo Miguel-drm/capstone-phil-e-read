@@ -21,30 +21,65 @@
  * as background noise and should be filtered out
  */
 export const ENGLISH_GHOST_WORDS = new Set([
+  // Articles
   'the',      // Most common article - frequently heard as background noise
   'de',       // Common misrecognition of "the"
   'a',        // Indefinite article
   'an',       // Indefinite article
+  
+  // Conjunctions
   'and',      // Common conjunction
   'or',       // Common conjunction
+  'but',      // Common conjunction
+  
+  // Common verbs
   'is',       // Common verb
+  'are',      // Common verb
+  'was',      // Common verb
+  'were',     // Common verb
+  'be',       // Common verb
+  'been',     // Common verb
+  'do',       // Common verb
+  'does',     // Common verb
+  'did',      // Common verb
+  'go',       // Common verb
+  'goes',     // Common verb
+  'went',     // Common verb
+  
+  // Pronouns
   'it',       // Common pronoun
+  'i',        // Common pronoun
+  'we',       // Common pronoun
+  'he',       // Common pronoun
+  'she',      // Common pronoun
+  'they',     // Common pronoun
+  'me',       // Common pronoun
+  'my',       // Common pronoun
+  'you',      // Common pronoun
+  'your',     // Common pronoun
+  
+  // Prepositions
   'in',       // Common preposition
   'at',       // Common preposition
   'to',       // Common preposition
   'of',       // Common preposition
   'by',       // Common preposition
-  // 'on',    // REMOVED - can be reversal of "no" (content word)
   'up',       // Common preposition
-  'be',       // Common verb
-  'do',       // Common verb
-  'go',       // Common verb
-  // 'no',    // REMOVED - can be reversal of "on" (content word)
+  'for',      // Common preposition
+  'with',     // Common preposition
+  'from',     // Common preposition
+  
+  // Common adverbs
   'so',       // Common word
-  'we',       // Common pronoun
-  'he',       // Common pronoun
-  'me',       // Common pronoun
-  'my',       // Common pronoun
+  'too',      // Common word
+  'very',     // Common word
+  'just',     // Common word
+  'now',      // Common word
+  'then',     // Common word
+  'here',     // Common word
+  'there',    // Common word
+  
+  // Filler words and sounds
   'um',       // Filler word
   'uh',       // Filler word
   'er',       // Filler word
@@ -56,6 +91,21 @@ export const ENGLISH_GHOST_WORDS = new Set([
   'mm',       // Filler word
   'shh',      // Filler word
   'psst',     // Filler word
+  'yeah',     // Filler word
+  'yep',      // Filler word
+  'nope',     // Filler word
+  'okay',     // Filler word
+  'ok',       // Filler word
+  'uh-huh',   // Filler word
+  'mm-hmm',   // Filler word
+  
+  // Common misrecognitions
+  'ti',       // Often misheard as "the"
+  'da',       // Often misheard as "the"
+  'duh',      // Often misheard as "the"
+  'tha',      // Often misheard as "the"
+  'thee',     // Variant of "the"
+  'thuh',     // Variant of "the"
 ]);
 
 /**
