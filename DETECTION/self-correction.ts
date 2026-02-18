@@ -234,3 +234,51 @@ export function detectSelfCorrection(
     details: `Spoken word "${spokenWord}" does not match expected "${expectedWord}" - not a self-correction`
   };
 }
+
+// ============================================================================
+// Orchestrator Compatibility Function
+// ============================================================================
+
+/**
+ * Wrapper function for orchestrator compatibility.
+ * Adapts the array-based interface to the existing single-word interface.
+ */
+export function detectSelfCorrectionForOrchestrator(
+  spokenWords: string[],
+  expectedWord: string,
+  position: number,
+  config?: SelfCorrectionConfig
+): { matchType: 'self_correction' | 'no_match'; confidence?: number; details: string } {
+  if (!spokenWords || spokenWords.length === 0) {
+    return {
+      matchType: 'no_match',
+      details: 'No spoken words provided'
+    };
+  }
+
+  if (spokenWords.length === 1) {
+    // Single word - cannot be self-correction without previous attempt
+    return {
+      matchType: 'no_match',
+      details: 'Single word provided - no self-correction pattern possible'
+    };
+  }
+
+  // For orchestrator, assume first word is error attempt, second is correction attempt
+  const errorAttempt = spokenWords[0];
+  const correctionAttempt = spokenWords[1];
+
+  const result = detectSelfCorrection(
+    correctionAttempt,
+    expectedWord,
+    position,
+    errorAttempt,
+    config
+  );
+
+  return {
+    matchType: result.matchType,
+    confidence: result.matchType === 'self_correction' ? 0.9 : undefined,
+    details: result.details
+  };
+}

@@ -24,7 +24,7 @@ import { detectSubstitution, SubstitutionConfig } from './substitution';
 import { detectRepetition, RepetitionConfig } from './repetition';
 import { detectInsertion, InsertionConfig } from './insertion';
 import { detectOmission, OmissionConfig } from './omission';
-import { detectSelfCorrection, SelfCorrectionConfig } from '../utils/advancedSelfCorrectionDetection';
+import { detectSelfCorrectionForOrchestrator as detectSelfCorrection, SelfCorrectionConfig } from './self-correction';
 
 // ============================================================================
 // Types and Interfaces

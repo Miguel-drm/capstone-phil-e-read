@@ -948,16 +948,16 @@ const ReadingSessionPage: React.FC = () => {
                   Date.now() - lastWordTimestampRef.current // Time between error and correction
                 );
                 
-                if (selfCorrectionAnalysis.isSelfCorrection) {
+                if (selfCorrectionAnalysis.matchType === 'self_correction') {
                   setWordMiscues(prev => new Map(prev).set(oldPosition, 'selfCorrection'));
                   setRecognizedWords(prev => new Set(prev).add(oldPosition));
                   
                   // Log detailed analysis for debugging
-                  console.log(`✅ Self-correction: "${word}" → "${expectedWord}" (confidence: ${selfCorrectionAnalysis.confidence}%, quality: ${selfCorrectionAnalysis.correctionQuality}, type: ${selfCorrectionAnalysis.correctionType})`);
-                  console.log(`   Demonstrates understanding: ${selfCorrectionAnalysis.details.demonstratesUnderstanding}`);
+                  console.log(`✅ Self-correction: "${word}" → "${expectedWord}" (confidence: ${selfCorrectionAnalysis.confidence || 0}%, pattern: ${selfCorrectionAnalysis.patternType || 'unknown'})`);
+                  console.log(`   Details: ${selfCorrectionAnalysis.details}`);
                 } else {
                   // Not a self-correction, treat as regular word
-                  console.log(`⚠️ Low confidence self-correction: "${word}" → "${expectedWord}" (${selfCorrectionAnalysis.confidence}%)`);
+                  console.log(`⚠️ Not a self-correction: "${word}" → "${expectedWord}" (${selfCorrectionAnalysis.confidence || 0}%)`);
                 }
               }
               // Update WordStateManager: mark as self-correction (not counted as miscue)
