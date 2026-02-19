@@ -48,125 +48,21 @@ def downsample_to_16k(audio_data: np.ndarray, source_rate: int) -> np.ndarray:
         return downsampled.astype(np.float32)
 def validate_word_for_display(word: str) -> bool:
     """
-    Validate if a word should be displayed in mic display.
-    Uses Dictionary API to filter out non-words and noise.
-
+    Validate if a word should be displayed - DISABLED, ACCEPT ALL WORDS.
+    
     Args:
         word: Word to validate
 
     Returns:
-        True if word should be displayed, False otherwise
+        Always True - accept all words
     """
-    # Skip very short words (likely noise)
-    if len(word) < 2:
-        print(f"   ❌ Validation: '{word}' too short (< 2 chars)")
-        return False
-
-    # Check if word exists in dictionary
-    if DICTIONARY_API_AVAILABLE:
-        dictionary = get_dictionary_service()
-        try:
-            exists = dictionary.check_word_exists(word)
-            if exists:
-                print(f"   ✅ Dictionary validation: '{word}' is valid")
-                return True
-            else:
-                print(f"   ❌ Dictionary validation: '{word}' not found")
-                return False
-        except Exception as e:
-            # Fail open - show word if validation fails
-            print(f"   ⚠️ Dictionary validation error for '{word}': {e}")
-            print(f"   → Failing open: showing word anyway")
-            return True
-
-    # No dictionary available - show all words (fail open)
-    print(f"   ℹ️ No dictionary available, accepting '{word}'")
+    # DISABLED: Dictionary validation was blocking legitimate words
+    # Accept all words and let position-based validation handle filtering
     return True
 
 
-
-
-def apply_high_pass_filter(audio_data: np.ndarray, sample_rate: int = 16000, cutoff: float = 80.0) -> np.ndarray:
-    """
-    Apply simple high-pass filter to remove low-frequency noise (rumble, hum).
-    Uses a simple first-order IIR filter for efficiency.
-    """
-    if len(audio_data) == 0:
-        return audio_data
-    
-    # Calculate filter coefficient
-    rc = 1.0 / (cutoff * 2 * np.pi)
-    dt = 1.0 / sample_rate
-    alpha = rc / (rc + dt)
-    
-    # Apply filter
-    filtered = np.zeros_like(audio_data)
-    filtered[0] = audio_data[0]
-    
-    for i in range(1, len(audio_data)):
-        filtered[i] = alpha * (filtered[i-1] + audio_data[i] - audio_data[i-1])
-    
-    return filtered
-
-def apply_noise_gate(audio_data: np.ndarray, threshold: float = 0.015, attack: float = 0.001, release: float = 0.05) -> np.ndarray:
-    """
-    Apply noise gate with smooth attack/release to remove low-level background noise.
-    Samples below threshold are attenuated smoothly to avoid clicks.
-    
-    Args:
-        audio_data: Input audio samples
-        threshold: Amplitude threshold (0.0-1.0)
-        attack: Attack time in seconds (how fast gate opens)
-        release: Release time in seconds (how fast gate closes)
-    """
-    if len(audio_data) == 0:
-        return audio_data
-    
-    # Calculate absolute values
-    abs_audio = np.abs(audio_data)
-    
-    # Create envelope follower
-    envelope = np.zeros_like(abs_audio)
-    envelope[0] = abs_audio[0]
-    
-    # Simple envelope follower with attack/release
-    for i in range(1, len(abs_audio)):
-        if abs_audio[i] > envelope[i-1]:
-            # Attack (fast)
-            envelope[i] = abs_audio[i]
-        else:
-            # Release (slow)
-            envelope[i] = envelope[i-1] * 0.95 + abs_audio[i] * 0.05
-    
-    # Create smooth gate based on envelope
-    gate = np.where(envelope > threshold, 1.0, envelope / threshold * 0.3)  # Partial attenuation below threshold
-    
-    # Apply gate
-    gated_audio = audio_data * gate
-    
-    return gated_audio
-
 def float32_to_pcm16(audio_data: np.ndarray) -> bytes:
-    """Convert Float32 audio (-1.0 to 1.0) to PCM16 bytes (little-endian) with advanced noise filtering."""
-    # Apply high-pass filter to remove low-frequency noise (rumble, hum)
-    audio_data = apply_high_pass_filter(audio_data, sample_rate=16000, cutoff=80.0)
-    
-    # AGGRESSIVE NOISE GATE: Increased threshold to 0.06 to filter background noise more aggressively
-    # This prevents Vosk from hallucinating "the" from breath sounds and ambient noise
-    audio_data = apply_noise_gate(audio_data, threshold=0.06, attack=0.001, release=0.05)
-    
-    # AGGRESSIVE SILENCE DETECTION: Increased RMS threshold to 0.03
-    # Check if audio is mostly silence (RMS below threshold) - skip processing if so
-    rms = np.sqrt(np.mean(audio_data ** 2))
-    if rms < 0.03:
-        # Audio is too quiet - likely just noise, return silence
-        # This prevents Vosk from processing background noise that causes "the" hallucinations
-        return np.zeros(len(audio_data), dtype=np.int16).tobytes()
-    
-    # Apply gentle compression to normalize volume levels
-    # This helps with varying microphone distances and volumes
-    audio_data = np.tanh(audio_data * 1.2) * 0.9  # Soft compression
-    
+    """Convert Float32 audio to PCM16 bytes - NO PROCESSING, PURE AUDIO."""
     # Clamp values to [-1.0, 1.0]
     audio_data = np.clip(audio_data, -1.0, 1.0)
     
@@ -217,18 +113,9 @@ def process_audio_message(message: bytes, source_sample_rate: int = 48000, debug
 
 async def recognize(websocket, path, model):
     sample_rate = 16000
-    # Create recognizer with words (for better accuracy) and partial words enabled
-    # FAST SPEECH OPTIMIZATION: Configure Vosk for faster recognition
+    # Create recognizer - CLEAN AND SIMPLE
     recognizer = KaldiRecognizer(model, sample_rate)
-    recognizer.SetWords(True)  # Enable word-level timestamps (can help with accuracy)
-    
-    # FAST SPEECH: Set max alternatives to 3 for better fast speech handling
-    # This allows Vosk to consider multiple hypotheses which helps with rapid speech
-    recognizer.SetMaxAlternatives(3)
-    
-    # FAST SPEECH: Enable partial results for faster feedback
-    # This is already enabled by default, but we're being explicit
-    recognizer.SetPartialWords(True)
+    recognizer.SetWords(True)  # Enable word-level timestamps
     
     # DEBUG: Track audio chunks received
     audio_chunks_received = 0
@@ -306,21 +193,6 @@ async def recognize(websocket, path, model):
                     
                     # Only process when we have enough audio accumulated
                     if len(audio_buffer) >= buffer_size_target:
-                        # AGGRESSIVE FIX: Check if we're in noise detection cooldown
-                        if hasattr(recognizer, '_noise_detected_time'):
-                            elapsed_since_noise = time.time() - recognizer._noise_detected_time
-                            if elapsed_since_noise < 2.0:  # 2 second cooldown
-                                # Still in cooldown - skip processing this audio
-                                audio_buffer.clear()
-                                if audio_chunks_received % 10 == 0:  # Log every 10 chunks during cooldown
-                                    remaining = 2.0 - elapsed_since_noise
-                                    print(f"   ⏸️ Skipping audio processing (noise cooldown: {remaining:.1f}s remaining)")
-                                continue
-                            else:
-                                # Cooldown expired - clear flag and resume processing
-                                delattr(recognizer, '_noise_detected_time')
-                                print(f"   ▶️ Resuming Vosk processing (cooldown expired)")
-                        
                         # Send accumulated audio to Vosk
                         audio_to_process = bytes(audio_buffer)
                         audio_buffer.clear()
@@ -352,31 +224,6 @@ async def recognize(websocket, path, model):
                             text = pres.get("partial", "").strip()
                             if text:
                                 print(f"🎤 Vosk partial result: '{text}'")
-                                
-                                # NOISE FILTER: Detect repeated partial results (hallucination indicator)
-                                # If we get the same partial result many times, it's likely noise
-                                if not hasattr(recognizer, '_repeated_partial_count'):
-                                    recognizer._repeated_partial_count = 0
-                                    recognizer._last_repeated_text = ""
-                                
-                                if text == recognizer._last_repeated_text:
-                                    recognizer._repeated_partial_count += 1
-                                    # If same text repeated 5+ times without becoming final, it's noise
-                                    if recognizer._repeated_partial_count >= 5:
-                                        print(f"   ⚠️ Ignoring repeated partial '{text}' (likely noise)")
-                                        text = ""  # Ignore this result
-                                        
-                                        # AGGRESSIVE FIX: Set a flag to temporarily stop processing audio
-                                        # This prevents Vosk from continuing to hallucinate
-                                        if not hasattr(recognizer, '_noise_detected_time'):
-                                            recognizer._noise_detected_time = time.time()
-                                            print(f"   🛑 NOISE DETECTED: Temporarily pausing Vosk processing for 2 seconds")
-                                else:
-                                    recognizer._repeated_partial_count = 1
-                                    recognizer._last_repeated_text = text
-                                    # Clear noise detection flag when we get different text
-                                    if hasattr(recognizer, '_noise_detected_time'):
-                                        delattr(recognizer, '_noise_detected_time')
                         
                         if text:
                             # REAL-TIME: Process partial results word-by-word
@@ -398,58 +245,14 @@ async def recognize(websocket, path, model):
                             
                             recognizer._last_partial_text = text
                             
-                            if new_words and vocabulary:
-                                # Filter NEW words - keep only those in vocabulary (with pronunciation matching)
-                                # AND validate with Dictionary API for mic display
-                                filtered_words = []
-                                rejected_words = []
-                                for word in new_words:
-                                    # First validate word for display (Dictionary API check)
-                                    if not validate_word_for_display(word):
-                                        print(f"   ❌ Word rejected by dictionary validation: '{word}'")
-                                        rejected_words.append(word)
-                                        continue
-                                    word_lower = word.lower().strip()
-                                    
-                                    # Direct match
-                                    if word_lower in vocabulary:
-                                        filtered_words.append(word)
-                                    else:
-                                        # Try pronunciation matching against vocabulary
-                                        matched = False
-                                        best_match = None
-                                        
-                                        # First try exact pronunciation match
-                                        for vocab_word in vocabulary:
-                                            if match_pronunciation(word_lower, vocab_word, detected_language):
-                                                # Use the vocabulary word (canonical form)
-                                                best_match = vocab_word
-                                                matched = True
-                                                print(f"   🔄 Pronunciation match: '{word}' → '{vocab_word}'")
-                                                break
-                                        
-                                        # If no pronunciation match, try fuzzy match (1-2 char difference)
-                                        if not matched:
-                                            for vocab_word in vocabulary:
-                                                if len(word_lower) == len(vocab_word):
-                                                    diff = sum(c1 != c2 for c1, c2 in zip(word_lower, vocab_word))
-                                                    if diff <= 1:  # Allow 1 character difference
-                                                        best_match = vocab_word
-                                                        matched = True
-                                                        print(f"   🔄 Fuzzy match: '{word}' → '{vocab_word}' (1 char diff)")
-                                                        break
-                                        
-                                        if matched and best_match:
-                                            filtered_words.append(best_match)
-                                        else:
-                                            rejected_words.append(word)
-                                
-                                if rejected_words:
-                                    print(f"   ❌ Vocabulary filter: Rejected {len(rejected_words)} word(s) not in story: {', '.join(rejected_words)}")
+                            if new_words:
+                                # DISABLED: Vocabulary filtering was blocking legitimate story words
+                                # Accept ALL words from Vosk and let word matcher handle validation
+                                filtered_words = new_words  # Accept everything
                                 
                                 if filtered_words:
                                     filtered_text = ' '.join(filtered_words)
-                                    print(f"   ✅ Vocabulary filter: Accepted \"{filtered_text}\"")
+                                    print(f"   ✅ Accepted words: \"{filtered_text}\"")
                                     
                                     # NEW: Use phrase matcher or word matcher if initialized
                                     if use_phrase_mode and phrase_matcher:
@@ -490,68 +293,6 @@ async def recognize(websocket, path, model):
                                         # Fallback: Send filtered result without matching
                                         await websocket.send(json.dumps({
                                             "text": filtered_text,
-                                            "confidence": 1.0
-                                        }))
-                                else:
-                                    print(f"   ⚠️ All words rejected by vocabulary filter")
-                            elif new_words:
-                                # No vocabulary filter - validate words with Dictionary API before sending
-                                validated_words = []
-                                rejected_words = []
-                                for word in new_words:
-                                    if validate_word_for_display(word):
-                                        validated_words.append(word)
-                                    else:
-                                        rejected_words.append(word)
-                                
-                                if rejected_words:
-                                    print(f"   ❌ Dictionary validation: Rejected {len(rejected_words)} word(s): {', '.join(rejected_words)}")
-                                
-                                if validated_words:
-                                    print(f"   ✅ Sending validated words to client: '{' '.join(validated_words)}'")
-                                else:
-                                    print(f"   ⚠️ All words rejected by dictionary validation")
-                                
-                                # NEW: Use phrase matcher or word matcher if initialized
-                                if use_phrase_mode and phrase_matcher:
-                                    # PHRASE MODE: Process each word through phrase matcher
-                                    for word in validated_words:
-                                        match_result = phrase_matcher.process_word(word)
-                                        
-                                        # Calculate current metrics
-                                        elapsed = time.time() - session_start_time
-                                        metrics = phrase_matcher.get_metrics(elapsed)
-                                        
-                                        # Send match result with metrics
-                                        await websocket.send(json.dumps({
-                                            "text": word,
-                                            "match_result": match_result,
-                                            "metrics": metrics
-                                        }))
-                                        
-                                        print(f"   📊 Phrase Match: {match_result['match_type']} - {match_result['details']}")
-                                elif word_matcher:
-                                    # WORD MODE: Process each word through word matcher
-                                    for word in validated_words:
-                                        match_result = word_matcher.process_word(word)
-                                        
-                                        # Calculate current metrics
-                                        elapsed = time.time() - session_start_time
-                                        metrics = word_matcher.get_metrics(elapsed)
-                                        
-                                        # Send match result with metrics
-                                        await websocket.send(json.dumps({
-                                            "text": word,
-                                            "match_result": match_result,
-                                            "metrics": metrics
-                                        }))
-                                        
-                                        print(f"   📊 Match: {match_result['match_type']} - {match_result['details']}")
-                                else:
-                                    # Fallback: Send text without matching (only if we have validated words)
-                                    if validated_words:
-                                        await websocket.send(json.dumps({
-                                            "text": ' '.join(validated_words),
                                             "confidence": 1.0
                                         }))
                             
@@ -743,24 +484,13 @@ async def recognize(websocket, path, model):
         
         print(f"{'='*60}\n")
     finally:
-        # CRITICAL FIX: Only send final result if it contains NEW words not already sent
-        # This prevents repeated partial results from being sent as final results
+        # Send final result if available
         try:
             fres = json.loads(recognizer.FinalResult())
             text = fres.get("text", "").strip()
             
             if text:
                 print(f"🏁 FINAL RESULT on close: '{text}'")
-                
-                # Check if this is the same as the last partial (repeated noise)
-                last_partial = getattr(recognizer, '_last_partial_text', '')
-                repeated_count = getattr(recognizer, '_repeated_partial_count', 0)
-                
-                # If final result is same as repeated partial (5+ times), it's noise - DON'T SEND
-                if text == last_partial and repeated_count >= 5:
-                    print(f"   🚫 IGNORING final result - same as repeated partial (noise)")
-                    print(f"   This was repeated {repeated_count} times as partial, likely background noise")
-                    return  # Exit without sending
                 
                 # Check if we already sent these words (avoid duplicate sends)
                 words_sent_count = getattr(recognizer, '_words_sent_count', 0)
@@ -775,60 +505,19 @@ async def recognize(websocket, path, model):
                 new_words = final_words[words_sent_count:]
                 print(f"   📝 New words in final result: {' '.join(new_words)} ({len(new_words)} words)")
                 
-                # Apply vocabulary filter AND dictionary validation to NEW words only
-                if vocabulary:
-                    filtered_words = []
-                    rejected_words = []
-                    for word in new_words:
-                        word_lower = word.lower().strip()
-                        # First check vocabulary
-                        if word_lower in vocabulary:
-                            # Then validate with Dictionary API
-                            if validate_word_for_display(word):
-                                filtered_words.append(word)
-                            else:
-                                rejected_words.append(word)
-                        else:
-                            rejected_words.append(word)
+                # DISABLED: Vocabulary filtering - accept ALL words from Vosk
+                filtered_words = new_words  # Accept everything
+                
+                if filtered_words:
+                    filtered_text = ' '.join(filtered_words)
+                    print(f"   ✅ Final result: Accepted \"{filtered_text}\"")
                     
-                    if rejected_words:
-                        print(f"   ❌ Final result filter: Rejected {len(rejected_words)} word(s): {', '.join(rejected_words)}")
-                    
-                    if filtered_words:
-                        filtered_text = ' '.join(filtered_words)
-                        print(f"   ✅ Final result filter: Accepted \"{filtered_text}\"")
-                        
-                        # Send filtered final result (only NEW words)
-                        await websocket.send(json.dumps({
-                            "text": filtered_text,
-                            "confidence": 1.0,
-                            "final": True
-                        }))
-                    else:
-                        print(f"   ⚠️ All final words rejected by vocabulary filter")
-                else:
-                    # No vocabulary filter - validate with Dictionary API before sending
-                    validated_words = []
-                    rejected_words = []
-                    for word in new_words:
-                        if validate_word_for_display(word):
-                            validated_words.append(word)
-                        else:
-                            rejected_words.append(word)
-                    
-                    if rejected_words:
-                        print(f"   ❌ Final result dictionary validation: Rejected {len(rejected_words)} word(s): {', '.join(rejected_words)}")
-                    
-                    if validated_words:
-                        validated_text = ' '.join(validated_words)
-                        print(f"   ✅ Sending validated final result: '{validated_text}'")
-                        await websocket.send(json.dumps({
-                            "text": validated_text,
-                            "confidence": 1.0,
-                            "final": True
-                        }))
-                    else:
-                        print(f"   ⚠️ All final words rejected by dictionary validation")
+                    # Send final result (only NEW words)
+                    await websocket.send(json.dumps({
+                        "text": filtered_text,
+                        "confidence": 1.0,
+                        "final": True
+                    }))
         except Exception as e:
             print(f"⚠️ Error sending final result: {e}")
             pass

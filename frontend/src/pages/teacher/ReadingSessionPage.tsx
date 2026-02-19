@@ -601,9 +601,10 @@ const ReadingSessionPage: React.FC = () => {
           });
           
           // REJECT LOW CONFIDENCE: If average confidence is below 40%, likely noise
+          // DISABLED: User's voice is clear, don't filter based on confidence
           if (avgConfidence < 40) {
-            console.log(`❌ Rejected low confidence audio (${avgConfidence.toFixed(0)}% < 40%)`);
-            return; // Don't process this recognition
+            console.log(`⚠️ Low confidence audio (${avgConfidence.toFixed(0)}% < 40%) - but processing anyway`);
+            // Don't return - process it anyway
           }
         }
 
@@ -2357,34 +2358,26 @@ const ReadingSessionPage: React.FC = () => {
               const connectionTime = ((Date.now() - connectionStartTime) / 1000).toFixed(2);
               console.log(`✅ WebSocket connected successfully to ${wsUrl} (took ${connectionTime}s)`);
 
-              // ACCURACY: Send vocabulary and expected words to server for accurate filtering and metrics
-              if (storyVocabulary.size > 0) {
-                const vocabularyList = Array.from(storyVocabulary);
-                
-                // Send original words (with case) for backend matching
-                const expectedWordsList = realWords;  // Keep original case for backend
-
-                // Enhanced config with vocabulary and expected words for BACKEND WORD MATCHING
+              // OPEN VOCABULARY: Let Vosk recognize any words without constraints
+              // Word matching will handle validation on the backend
+              if (realWords && realWords.length > 0) {
+                // Send expected words for backend matching only (no grammar constraint)
                 const config1 = JSON.stringify({
                   config: {
                     words: true,
                     max_alternatives: 0,
-                    grammar: vocabularyList,  // Send story vocabulary to Vosk
-                    vocabulary: vocabularyList,  // For server-side filtering
-                    expected_words: expectedWordsList,  // For BACKEND word matching (original case)
-                    use_phrase_mode: true  // Enable phrase-level matching (Option 2) for 85-95% accuracy
+                    expected_words: realWords,  // For BACKEND word matching only
+                    use_phrase_mode: true  // Enable phrase-level matching
                   }
                 });
 
-                console.log(`🎯 Vosk configured with GRAMMAR CONSTRAINT + SERVER-SIDE FILTERING`);
-                console.log(`📝 Sending ${vocabularyList.length} story words to Vosk`);
-                console.log(`📝 Sending ${expectedWordsList.length} expected words for accuracy calculation`);
-                console.log(`📝 Vocabulary sample (first 20):`, vocabularyList.slice(0, 20).join(', '));
+                console.log(`🎯 Vosk configured with OPEN VOCABULARY (no constraints)`);
+                console.log(`📝 Sending ${realWords.length} expected words for backend matching only`);
 
                 // Send config
                 try {
                   ws.send(config1);
-                  console.log('✓ Sent Vosk config with grammar constraint + server-side filtering');
+                  console.log('✓ Sent Vosk config - open vocabulary mode');
                 } catch (e) {
                   console.warn('Failed to send config:', e);
                 }
@@ -2427,29 +2420,18 @@ const ReadingSessionPage: React.FC = () => {
                     if (ws.readyState === WebSocket.OPEN) {
                     const channel = e.inputBuffer.getChannelData(0);
                     
-                    // AUDIO AMPLIFICATION: Moderate boost for accuracy (1.5x amplification)
-                    // Reduced from 2x to minimize noise and maximize Vosk accuracy
-                    const amplifiedChannel = new Float32Array(channel.length);
-                    const amplificationFactor = 1.5;
-                    
-                    for (let i = 0; i < channel.length; i++) {
-                      // Amplify but prevent clipping (keep between -1.0 and 1.0)
-                      amplifiedChannel[i] = Math.max(-1.0, Math.min(1.0, channel[i] * amplificationFactor));
-                    }
+                    // NO AMPLIFICATION: Send raw audio to preserve voice clarity
+                    // User's voice is clear, amplification can introduce distortion
                     
                     // Check audio levels every 50 chunks
                     if (audioChunkCount % 50 === 0) {
-                      const maxLevel = Math.max(...Array.from(amplifiedChannel).map(Math.abs));
-                      const avgLevel = Array.from(amplifiedChannel).reduce((sum, val) => sum + Math.abs(val), 0) / amplifiedChannel.length;
-                      console.log(`📊 Audio chunk ${audioChunkCount}: max=${maxLevel.toFixed(4)}, avg=${avgLevel.toFixed(4)}, amplified=2x`);
-                      
-                      if (maxLevel > 0.001) {
-                        console.log(`🎤 Audio amplified for quiet voices`);
-                      }
+                      const maxLevel = Math.max(...Array.from(channel).map(Math.abs));
+                      const avgLevel = Array.from(channel).reduce((sum, val) => sum + Math.abs(val), 0) / channel.length;
+                      console.log(`📊 Audio chunk ${audioChunkCount}: max=${maxLevel.toFixed(4)}, avg=${avgLevel.toFixed(4)}, amplified=1x (raw)`);
                     }
                     
-                    // Send amplified audio - server will handle processing
-                    ws.send(amplifiedChannel.buffer);
+                    // Send raw audio - no amplification to preserve clarity
+                    ws.send(channel.buffer);
                     } else if (ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
                       attemptVoskReconnect(startVosk);
                   }
@@ -2726,43 +2708,27 @@ const ReadingSessionPage: React.FC = () => {
                 voskReconnectAttemptsRef.current = 0;
                 setVoskStatus("connected");
 
-                // Send vocabulary constraint to Vosk for 100% accurate word recognition
-                if (storyVocabulary.size > 0) {
-                  const vocabularyList = Array.from(storyVocabulary);
-
-                  // Try multiple Vosk configuration formats for compatibility
+                // OPEN VOCABULARY: Let Vosk recognize any words without constraints
+                // Word matching will handle validation on the backend
+                if (realWords && realWords.length > 0) {
+                  // Send expected words for backend matching only (no grammar constraint)
                   const config1 = JSON.stringify({
                     config: {
                       words: true,
                       max_alternatives: 0,
-                      grammar: vocabularyList
+                      expected_words: realWords,
+                      use_phrase_mode: true
                     }
                   });
 
-                  const config2 = JSON.stringify({
-                    config: {
-                      sample_rate: 16000,
-                      words: true,
-                      max_alternatives: 0,
-                      word_list: vocabularyList
-                    }
-                  });
-
-                  console.log(`🎯 Sending ${vocabularyList.length} story words to Vosk (reconnect)`);
-                  console.log(`📝 Vocabulary sample (first 20):`, vocabularyList.slice(0, 20).join(', '));
+                  console.log(`🎯 Vosk configured with OPEN VOCABULARY (reconnect)`);
+                  console.log(`📝 Sending ${realWords.length} expected words for backend matching only`);
 
                   try {
                     ws.send(config1);
-                    console.log('✓ Sent grammar config format 1 (reconnect)');
+                    console.log('✓ Sent Vosk config - open vocabulary mode (reconnect)');
                   } catch (e) {
-                    console.warn('Failed to send config1:', e);
-                  }
-
-                  try {
-                    ws.send(config2);
-                    console.log('✓ Sent word_list config format 2 (reconnect)');
-                  } catch (e) {
-                    console.warn('Failed to send config2:', e);
+                    console.warn('Failed to send config:', e);
                   }
                 }
 
@@ -2805,17 +2771,11 @@ const ReadingSessionPage: React.FC = () => {
                       if (ws.readyState === WebSocket.OPEN) {
                       const channel = e.inputBuffer.getChannelData(0);
                       
-                      // AUDIO AMPLIFICATION: Moderate boost for accuracy (1.5x amplification)
-                      // Reduced from 3x to minimize noise and maximize Vosk accuracy
-                      const amplifiedChannel = new Float32Array(channel.length);
-                      const amplificationFactor = 1.5;
+                      // NO AMPLIFICATION: Send raw audio to preserve voice clarity
+                      // User's voice is clear, amplification can introduce distortion
                       
-                      for (let i = 0; i < channel.length; i++) {
-                        amplifiedChannel[i] = Math.max(-1.0, Math.min(1.0, channel[i] * amplificationFactor));
-                      }
-                      
-                      // Send amplified audio - server will handle processing
-                      ws.send(amplifiedChannel.buffer);
+                      // Send raw audio - no amplification to preserve clarity
+                      ws.send(channel.buffer);
                       }
                   } catch (error) {
                     // Requirement 5.4: Log audio sending errors without crashing

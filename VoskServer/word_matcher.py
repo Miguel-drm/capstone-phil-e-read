@@ -94,6 +94,23 @@ def check_pronunciation_match(spoken: str, expected: str, language: str = "engli
     if spoken_norm == expected_norm:
         return True
     
+    # Tagalog-specific corrections for common Vosk transcription errors
+    if language == "tagalog":
+        # Common single-letter word corrections
+        tagalog_corrections = {
+            "ay": "a",      # "a" (ah) often transcribed as "ay"
+            "i": "e",       # "e" sometimes transcribed as "i"
+            "ng": "nang",   # "nang" sometimes shortened to "ng"
+        }
+        
+        # Check if spoken word maps to expected word
+        if spoken_norm in tagalog_corrections and tagalog_corrections[spoken_norm] == expected_norm:
+            return True
+        
+        # Check reverse mapping (expected maps to spoken)
+        if expected_norm in tagalog_corrections and tagalog_corrections[expected_norm] == spoken_norm:
+            return True
+    
     # Use Dictionary API for phonetic matching (if available)
     if DICTIONARY_API_AVAILABLE:
         dictionary = get_dictionary_service()
