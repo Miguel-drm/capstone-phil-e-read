@@ -246,9 +246,44 @@ async def recognize(websocket, path, model):
                             recognizer._last_partial_text = text
                             
                             if new_words:
-                                # DISABLED: Vocabulary filtering was blocking legitimate story words
-                                # Accept ALL words from Vosk and let word matcher handle validation
-                                filtered_words = new_words  # Accept everything
+                                # STORY-AWARE FILTERING: Only accept words that are:
+                                # 1. In the story vocabulary (exact match)
+                                # 2. Phonetically similar to story words (mispronunciations)
+                                # 3. Morphological variations (plurals, tenses)
+                                filtered_words = []
+                                
+                                for word in new_words:
+                                    should_accept = False
+                                    
+                                    # Check if we have story vocabulary loaded
+                                    if vocabulary:
+                                        word_lower = word.lower().strip()
+                                        
+                                        # 1. Direct match in vocabulary
+                                        if word_lower in vocabulary:
+                                            should_accept = True
+                                            print(f"   ✅ '{word}' - in vocabulary")
+                                        
+                                        # 2. Check if phonetically similar to any story word
+                                        elif word_matcher and hasattr(word_matcher, 'expected_words'):
+                                            from word_matcher import check_pronunciation_match
+                                            
+                                            # Check against expected words
+                                            for expected_word in word_matcher.expected_words:
+                                                if check_pronunciation_match(word, expected_word, detected_language):
+                                                    should_accept = True
+                                                    print(f"   ✅ '{word}' - phonetically matches '{expected_word}'")
+                                                    break
+                                        
+                                        # 3. If no match found, reject the word
+                                        if not should_accept:
+                                            print(f"   ❌ '{word}' - NOT in story, rejected (possible background noise)")
+                                    else:
+                                        # No vocabulary loaded, accept all words (fallback)
+                                        should_accept = True
+                                    
+                                    if should_accept:
+                                        filtered_words.append(word)
                                 
                                 if filtered_words:
                                     filtered_text = ' '.join(filtered_words)
@@ -505,8 +540,41 @@ async def recognize(websocket, path, model):
                 new_words = final_words[words_sent_count:]
                 print(f"   📝 New words in final result: {' '.join(new_words)} ({len(new_words)} words)")
                 
-                # DISABLED: Vocabulary filtering - accept ALL words from Vosk
-                filtered_words = new_words  # Accept everything
+                # STORY-AWARE FILTERING: Only accept words that are in story or phonetically similar
+                filtered_words = []
+                
+                for word in new_words:
+                    should_accept = False
+                    
+                    # Check if we have story vocabulary loaded
+                    if vocabulary:
+                        word_lower = word.lower().strip()
+                        
+                        # 1. Direct match in vocabulary
+                        if word_lower in vocabulary:
+                            should_accept = True
+                            print(f"   ✅ '{word}' - in vocabulary")
+                        
+                        # 2. Check if phonetically similar to any story word
+                        elif word_matcher and hasattr(word_matcher, 'expected_words'):
+                            from word_matcher import check_pronunciation_match
+                            
+                            # Check against expected words
+                            for expected_word in word_matcher.expected_words:
+                                if check_pronunciation_match(word, expected_word, detected_language):
+                                    should_accept = True
+                                    print(f"   ✅ '{word}' - phonetically matches '{expected_word}'")
+                                    break
+                        
+                        # 3. If no match found, reject the word
+                        if not should_accept:
+                            print(f"   ❌ '{word}' - NOT in story, rejected (possible background noise)")
+                    else:
+                        # No vocabulary loaded, accept all words (fallback)
+                        should_accept = True
+                    
+                    if should_accept:
+                        filtered_words.append(word)
                 
                 if filtered_words:
                     filtered_text = ' '.join(filtered_words)

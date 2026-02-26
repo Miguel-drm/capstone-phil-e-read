@@ -423,32 +423,73 @@ const ReadingSessionPage: React.FC = () => {
    * Initialize microphone access with optimal audio settings for Vosk.
    * Returns a MediaStream configured for speech recognition.
    * Uses the selected microphone device if available.
+   * 
+   * IMPROVED: Auto-detects microphone quality and applies optimal settings
+   * - High-end mics: Minimal processing for best quality
+   * - Low-end mics: Full processing for better recognition
    */
   const initializeMicrophone = async (): Promise<MediaStream> => {
-    const audioConstraints: MediaTrackConstraints = {
-      channelCount: 1,
-      sampleRate: 48000,
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false,
-      ...(selectedMicId && { deviceId: { exact: selectedMicId } })
-    };
-    
     try {
-      // Vosk works best with minimal audio processing
-      return await navigator.mediaDevices.getUserMedia({
-        audio: audioConstraints,
-      });
+      // Import audio configuration utility
+      const { testMicrophoneAndRecommend } = await import('@/utils/audioConfig');
+      
+      // Test microphone and get recommended configuration
+      const { config, recommendation } = await testMicrophoneAndRecommend(selectedMicId);
+      
+      console.log(`🎤 ${recommendation}`);
+      console.log(`📊 Audio config:`, config.constraints);
+      
+      try {
+        // Try with recommended settings
+        const constraints = { ...config.constraints };
+        if (selectedMicId) {
+          constraints.deviceId = { exact: selectedMicId };
+        }
+        
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: constraints,
+        });
+        
+        console.log('✅ Microphone initialized with optimized settings');
+        return stream;
+        
+      } catch (error) {
+        console.warn('Failed with optimized settings, trying fallback:', error);
+        
+        // Fallback 1: Try with low-end settings (most compatible)
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              channelCount: 1,
+              sampleRate: 16000,  // Lower sample rate for compatibility
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+              ...(selectedMicId && { deviceId: { exact: selectedMicId } })
+            },
+          });
+          
+          console.log('✅ Microphone initialized with fallback settings (low-end mode)');
+          return stream;
+          
+        } catch (fallbackError) {
+          console.warn('Failed with fallback settings, trying minimal:', fallbackError);
+          
+          // Fallback 2: Minimal settings (maximum compatibility)
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              channelCount: 1,
+              ...(selectedMicId && { deviceId: selectedMicId })
+            },
+          });
+          
+          console.log('✅ Microphone initialized with minimal settings');
+          return stream;
+        }
+      }
     } catch (error) {
-      console.warn('Failed with selected device, trying default:', error);
-      // Fallback to default settings if constraints are not supported
-      return await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          sampleRate: 48000,
-          ...(selectedMicId && { deviceId: selectedMicId })
-        },
-      });
+      console.error('❌ Failed to initialize microphone:', error);
+      throw error;
     }
   };
 
