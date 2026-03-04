@@ -184,6 +184,28 @@ async def recognize(websocket, path, model):
                     # Process audio: convert format, downsampling if needed
                     pcm16_audio = process_audio_message(message, client_sample_rate, audio_chunks_received)
                     
+                    # GHOST WORD PREVENTION: Check audio energy level
+                    # Convert bytes to numpy array for analysis
+                    audio_samples = np.frombuffer(pcm16_audio, dtype=np.int16)
+                    
+                    # Calculate RMS (Root Mean Square) energy
+                    rms_energy = np.sqrt(np.mean(audio_samples.astype(np.float32) ** 2))
+                    
+                    # SILENCE THRESHOLD: Reject very quiet audio (likely silence or background noise)
+                    # Threshold: 100 RMS (on int16 scale of -32768 to 32767)
+                    # This filters out silence and very quiet background noise
+                    SILENCE_THRESHOLD = 100
+                    
+                    if rms_energy < SILENCE_THRESHOLD:
+                        # Skip this audio chunk - it's too quiet to contain speech
+                        if audio_chunks_received % 100 == 0:
+                            print(f"   🔇 Silence detected (RMS: {rms_energy:.0f} < {SILENCE_THRESHOLD}) - skipping")
+                        continue
+                    
+                    # Log energy level for debugging (every 100 chunks)
+                    if audio_chunks_received % 100 == 0:
+                        print(f"   🔊 Audio energy: RMS={rms_energy:.0f}")
+                    
                     # Accumulate audio in buffer
                     audio_buffer.extend(pcm16_audio)
                     
@@ -206,11 +228,18 @@ async def recognize(websocket, path, model):
                         
                         text = ""
                         is_final_result = False
+                        confidence_scores = []  # Track confidence for ghost word detection
+                        
                         if has_final:
                             # Final result - most accurate
                             res = json.loads(recognizer.Result())
                             text = res.get("text", "").strip()
                             is_final_result = True
+                            
+                            # Extract confidence scores for ghost word detection
+                            if "result" in res and isinstance(res["result"], list):
+                                confidence_scores = [w.get("conf", 0.0) for w in res["result"]]
+                            
                             if text:
                                 print(f"🎤 Vosk FINAL result: '{text}'")
                                 # Reset partial tracking on final result
@@ -222,10 +251,33 @@ async def recognize(websocket, path, model):
                             # Partial result - faster but less accurate
                             pres = json.loads(recognizer.PartialResult())
                             text = pres.get("partial", "").strip()
+                            
+                            # Extract confidence scores for partials if available
+                            if "result" in pres and isinstance(pres["result"], list):
+                                confidence_scores = [w.get("conf", 0.0) for w in pres["result"]]
+                            
                             if text:
                                 print(f"🎤 Vosk partial result: '{text}'")
                         
                         if text:
+                            # GHOST WORD DETECTION: Filter out low-confidence words that are likely noise
+                            # Calculate average confidence for the recognized text
+                            avg_confidence = sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0.0
+                            
+                            # CONFIDENCE THRESHOLD: Reject words with very low confidence (likely background noise)
+                            # Threshold: 0.3 (30%) - below this is almost certainly noise/artifacts
+                            CONFIDENCE_THRESHOLD = 0.3
+                            
+                            if avg_confidence > 0 and avg_confidence < CONFIDENCE_THRESHOLD:
+                                print(f"   ❌ GHOST WORD REJECTED: '{text}' (confidence: {avg_confidence:.1%} < {CONFIDENCE_THRESHOLD:.0%})")
+                                print(f"      This is likely background noise or audio artifacts")
+                                # Skip processing this text - it's a ghost word
+                                continue
+                            
+                            # Log confidence for accepted words
+                            if avg_confidence > 0:
+                                print(f"   ✅ Confidence: {avg_confidence:.1%}")
+                            
                             # REAL-TIME: Process partial results word-by-word
                             # Split into words and process only NEW words (not already sent)
                             words = text.split()
@@ -242,6 +294,23 @@ async def recognize(websocket, path, model):
                                 recognizer._words_sent_count = len(words)
                             else:
                                 new_words = []
+                            
+                            # GHOST WORD DETECTION: Check for repeated identical words (likely stuck recognition)
+                            if not hasattr(recognizer, '_last_sent_words'):
+                                recognizer._last_sent_words = []
+                                recognizer._repeat_count = 0
+                            
+                            # If the same words keep appearing, it's likely a ghost/stuck recognition
+                            if new_words and new_words == recognizer._last_sent_words:
+                                recognizer._repeat_count += 1
+                                if recognizer._repeat_count >= 3:
+                                    print(f"   ❌ GHOST WORD REJECTED: Repeated identical words '{' '.join(new_words)}' (repeat #{recognizer._repeat_count})")
+                                    print(f"      This is likely stuck recognition or echo")
+                                    # Skip these words - they're ghosts
+                                    new_words = []
+                            else:
+                                recognizer._repeat_count = 0
+                                recognizer._last_sent_words = new_words.copy() if new_words else []
                             
                             recognizer._last_partial_text = text
                             
