@@ -705,6 +705,24 @@ const ReadingSessionPage: React.FC = () => {
             }
           };
           
+          /**
+           * Validate that a spoken word is in the story vocabulary
+           * REQUIREMENT: Only accept words that belong to the story
+           */
+          const isWordInStory = (spokenWord: string): boolean => {
+            const normalized = spokenWord.toLowerCase().trim();
+            const isInVocab = Array.from(storyVocabulary).some(
+              v => v.toLowerCase().trim() === normalized
+            );
+            
+            // Debug: Log vocabulary check for words not found
+            if (!isInVocab && spokenWord.length > 2) {
+              console.log(`   📋 Vocab check: "${spokenWord}" not found. Available: ${Array.from(storyVocabulary).slice(0, 20).join(', ')}...`);
+            }
+            
+            return isInVocab;
+          };
+          
           switch (match_type) {
             case 'waiting_for_start':
               // Ignore - waiting for first word
@@ -716,6 +734,13 @@ const ReadingSessionPage: React.FC = () => {
               
             case 'pending':
               // Word is pending - waiting to see if next word matches
+              // Check if word is in story vocabulary - if not, reject it
+              if (!isWordInStory(word)) {
+                console.log(`❌ REJECTED: "${word}" is NOT in story vocabulary - ignoring`);
+                return; // Reject words not in the story
+              }
+              
+              // Word is pending - waiting to see if next word matches
               // This could be an insertion
               console.log(`⏸️ Word pending: "${word}" - waiting for next word`);
               return;  // Don't mark anything yet
@@ -726,6 +751,12 @@ const ReadingSessionPage: React.FC = () => {
               const expectedWord = words[oldPosition] || '';
               const normalizedSpoken = word.toLowerCase().trim();
               const normalizedExpected = expectedWord.toLowerCase().trim();
+              
+              // First check: is the word in the story vocabulary?
+              if (!isWordInStory(word)) {
+                console.log(`❌ REJECTED: "${word}" is NOT in story vocabulary - ignoring buffered word`);
+                return; // Reject words not in the story
+              }
               
               // Check if the buffered word matches the expected word
               if (normalizedSpoken === normalizedExpected) {
@@ -779,10 +810,17 @@ const ReadingSessionPage: React.FC = () => {
                 }
               }
               wordStateManager.advanceToWord(new_position);
+              setCurrentWordIndex(new_position);
               console.log(`⭕ Omission detected at position ${oldPosition}`);
               break;
               
             case 'mispronunciation':
+              // Validate word is in story vocabulary
+              if (!isWordInStory(word)) {
+                console.log(`❌ REJECTED: "${word}" is NOT in story vocabulary - ignoring mispronunciation`);
+                return; // Reject words not in the story
+              }
+              
               updatePosition(new_position);
               // Check if mispronunciation is enabled before recording
               if (shouldRecordMiscue('mispronunciation', toggleState)) {
@@ -804,10 +842,17 @@ const ReadingSessionPage: React.FC = () => {
                 }
               }
               wordStateManager.advanceToWord(new_position);
+              setCurrentWordIndex(new_position);
               console.log(`� Mispronunciation detected at position ${oldPosition}`);
               break;
               
             case 'reversal':
+              // Validate word is in story vocabulary
+              if (!isWordInStory(word)) {
+                console.log(`❌ REJECTED: "${word}" is NOT in story vocabulary - ignoring reversal`);
+                return; // Reject words not in the story
+              }
+              
               updatePosition(new_position);
               // Check if reversal is enabled before recording
               if (shouldRecordMiscue('reversal', toggleState)) {
@@ -823,10 +868,17 @@ const ReadingSessionPage: React.FC = () => {
                 }
               }
               wordStateManager.advanceToWord(new_position);
+              setCurrentWordIndex(new_position);
               console.log(`🔄 Reversal detected at position ${oldPosition}`);
               break;
               
             case 'substitution':
+              // Validate word is in story vocabulary
+              if (!isWordInStory(word)) {
+                console.log(`❌ REJECTED: "${word}" is NOT in story vocabulary - ignoring substitution`);
+                return; // Reject words not in the story
+              }
+              
               updatePosition(new_position);
               // Check if substitution is enabled before recording
               if (shouldRecordMiscue('substitution', toggleState)) {
@@ -858,10 +910,17 @@ const ReadingSessionPage: React.FC = () => {
                 }
               }
               wordStateManager.advanceToWord(new_position);
+              setCurrentWordIndex(new_position);
               console.log(`� Substitution detected at position ${oldPosition}: "${word}"`);
               break;
               
             case 'insertion':
+              // Validate word is in story vocabulary
+              if (!isWordInStory(word)) {
+                console.log(`❌ REJECTED: "${word}" is NOT in story vocabulary - ignoring insertion`);
+                return; // Reject words not in the story
+              }
+              
               updatePosition(new_position);
               // Check if insertion is enabled before recording
               if (shouldRecordMiscue('insertion', toggleState)) {
@@ -885,10 +944,17 @@ const ReadingSessionPage: React.FC = () => {
                 }
               }
               wordStateManager.advanceToWord(new_position);
+              setCurrentWordIndex(new_position);
               console.log(`➕ Insertion detected at position ${oldPosition}: "${word}"`);
               break;
               
             case 'repetition':
+              // Validate word is in story vocabulary
+              if (!isWordInStory(word)) {
+                console.log(`❌ REJECTED: "${word}" is NOT in story vocabulary - ignoring repetition`);
+                return; // Reject words not in the story
+              }
+              
               updatePosition(new_position);
               
               // Track timestamp for time-based repetition filtering
@@ -910,10 +976,17 @@ const ReadingSessionPage: React.FC = () => {
                 }
               }
               wordStateManager.advanceToWord(new_position);
+              setCurrentWordIndex(new_position);
               console.log(`🔁 Repetition detected at position ${oldPosition} (time gap: ${timeGapMs}ms)`);
               break;
               
             case 'selfCorrection':
+              // Validate word is in story vocabulary
+              if (!isWordInStory(word)) {
+                console.log(`❌ REJECTED: "${word}" is NOT in story vocabulary - ignoring self-correction`);
+                return; // Reject words not in the story
+              }
+              
               updatePosition(new_position);
               // Check if selfCorrection is enabled before recording
               if (shouldRecordMiscue('selfCorrection', toggleState)) {
@@ -931,10 +1004,17 @@ const ReadingSessionPage: React.FC = () => {
               // Update WordStateManager: mark as self-correction (not counted as miscue)
               wordStateManager.updateWordStatus(oldPosition, 'miscue', 'self_correction', word);
               wordStateManager.advanceToWord(new_position);
+              setCurrentWordIndex(new_position);
               console.log(`✅ Self-correction detected at position ${oldPosition}`);
               break;
               
             case 'transposition':
+              // Validate word is in story vocabulary
+              if (!isWordInStory(word)) {
+                console.log(`❌ REJECTED: "${word}" is NOT in story vocabulary - ignoring transposition`);
+                return; // Reject words not in the story
+              }
+              
               updatePosition(new_position);
               // Check if transposition is enabled before recording
               if (shouldRecordMiscue('transposition', toggleState)) {
@@ -950,6 +1030,7 @@ const ReadingSessionPage: React.FC = () => {
                 }
               }
               wordStateManager.advanceToWord(new_position);
+              setCurrentWordIndex(new_position);
               console.log(`↔️ Transposition detected at position ${oldPosition}`);
               break;
           }
@@ -1377,6 +1458,8 @@ const ReadingSessionPage: React.FC = () => {
 
     // Extract all words including contractions (e.g., "It's", "don't", "I'll")
     const words = text.match(/\b\w+(?:'\w+)?\b/g) || [];
+    
+    console.log(`🔍 Extracting vocabulary from ${words.length} raw words`);
 
     // Common phonetic variants to help Vosk accuracy
     const phoneticVariants: { [key: string]: string[] } = {
@@ -1414,6 +1497,9 @@ const ReadingSessionPage: React.FC = () => {
         vocabulary.add(normalized + 'ing');  // Gerunds
       }
     }
+    
+    // Log all vocabulary for debugging
+    console.log(`✅ Final vocabulary (${vocabulary.size} words): ${Array.from(vocabulary).sort().join(', ')}`);
 
     return vocabulary;
   };
@@ -2068,6 +2154,7 @@ const ReadingSessionPage: React.FC = () => {
     setAudioUrl(null);
     setCurrentWordIndex(0);
     voskReconnectAttemptsRef.current = 0; // Reset reconnect attempts
+    lastWordTimestampRef.current = Date.now(); // Reset timestamp for next session
     
     // ⚡ OPTIMISTIC UI: Reset optimistic tracking
     optimisticWordIndexRef.current = 0;
@@ -3300,6 +3387,8 @@ const ReadingSessionPage: React.FC = () => {
             // Extract vocabulary for vocabulary-constrained recognition
             const vocabulary = extractVocabulary(fullStory.textContent);
             setStoryVocabulary(vocabulary);
+            console.log(`📚 Story vocabulary extracted: ${vocabulary.size} words - Sample: ${Array.from(vocabulary).slice(0, 15).join(', ')}`);
+
 
             // Detect story language based on vocabulary
             const detectedLanguage = detectStoryLanguage(vocabulary);
@@ -3446,6 +3535,7 @@ const ReadingSessionPage: React.FC = () => {
       // Extract vocabulary for vocabulary-constrained recognition
       const vocabulary = extractVocabulary(text);
       setStoryVocabulary(vocabulary);
+      console.log(`📚 Story vocabulary extracted from PDF: ${vocabulary.size} words - Sample: ${Array.from(vocabulary).slice(0, 15).join(', ')}`);
 
       // Detect story language (but don't override if already set from database)
       const detectedLanguage = detectStoryLanguage(vocabulary);
@@ -5070,6 +5160,7 @@ const ReadingSessionPage: React.FC = () => {
     setWordMarkings(new Map());
     setInsertedWords(new Map());
     setAudioBlob(null);
+    lastWordTimestampRef.current = Date.now(); // Reset timestamp for next session
     setAudioUrl(null);
     setIsRecording(false);
     setHasStarted(false);
