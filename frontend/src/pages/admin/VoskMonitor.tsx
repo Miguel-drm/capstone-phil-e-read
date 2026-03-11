@@ -54,27 +54,6 @@ const VoskMonitor: React.FC = () => {
     const localPort = env.VITE_VOSK_LOCAL_PORT || "2700";
     const localUrl = `ws://localhost:${localPort}`;
     
-    const getRailwayUrl = (language: string) => {
-      if (language === "tagalog" || language === "tl") {
-        const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
-        if (tagalogUrl) {
-          return formatWsUrl(tagalogUrl, "tagalog");
-        }
-        return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
-      } else if (language === "english" || language === "en") {
-        const englishUrl = env.VITE_VOSK_WS_URL_ENGLISH;
-        if (englishUrl) {
-          return formatWsUrl(englishUrl, "english");
-        }
-        return formatWsUrl("wss://philiready-websocket-english.up.railway.app", "english");
-      }
-      const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
-      if (tagalogUrl) {
-        return formatWsUrl(tagalogUrl, "tagalog");
-      }
-      return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
-    };
-    
     const testLocalConnection = (): Promise<boolean> => {
       return new Promise((resolve) => {
         const testWs = new WebSocket(formatWsUrl(localUrl, lang));
@@ -103,10 +82,9 @@ const VoskMonitor: React.FC = () => {
       console.log(`✅ Local Vosk server is running and ready! Using local connection.`);
       return formatWsUrl(localUrl, lang);
     } else {
-      const railwayUrl = getRailwayUrl(lang);
-      console.log(`⚠️ Local Vosk server not available. Falling back to Railway deployment: ${railwayUrl}`);
+      console.error(`❌ Local Vosk server not available at ${localUrl}`);
       console.log(`   💡 To use local server, start it with: cd VoskServer && python server.py`);
-      return railwayUrl;
+      throw new Error('Local Vosk server not available');
     }
   };
 
@@ -446,7 +424,7 @@ const VoskMonitor: React.FC = () => {
                 Vosk WebSocket Monitor
               </h1>
               <p className="text-gray-600">
-                Real-time monitoring for Vosk WebSocket server (local or Railway)
+                Real-time monitoring for local Vosk WebSocket server
               </p>
             </div>
             

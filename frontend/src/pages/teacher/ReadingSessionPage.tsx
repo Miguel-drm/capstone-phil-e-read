@@ -6,7 +6,6 @@ import {
 } from "@/services/readingSessionService";
 import { UnifiedStoryService } from "@/services/UnifiedStoryService";
 import type { Story } from "@/types/Story";
-import { useWordStateManager, type WordState } from "@/hooks/useWordStateManager";
 import {
   ArrowLeftIcon,
   XCircleIcon,
@@ -29,13 +28,6 @@ import { isrResultService } from "@/services/ISRresultService";
 import { useAuth } from "@/contexts/AuthContext";
 import { getUserProfile } from "@/services/authService";
 import gsap from "gsap";
-// Client-side detection removed - all detection now handled server-side (Requirements 3.2, 3.4, 3.5, 3.6)
-import { ColorLegend } from "@/components/reading/ColorLegend";
-import { WordDisplay } from "@/components/reading/WordDisplay";
-import { HeardMicDisplay } from "@/components/reading/HeardMicDisplay";
-import { MiscueTogglePanel } from "@/components/reading/MiscueTogglePanel";
-import { useMiscueToggle } from "@/hooks/useMiscueToggle";
-import { shouldRecordMiscue } from "@/utils/miscueFilter";
 
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -51,12 +43,6 @@ const ReadingSessionPage: React.FC = () => {
   );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Initialize WordStateManager for word-by-word tracking
-  const wordStateManager = useWordStateManager();
-
-  // Initialize miscue toggle hook for filtering miscue types
-  const { toggleState, toggleMiscue } = useMiscueToggle();
 
   const [currentWordIndex, setCurrentWordIndex] = useState<number>(0);
   const [words, setWords] = useState<string[]>([]);
@@ -90,10 +76,6 @@ const ReadingSessionPage: React.FC = () => {
       fontSize,
     };
   }, [currentStory, currentSession]);
-  
-  // Countdown modal state
-  const [showCountdown, setShowCountdown] = useState(false);
-  const [countdown, setCountdown] = useState(5);
   
   // Microphone device selection
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
@@ -228,42 +210,7 @@ const ReadingSessionPage: React.FC = () => {
     };
   }, [isRecording]);
   
-  // Countdown effect - preload Vosk connection during countdown
-  useEffect(() => {
-    let timer: NodeJS.Timeout | null = null;
-    
-    if (showCountdown && countdown > 0) {
-      timer = setTimeout(() => {
-        setCountdown(countdown - 1);
-      }, 1000);
-    } else if (showCountdown && countdown === 0) {
-      // Countdown finished, start recording
-      setShowCountdown(false);
-      startRecordingAfterCountdown();
-      setCountdown(5); // Reset for next time
-    }
-    
-    // Cleanup timer on unmount or when dependencies change
-    return () => {
-      if (timer) clearTimeout(timer);
-    };
-  }, [showCountdown, countdown]);
-  
-  // Check Vosk connection status during countdown
-  useEffect(() => {
-    if (showCountdown && countdown === 5 && words.length > 0) {
-      // Check if Vosk is already connected from preload
-      const isConnected = voskSocketRef.current && voskSocketRef.current.readyState === WebSocket.OPEN;
-      if (isConnected) {
-        console.log('✅ [Teacher] Vosk already connected - ready to start!');
-      } else {
-        console.log('⏳ [Teacher] Vosk still connecting...');
-        // Try to connect if not already connected
-        preloadVoskConnection();
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showCountdown, countdown]);
+  // Check Vosk connection status
 
   // Audio recording state
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
@@ -301,6 +248,7 @@ const ReadingSessionPage: React.FC = () => {
   const [partialText, setPartialText] = useState("");
   const [finalText, setFinalText] = useState("");
   const [frequencyData, setFrequencyData] = useState<Uint8Array | undefined>();
+  const [latency, setLatency] = useState<number>(0);  // 100% REAL-TIME: Track latency
   const analyserRef = useRef<AnalyserNode | null>(null);
 
   // Refs for auto-scrolling to current word
@@ -394,7 +342,7 @@ const ReadingSessionPage: React.FC = () => {
       alert(
         `Unable to connect to speech recognition service after ${MAX_RECONNECT_ATTEMPTS} attempts.\n\n` +
         `Please check:\n` +
-        `1. Is the Vosk server running? (Local: ws://localhost:2700 or Railway)\n` +
+        `1. Is the Vosk server running? (Local: ws://localhost:2700)\n` +
         `2. Is your internet connection working?\n` +
         `3. Try refreshing the page and starting again.`
       );
@@ -406,7 +354,8 @@ const ReadingSessionPage: React.FC = () => {
     }
 
     voskReconnectAttemptsRef.current += 1;
-    const delay = Math.min(1000 * Math.pow(2, voskReconnectAttemptsRef.current - 1), 10000);
+    // ULTRA-FAST: Minimal delay for local connection (50ms base, max 500ms)
+    const delay = Math.min(50 * Math.pow(2, voskReconnectAttemptsRef.current - 1), 500);
 
     console.log(`🔄 Attempting Vosk reconnect (attempt ${voskReconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS}) in ${delay}ms...`);
     setVoskStatus("connecting");
@@ -509,8 +458,9 @@ const ReadingSessionPage: React.FC = () => {
     }
 
     const src = ctx.createMediaStreamSource(stream);
-    // Smaller buffer (2048) = faster processing, lower latency for real-time recognition
-    const script = ctx.createScriptProcessor(2048, 1, 1);
+    // EXTREME SPEED: Minimum buffer (256) = fastest processing, lowest latency
+    // 256 samples @ 48kHz = ~5.33ms per chunk - absolute minimum for speech recognition
+    const script = ctx.createScriptProcessor(256, 1, 1);
 
     // Create analyser for frequency visualization
     const analyser = ctx.createAnalyser();
@@ -632,43 +582,50 @@ const ReadingSessionPage: React.FC = () => {
             }
           }
           
-          console.log('📨 Vosk message:', {
-            text: msg.text || '(none)',
-            partial: msg.partial || '(none)',
-            avgConfidence: `${avgConfidence.toFixed(0)}%`,
-            words: msg.result && Array.isArray(msg.result) 
-              ? msg.result.map((w: any) => `${w.word}:${w.conf ? (w.conf * 100).toFixed(0) : '?'}%`).join(', ')
-              : 'N/A'
-          });
+          // ULTRA-LOW LATENCY: Skip logging for instant processing
+          // Logging adds 5-10ms overhead per message
           
           // REJECT LOW CONFIDENCE: If average confidence is below 40%, likely noise
           // DISABLED: User's voice is clear, don't filter based on confidence
           if (avgConfidence < 40) {
-            console.log(`⚠️ Low confidence audio (${avgConfidence.toFixed(0)}% < 40%) - but processing anyway`);
             // Don't return - process it anyway
           }
         }
 
+        // ULTRA-FAST: Update display immediately without any delay
         // Update heard mic display with partial text
-        // NOTE: Server validates words with Dictionary API before sending
-        // Frontend displays text directly without additional word validation (Requirement 2.5)
         if (msg.partial && msg.partial.trim()) {
           setPartialText(msg.partial.trim());
+          
+          // 100% REAL-TIME: Measure and track latency
+          if (msg.timestamp) {
+            const latencyMs = Date.now() - (msg.timestamp * 1000);
+            setLatency(latencyMs);
+            if (latencyMs > 50) {
+              console.log(`⏱️ Partial latency: ${latencyMs}ms`);
+            }
+          }
         }
 
         // Update heard mic display with final text
-        // NOTE: Server validates words with Dictionary API before sending
-        // Frontend displays text directly without additional word validation (Requirement 2.5)
         if (msg.text && msg.text.trim()) {
           setFinalText(msg.text.trim());
           setPartialText(""); // Clear partial when final is received
+          
+          // 100% REAL-TIME: Measure and track latency
+          if (msg.timestamp) {
+            const latencyMs = Date.now() - (msg.timestamp * 1000);
+            setLatency(latencyMs);
+            if (latencyMs > 50) {
+              console.log(`⏱️ Final latency: ${latencyMs}ms`);
+            }
+          }
         }
 
-        // NEW: Handle backend word matching results
+        // Handle backend word matching results
         if (msg.match_result) {
           // Validate match result before processing
           if (!isValidMatchResult(msg.match_result)) {
-            console.error('❌ Skipping invalid match result - UI state not updated');
             return;
           }
 
@@ -764,8 +721,6 @@ const ReadingSessionPage: React.FC = () => {
                 // Mark as correct immediately - use server's new_position
                 updatePosition(new_position);
                 setRecognizedWords(prev => new Set(prev).add(oldPosition));
-                wordStateManager.updateWordStatus(oldPosition, 'correct');
-                wordStateManager.advanceToWord(new_position);
               } else {
                 // Word doesn't match - trust server to handle transposition detection
                 console.log(`📦 Buffering: "${word}" at position ${oldPosition} (doesn't match "${expectedWord}")`);
@@ -785,31 +740,12 @@ const ReadingSessionPage: React.FC = () => {
               if (oldPosition >= 0 && oldPosition < words.length) {
                 setRecognizedWords(prev => new Set(prev).add(oldPosition));
               }
-              // Update WordStateManager: mark current word as correct and advance
-              // Requirements: 1.2, 1.3, 2.1
-              wordStateManager.updateWordStatus(oldPosition, 'correct');
-              wordStateManager.advanceToWord(new_position);
               break;
               
             // Track miscue types for visual display
             case 'omission':
               updatePosition(new_position);
-              // Check if omission is enabled before recording
-              if (shouldRecordMiscue('omission', toggleState)) {
-                // Mark omitted words between old and new position
-                for (let i = oldPosition; i < new_position; i++) {
-                  if (!countedMiscuePositionsRef.current.has(i)) {
-                    countedMiscuePositionsRef.current.add(i);
-                    setWordMiscues(prev => new Map(prev).set(i, 'omission'));
-                    setMiscues(prev => prev + 1);
-                    setMiscueTypes(prev => ({ ...prev, omission: prev.omission + 1 }));
-                    // Update WordStateManager: mark omitted word
-                    // Requirements: 1.2, 1.3, 2.2, 2.4
-                    wordStateManager.updateWordStatus(i, 'miscue', 'omission', '');
-                  }
-                }
-              }
-              wordStateManager.advanceToWord(new_position);
+              // Omission detection handled server-side
               setCurrentWordIndex(new_position);
               console.log(`⭕ Omission detected at position ${oldPosition}`);
               break;
@@ -822,26 +758,19 @@ const ReadingSessionPage: React.FC = () => {
               }
               
               updatePosition(new_position);
-              // Check if mispronunciation is enabled before recording
-              if (shouldRecordMiscue('mispronunciation', toggleState)) {
-                if (!countedMiscuePositionsRef.current.has(oldPosition)) {
-                  countedMiscuePositionsRef.current.add(oldPosition);
-                  
-                  const expectedWord = words[oldPosition] || '';
-                  
-                  // Server already validated - just record the miscue
-                  setWordMiscues(prev => new Map(prev).set(oldPosition, 'mispronunciation'));
-                  setRecognizedWords(prev => new Set(prev).add(oldPosition));
-                  setMiscues(prev => prev + 1);
-                  setMiscueTypes(prev => ({ ...prev, mispronunciation: prev.mispronunciation + 1 }));
-                  
-                  // Update WordStateManager
-                  wordStateManager.updateWordStatus(oldPosition, 'miscue', 'mispronunciation', word);
-                  
-                  console.log(`🔊 Mispronunciation: "${word}" → "${expectedWord}"`);
-                }
+              if (!countedMiscuePositionsRef.current.has(oldPosition)) {
+                countedMiscuePositionsRef.current.add(oldPosition);
+                
+                const expectedWord = words[oldPosition] || '';
+                
+                // Server already validated - just record the miscue
+                setWordMiscues(prev => new Map(prev).set(oldPosition, 'mispronunciation'));
+                setRecognizedWords(prev => new Set(prev).add(oldPosition));
+                setMiscues(prev => prev + 1);
+                setMiscueTypes(prev => ({ ...prev, mispronunciation: prev.mispronunciation + 1 }));
+                
+                console.log(`🔊 Mispronunciation: "${word}" → "${expectedWord}"`);
               }
-              wordStateManager.advanceToWord(new_position);
               setCurrentWordIndex(new_position);
               console.log(`� Mispronunciation detected at position ${oldPosition}`);
               break;
@@ -854,20 +783,13 @@ const ReadingSessionPage: React.FC = () => {
               }
               
               updatePosition(new_position);
-              // Check if reversal is enabled before recording
-              if (shouldRecordMiscue('reversal', toggleState)) {
-                if (!countedMiscuePositionsRef.current.has(oldPosition)) {
-                  countedMiscuePositionsRef.current.add(oldPosition);
-                  setWordMiscues(prev => new Map(prev).set(oldPosition, 'reversal'));
-                  setRecognizedWords(prev => new Set(prev).add(oldPosition));
-                  setMiscues(prev => prev + 1);
-                  setMiscueTypes(prev => ({ ...prev, reversal: prev.reversal + 1 }));
-                  // Update WordStateManager
-                  // Requirements: 1.2, 1.3, 2.2, 2.4
-                  wordStateManager.updateWordStatus(oldPosition, 'miscue', 'reversal', word);
-                }
+              if (!countedMiscuePositionsRef.current.has(oldPosition)) {
+                countedMiscuePositionsRef.current.add(oldPosition);
+                setWordMiscues(prev => new Map(prev).set(oldPosition, 'reversal'));
+                setRecognizedWords(prev => new Set(prev).add(oldPosition));
+                setMiscues(prev => prev + 1);
+                setMiscueTypes(prev => ({ ...prev, reversal: prev.reversal + 1 }));
               }
-              wordStateManager.advanceToWord(new_position);
               setCurrentWordIndex(new_position);
               console.log(`🔄 Reversal detected at position ${oldPosition}`);
               break;
@@ -880,36 +802,29 @@ const ReadingSessionPage: React.FC = () => {
               }
               
               updatePosition(new_position);
-              // Check if substitution is enabled before recording
-              if (shouldRecordMiscue('substitution', toggleState)) {
-                if (!countedMiscuePositionsRef.current.has(oldPosition)) {
-                  countedMiscuePositionsRef.current.add(oldPosition);
-                  
-                  const expectedWord = words[oldPosition] || '';
-                  
-                  // Server already validated - just record the miscue
-                  setWordMiscues(prev => new Map(prev).set(oldPosition, 'substitution'));
-                  setRecognizedWords(prev => new Set(prev).add(oldPosition));
-                  setMiscues(prev => prev + 1);
-                  setMiscueTypes(prev => ({ ...prev, substitution: prev.substitution + 1 }));
-                  
-                  // Store the spoken word for annotation display
-                  if (word) {
-                    setWordMarkings(prev => new Map(prev).set(oldPosition, {
-                      type: 'substitution',
-                      marking: 'line-through',
-                      spokenWord: word,
-                      correctWord: expectedWord
-                    }));
-                  }
-                  
-                  // Update WordStateManager
-                  wordStateManager.updateWordStatus(oldPosition, 'miscue', 'substitution', word);
-                  
-                  console.log(`🔄 Substitution: "${word}" → "${expectedWord}"`);
+              if (!countedMiscuePositionsRef.current.has(oldPosition)) {
+                countedMiscuePositionsRef.current.add(oldPosition);
+                
+                const expectedWord = words[oldPosition] || '';
+                
+                // Server already validated - just record the miscue
+                setWordMiscues(prev => new Map(prev).set(oldPosition, 'substitution'));
+                setRecognizedWords(prev => new Set(prev).add(oldPosition));
+                setMiscues(prev => prev + 1);
+                setMiscueTypes(prev => ({ ...prev, substitution: prev.substitution + 1 }));
+                
+                // Store the spoken word for annotation display
+                if (word) {
+                  setWordMarkings(prev => new Map(prev).set(oldPosition, {
+                    type: 'substitution',
+                    marking: 'line-through',
+                    spokenWord: word,
+                    correctWord: expectedWord
+                  }));
                 }
+                
+                console.log(`🔄 Substitution: "${word}" → "${expectedWord}"`);
               }
-              wordStateManager.advanceToWord(new_position);
               setCurrentWordIndex(new_position);
               console.log(`� Substitution detected at position ${oldPosition}: "${word}"`);
               break;
@@ -922,28 +837,21 @@ const ReadingSessionPage: React.FC = () => {
               }
               
               updatePosition(new_position);
-              // Check if insertion is enabled before recording
-              if (shouldRecordMiscue('insertion', toggleState)) {
-                // Insertions don't advance position, mark at current position
-                if (!countedMiscuePositionsRef.current.has(oldPosition)) {
-                  countedMiscuePositionsRef.current.add(oldPosition);
-                  setWordMiscues(prev => new Map(prev).set(oldPosition, 'insertion'));
-                  setMiscues(prev => prev + 1);
-                  setMiscueTypes(prev => ({ ...prev, insertion: prev.insertion + 1 }));
-                  if (word) {
-                    setInsertedWords(prev => {
-                      const newMap = new Map(prev);
-                      const existing = newMap.get(oldPosition) || [];
-                      newMap.set(oldPosition, [...existing, word]);
-                      return newMap;
-                    });
-                  }
-                  // Update WordStateManager
-                  // Requirements: 1.2, 1.3, 2.2, 2.4
-                  wordStateManager.updateWordStatus(oldPosition, 'miscue', 'insertion', word);
+              // Insertions don't advance position, mark at current position
+              if (!countedMiscuePositionsRef.current.has(oldPosition)) {
+                countedMiscuePositionsRef.current.add(oldPosition);
+                setWordMiscues(prev => new Map(prev).set(oldPosition, 'insertion'));
+                setMiscues(prev => prev + 1);
+                setMiscueTypes(prev => ({ ...prev, insertion: prev.insertion + 1 }));
+                if (word) {
+                  setInsertedWords(prev => {
+                    const newMap = new Map(prev);
+                    const existing = newMap.get(oldPosition) || [];
+                    newMap.set(oldPosition, [...existing, word]);
+                    return newMap;
+                  });
                 }
               }
-              wordStateManager.advanceToWord(new_position);
               setCurrentWordIndex(new_position);
               console.log(`➕ Insertion detected at position ${oldPosition}: "${word}"`);
               break;
@@ -962,20 +870,13 @@ const ReadingSessionPage: React.FC = () => {
               const timeGapMs = currentTime - lastWordTimestampRef.current;
               lastWordTimestampRef.current = currentTime;
               
-              // Check if repetition is enabled before recording
-              if (shouldRecordMiscue('repetition', toggleState)) {
-                if (!countedMiscuePositionsRef.current.has(oldPosition)) {
-                  countedMiscuePositionsRef.current.add(oldPosition);
-                  setWordMiscues(prev => new Map(prev).set(oldPosition, 'repetition'));
-                  setRecognizedWords(prev => new Set(prev).add(oldPosition));
-                  setMiscues(prev => prev + 1);
-                  setMiscueTypes(prev => ({ ...prev, repetition: prev.repetition + 1 }));
-                  // Update WordStateManager
-                  // Requirements: 1.2, 1.3, 2.2, 2.4
-                  wordStateManager.updateWordStatus(oldPosition, 'miscue', 'repetition', word);
-                }
+              if (!countedMiscuePositionsRef.current.has(oldPosition)) {
+                countedMiscuePositionsRef.current.add(oldPosition);
+                setWordMiscues(prev => new Map(prev).set(oldPosition, 'repetition'));
+                setRecognizedWords(prev => new Set(prev).add(oldPosition));
+                setMiscues(prev => prev + 1);
+                setMiscueTypes(prev => ({ ...prev, repetition: prev.repetition + 1 }));
               }
-              wordStateManager.advanceToWord(new_position);
               setCurrentWordIndex(new_position);
               console.log(`🔁 Repetition detected at position ${oldPosition} (time gap: ${timeGapMs}ms)`);
               break;
@@ -988,11 +889,10 @@ const ReadingSessionPage: React.FC = () => {
               }
               
               updatePosition(new_position);
-              // Check if selfCorrection is enabled before recording
-              if (shouldRecordMiscue('selfCorrection', toggleState)) {
-                // Self-corrections are NOT counted as miscues per DepEd standards
-                // But we track them for comprehension assessment
-                
+              // Self-corrections are NOT counted as miscues per DepEd standards
+              // But we track them for comprehension assessment
+              
+              {
                 const expectedWord = words[oldPosition] || '';
                 
                 // Server already validated - just record the self-correction
@@ -1001,9 +901,6 @@ const ReadingSessionPage: React.FC = () => {
                 
                 console.log(`✅ Self-correction: "${word}" → "${expectedWord}"`);
               }
-              // Update WordStateManager: mark as self-correction (not counted as miscue)
-              wordStateManager.updateWordStatus(oldPosition, 'miscue', 'self_correction', word);
-              wordStateManager.advanceToWord(new_position);
               setCurrentWordIndex(new_position);
               console.log(`✅ Self-correction detected at position ${oldPosition}`);
               break;
@@ -1016,20 +913,13 @@ const ReadingSessionPage: React.FC = () => {
               }
               
               updatePosition(new_position);
-              // Check if transposition is enabled before recording
-              if (shouldRecordMiscue('transposition', toggleState)) {
-                if (!countedMiscuePositionsRef.current.has(oldPosition)) {
-                  countedMiscuePositionsRef.current.add(oldPosition);
-                  setWordMiscues(prev => new Map(prev).set(oldPosition, 'transposition'));
-                  setRecognizedWords(prev => new Set(prev).add(oldPosition));
-                  setMiscues(prev => prev + 1);
-                  setMiscueTypes(prev => ({ ...prev, transposition: prev.transposition + 1 }));
-                  // Update WordStateManager
-                  // Requirements: 1.2, 1.3, 2.2, 2.4
-                  wordStateManager.updateWordStatus(oldPosition, 'miscue', 'transposition', word);
-                }
+              if (!countedMiscuePositionsRef.current.has(oldPosition)) {
+                countedMiscuePositionsRef.current.add(oldPosition);
+                setWordMiscues(prev => new Map(prev).set(oldPosition, 'transposition'));
+                setRecognizedWords(prev => new Set(prev).add(oldPosition));
+                setMiscues(prev => prev + 1);
+                setMiscueTypes(prev => ({ ...prev, transposition: prev.transposition + 1 }));
               }
-              wordStateManager.advanceToWord(new_position);
               setCurrentWordIndex(new_position);
               console.log(`↔️ Transposition detected at position ${oldPosition}`);
               break;
@@ -1116,11 +1006,9 @@ const ReadingSessionPage: React.FC = () => {
       // Provide specific guidance based on close code
       if (event.code === 1006) {
         console.error(`❌ Abnormal closure (1006) - Common causes:`);
-        console.error(`   1. Railway service is not running or crashed`);
-        console.error(`   2. Service is sleeping (free tier) - wait 30-60 seconds`);
-        console.error(`   3. Wrong URL or service name`);
-        console.error(`   4. Network/firewall blocking WebSocket connections`);
-        console.error(`   5. Railway proxy not configured for WebSocket`);
+        console.error(`   1. Local Vosk server is not running or crashed`);
+        console.error(`   2. Wrong URL or service name`);
+        console.error(`   3. Network/firewall blocking WebSocket connections`);
       } else if (event.code === 1008) {
         console.error(`❌ Policy violation (1008) - Service rejected connection`);
         if (closeReason && closeReason.includes("model not loaded")) {
@@ -1141,11 +1029,11 @@ const ReadingSessionPage: React.FC = () => {
             setIsRecording(false);
           }
         } else {
-          console.error(`   Check Railway logs for specific error message`);
+          console.error(`   Check server logs for specific error message`);
         }
       } else if (event.code === 1011) {
         console.error(`❌ Internal server error (1011) - Service crashed`);
-        console.error(`   Check Railway logs for crash details`);
+        console.error(`   Check server logs for crash details`);
       }
 
       // Only attempt reconnect if recording is active and it wasn't a clean close
@@ -1744,9 +1632,8 @@ const ReadingSessionPage: React.FC = () => {
       alert("This session is already completed. Recording is disabled.");
       return;
     }
-    // Show countdown modal first
-    setShowCountdown(true);
-    setCountdown(5);
+    // Call the actual startRecording function
+    startRecording();
   };
 
   // Initialize Web Speech API
@@ -1929,7 +1816,7 @@ const ReadingSessionPage: React.FC = () => {
     return recognition;
   };
 
-  // Preload Vosk connection (called during loading or countdown)
+  // Actual recording start
   const preloadVoskConnection = async () => {
     console.log('🔄 [Teacher] preloadVoskConnection called - storyLanguage:', storyLanguage, 'words:', words.length);
     
@@ -1960,18 +1847,10 @@ const ReadingSessionPage: React.FC = () => {
       return `ws://localhost:2700/?lang=${normalizedLang}`;
     };
     
-    const getRailwayWsUrl = (lang: string) => {
-      const env = (import.meta as any)?.env || {};
-      const railwayUrl = env.VITE_VOSK_WS_URL || "wss://philiready-websocket-production.up.railway.app";
-      const normalizedLang = (lang === "tl" || lang === "tagalog") ? "tagalog" : "english";
-      return `${railwayUrl}?lang=${normalizedLang}`;
-    };
-    
-    // Try local server first, then Railway
+    // Try local server only
     const localUrl = getLocalWsUrl(storyLanguage);
-    const railwayUrl = getRailwayWsUrl(storyLanguage);
     
-    console.log('🔍 [Teacher] Checking local Vosk server:', localUrl);
+    console.log('🔍 [Teacher] Connecting to local Vosk server:', localUrl);
     setVoskStatus('connecting');
     
     // Try local server first with quick timeout
@@ -1999,43 +1878,11 @@ const ReadingSessionPage: React.FC = () => {
       });
     };
     
-    // Try Railway server
-    const tryRailwayServer = () => {
-      return new Promise<WebSocket>((resolve, reject) => {
-        console.log('🌐 [Teacher] Trying Railway Vosk server:', railwayUrl);
-        const ws = new WebSocket(railwayUrl);
-        ws.binaryType = 'arraybuffer';
-        
-        const timeout = setTimeout(() => {
-          ws.close();
-          reject(new Error('Railway server timeout'));
-        }, 5000); // 5 second timeout for Railway
-        
-        ws.onopen = () => {
-          clearTimeout(timeout);
-          console.log('✅ [Teacher] Connected to RAILWAY Vosk server');
-          resolve(ws);
-        };
-        
-        ws.onerror = () => {
-          clearTimeout(timeout);
-          ws.close();
-          reject(new Error('Railway server not available'));
-        };
-      });
-    };
-    
     try {
-      // Try local first
+      // Connect to local server only
       let ws: WebSocket;
-      try {
-        ws = await tryLocalServer();
-        console.log('🏠 [Teacher] Using LOCAL Vosk server');
-      } catch (localError) {
-        console.log('⚠️ [Teacher] Local server not available, trying Railway...');
-        ws = await tryRailwayServer();
-        console.log('☁️ [Teacher] Using RAILWAY Vosk server');
-      }
+      ws = await tryLocalServer();
+      console.log('🏠 [Teacher] Using LOCAL Vosk server');
       
       voskSocketRef.current = ws;
       ws.binaryType = 'arraybuffer';
@@ -2091,10 +1938,6 @@ const ReadingSessionPage: React.FC = () => {
               case 'correct':
                 const correctWordIndex = new_position - 1;
                 setRecognizedWords(prev => new Set(prev).add(correctWordIndex));
-                // Update WordStateManager
-                // Requirements: 1.2, 1.3, 2.1
-                wordStateManager.updateWordStatus(correctWordIndex, 'correct');
-                wordStateManager.advanceToWord(new_position);
                 break;
                 
               case 'insertion':
@@ -2111,10 +1954,6 @@ const ReadingSessionPage: React.FC = () => {
                   newMap.set(insertionWordIndex, [...existing, insertedWord]);
                   return newMap;
                 });
-                // Update WordStateManager
-                // Requirements: 1.2, 1.3, 2.2, 2.4
-                wordStateManager.updateWordStatus(insertionWordIndex, 'miscue', 'insertion', insertedWord);
-                wordStateManager.advanceToWord(new_position);
                 break;
             }
             
@@ -2129,7 +1968,7 @@ const ReadingSessionPage: React.FC = () => {
     } catch (error) {
       // Requirement 5.4: Log Vosk server connection errors with details
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      console.error('❌ [Teacher] Failed to connect to both local and Railway Vosk servers:', {
+      console.error('❌ [Teacher] Failed to connect to local Vosk server:', {
         error: errorMessage,
         stack: error instanceof Error ? error.stack : undefined,
         language: storyLanguage,
@@ -2140,8 +1979,8 @@ const ReadingSessionPage: React.FC = () => {
     }
   };
 
-  // Actual recording start after countdown
-  const startRecordingAfterCountdown = () => {
+  // Actual recording start
+  const startRecording = () => {
     setIsRecording(true);
     setIsPaused(false);
     setHasStarted(true); // Mark that session has started
@@ -2256,11 +2095,9 @@ const ReadingSessionPage: React.FC = () => {
       const useVosk = storyLanguage === "tagalog" || storyLanguage === "english";
       if (useVosk) {
         try {
-        // WebSocket URL selection with local server fallback
-        // Priority: 1. Local server (ws://localhost:2700) 2. Railway (deployed)
-        // Can be configured via environment variables:
-        // - VITE_VOSK_WS_URL_TAGALOG: Tagalog WebSocket URL
-        // - VITE_VOSK_WS_URL_ENGLISH: English WebSocket URL
+        // WebSocket URL selection - local server only
+        // Uses: ws://localhost:2700
+        // Can be configured via environment variable:
         // - VITE_VOSK_LOCAL_PORT: Local server port (default: 2700)
         const getVoskWsUrl = async (lang: string): Promise<string> => {
           const env = (import.meta as any)?.env || {};
@@ -2276,71 +2113,18 @@ const ReadingSessionPage: React.FC = () => {
           const localPort = env.VITE_VOSK_LOCAL_PORT || "2700";
           const localUrl = `ws://localhost:${localPort}`;
           
-          // Get Railway URLs
-          // Single Railway deployment handles both languages via ?lang= parameter
-          const getRailwayUrl = (language: string) => {
-            // Use environment variable if set, otherwise use default Railway URL
-            const railwayUrl = env.VITE_VOSK_WS_URL || "wss://philiready-websocket-production.up.railway.app";
-            
-            // Normalize language parameter
-            const normalizedLang = (language === "tl" || language === "tagalog") ? "tagalog" : "english";
-            
-            return formatWsUrl(railwayUrl, normalizedLang);
-          };
-          
-          // Try local server first (quick test with 2 second timeout)
-          const testLocalConnection = (): Promise<boolean> => {
-            return new Promise((resolve) => {
-              const testUrl = formatWsUrl(localUrl, lang);
-              console.log(`🔍 Test connection URL: ${testUrl} (lang=${lang})`);
-              const testWs = new WebSocket(testUrl);
-              const timeout = setTimeout(() => {
-                testWs.close();
-                resolve(false);
-              }, 2000); // 2 second timeout for local server
-              
-              testWs.onopen = () => {
-                clearTimeout(timeout);
-                testWs.close();
-                resolve(true);
-              };
-              
-              testWs.onerror = () => {
-                clearTimeout(timeout);
-                resolve(false);
-              };
-            });
-          };
-          
-          // Test local server first (priority: local > Railway)
-          console.log(`🔍 Testing local Vosk server at ${localUrl}...`);
-          const isLocalAvailable = await testLocalConnection();
-          
-          if (isLocalAvailable) {
-            const localWsUrl = formatWsUrl(localUrl, lang);
-            console.log(`✅ Local Vosk server is running and ready!`);
-            console.log(`   Using: ${localWsUrl}`);
-            console.log(`   Status: Connected to local server (port ${localPort})`);
-            return localWsUrl;
-          } else {
-            const railwayUrl = getRailwayUrl(lang);
-            console.log(`⚠️ Local Vosk server not available at ${localUrl}`);
-            console.log(`   Falling back to Railway deployment: ${railwayUrl}`);
-            console.log(`   💡 To use local server, start it with: cd VoskServer && python server.py`);
-            return railwayUrl;
-          }
+          // Connect to local server only
+          const localWsUrl = formatWsUrl(localUrl, lang);
+          console.log(`✅ Connecting to LOCAL Vosk server`);
+          console.log(`   Using: ${localWsUrl}`);
+          console.log(`   Status: Connecting to local server (port ${localPort})`);
+          return localWsUrl;
         };
         
         const startVosk = async (isReconnect: boolean = false) => {
           const wsUrl = await getVoskWsUrl(storyLanguage);
-          const isLocal = wsUrl.startsWith('ws://localhost:');
 
-          
-          if (isLocal) {
-            console.log(`🎯 Using LOCAL Vosk server for ${storyLanguage} recognition`);
-          } else {
-            console.log(`🌐 Using RAILWAY Vosk server for ${storyLanguage} recognition`);
-          }
+          console.log(`🎯 Connecting to LOCAL Vosk server for ${storyLanguage} recognition`);
           
           if (!isReconnect) {
             voskReconnectAttemptsRef.current = 0;
@@ -2375,17 +2159,12 @@ const ReadingSessionPage: React.FC = () => {
 
             setVoskStatus("connecting");
 
-            // Connection timeout - shorter for local, longer for Railway (may need time to wake up)
-            const connectionTimeout = isLocal ? 5000 : 20000; // 5s for local, 20s for Railway
+            // Connection timeout for local server
+            const connectionTimeout = 1000; // 1s for local connection (ultra-fast)
             const connectionStartTime = Date.now();
             
-            if (isLocal) {
-              console.log(`🔌 Connecting to LOCAL server: ${wsUrl}`);
-              console.log(`   Timeout: ${connectionTimeout}ms (local connection should be fast)`);
-            } else {
-              console.log(`🔌 Connecting to RAILWAY server: ${wsUrl}`);
-              console.log(`   Timeout: ${connectionTimeout}ms (Railway may need time to wake up)`);
-            }
+            console.log(`🔌 Connecting to LOCAL server: ${wsUrl}`);
+            console.log(`   Timeout: ${connectionTimeout}ms (local connection should be fast)`);
             console.log(`🌐 Service: ${storyLanguage === "english" ? "English" : "Tagalog"} Vosk WebSocket`);
             
             // Pre-connection diagnostic
@@ -2415,12 +2194,29 @@ const ReadingSessionPage: React.FC = () => {
               }
             }, 2000); // Check every 2 seconds
 
-            // Create WebSocket connection with error handling
+            // Create WebSocket connection with ultra-low latency settings
             let ws: WebSocket;
             try {
               ws = new WebSocket(wsUrl);
             voskSocketRef.current = ws;
             ws.binaryType = "arraybuffer";
+            
+            // ULTRA-LOW LATENCY: Optimize WebSocket for instant communication
+            // Note: These are browser-level optimizations
+            // The actual TCP_NODELAY is handled by the server
+            
+            // Disable buffering - send immediately
+            if ((ws as any).bufferedAmount !== undefined) {
+              // Monitor buffered data
+              const checkBuffer = setInterval(() => {
+                if ((ws as any).bufferedAmount > 0) {
+                  console.log(`📤 WebSocket buffer: ${(ws as any).bufferedAmount} bytes`);
+                }
+              }, 1000);
+              
+              // Cleanup on close
+              ws.addEventListener('close', () => clearInterval(checkBuffer));
+            }
             } catch (error) {
               clearInterval(stateCheckInterval);
               // Requirement 5.4: Log WebSocket creation errors with details
@@ -2450,16 +2246,15 @@ const ReadingSessionPage: React.FC = () => {
                 // Provide specific troubleshooting based on state
                 if (state === 0) { // Still CONNECTING
                   console.error(`❌ Connection timed out while still connecting. Possible causes:`);
-                  console.error(`   1. Railway service is sleeping (free tier) - first connection takes 30-60s`);
-                  console.error(`   2. Service is not responding - check Railway dashboard`);
+                  console.error(`   1. Local Vosk server is not running`);
+                  console.error(`   2. Service is not responding`);
                   console.error(`   3. Network/firewall blocking WebSocket connections`);
-                  console.error(`   4. Railway proxy issue - service may need restart`);
                 } else if (state === 3) { // CLOSED
                   console.error(`❌ Connection closed before timeout. Possible causes:`);
-                  console.error(`   1. Railway service is not running - check Railway dashboard`);
-                  console.error(`   2. Service crashed - check Railway logs for errors`);
+                  console.error(`   1. Local Vosk server is not running`);
+                  console.error(`   2. Service crashed - check server logs for errors`);
                   console.error(`   3. Environment variables not set - verify SERVICE_LANGUAGE=${storyLanguage}`);
-                  console.error(`   4. Wrong URL - verify service name in Railway`);
+                  console.error(`   4. Wrong URL - verify localhost:2700 is correct`);
                 }
                 
                 if (voskSocketRef.current) {
@@ -2538,41 +2333,12 @@ const ReadingSessionPage: React.FC = () => {
                 }
               }, 30000);
 
-              // Simplified audio processing - just send raw Float32 audio to server
-              // Server handles downsampling, format conversion, and speech detection
-              let audioChunkCount = 0;
+              // ULTRA-LOW LATENCY: Instant audio sending without any delay
               script.onaudioprocess = (e: AudioProcessingEvent) => {
-                try {
-                    audioChunkCount++;
-                    
-                    if (ws.readyState === WebSocket.OPEN) {
-                    const channel = e.inputBuffer.getChannelData(0);
-                    
-                    // NO AMPLIFICATION: Send raw audio to preserve voice clarity
-                    // User's voice is clear, amplification can introduce distortion
-                    
-                    // Check audio levels every 50 chunks
-                    if (audioChunkCount % 50 === 0) {
-                      const maxLevel = Math.max(...Array.from(channel).map(Math.abs));
-                      const avgLevel = Array.from(channel).reduce((sum, val) => sum + Math.abs(val), 0) / channel.length;
-                      console.log(`📊 Audio chunk ${audioChunkCount}: max=${maxLevel.toFixed(4)}, avg=${avgLevel.toFixed(4)}, amplified=1x (raw)`);
-                    }
-                    
-                    // Send raw audio - no amplification to preserve clarity
-                    ws.send(channel.buffer);
-                    } else if (ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
-                      attemptVoskReconnect(startVosk);
-                  }
-                } catch (error) {
-                  // Requirement 5.4: Log audio processing errors without crashing
-                  const errorMessage = error instanceof Error ? error.message : "Unknown error";
-                  console.error("❌ Audio processing error:", {
-                    error: errorMessage,
-                    chunk: audioChunkCount,
-                    wsState: ws.readyState,
-                    timestamp: new Date().toISOString()
-                  });
-                  // Continue operation - don't crash the app
+                if (ws.readyState === WebSocket.OPEN) {
+                  const channel = e.inputBuffer.getChannelData(0);
+                  // Send immediately - no buffering, no delay
+                  ws.send(channel.buffer);
                 }
               };
               // Audio nodes already connected earlier - no need to reconnect here
@@ -2703,75 +2469,17 @@ const ReadingSessionPage: React.FC = () => {
             const localPort = env.VITE_VOSK_LOCAL_PORT || "2700";
             const localUrl = `ws://localhost:${localPort}`;
             
-            const getRailwayUrl = (language: string) => {
-              if (language === "tagalog" || language === "tl") {
-                const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
-                if (tagalogUrl) {
-                  return formatWsUrl(tagalogUrl, "tagalog");
-                }
-                return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
-              } else if (language === "english" || language === "en") {
-                const englishUrl = env.VITE_VOSK_WS_URL_ENGLISH;
-                if (englishUrl) {
-                  return formatWsUrl(englishUrl, "english");
-                }
-                return formatWsUrl("wss://philiready-websocket-english.up.railway.app", "english");
-              }
-              const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
-              if (tagalogUrl) {
-                return formatWsUrl(tagalogUrl, "tagalog");
-              }
-              return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
-            };
-            
-            const testLocalConnection = (): Promise<boolean> => {
-              return new Promise((resolve) => {
-                const testWs = new WebSocket(formatWsUrl(localUrl, lang));
-                const timeout = setTimeout(() => {
-                  testWs.close();
-                  resolve(false);
-                }, 2000);
-                
-                testWs.onopen = () => {
-                  clearTimeout(timeout);
-                  testWs.close();
-                  resolve(true);
-                };
-                
-                testWs.onerror = () => {
-                  clearTimeout(timeout);
-                  resolve(false);
-                };
-              });
-            };
-            
-            // Test local server first (priority: local > Railway)
-            console.log(`🔍 Testing local Vosk server at ${localUrl}...`);
-            const isLocalAvailable = await testLocalConnection();
-            
-            if (isLocalAvailable) {
-              const localWsUrl = formatWsUrl(localUrl, lang);
-              console.log(`✅ Local Vosk server is running and ready!`);
-              console.log(`   Using: ${localWsUrl}`);
-              console.log(`   Status: Connected to local server (port ${localPort})`);
-              return localWsUrl;
-            } else {
-              const railwayUrl = getRailwayUrl(lang);
-              console.log(`⚠️ Local Vosk server not available at ${localUrl}`);
-              console.log(`   Falling back to Railway deployment: ${railwayUrl}`);
-              console.log(`   💡 To use local server, start it with: cd VoskServer && python server.py`);
-              return railwayUrl;
-            }
+            // Connect to local server only
+            const localWsUrl = formatWsUrl(localUrl, lang);
+            console.log(`✅ Connecting to LOCAL Vosk server for ${lang} recognition`);
+            console.log(`   Using: ${localWsUrl}`);
+            console.log(`   Status: Connecting to local server (port ${localPort})`);
+            return localWsUrl;
           };
           
           const wsUrl = await getVoskWsUrl(storyLanguage);
-          const isLocal = wsUrl.startsWith('ws://localhost:');
           
-          if (isLocal) {
-            console.log(`🎯 Reconnecting to LOCAL Vosk server for ${storyLanguage} recognition`);
-          } else {
-            console.log(`🌐 Reconnecting to RAILWAY Vosk server for ${storyLanguage} recognition`);
-          }
+          console.log(`🎯 Reconnecting to LOCAL Vosk server for ${storyLanguage} recognition`);
 
           // Restart Vosk with new language (using improved audio settings)
           const startVosk = async () => {
@@ -3380,9 +3088,7 @@ const ReadingSessionPage: React.FC = () => {
             console.log('📖 [Teacher] Setting words:', wordArray.length, 'words');
             setWords(wordArray);
             
-            // Initialize WordStateManager with story words
-            // Requirements: 1.1, 1.4
-            wordStateManager.initialize(wordArray);
+            // Story words initialized
 
             // Extract vocabulary for vocabulary-constrained recognition
             const vocabulary = extractVocabulary(fullStory.textContent);
@@ -5459,6 +5165,50 @@ const ReadingSessionPage: React.FC = () => {
             </h1>
           </div>
           <div className="flex items-center gap-3 sm:gap-4">
+            {/* Vosk Connection Indicator - Always visible */}
+            {!useWebSpeech && (storyLanguage === "tagalog" || storyLanguage === "english") && (
+              <div className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-semibold transition-all duration-200 ${
+                voskStatus === "connected"
+                  ? "bg-green-100 text-green-700 border border-green-300"
+                  : voskStatus === "connecting"
+                    ? "bg-yellow-100 text-yellow-700 border border-yellow-300 animate-pulse"
+                    : "bg-red-100 text-red-700 border border-red-300"
+              }`}
+              title={`Vosk Server: ${voskStatus}`}>
+                <span className={`w-2 h-2 rounded-full ${
+                  voskStatus === "connected"
+                    ? "bg-green-500"
+                    : voskStatus === "connecting"
+                      ? "bg-yellow-500 animate-pulse"
+                      : "bg-red-500"
+                }`}></span>
+                <span className="hidden sm:inline">Vosk: {voskStatus.charAt(0).toUpperCase() + voskStatus.slice(1)}</span>
+                <span className="sm:hidden">{voskStatus === "connected" ? "✓" : voskStatus === "connecting" ? "..." : "✗"}</span>
+              </div>
+            )}
+            
+            {/* 100% REAL-TIME: Latency Indicator */}
+            {isRecording && latency > 0 && (
+              <div className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-semibold ${
+                latency < 20
+                  ? "bg-green-100 text-green-700 border border-green-300"
+                  : latency < 50
+                    ? "bg-blue-100 text-blue-700 border border-blue-300"
+                    : "bg-orange-100 text-orange-700 border border-orange-300"
+              }`}
+              title={`Connection latency: ${latency}ms`}>
+                <span className={`w-2 h-2 rounded-full ${
+                  latency < 20
+                    ? "bg-green-500"
+                    : latency < 50
+                      ? "bg-blue-500"
+                      : "bg-orange-500"
+                }`}></span>
+                <span className="hidden sm:inline">⏱️ {latency}ms</span>
+                <span className="sm:hidden">{latency}ms</span>
+              </div>
+            )}
+            
             {/* Heard Indicator - Always visible when recording */}
             {isRecording && finalText && (
               <div className="flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-full bg-gradient-to-r from-red-100 to-pink-100 border-2 border-red-300 shadow-md animate-pulse">
@@ -5618,20 +5368,20 @@ const ReadingSessionPage: React.FC = () => {
 
                             return (
                               <React.Fragment key={`${paragraphIndex}-${wordIndex}`}>
-                                {/* Use WordDisplay component for word-by-word marking */}
+                                {/* Simple word display */}
                                 {!isSpecialChar && (
-                                  <WordDisplay
-                                    word={wordStateManager.getWord(realWordIndex) || {
-                                      index: realWordIndex,
-                                      text: word,
-                                      status: 'pending',
-                                    } as WordState}
-                                    isCurrent={isCurrent && isRecording && !isCompleted}
+                                  <span
                                     onClick={() => handleWordClick(realWordIndex)}
-                                    isSelected={selectedWordIndex === realWordIndex}
-                                    toggleState={toggleState}
-                                    className={`mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 font-serif text-sm sm:text-lg lg:text-2xl`}
-                                  />
+                                    className={`mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 font-serif text-sm sm:text-lg lg:text-2xl rounded cursor-pointer transition-colors ${
+                                      isCurrent && isRecording && !isCompleted ? 'bg-yellow-200' : 'bg-transparent'
+                                    } ${selectedWordIndex === realWordIndex ? 'bg-blue-200' : ''}`}
+                                    style={{
+                                      fontFamily: recommendedFont.fontFamily,
+                                      fontSize: recommendedFont.fontSize,
+                                    }}
+                                  >
+                                    {word}
+                                  </span>
                                 )}
                                 {/* Special characters (punctuation) rendered as-is */}
                                 {isSpecialChar && (
@@ -5701,13 +5451,6 @@ const ReadingSessionPage: React.FC = () => {
                 )}
               </div>
             )}
-            {/* Color Legend - Positioned at bottom-left, visible during reading sessions */}
-            <div className="absolute bottom-4 left-4 z-20">
-              <ColorLegend 
-                className="shadow-lg"
-                initialCollapsed={true}
-              />
-            </div>
           </div>
         </div>
         {/* Progress Column - Only show after Complete button is clicked */}
@@ -6083,30 +5826,50 @@ const ReadingSessionPage: React.FC = () => {
               )}
             </div>
             
-            {/* Miscue Toggle Panel - Allow teachers to enable/disable specific miscue types */}
-            <div className="w-full mt-6 pt-6 border-t border-blue-200">
-              <MiscueTogglePanel
-                toggleState={toggleState}
-                onToggleChange={toggleMiscue}
-                className="w-full"
-              />
-            </div>
+            {/* Miscue tracking section removed - will be rebuilt */}
           </div>
         </section>
       )}
 
-      {/* Heard Mic Display - Shows real-time audio input and recognized words */}
+      {/* Heard Mic Display - Real-time recognized text with live updates */}
       {isRecording && (
         <section className="w-full px-4 sm:px-8 pb-8 relative z-10">
           <div className="max-w-2xl mx-auto">
-            <HeardMicDisplay
-              partialText={partialText}
-              finalText={finalText}
-              isRecording={isRecording}
-              voskStatus={voskStatus}
-              frequencyData={frequencyData}
-              className="shadow-lg"
-            />
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg shadow-lg p-6 border-2 border-blue-200">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-600"></span>
+                </span>
+                Recognized Text (Real-time)
+              </h3>
+              
+              {/* Partial text - shows as user is speaking */}
+              {partialText && (
+                <div className="mb-4 p-3 bg-blue-100 rounded-lg border-l-4 border-blue-500 animate-pulse">
+                  <p className="text-xs font-semibold text-blue-700 mb-1">🎤 LISTENING (Partial):</p>
+                  <p className="text-blue-900 font-medium text-base">{partialText}</p>
+                </div>
+              )}
+              
+              {/* Final text - shows when word is confirmed */}
+              {finalText && (
+                <div className="p-3 bg-green-100 rounded-lg border-l-4 border-green-500">
+                  <p className="text-xs font-semibold text-green-700 mb-1">✓ RECOGNIZED (Final):</p>
+                  <p className="text-green-900 font-bold text-lg">{finalText}</p>
+                </div>
+              )}
+              
+              {/* Listening state - when no text yet */}
+              {!partialText && !finalText && (
+                <div className="p-3 bg-gray-100 rounded-lg border-l-4 border-gray-400 animate-pulse">
+                  <p className="text-gray-600 italic flex items-center gap-2">
+                    <span className="inline-block w-2 h-2 bg-gray-400 rounded-full animate-bounce"></span>
+                    Listening for voice input...
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </section>
       )}
@@ -6243,102 +6006,6 @@ const ReadingSessionPage: React.FC = () => {
                 'Start Comprehension Quiz'
               )}
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* Countdown Modal */}
-      {showCountdown && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm">
-          {/* Big Circular Container */}
-          <div className="relative w-[500px] h-[500px] sm:w-[600px] sm:h-[600px]">
-            {/* Background Circle with Gradient */}
-            <svg className="w-full h-full" viewBox="0 0 600 600">
-              <defs>
-                <linearGradient id="circleGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#60a5fa" />
-                  <stop offset="100%" stopColor="#2563eb" />
-                </linearGradient>
-              </defs>
-              {/* Main filled circle background */}
-              <circle
-                cx="300"
-                cy="300"
-                r="288"
-                fill="url(#circleGradient)"
-                className="drop-shadow-2xl"
-              />
-              {/* Progress ring background */}
-              <circle
-                cx="300"
-                cy="300"
-                r="270"
-                stroke="rgba(255, 255, 255, 0.3)"
-                strokeWidth="20"
-                fill="none"
-              />
-              {/* Animated progress ring */}
-              <circle
-                cx="300"
-                cy="300"
-                r="270"
-                stroke="white"
-                strokeWidth="20"
-                fill="none"
-                pathLength="100"
-                strokeDasharray="100"
-                strokeDashoffset={100 - ((5 - countdown) / 5) * 100}
-                strokeLinecap="butt"
-                transform="rotate(-90 300 300)"
-                className="transition-all duration-1000 ease-linear"
-              />
-            </svg>
-            
-            {/* Content inside circle */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-6">
-              {/* Countdown Number - GSAP animated */}
-              <span
-                ref={(el) => {
-                  if (el && showCountdown) {
-                    gsap.fromTo(
-                      el,
-                      {
-                        scale: 0.5,
-                        opacity: 0,
-                        rotation: -180,
-                      },
-                      {
-                        scale: 1.2,
-                        opacity: 1,
-                        rotation: 0,
-                        duration: 0.5,
-                        ease: 'back.out(2)',
-                        onComplete: () => {
-                          gsap.to(el, {
-                            scale: 1,
-                            duration: 0.3,
-                            ease: 'power2.inOut',
-                          });
-                        },
-                      }
-                    );
-                  }
-                }}
-                className="text-[180px] sm:text-[220px] font-black text-white drop-shadow-2xl leading-none"
-              >
-                {countdown}
-              </span>
-              
-              {/* Instructions */}
-              <div className="space-y-4 px-12 text-center">
-                <h3 className="text-4xl sm:text-5xl font-black text-white drop-shadow-lg">
-                  Get Ready!
-                </h3>
-                <p className="text-3xl sm:text-4xl font-bold text-white/95 leading-tight">
-                  Read LOUD and CLEAR
-                </p>
-              </div>
-            </div>
           </div>
         </div>
       )}

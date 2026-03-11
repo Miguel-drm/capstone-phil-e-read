@@ -24,7 +24,6 @@ import Swal from "sweetalert2";
 import { isrResultService } from "@/services/ISRresultService";
 import { useAuth } from "@/contexts/AuthContext";
 import { getUserProfile } from "@/services/authService";
-import { ColorLegend } from "@/components/reading/ColorLegend";
 
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -208,7 +207,7 @@ const ReadingSessionPage: React.FC = () => {
       alert(
         `Unable to connect to speech recognition service after ${MAX_RECONNECT_ATTEMPTS} attempts.\n\n` +
         `Please check:\n` +
-        `1. Is the Vosk server running? (Local: ws://localhost:2700 or Railway)\n` +
+        `1. Is the Vosk server running? (Local: ws://localhost:2700)\n` +
         `2. Is your internet connection working?\n` +
         `3. Try refreshing the page and starting again.`
       );
@@ -611,11 +610,9 @@ const ReadingSessionPage: React.FC = () => {
       // Provide specific guidance based on close code
       if (event.code === 1006) {
         console.error(`❌ Abnormal closure (1006) - Common causes:`);
-        console.error(`   1. Railway service is not running or crashed`);
-        console.error(`   2. Service is sleeping (free tier) - wait 30-60 seconds`);
-        console.error(`   3. Wrong URL or service name`);
-        console.error(`   4. Network/firewall blocking WebSocket connections`);
-        console.error(`   5. Railway proxy not configured for WebSocket`);
+        console.error(`   1. Local Vosk server is not running or crashed`);
+        console.error(`   2. Wrong URL or service name`);
+        console.error(`   3. Network/firewall blocking WebSocket connections`);
       } else if (event.code === 1008) {
         console.error(`❌ Policy violation (1008) - Service rejected connection`);
         if (closeReason && closeReason.includes("model not loaded")) {
@@ -636,11 +633,11 @@ const ReadingSessionPage: React.FC = () => {
             setIsRecording(false);
           }
         } else {
-          console.error(`   Check Railway logs for specific error message`);
+          console.error(`   Check server logs for specific error message`);
         }
       } else if (event.code === 1011) {
         console.error(`❌ Internal server error (1011) - Service crashed`);
-        console.error(`   Check Railway logs for crash details`);
+        console.error(`   Check server logs for crash details`);
       }
 
       // Only attempt reconnect if recording is active and it wasn't a clean close
@@ -1325,21 +1322,13 @@ const ReadingSessionPage: React.FC = () => {
       return `ws://localhost:2700/?lang=${normalizedLang}`;
     };
     
-    const getRailwayWsUrl = (lang: string) => {
-      const env = (import.meta as any)?.env || {};
-      const railwayUrl = env.VITE_VOSK_WS_URL || "wss://philiready-websocket-production.up.railway.app";
-      const normalizedLang = (lang === "tl" || lang === "tagalog") ? "tagalog" : "english";
-      return `${railwayUrl}?lang=${normalizedLang}`;
-    };
-    
-    // Try local server first, then Railway
+    // Connect to local server only
     const localUrl = getLocalWsUrl(storyLanguage);
-    const railwayUrl = getRailwayWsUrl(storyLanguage);
     
-    console.log('🔍 [Teacher] Checking local Vosk server:', localUrl);
+    console.log('🔍 [Teacher] Connecting to local Vosk server:', localUrl);
     setVoskStatus('connecting');
     
-    // Try local server first with quick timeout
+    // Try local server with quick timeout
     const tryLocalServer = () => {
       return new Promise<WebSocket>((resolve, reject) => {
         const ws = new WebSocket(localUrl);
@@ -1364,43 +1353,11 @@ const ReadingSessionPage: React.FC = () => {
       });
     };
     
-    // Try Railway server
-    const tryRailwayServer = () => {
-      return new Promise<WebSocket>((resolve, reject) => {
-        console.log('🌐 [Teacher] Trying Railway Vosk server:', railwayUrl);
-        const ws = new WebSocket(railwayUrl);
-        ws.binaryType = 'arraybuffer';
-        
-        const timeout = setTimeout(() => {
-          ws.close();
-          reject(new Error('Railway server timeout'));
-        }, 5000); // 5 second timeout for Railway
-        
-        ws.onopen = () => {
-          clearTimeout(timeout);
-          console.log('✅ [Teacher] Connected to RAILWAY Vosk server');
-          resolve(ws);
-        };
-        
-        ws.onerror = () => {
-          clearTimeout(timeout);
-          ws.close();
-          reject(new Error('Railway server not available'));
-        };
-      });
-    };
-    
     try {
-      // Try local first
+      // Connect to local server
       let ws: WebSocket;
-      try {
-        ws = await tryLocalServer();
-        console.log('🏠 [Teacher] Using LOCAL Vosk server');
-      } catch (localError) {
-        console.log('⚠️ [Teacher] Local server not available, trying Railway...');
-        ws = await tryRailwayServer();
-        console.log('☁️ [Teacher] Using RAILWAY Vosk server');
-      }
+      ws = await tryLocalServer();
+      console.log('🏠 [Teacher] Using LOCAL Vosk server');
       
       voskSocketRef.current = ws;
       ws.binaryType = 'arraybuffer';
@@ -1478,7 +1435,7 @@ const ReadingSessionPage: React.FC = () => {
       };
       
     } catch (error) {
-      console.error('❌ [Teacher] Failed to connect to both local and Railway Vosk servers:', error);
+      console.error('❌ [Teacher] Failed to connect to local Vosk server:', error);
       setVoskStatus('disconnected');
       voskSocketRef.current = null;
     }
@@ -1538,11 +1495,8 @@ const ReadingSessionPage: React.FC = () => {
     const useVosk = storyLanguage === "tagalog" || storyLanguage === "english";
     if (useVosk) {
       try {
-        // WebSocket URL selection with local server fallback
-        // Priority: 1. Local server (ws://localhost:2700) 2. Railway (deployed)
+        // WebSocket URL selection - local server only
         // Can be configured via environment variables:
-        // - VITE_VOSK_WS_URL_TAGALOG: Tagalog WebSocket URL
-        // - VITE_VOSK_WS_URL_ENGLISH: English WebSocket URL
         // - VITE_VOSK_LOCAL_PORT: Local server port (default: 2700)
         const getVoskWsUrl = async (lang: string): Promise<string> => {
           const env = (import.meta as any)?.env || {};
@@ -1557,18 +1511,6 @@ const ReadingSessionPage: React.FC = () => {
           // Get local server port (default: 2700)
           const localPort = env.VITE_VOSK_LOCAL_PORT || "2700";
           const localUrl = `ws://localhost:${localPort}`;
-          
-          // Get Railway URLs
-          // Single Railway deployment handles both languages via ?lang= parameter
-          const getRailwayUrl = (language: string) => {
-            // Use environment variable if set, otherwise use default Railway URL
-            const railwayUrl = env.VITE_VOSK_WS_URL || "wss://philiready-websocket-production.up.railway.app";
-            
-            // Normalize language parameter
-            const normalizedLang = (language === "tl" || language === "tagalog") ? "tagalog" : "english";
-            
-            return formatWsUrl(railwayUrl, normalizedLang);
-          };
           
           // Try local server first (quick test with 2 second timeout)
           const testLocalConnection = (): Promise<boolean> => {
@@ -1594,7 +1536,7 @@ const ReadingSessionPage: React.FC = () => {
             });
           };
           
-          // Test local server first (priority: local > Railway)
+          // Test local server
           console.log(`🔍 Testing local Vosk server at ${localUrl}...`);
           const isLocalAvailable = await testLocalConnection();
           
@@ -1605,24 +1547,18 @@ const ReadingSessionPage: React.FC = () => {
             console.log(`   Status: Connected to local server (port ${localPort})`);
             return localWsUrl;
           } else {
-            const railwayUrl = getRailwayUrl(lang);
-            console.log(`⚠️ Local Vosk server not available at ${localUrl}`);
-            console.log(`   Falling back to Railway deployment: ${railwayUrl}`);
+            console.error(`❌ Local Vosk server not available at ${localUrl}`);
             console.log(`   💡 To use local server, start it with: cd VoskServer && python server.py`);
-            return railwayUrl;
+            throw new Error('Local Vosk server not available');
           }
         };
         
         const startVosk = async (isReconnect: boolean = false) => {
           const wsUrl = await getVoskWsUrl(storyLanguage);
-          const isLocal = wsUrl.startsWith('ws://localhost:');
+          const isLocal = true; // Always local now
 
           
-          if (isLocal) {
-            console.log(`🎯 Using LOCAL Vosk server for ${storyLanguage} recognition`);
-          } else {
-            console.log(`🌐 Using RAILWAY Vosk server for ${storyLanguage} recognition`);
-          }
+          console.log(`🎯 Using LOCAL Vosk server for ${storyLanguage} recognition`);
           
           if (!isReconnect) {
             voskReconnectAttemptsRef.current = 0;
@@ -1652,16 +1588,13 @@ const ReadingSessionPage: React.FC = () => {
 
             setVoskStatus("connecting");
 
-            // Connection timeout - shorter for local, longer for Railway (may need time to wake up)
-            const connectionTimeout = isLocal ? 5000 : 20000; // 5s for local, 20s for Railway
+            // Connection timeout for local server
+            const connectionTimeout = 1000; // 1 second for local connection
             const connectionStartTime = Date.now();
             
             if (isLocal) {
               console.log(`🔌 Connecting to LOCAL server: ${wsUrl}`);
               console.log(`   Timeout: ${connectionTimeout}ms (local connection should be fast)`);
-            } else {
-              console.log(`🔌 Connecting to RAILWAY server: ${wsUrl}`);
-              console.log(`   Timeout: ${connectionTimeout}ms (Railway may need time to wake up)`);
             }
             console.log(`🌐 Service: ${storyLanguage === "english" ? "English" : "Tagalog"} Vosk WebSocket`);
             
@@ -1721,16 +1654,15 @@ const ReadingSessionPage: React.FC = () => {
                 // Provide specific troubleshooting based on state
                 if (state === 0) { // Still CONNECTING
                   console.error(`❌ Connection timed out while still connecting. Possible causes:`);
-                  console.error(`   1. Railway service is sleeping (free tier) - first connection takes 30-60s`);
-                  console.error(`   2. Service is not responding - check Railway dashboard`);
+                  console.error(`   1. Local Vosk server is not running`);
+                  console.error(`   2. Service is not responding`);
                   console.error(`   3. Network/firewall blocking WebSocket connections`);
-                  console.error(`   4. Railway proxy issue - service may need restart`);
                 } else if (state === 3) { // CLOSED
                   console.error(`❌ Connection closed before timeout. Possible causes:`);
-                  console.error(`   1. Railway service is not running - check Railway dashboard`);
-                  console.error(`   2. Service crashed - check Railway logs for errors`);
+                  console.error(`   1. Local Vosk server is not running`);
+                  console.error(`   2. Service crashed - check server logs for errors`);
                   console.error(`   3. Environment variables not set - verify SERVICE_LANGUAGE=${storyLanguage}`);
-                  console.error(`   4. Wrong URL - verify service name in Railway`);
+                  console.error(`   4. Wrong URL - verify localhost:2700 is correct`);
                 }
                 
                 if (voskSocketRef.current) {
@@ -1924,27 +1856,6 @@ const ReadingSessionPage: React.FC = () => {
             const localPort = env.VITE_VOSK_LOCAL_PORT || "2700";
             const localUrl = `ws://localhost:${localPort}`;
             
-            const getRailwayUrl = (language: string) => {
-              if (language === "tagalog" || language === "tl") {
-                const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
-                if (tagalogUrl) {
-                  return formatWsUrl(tagalogUrl, "tagalog");
-                }
-                return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
-              } else if (language === "english" || language === "en") {
-                const englishUrl = env.VITE_VOSK_WS_URL_ENGLISH;
-                if (englishUrl) {
-                  return formatWsUrl(englishUrl, "english");
-                }
-                return formatWsUrl("wss://philiready-websocket-english.up.railway.app", "english");
-              }
-              const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
-              if (tagalogUrl) {
-                return formatWsUrl(tagalogUrl, "tagalog");
-              }
-              return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
-            };
-            
             const testLocalConnection = (): Promise<boolean> => {
               return new Promise((resolve) => {
                 const testWs = new WebSocket(formatWsUrl(localUrl, lang));
@@ -1966,7 +1877,7 @@ const ReadingSessionPage: React.FC = () => {
               });
             };
             
-            // Test local server first (priority: local > Railway)
+            // Test local server first (local only, no Railway fallback)
             console.log(`🔍 Testing local Vosk server at ${localUrl}...`);
             const isLocalAvailable = await testLocalConnection();
             
@@ -1977,22 +1888,15 @@ const ReadingSessionPage: React.FC = () => {
               console.log(`   Status: Connected to local server (port ${localPort})`);
               return localWsUrl;
             } else {
-              const railwayUrl = getRailwayUrl(lang);
-              console.log(`⚠️ Local Vosk server not available at ${localUrl}`);
-              console.log(`   Falling back to Railway deployment: ${railwayUrl}`);
-              console.log(`   💡 To use local server, start it with: cd VoskServer && python server.py`);
-              return railwayUrl;
+              console.error(`❌ Local Vosk server not available at ${localUrl}`);
+              console.error(`   Please start the local server with: cd VoskServer && python server.py`);
+              throw new Error(`Local Vosk server not available at ${localUrl}`);
             }
           };
           
           const wsUrl = await getVoskWsUrl(storyLanguage);
-          const isLocal = wsUrl.startsWith('ws://localhost:');
           
-          if (isLocal) {
-            console.log(`🎯 Reconnecting to LOCAL Vosk server for ${storyLanguage} recognition`);
-          } else {
-            console.log(`🌐 Reconnecting to RAILWAY Vosk server for ${storyLanguage} recognition`);
-          }
+          console.log(`🎯 Reconnecting to LOCAL Vosk server for ${storyLanguage} recognition`);
 
           // Restart Vosk with new language (using improved audio settings)
           const startVosk = async () => {
@@ -4735,13 +4639,6 @@ const ReadingSessionPage: React.FC = () => {
                 )}
               </div>
             )}
-            {/* Color Legend - Positioned at bottom-left, visible during reading sessions */}
-            <div className="absolute bottom-4 left-4 z-20">
-              <ColorLegend 
-                className="shadow-lg"
-                initialCollapsed={true}
-              />
-            </div>
           </div>
         </div>
 

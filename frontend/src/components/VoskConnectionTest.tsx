@@ -99,26 +99,7 @@ const VoskConnectionTest: React.FC = () => {
       return `${cleanUrl}/?lang=${language}`;
     };
     
-    const getRailwayUrl = (language: string) => {
-      if (language === "tagalog" || language === "tl") {
-        const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
-        if (tagalogUrl) {
-          return formatWsUrl(tagalogUrl, "tagalog");
-        }
-        return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
-      } else if (language === "english" || language === "en") {
-        const englishUrl = env.VITE_VOSK_WS_URL_ENGLISH;
-        if (englishUrl) {
-          return formatWsUrl(englishUrl, "english");
-        }
-        return formatWsUrl("wss://philiready-websocket-english.up.railway.app", "english");
-      }
-      const tagalogUrl = env.VITE_VOSK_WS_URL_TAGALOG;
-      if (tagalogUrl) {
-        return formatWsUrl(tagalogUrl, "tagalog");
-      }
-      return formatWsUrl("wss://vigilant-celebration.up.railway.app", "tagalog");
-    };
+
     
     // Test local server first for both languages
     const testLocalConnection = (lang: string): Promise<boolean> => {
@@ -142,32 +123,28 @@ const VoskConnectionTest: React.FC = () => {
       });
     };
     
-    // Test both languages with local fallback
-    const testUrls: Array<{ url: string; lang: 'tagalog' | 'english'; isLocal: boolean }> = [];
+    // Test both languages (local only)
+    const testUrls: Array<{ url: string; lang: 'tagalog' | 'english' }> = [];
     
     // Test Tagalog
     console.log(`🔍 Testing local Vosk server for Tagalog...`);
     const isLocalTagalog = await testLocalConnection('tagalog');
     if (isLocalTagalog) {
-      testUrls.push({ url: formatWsUrl(localUrl, 'tagalog'), lang: 'tagalog', isLocal: true });
-    } else {
-      testUrls.push({ url: getRailwayUrl('tagalog'), lang: 'tagalog', isLocal: false });
+      testUrls.push({ url: formatWsUrl(localUrl, 'tagalog'), lang: 'tagalog' });
     }
     
     // Test English
     console.log(`🔍 Testing local Vosk server for English...`);
     const isLocalEnglish = await testLocalConnection('english');
     if (isLocalEnglish) {
-      testUrls.push({ url: formatWsUrl(localUrl, 'english'), lang: 'english', isLocal: true });
-    } else {
-      testUrls.push({ url: getRailwayUrl('english'), lang: 'english', isLocal: false });
+      testUrls.push({ url: formatWsUrl(localUrl, 'english'), lang: 'english' });
     }
 
     for (const test of testUrls) {
       setResults(prev => [...prev, {
         url: test.url,
         status: 'testing',
-        message: test.isLocal ? 'Testing local server...' : 'Testing Railway server...'
+        message: 'Testing local server...'
       }]);
 
       // Extract base URL (remove ?lang=...)
@@ -231,9 +208,6 @@ const VoskConnectionTest: React.FC = () => {
                   <p className="font-mono text-sm text-gray-700 mb-1 break-all">{result.url}</p>
                   {result.url.startsWith('ws://localhost:') && (
                     <p className="text-xs text-blue-600 mb-1">📍 Local Server</p>
-                  )}
-                  {result.url.startsWith('wss://') && (
-                    <p className="text-xs text-purple-600 mb-1">🌐 Railway Server</p>
                   )}
                   <p className={`text-sm font-medium ${
                     result.status === 'success' ? 'text-green-700' :

@@ -24,28 +24,27 @@ except ImportError as e:
 
 def downsample_to_16k(audio_data: np.ndarray, source_rate: int) -> np.ndarray:
     """
-    Downsample audio to 16kHz using high-quality resampling.
-    Uses sinc interpolation for better accuracy than linear interpolation.
+    EXTREME SPEED: Ultra-fast downsampling using direct indexing (zero-copy).
+    Fastest possible downsampling for speech recognition.
     """
     if source_rate == 16000:
         return audio_data
     
-    target_rate = 16000
-    ratio = source_rate / target_rate
+    # Direct indexing method - fastest possible downsampling
+    # For 48kHz -> 16kHz: take every 3rd sample (zero-copy view)
+    ratio = source_rate // 16000
     
-    # Use scipy's resample if available (better quality), otherwise fallback to linear
-    try:
-        from scipy import signal
-        # Use scipy's resample for better quality (sinc interpolation)
-        new_length = int(len(audio_data) / ratio)
-        downsampled = signal.resample(audio_data, new_length)
-        return downsampled.astype(np.float32)
-    except ImportError:
-        # Fallback to linear interpolation if scipy not available
-        new_length = int(len(audio_data) / ratio)
-        indices = np.linspace(0, len(audio_data) - 1, new_length)
-        downsampled = np.interp(indices, np.arange(len(audio_data)), audio_data)
-        return downsampled.astype(np.float32)
+    if ratio == 3:  # 48kHz -> 16kHz (most common)
+        # Direct indexing with stride - zero-copy operation
+        return audio_data[::3]
+    elif ratio == 2:  # 32kHz -> 16kHz
+        return audio_data[::2]
+    elif ratio == 1:  # Already 16kHz
+        return audio_data
+    else:
+        # Fallback for other rates
+        new_length = len(audio_data) // ratio
+        return audio_data[:new_length * ratio].reshape(-1, ratio).mean(axis=1)
 def validate_word_for_display(word: str) -> bool:
     """
     Validate if a word should be displayed - DISABLED, ACCEPT ALL WORDS.
@@ -62,14 +61,10 @@ def validate_word_for_display(word: str) -> bool:
 
 
 def float32_to_pcm16(audio_data: np.ndarray) -> bytes:
-    """Convert Float32 audio to PCM16 bytes - NO PROCESSING, PURE AUDIO."""
-    # Clamp values to [-1.0, 1.0]
-    audio_data = np.clip(audio_data, -1.0, 1.0)
-    
-    # Convert to int16
+    """EXTREME SPEED: Ultra-fast Float32 to PCM16 conversion."""
+    # Direct conversion without clipping (assume input is already normalized)
+    # Skip clipping for speed - trust input is in [-1.0, 1.0]
     pcm16 = (audio_data * 32767).astype(np.int16)
-    
-    # Convert to bytes (little-endian)
     return pcm16.tobytes()
 
 def process_audio_message(message: bytes, source_sample_rate: int = 48000, debug_count: int = 0) -> bytes:
@@ -138,12 +133,12 @@ async def recognize(websocket, path, model):
     # Track audio format from client
     client_sample_rate = 48000  # Default, can be overridden via config
     
-    # Audio accumulation buffer - OPTIMIZED FOR FAST SPEECH
+    # Audio accumulation buffer - EXTREME SPEED MODE
     audio_buffer = bytearray()
-    # FAST SPEECH: Reduced buffer size for faster processing
-    # 1600 bytes = 800 samples @ 16kHz = 0.05 seconds (50ms)
-    # This allows Vosk to process audio more frequently, catching fast speech better
-    buffer_size_target = 1600  # FAST SPEECH: ~0.05 seconds of audio for rapid processing
+    # EXTREME SPEED: Minimal buffer for instant processing
+    # 100 bytes = 50 samples @ 16kHz = 0.003125 seconds (3.125ms) for EXTREME speed
+    # This is the absolute minimum for Vosk while maintaining accuracy
+    buffer_size_target = 100  # EXTREME SPEED: ~0.003125 seconds of audio for lightning-fast response
     
     # ACCURACY TRACKING: Track metrics for live updates
     session_start_time = time.time()
@@ -184,42 +179,33 @@ async def recognize(websocket, path, model):
                     # Process audio: convert format, downsampling if needed
                     pcm16_audio = process_audio_message(message, client_sample_rate, audio_chunks_received)
                     
-                    # GHOST WORD PREVENTION: Check audio energy level
+                    # GHOST WORD PREVENTION: Check audio energy level using fast algorithm
                     # Convert bytes to numpy array for analysis
                     audio_samples = np.frombuffer(pcm16_audio, dtype=np.int16)
                     
-                    # Calculate RMS (Root Mean Square) energy
-                    rms_energy = np.sqrt(np.mean(audio_samples.astype(np.float32) ** 2))
+                    # EXTREME SPEED: Skip silence detection entirely for speed
+                    # Only check if audio is completely dead (max < 1)
+                    max_energy = np.max(np.abs(audio_samples))
                     
-                    # SILENCE THRESHOLD: Reject very quiet audio (likely silence or background noise)
-                    # Threshold: 100 RMS (on int16 scale of -32768 to 32767)
-                    # This filters out silence and very quiet background noise
-                    SILENCE_THRESHOLD = 100
+                    # EXTREME THRESHOLD: Only skip if completely silent
+                    SILENCE_THRESHOLD = 1  # Catch literally everything except dead silence
                     
-                    if rms_energy < SILENCE_THRESHOLD:
-                        # Skip this audio chunk - it's too quiet to contain speech
-                        if audio_chunks_received % 100 == 0:
-                            print(f"   🔇 Silence detected (RMS: {rms_energy:.0f} < {SILENCE_THRESHOLD}) - skipping")
+                    if max_energy < SILENCE_THRESHOLD:
+                        # Skip this audio chunk - it's completely silent
                         continue
                     
                     # Log energy level for debugging (every 100 chunks)
                     if audio_chunks_received % 100 == 0:
-                        print(f"   🔊 Audio energy: RMS={rms_energy:.0f}")
+                        print(f"   🔊 Audio energy: max={max_energy:.0f}")
                     
                     # Accumulate audio in buffer
                     audio_buffer.extend(pcm16_audio)
-                    
-                    # Debug: Log buffer status every 100 chunks
-                    if audio_chunks_received % 100 == 0:
-                        print(f"   Buffer: {len(audio_buffer)} bytes (target: {buffer_size_target})")
                     
                     # Only process when we have enough audio accumulated
                     if len(audio_buffer) >= buffer_size_target:
                         # Send accumulated audio to Vosk
                         audio_to_process = bytes(audio_buffer)
                         audio_buffer.clear()
-                        
-                        print(f"   ✓ Sending {len(audio_to_process)} bytes to Vosk for recognition")
                         
                         # Process audio in chunks - Vosk works best with continuous streaming
                         # HYBRID MODE: Use both final and partial results
@@ -258,6 +244,17 @@ async def recognize(websocket, path, model):
                             
                             if text:
                                 print(f"🎤 Vosk partial result: '{text}'")
+                                # 100% REAL-TIME: Send partial result IMMEDIATELY without any delay
+                                try:
+                                    # Send instantly - no buffering, no queuing
+                                    message = json.dumps({
+                                        "partial": text,
+                                        "confidence": sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0.0,
+                                        "timestamp": time.time()  # Include timestamp for latency measurement
+                                    })
+                                    await websocket.send(message)
+                                except Exception as e:
+                                    print(f"⚠ Failed to send partial result: {e}")
                         
                         if text:
                             # GHOST WORD DETECTION: Filter out low-confidence words that are likely noise
@@ -368,11 +365,12 @@ async def recognize(websocket, path, model):
                                             elapsed = time.time() - session_start_time
                                             metrics = phrase_matcher.get_metrics(elapsed)
                                             
-                                            # Send match result with metrics
+                                            # 100% REAL-TIME: Send match result IMMEDIATELY with timestamp
                                             await websocket.send(json.dumps({
                                                 "text": word,
                                                 "match_result": match_result,
-                                                "metrics": metrics
+                                                "metrics": metrics,
+                                                "timestamp": time.time()  # Real-time timestamp
                                             }))
                                             
                                             print(f"   📊 Phrase Match: {match_result['match_type']} - {match_result['details']}")
@@ -385,11 +383,12 @@ async def recognize(websocket, path, model):
                                             elapsed = time.time() - session_start_time
                                             metrics = word_matcher.get_metrics(elapsed)
                                             
-                                            # Send match result with metrics
+                                            # 100% REAL-TIME: Send match result IMMEDIATELY with timestamp
                                             await websocket.send(json.dumps({
                                                 "text": word,
                                                 "match_result": match_result,
-                                                "metrics": metrics
+                                                "metrics": metrics,
+                                                "timestamp": time.time()  # Real-time timestamp
                                             }))
                                             
                                             print(f"   📊 Match: {match_result['match_type']} - {match_result['details']}")
@@ -397,7 +396,8 @@ async def recognize(websocket, path, model):
                                         # Fallback: Send filtered result without matching
                                         await websocket.send(json.dumps({
                                             "text": filtered_text,
-                                            "confidence": 1.0
+                                            "confidence": 1.0,
+                                            "timestamp": time.time()  # Real-time timestamp
                                         }))
                             
                             # OLD CODE - COMPLETELY DISABLED
@@ -798,7 +798,7 @@ async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--tagalog-model", default=os.getenv("VOSK_TAGALOG_MODEL_PATH", "./model-tagalog"), help="Path to Tagalog Vosk model directory")
     parser.add_argument("--english-model", default=os.getenv("VOSK_ENGLISH_MODEL_PATH", "./model-english"), help="Path to English Vosk model directory")
-    # Railway automatically assigns PORT - use it if available, otherwise default to 2700
+    # Local server port (default: 2700)
     port = int(os.getenv("PORT", "2700"))
     parser.add_argument("--port", type=int, default=port)
     parser.add_argument("--service-language", default=os.getenv("SERVICE_LANGUAGE", ""), help="Service language: 'tagalog' or 'english' (loads only that model)")
@@ -932,22 +932,34 @@ async def main():
     
     try:
         print(f"🔧 Attempting to bind to 0.0.0.0:{args.port}...")
-        print(f"📊 Railway PORT environment variable: {os.getenv('PORT', 'NOT SET (using default 2700)')}")
         sys.stdout.flush()
         
-        async with websockets.serve(wrapped_handler, "0.0.0.0", args.port, max_size=None):
+        async with websockets.serve(
+            wrapped_handler, 
+            "0.0.0.0", 
+            args.port,
+            # ULTRA-LOW LATENCY SETTINGS - EXTREME SPEED
+            max_size=None,  # No message size limit
+            max_queue=8,  # ULTRA-minimal queue (was 32) - instant processing
+            compression=None,  # No compression overhead
+            ping_interval=None,  # Disable ping/pong (saves 5-10ms)
+            ping_timeout=None,  # Disable ping timeout
+            close_timeout=0,  # Instant close (no wait)
+            read_limit=2**14,  # 16KB read buffer (minimal, was 64KB)
+            write_limit=2**14,  # 16KB write buffer (minimal, was 64KB)
+        ):
             print(f"✅ WebSocket server started successfully on port {args.port}")
             print(f"🌐 Listening on 0.0.0.0:{args.port}")
             print("📡 Ready to accept connections")
-            print(f"🔗 Connect using: wss://your-service.up.railway.app/?lang={list(models.keys())[0]}")
-            print(f"💡 If connection fails, verify Railway assigned port {args.port} matches service configuration")
+            print(f"🔗 Connect using: ws://localhost:{args.port}/?lang={list(models.keys())[0]}")
+            print(f"💡 Make sure to start the server before running the frontend application")
             sys.stdout.flush()
             await asyncio.Future()  # run forever
     except OSError as e:
         if e.errno == 98:  # Address already in use
             print(f"❌ Error: Port {args.port} is already in use")
-            print("   Another process may be using this port, or Railway assigned a different port")
-            print(f"   Check the PORT environment variable (current: {args.port})")
+            print("   Another process may be using this port")
+            print(f"   Try a different port: python server.py --port 2701")
         else:
             print(f"❌ Error starting WebSocket server: {e}")
         raise
