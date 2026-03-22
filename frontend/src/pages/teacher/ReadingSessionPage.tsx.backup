@@ -28,62 +28,6 @@ import { isrResultService } from "@/services/ISRresultService";
 import { useAuth } from "@/contexts/AuthContext";
 import { getUserProfile } from "@/services/authService";
 import gsap from "gsap";
-import { VoskServerStatusIndicator } from "../../components/vosk/VoskServerStatusIndicator";
-import { useVoskServerStatus, isVoskServerAvailable } from "../../utils/voskServerManager";
-
-// WebSpeech API type declarations
-declare global {
-  interface Window {
-    SpeechRecognition: typeof SpeechRecognition;
-    webkitSpeechRecognition: typeof SpeechRecognition;
-  }
-}
-
-interface SpeechRecognition extends EventTarget {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  start(): void;
-  stop(): void;
-  abort(): void;
-  onstart: ((this: SpeechRecognition, ev: Event) => any) | null;
-  onend: ((this: SpeechRecognition, ev: Event) => any) | null;
-  onerror: ((this: SpeechRecognition, ev: SpeechRecognitionErrorEvent) => any) | null;
-  onresult: ((this: SpeechRecognition, ev: SpeechRecognitionEvent) => any) | null;
-}
-
-interface SpeechRecognitionEvent extends Event {
-  results: SpeechRecognitionResultList;
-  resultIndex: number;
-}
-
-interface SpeechRecognitionResultList {
-  length: number;
-  item(index: number): SpeechRecognitionResult;
-  [index: number]: SpeechRecognitionResult;
-}
-
-interface SpeechRecognitionResult {
-  length: number;
-  item(index: number): SpeechRecognitionAlternative;
-  [index: number]: SpeechRecognitionAlternative;
-  isFinal: boolean;
-}
-
-interface SpeechRecognitionAlternative {
-  transcript: string;
-  confidence: number;
-}
-
-interface SpeechRecognitionErrorEvent extends Event {
-  error: string;
-  message: string;
-}
-
-declare var SpeechRecognition: {
-  prototype: SpeechRecognition;
-  new(): SpeechRecognition;
-};
 
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -92,22 +36,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.j
 function isWordCurrent(realWordIndex: number, currentWordIndex: number): boolean {
   return realWordIndex === currentWordIndex;
 }
-
-// Debug helper to log word progression state
-const logWordProgressionState = (context: string, currentWordIndex: number, optimisticIndex: number, wordsRead: number, transcript: string, recognizedWords: Set<number>, realWords: string[]) => {
-  console.log(`🔍 WORD STATE [${context}]:`);
-  console.log(`   currentWordIndex: ${currentWordIndex}`);
-  console.log(`   optimisticWordIndexRef: ${optimisticIndex}`);
-  console.log(`   wordsRead: ${wordsRead}`);
-  console.log(`   transcript: "${transcript}"`);
-  console.log(`   recognizedWords size: ${recognizedWords.size}`);
-  if (realWords.length > 0) {
-    const currentWord = realWords[currentWordIndex] || 'END';
-    const nextWord = realWords[currentWordIndex + 1] || 'END';
-    console.log(`   current expected word: "${currentWord}"`);
-    console.log(`   next expected word: "${nextWord}"`);
-  }
-};
 
 // Helper to get miscue color based on type
 function getMiscueColor(miscueType: string): string {
@@ -129,8 +57,6 @@ function getMiscueColor(miscueType: string): string {
       return 'bg-pink-200 text-pink-900 border-2 border-pink-400';
     case 'selfCorrection':
       return 'bg-teal-200 text-teal-900 border-2 border-teal-400';
-    case 'skipped':
-      return 'bg-gray-100 text-gray-600 border-2 border-gray-300';
     default:
       return 'bg-gray-200 text-gray-900 border-2 border-gray-400';
   }
@@ -247,16 +173,12 @@ const ReadingSessionPage: React.FC = () => {
         return 'bg-transparent text-gray-900 font-semibold border-2 border-purple-500'; // Purple border for insertion
       case 'transposition':
         return 'bg-transparent text-gray-900 font-semibold border-2 border-blue-500'; // Blue border for transposition
-      case 'repetition':
-        return 'bg-transparent text-gray-900 font-semibold border-2 border-indigo-500'; // Indigo border for repetition
       case 'reversal':
         return 'bg-transparent text-gray-900 font-semibold border-2 border-pink-500'; // Pink border for reversal
       case 'self_correct':
         return 'bg-transparent text-gray-900 font-semibold border-2 border-cyan-500'; // Cyan border for self-correction
-      case 'skipped':
-        return 'bg-transparent text-gray-500 font-normal border-2 border-gray-400'; // Gray for skipped function words
       case 'current':
-        return 'bg-transparent text-yellow-900 font-semibold border-4 border-yellow-400'; // Yellow border only for current word
+        return 'bg-yellow-100 text-yellow-900 font-semibold border-2 border-yellow-400'; // Yellow background for current word
       case 'unread':
       default:
         return 'bg-transparent text-gray-700 border border-gray-300'; // Gray for unread words
@@ -406,17 +328,6 @@ const ReadingSessionPage: React.FC = () => {
   const [storyLanguage, setStoryLanguage] = useState<"english" | "tagalog">(
     "english"
   );
-  const [isVoskEnabled, setIsVoskEnabled] = useState<boolean>(false); // Start disabled - WebSpeech has priority
-  const [isWebSpeechEnabled, setIsWebSpeechEnabled] = useState<boolean>(true); // Start enabled - WebSpeech priority
-  const [isWebSpeechSupported, setIsWebSpeechSupported] = useState<boolean>(false);
-  const [webSpeechHasErrors, setWebSpeechHasErrors] = useState<boolean>(false);
-  
-  // Vosk server status
-  const [isVoskServerAvailable, setIsVoskServerAvailable] = useState<boolean>(false);
-  const [voskServerError, setVoskServerError] = useState<string | null>(null);
-  // DISABLED: Vosk server monitoring
-  // const { status: voskServerStatus } = useVoskServerStatus();
-  const voskServerStatus = null; // Disabled
   const [storyVocabulary, setStoryVocabulary] = useState<Set<string>>(new Set());
   // Audio processing, speech detection, and pronunciation matching now handled server-side
 
@@ -435,16 +346,7 @@ const ReadingSessionPage: React.FC = () => {
   const [latency, setLatency] = useState<number>(0);  // 100% REAL-TIME: Track latency
   const [hybridMode, setHybridMode] = useState<'word_by_word' | 'multi_word'>('word_by_word');  // HYBRID: Current mode
   const [readingSpeed, setReadingSpeed] = useState<number>(0);  // HYBRID: Words per second
-
-  // WebSpeech API state and refs
-  const [webSpeechStatus, setWebSpeechStatus] = useState<"disconnected" | "ready" | "connecting" | "connected">("disconnected");
-  const webSpeechRef = useRef<SpeechRecognition | null>(null);
-  const [webSpeechTranscript, setWebSpeechTranscript] = useState<string>("");
-  const webSpeechRestartAttemptsRef = useRef<number>(0);
-  const webSpeechLastErrorRef = useRef<string>("");
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const processedWordsRef = useRef<Set<number>>(new Set()); // Track which word positions have been processed to prevent duplicates
-  const webSpeechHealthCheckRef = useRef<NodeJS.Timeout | null>(null); // Health check timer
 
   // Refs for auto-scrolling to current word
   const currentWordRef = useRef<HTMLSpanElement>(null);
@@ -519,482 +421,6 @@ const ReadingSessionPage: React.FC = () => {
     sourceNodeRef.current = null;
     audioContextRef.current = null;
     voskSocketRef.current = null;
-  };
-
-  /**
-   * PRIORITIZATION ALGORITHM: WebSpeech-First Toggle for Vosk
-   * When enabling Vosk, WebSpeech is automatically disabled (WebSpeech priority)
-   * When disabling Vosk, WebSpeech is automatically enabled if supported
-   * SERVER CHECK: Prevents enabling Vosk when server is not available
-   */
-  // DISABLED: Vosk toggle function
-  const toggleVoskConnection = async () => {
-    console.log('🔇 Vosk toggle disabled');
-    return; // DISABLED
-    /*
-    const newState = !isVoskEnabled;
-    
-    if (newState) {
-      // Trying to enable Vosk - check server availability first
-      console.log('🔍 Checking Vosk server availability...');
-      
-      try {
-        const serverAvailable = await isVoskServerAvailable();
-        
-        if (!serverAvailable) {
-          // Server not available - show error and don't enable
-          console.error('❌ Cannot enable Vosk: Server not available');
-          alert(
-            'Vosk Server Not Available\n\n' +
-            'The Vosk speech recognition server is not running or not reachable.\n\n' +
-            'Please start the server first:\n' +
-            '1. Navigate to VoskServer folder\n' +
-            '2. Run: python server.py\n' +
-            '3. Wait for "Server started" message\n' +
-            '4. Try enabling Vosk again'
-          );
-          return; // Don't enable Vosk
-        }
-        
-        console.log('✅ Vosk server is available - enabling Vosk');
-      } catch (error) {
-        console.error('❌ Error checking Vosk server:', error);
-        alert('Failed to check Vosk server status. Please ensure the server is running.');
-        return; // Don't enable Vosk
-      }
-    }
-    
-    setIsVoskEnabled(newState);
-    
-    if (!newState) {
-      // Disable Vosk - cleanup existing connection
-      console.log('🔇 Disabling Vosk connection...');
-      cleanupVosk();
-      setVoskStatus("disconnected");
-      
-      // PRIORITIZATION: Always enable WebSpeech when Vosk is disabled (if supported)
-      if (isWebSpeechSupported) {
-        console.log('🎯 PRIORITIZATION: Auto-enabling WebSpeech (priority engine)...');
-        setIsWebSpeechEnabled(true);
-        setWebSpeechStatus("ready");
-        // Start WebSpeech if recording is active
-        if (isRecording && !isPaused) {
-          setTimeout(() => {
-            startWebSpeech();
-          }, 200);
-        }
-      }
-    } else {
-      // Enable Vosk - server is available
-      console.log('🔊 Enabling Vosk connection...');
-      
-      // PRIORITIZATION: Disable WebSpeech when manually enabling Vosk
-      if (isWebSpeechEnabled) {
-        console.log('🎯 PRIORITIZATION: Disabling WebSpeech to avoid conflicts with Vosk...');
-        cleanupWebSpeech();
-        setIsWebSpeechEnabled(false);
-        setWebSpeechStatus("disconnected");
-      }
-      
-      if (isRecording && !isPaused) {
-        // Reconnect immediately if recording is active
-        setTimeout(() => {
-          preloadVoskConnection();
-        }, 100);
-      }
-    }
-    */ // END DISABLED VOSK TOGGLE
-  };
-
-  /**
-   * PRIORITIZATION ALGORITHM: WebSpeech-First Toggle
-   * WebSpeech is the priority engine - when enabled, Vosk is disabled
-   * When disabled, Vosk is enabled as fallback only if WebSpeech is not supported
-   */
-  const toggleWebSpeechConnection = () => {
-    const newState = !isWebSpeechEnabled;
-    setIsWebSpeechEnabled(newState);
-    
-    if (!newState) {
-      // Disable WebSpeech - cleanup existing connection
-      console.log('🔇 Disabling WebSpeech connection...');
-      cleanupWebSpeech();
-      setWebSpeechStatus("disconnected");
-      // Reset error counters
-      webSpeechRestartAttemptsRef.current = 0;
-      webSpeechLastErrorRef.current = "";
-      setWebSpeechHasErrors(false);
-      
-      // PRIORITIZATION: Vosk fallback disabled
-      console.log('🎯 PRIORITIZATION: Vosk fallback disabled - WebSpeech only mode');
-      // setIsVoskEnabled(true); // DISABLED
-      // Start Vosk if recording is active
-      if (isRecording && !isPaused) {
-        setTimeout(() => {
-          preloadVoskConnection();
-        }, 200);
-      }
-    } else {
-      // Enable WebSpeech (priority engine)
-      console.log('🔊 Enabling WebSpeech connection (priority engine)...');
-      // Reset error counters when enabling
-      webSpeechRestartAttemptsRef.current = 0;
-      webSpeechLastErrorRef.current = "";
-      setWebSpeechHasErrors(false);
-      
-      // PRIORITIZATION: Disable Vosk when WebSpeech is enabled (avoid conflicts)
-      if (isVoskEnabled) {
-        console.log('🎯 PRIORITIZATION: Disabling Vosk to prioritize WebSpeech...');
-        cleanupVosk();
-        setIsVoskEnabled(false);
-        setVoskStatus("disconnected");
-      }
-      
-      if (isRecording && !isPaused) {
-        // Start immediately if recording is active
-        startWebSpeech();
-      } else {
-        // Start WebSpeech immediately to be ready for recording
-        console.log('🎯 Pre-starting WebSpeech to be ready for recording...');
-        startWebSpeech();
-      }
-    }
-  };
-
-  /**
-   * Cleanup WebSpeech recognition
-   */
-  const cleanupWebSpeech = () => {
-    // Clear health check timer
-    if (webSpeechHealthCheckRef.current) {
-      clearInterval(webSpeechHealthCheckRef.current);
-      webSpeechHealthCheckRef.current = null;
-    }
-    
-    if (webSpeechRef.current) {
-      try {
-        console.log('🧹 Cleaning up WebSpeech...');
-        webSpeechRef.current.stop();
-        webSpeechRef.current = null;
-      } catch (error) {
-        console.warn('Error stopping WebSpeech:', error);
-      }
-    }
-    setWebSpeechTranscript("");
-    setWebSpeechStatus("disconnected");
-    // Reset error counters
-    webSpeechRestartAttemptsRef.current = 0;
-    webSpeechLastErrorRef.current = "";
-    setWebSpeechHasErrors(false);
-  };
-
-  /**
-   * Start WebSpeech recognition
-   */
-  const startWebSpeech = () => {
-    if (!isWebSpeechEnabled) {
-      console.log('🔇 WebSpeech is disabled - skipping start');
-      setWebSpeechStatus("disconnected");
-      return;
-    }
-
-    // Prevent multiple simultaneous starts
-    if (webSpeechRef.current && webSpeechStatus === "connected") {
-      console.log('🔄 WebSpeech already running - skipping duplicate start');
-      return;
-    }
-    
-    // If connecting, don't wait - let it continue
-    if (webSpeechStatus === "connecting") {
-      console.log('🔄 WebSpeech is already connecting - skipping duplicate start');
-      return;
-    }
-
-    // Check if browser supports WebSpeech
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      console.warn('⚠️ WebSpeech API not supported in this browser');
-      setWebSpeechStatus("disconnected");
-      setIsWebSpeechSupported(false);
-      
-      // AUTOMATIC FALLBACK: Vosk disabled
-      console.log('🔄 AUTOMATIC FALLBACK: Vosk disabled - WebSpeech not supported');
-      setIsWebSpeechEnabled(false);
-      // setIsVoskEnabled(true); // DISABLED
-      
-      // Show user-friendly message
-      if (isRecording) {
-        alert('WebSpeech API is not supported in this browser. Switching to Vosk recognition.');
-      }
-      return;
-    }
-
-    try {
-      setWebSpeechStatus("connecting");
-      console.log('🎤 Starting WebSpeech...');
-      
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = storyLanguage === 'tagalog' ? 'tl-PH' : 'en-US';
-      
-      // Make WebSpeech more persistent
-      recognition.maxAlternatives = 1;
-      
-      // Add service hints for better recognition (if supported)
-      if ('serviceURI' in recognition) {
-        (recognition as any).serviceURI = 'builtin:speech/broadcast';
-      }
-
-      recognition.onstart = () => {
-        console.log('🎤 WebSpeech started');
-        setWebSpeechStatus("connected");
-        // Reset error counters on successful start
-        webSpeechRestartAttemptsRef.current = 0;
-        webSpeechLastErrorRef.current = "";
-        setWebSpeechHasErrors(false);
-        
-        // Start health check to ensure WebSpeech stays active
-        if (webSpeechHealthCheckRef.current) {
-          clearInterval(webSpeechHealthCheckRef.current);
-        }
-        
-        webSpeechHealthCheckRef.current = setInterval(() => {
-          // Check if WebSpeech is still active and recording is still on
-          if (isRecording && !isPaused && isWebSpeechEnabled) {
-            if (!webSpeechRef.current || webSpeechStatus === "disconnected") {
-              console.log('🔄 Health check: WebSpeech disconnected, restarting...');
-              // Clear the reference before restarting
-              webSpeechRef.current = null;
-              startWebSpeech();
-            }
-          } else {
-            // Stop health check if not recording
-            if (webSpeechHealthCheckRef.current) {
-              clearInterval(webSpeechHealthCheckRef.current);
-              webSpeechHealthCheckRef.current = null;
-            }
-          }
-        }, 3000); // Check every 3 seconds for better responsiveness
-      };
-
-      recognition.onresult = (event) => {
-        // Ensure status is correct when receiving results
-        if (webSpeechStatus !== "connected") {
-          console.log('🔍 WebSpeech receiving results but status is not connected, fixing...');
-          setWebSpeechStatus("connected");
-        }
-        
-        let interimTranscript = '';
-        let finalTranscript = '';
-
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript;
-          } else {
-            interimTranscript += transcript;
-          }
-        }
-
-        const fullTranscript = finalTranscript + interimTranscript;
-        setWebSpeechTranscript(fullTranscript);
-        
-        // CRITICAL FIX: Update main transcript state for word matching
-        // The word matching logic in useEffect depends on the 'transcript' state
-        setTranscript(fullTranscript);
-        
-        // Log recognition results for debugging
-        if (finalTranscript) {
-          console.log('🎙️ WebSpeech final:', finalTranscript);
-        }
-        if (interimTranscript) {
-          console.log('🎙️ WebSpeech interim:', interimTranscript);
-        }
-      };
-
-      recognition.onerror = (event) => {
-        console.error('❌ WebSpeech error:', event.error, event.message);
-        webSpeechLastErrorRef.current = event.error;
-        
-        // Handle specific error types
-        if (event.error === 'not-allowed') {
-          alert('Microphone access denied. Please allow microphone access for WebSpeech recognition.');
-          setWebSpeechStatus("disconnected");
-          setIsWebSpeechEnabled(false); // Disable WebSpeech if permission denied
-          
-          // AUTOMATIC FALLBACK: Vosk disabled
-          console.log('🔄 AUTOMATIC FALLBACK: Vosk disabled - WebSpeech permission denied');
-          // setIsVoskEnabled(true); // DISABLED
-          return;
-        } else if (event.error === 'aborted') {
-          console.warn('⚠️ WebSpeech was aborted - likely due to rapid restart');
-          // Don't increment restart attempts for aborted - this is usually intentional
-          setWebSpeechStatus("disconnected");
-          return;
-        } else if (event.error === 'no-speech') {
-          console.warn(`⚠️ WebSpeech no-speech error (attempt ${webSpeechRestartAttemptsRef.current + 1}/10) - this is normal when there is no audio input`);
-          // DON'T increment restart attempts for no-speech - this is normal and should not count as failure
-          // webSpeechRestartAttemptsRef.current++; // REMOVED - no-speech is not a real error
-          
-          // Set status to disconnected but don't return - let onend handle the restart
-          setWebSpeechStatus("disconnected");
-          return;
-        } else if (event.error === 'network') {
-          console.warn(`⚠️ WebSpeech network error (attempt ${webSpeechRestartAttemptsRef.current + 1}/5) - this is normal and will retry`);
-          webSpeechRestartAttemptsRef.current++;
-          
-          // Limit network error restarts
-          if (webSpeechRestartAttemptsRef.current >= 5) {
-            console.warn('⚠️ Too many network errors, enabling Vosk fallback');
-            setWebSpeechStatus("disconnected");
-            setWebSpeechHasErrors(true);
-            
-            // AUTOMATIC FALLBACK: Vosk disabled
-            console.log('🔄 AUTOMATIC FALLBACK: Vosk disabled - WebSpeech network errors');
-            setIsWebSpeechEnabled(false);
-            // setIsVoskEnabled(true); // DISABLED
-            return;
-          }
-        } else {
-          // Other errors - limit restarts
-          console.warn(`⚠️ WebSpeech error "${event.error}" (attempt ${webSpeechRestartAttemptsRef.current + 1}/3)`);
-          webSpeechRestartAttemptsRef.current++;
-          if (webSpeechRestartAttemptsRef.current >= 3) {
-            console.warn('⚠️ Too many WebSpeech errors, enabling Vosk fallback');
-            setWebSpeechStatus("disconnected");
-            setWebSpeechHasErrors(true);
-            
-            // AUTOMATIC FALLBACK: Vosk disabled
-            console.log('🔄 AUTOMATIC FALLBACK: Vosk disabled - WebSpeech persistent errors');
-            setIsWebSpeechEnabled(false);
-            // setIsVoskEnabled(true); // DISABLED
-            return;
-          }
-        }
-        
-        setWebSpeechStatus("disconnected");
-      };
-
-      recognition.onend = () => {
-        console.log('🔌 WebSpeech ended');
-        setWebSpeechStatus("disconnected");
-        
-        // RESTART LOGIC: Only restart during active recording
-        if (isRecording && !isPaused && isWebSpeechEnabled) {
-          // Reset restart attempts if we had a successful connection (got some speech)
-          if (webSpeechTranscript && webSpeechTranscript.trim().length > 0) {
-            webSpeechRestartAttemptsRef.current = 0;
-            console.log('🔄 Resetting restart attempts - had successful speech recognition');
-          }
-          
-          // CONTINUOUS LISTENING: Always restart WebSpeech when recording is active
-          // Only stop if we hit the restart limit for REAL errors (not no-speech)
-          if (webSpeechRestartAttemptsRef.current < 20 && 
-              webSpeechLastErrorRef.current !== 'not-allowed') {
-            console.log(`🔄 Auto-restarting WebSpeech for recording (attempt ${webSpeechRestartAttemptsRef.current + 1}/20)...`);
-            
-            // Clear the current recognition reference before restarting
-            webSpeechRef.current = null;
-            
-            // Use a shorter delay for restart to make it faster
-            setTimeout(() => {
-              if (isRecording && !isPaused && isWebSpeechEnabled) {
-                startWebSpeech();
-              }
-            }, 100); // Reduced delay to 100ms for faster restart
-          } else {
-            console.warn('⚠️ WebSpeech restart limit reached - Vosk fallback disabled');
-            // AUTOMATIC FALLBACK: Vosk disabled
-            setIsWebSpeechEnabled(false);
-            // setIsVoskEnabled(true); // DISABLED
-          }
-        } else {
-          // Not recording - return to ready state instead of restarting
-          if (isWebSpeechEnabled && !isRecording) {
-            console.log('🔄 WebSpeech ended outside recording - returning to ready state');
-            setWebSpeechStatus("ready");
-          } else {
-            console.log('🛑 Not restarting WebSpeech - recording stopped or WebSpeech disabled');
-          }
-        }
-      };
-
-      webSpeechRef.current = recognition;
-      
-      // Add startup timeout - if WebSpeech doesn't start within 1 second, show error
-      const startupTimeout = setTimeout(() => {
-        if (webSpeechStatus === "connecting") {
-          console.warn('⚠️ WebSpeech startup timeout - Vosk fallback disabled');
-          setWebSpeechStatus("disconnected");
-          setIsWebSpeechEnabled(false);
-          // setIsVoskEnabled(true); // DISABLED
-          
-          // Clean up the failed recognition
-          if (webSpeechRef.current) {
-            try {
-              webSpeechRef.current.abort();
-            } catch (e) {
-              console.warn('Error aborting failed WebSpeech:', e);
-            }
-            webSpeechRef.current = null;
-          }
-        }
-      }, 1000); // Reduced timeout to 1 second for faster failure detection
-      
-      recognition.onstart = () => {
-        clearTimeout(startupTimeout); // Clear timeout on successful start
-        console.log('🎤 WebSpeech started successfully');
-        console.log('🔍 Setting webSpeechStatus to "connected"');
-        setWebSpeechStatus("connected");
-        // Reset error counters on successful start
-        webSpeechRestartAttemptsRef.current = 0;
-        webSpeechLastErrorRef.current = "";
-        setWebSpeechHasErrors(false);
-        
-        // Start health check to ensure WebSpeech stays active
-        if (webSpeechHealthCheckRef.current) {
-          clearInterval(webSpeechHealthCheckRef.current);
-        }
-        
-        webSpeechHealthCheckRef.current = setInterval(() => {
-          // Check if WebSpeech is still active and recording is still on
-          if (isRecording && !isPaused && isWebSpeechEnabled) {
-            if (!webSpeechRef.current || webSpeechStatus === "disconnected") {
-              console.log('🔄 Health check: WebSpeech disconnected, restarting...');
-              // Clear the reference before restarting
-              webSpeechRef.current = null;
-              startWebSpeech();
-            }
-          } else {
-            // Stop health check if not recording
-            if (webSpeechHealthCheckRef.current) {
-              clearInterval(webSpeechHealthCheckRef.current);
-              webSpeechHealthCheckRef.current = null;
-            }
-          }
-        }, 5000); // Check every 5 seconds (increased from 3 seconds)
-      };
-      
-      recognition.start();
-
-    } catch (error) {
-      console.error('❌ Failed to start WebSpeech:', error);
-      setWebSpeechStatus("disconnected");
-      
-      // Clear the reference on failure
-      webSpeechRef.current = null;
-      
-      // AUTOMATIC FALLBACK: Vosk disabled
-      console.log('🔄 AUTOMATIC FALLBACK: Vosk disabled - WebSpeech startup failure');
-      setIsWebSpeechEnabled(false);
-      // setIsVoskEnabled(true); // DISABLED
-      
-      if (isRecording) {
-        console.log('🎯 Switching to Vosk for current recording session...');
-        // Vosk will be started by the existing preload logic
-      }
-    }
   };
 
   /**
@@ -1481,10 +907,6 @@ const ReadingSessionPage: React.FC = () => {
                 
                 // Server already validated - just record the miscue
                 setWordMiscues(prev => new Map(prev).set(oldPosition, 'mispronunciation'));
-                
-                // Apply mispronunciation coloring for visual feedback
-                setWordColors(prev => new Map(prev).set(oldPosition, 'mispronounce'));
-                
                 setRecognizedWords(prev => new Set(prev).add(oldPosition));
                 setMiscues(prev => prev + 1);
                 setMiscueTypes(prev => ({ ...prev, mispronunciation: prev.mispronunciation + 1 }));
@@ -1506,10 +928,6 @@ const ReadingSessionPage: React.FC = () => {
               if (!countedMiscuePositionsRef.current.has(oldPosition)) {
                 countedMiscuePositionsRef.current.add(oldPosition);
                 setWordMiscues(prev => new Map(prev).set(oldPosition, 'reversal'));
-                
-                // Apply reversal coloring for visual feedback
-                setWordColors(prev => new Map(prev).set(oldPosition, 'reversal'));
-                
                 setRecognizedWords(prev => new Set(prev).add(oldPosition));
                 setMiscues(prev => prev + 1);
                 setMiscueTypes(prev => ({ ...prev, reversal: prev.reversal + 1 }));
@@ -1533,10 +951,6 @@ const ReadingSessionPage: React.FC = () => {
                 
                 // Server already validated - just record the miscue
                 setWordMiscues(prev => new Map(prev).set(oldPosition, 'substitution'));
-                
-                // Apply substitution coloring for visual feedback
-                setWordColors(prev => new Map(prev).set(oldPosition, 'substitution'));
-                
                 setRecognizedWords(prev => new Set(prev).add(oldPosition));
                 setMiscues(prev => prev + 1);
                 setMiscueTypes(prev => ({ ...prev, substitution: prev.substitution + 1 }));
@@ -1569,10 +983,6 @@ const ReadingSessionPage: React.FC = () => {
               if (!countedMiscuePositionsRef.current.has(oldPosition)) {
                 countedMiscuePositionsRef.current.add(oldPosition);
                 setWordMiscues(prev => new Map(prev).set(oldPosition, 'insertion'));
-                
-                // Apply insertion coloring for visual feedback
-                setWordColors(prev => new Map(prev).set(oldPosition, 'insertion'));
-                
                 setMiscues(prev => prev + 1);
                 setMiscueTypes(prev => ({ ...prev, insertion: prev.insertion + 1 }));
                 if (word) {
@@ -1605,10 +1015,6 @@ const ReadingSessionPage: React.FC = () => {
               if (!countedMiscuePositionsRef.current.has(oldPosition)) {
                 countedMiscuePositionsRef.current.add(oldPosition);
                 setWordMiscues(prev => new Map(prev).set(oldPosition, 'repetition'));
-                
-                // Apply repetition coloring for visual feedback
-                setWordColors(prev => new Map(prev).set(oldPosition, 'repetition'));
-                
                 setRecognizedWords(prev => new Set(prev).add(oldPosition));
                 setMiscues(prev => prev + 1);
                 setMiscueTypes(prev => ({ ...prev, repetition: prev.repetition + 1 }));
@@ -1633,10 +1039,6 @@ const ReadingSessionPage: React.FC = () => {
                 
                 // Server already validated - just record the self-correction
                 setWordMiscues(prev => new Map(prev).set(oldPosition, 'selfCorrection'));
-                
-                // Apply self-correction coloring for visual feedback
-                setWordColors(prev => new Map(prev).set(oldPosition, 'self_correct'));
-                
                 setRecognizedWords(prev => new Set(prev).add(oldPosition));
                 
                 console.log(`✅ Self-correction: "${word}" → "${expectedWord}"`);
@@ -1656,10 +1058,6 @@ const ReadingSessionPage: React.FC = () => {
               if (!countedMiscuePositionsRef.current.has(oldPosition)) {
                 countedMiscuePositionsRef.current.add(oldPosition);
                 setWordMiscues(prev => new Map(prev).set(oldPosition, 'transposition'));
-                
-                // Apply transposition coloring for visual feedback
-                setWordColors(prev => new Map(prev).set(oldPosition, 'transposition'));
-                
                 setRecognizedWords(prev => new Set(prev).add(oldPosition));
                 setMiscues(prev => prev + 1);
                 setMiscueTypes(prev => ({ ...prev, transposition: prev.transposition + 1 }));
@@ -1940,12 +1338,6 @@ const ReadingSessionPage: React.FC = () => {
   function isLikelyEnglishWord(word: string): boolean {
     const normalized = normalize(word);
 
-    // Proper names and capitalized words are often English in this context
-    if (word.length > 0 && word[0] === word[0].toUpperCase() && word.length >= 3) {
-      // Likely a proper name - consider it English in English stories
-      return true;
-    }
-
     // Common English-only patterns
     const englishPatterns = [
       /^(th|wh|sh|ch|ph)/i,  // English consonant clusters at start
@@ -2020,50 +1412,6 @@ const ReadingSessionPage: React.FC = () => {
     return v1[b.length];
   }
 
-  // Enhanced phonetic similarity for common child pronunciation patterns
-  function getPhoneticSimilarity(word1: string, word2: string): number {
-    // Common phonetic substitutions that children make
-    const phoneticMap: { [key: string]: string[] } = {
-      'cat': ['cut', 'cot', 'kit', 'kat'],
-      'cut': ['cat', 'cot', 'kit', 'kut'],
-      'the': ['da', 'de', 'thee', 'thuh'],
-      'a': ['uh', 'ay', 'ah'],
-      'has': ['haz', 'hez', 'his'],
-      'is': ['iz', 'ez', 'us'],
-      'it': ['et', 'ut', 'at'],
-      'on': ['un', 'an', 'in'],
-      'can': ['ken', 'kin', 'kun'],
-      'sit': ['set', 'sut', 'sat'],
-      'bed': ['bad', 'bid', 'bud'],
-      'fell': ['fall', 'fill', 'ful'],
-      'off': ['of', 'uf', 'af'],
-      'sad': ['sed', 'sid', 'sud']
-    };
-
-    // Check if words are phonetic variants of each other
-    if (phoneticMap[word1]?.includes(word2) || phoneticMap[word2]?.includes(word1)) {
-      return 0.85; // High similarity for known phonetic variants
-    }
-
-    // Check for common ending confusions
-    if (word1.length > 2 && word2.length > 2) {
-      const stem1 = word1.slice(0, -1);
-      const stem2 = word2.slice(0, -1);
-      if (stem1 === stem2) {
-        return 0.8; // High similarity for same stem, different ending
-      }
-    }
-
-    // Check for vowel substitutions (common in children)
-    const consonants1 = word1.replace(/[aeiou]/g, '');
-    const consonants2 = word2.replace(/[aeiou]/g, '');
-    if (consonants1 === consonants2 && consonants1.length > 1) {
-      return 0.75; // Same consonant pattern, different vowels
-    }
-
-    return 0; // No phonetic similarity found
-  }
-
   /**
    * Universal pronunciation matching for children's reading.
    * Now uses pronunciation dictionaries + advanced algorithms.
@@ -2072,18 +1420,10 @@ const ReadingSessionPage: React.FC = () => {
   function isWordMatch(spokenWord: string, expectedWord: string, checkLanguage: boolean = false): boolean {
     const normSpoken = normalize(spokenWord);
     const normExpected = normalize(expectedWord);
-    
-    // Debug logging for troubleshooting
-    console.log(`   🔍 isWordMatch: "${spokenWord}" (norm: "${normSpoken}") vs "${expectedWord}" (norm: "${normExpected}")`);
-    
-    if (!normSpoken || !normExpected) {
-      console.log(`   ❌ Empty normalized words: spoken="${normSpoken}", expected="${normExpected}"`);
-      return false;
-    }
+    if (!normSpoken || !normExpected) return false;
 
     // LANGUAGE VALIDATION: Only check when explicitly requested (for current expected word)
-    // Make this less strict to avoid false rejections
-    if (checkLanguage && false) { // Temporarily disabled - too many false positives
+    if (checkLanguage) {
       // If reading Tagalog story, reject English words that don't match Tagalog expected words
       if (storyLanguage === 'tagalog') {
         const spokenIsEnglish = isLikelyEnglishWord(normSpoken);
@@ -2109,26 +1449,12 @@ const ReadingSessionPage: React.FC = () => {
       }
     }
 
-    // Check for exact match first
-    const isExactMatch = normSpoken === normExpected;
-    console.log(`   ${isExactMatch ? '✅' : '❌'} Exact match: ${isExactMatch} (spoken: "${normSpoken}" vs expected: "${normExpected}")`);
-    
-    if (isExactMatch) {
-      return true;
-    }
-
-    // Add fuzzy matching for better accuracy with child-friendly threshold
-    const similarity = getCachedSimilarity(normSpoken, normExpected);
-    
-    // Special case: Check for common phonetic confusions
-    const phoneticSimilarity = getPhoneticSimilarity(normSpoken, normExpected);
-    const bestSimilarity = Math.max(similarity, phoneticSimilarity);
-    
-    const isFuzzyMatch = bestSimilarity >= 0.6; // Lowered from 0.7 to 0.6 for better child recognition
-    
-    console.log(`   ${isFuzzyMatch ? '✅' : '❌'} Fuzzy match: ${similarity.toFixed(3)} (phonetic: ${phoneticSimilarity.toFixed(3)}, best: ${bestSimilarity.toFixed(3)}, threshold: 0.6)`);
-    
-    return isFuzzyMatch;
+    // DISABLED: Local pronunciation dictionary - now using Dictionary API via Vosk server
+    // The Vosk server will validate words using the Dictionary API
+    // if (isPronunciationMatch(normSpoken, normExpected, storyLanguage)) {
+    // Simple word matching - server handles complex matching
+    // Just do basic normalization check
+    return normSpoken === normExpected;
   }
 
   // Helper: Split text into display words and normalized words, and mark if each is alphanumeric
@@ -2349,41 +1675,13 @@ const ReadingSessionPage: React.FC = () => {
       alert("This session is already completed. Recording is disabled.");
       return;
     }
-
-    // AUTOMATIC SPEECH RECOGNITION SETUP
-    // Priority: WebSpeech first, Vosk as fallback
-    console.log('🎯 Setting up automatic speech recognition priority...');
-    
-    if (isWebSpeechSupported) {
-      // WebSpeech is supported - use it as primary
-      console.log('✅ WebSpeech supported - enabling as primary engine');
-      setIsWebSpeechEnabled(true);
-      setIsVoskEnabled(false); // Disable Vosk when WebSpeech is primary
-      setWebSpeechStatus("ready");
-    } else {
-      // WebSpeech not supported - fallback to Vosk
-      console.log('⚠️ WebSpeech not supported - Vosk fallback disabled');
-      setIsWebSpeechEnabled(false);
-      // setIsVoskEnabled(true); // DISABLED
-    }
-
     // Call the actual startRecording function
     startRecording();
   };
 
-  // DISABLED: Actual recording start
+  // Actual recording start
   const preloadVoskConnection = async () => {
-    console.log('🔄 [Teacher] preloadVoskConnection called - DISABLED');
-    return; // DISABLED
-    /*
     console.log('🔄 [Teacher] preloadVoskConnection called - storyLanguage:', storyLanguage, 'words:', words.length);
-    
-    // Check if Vosk is enabled
-    if (!isVoskEnabled) {
-      console.log('🔇 [Teacher] Vosk is disabled - skipping connection');
-      setVoskStatus("disconnected");
-      return;
-    }
     
     const useVosk = storyLanguage === 'tagalog' || storyLanguage === 'english';
     if (!useVosk) {
@@ -2542,7 +1840,6 @@ const ReadingSessionPage: React.FC = () => {
       setVoskStatus('disconnected');
       voskSocketRef.current = null;
     }
-    */ // END DISABLED PRELOAD VOSK CONNECTION
   };
 
   // Actual recording start
@@ -2552,7 +1849,6 @@ const ReadingSessionPage: React.FC = () => {
     setHasStarted(true); // Mark that session has started
     setTranscript("");
     voskFinalTranscriptRef.current = ""; // Reset Vosk transcript accumulator
-    setWebSpeechTranscript(""); // Reset WebSpeech transcript
     setWordsRead(0);
     // reset derived metrics
     setElapsedTime(0);
@@ -2613,25 +1909,7 @@ const ReadingSessionPage: React.FC = () => {
       // Don't stop recording - speech recognition can still work
     }
 
-    // AUTOMATIC SPEECH RECOGNITION STARTUP
-    // WebSpeech Priority with Vosk Fallback
-    if (isWebSpeechEnabled && isWebSpeechSupported) {
-      console.log('🎯 Starting WebSpeech (Primary Engine) for recording session...');
-      setWebSpeechStatus("connecting"); // Set status immediately
-      
-      // Start WebSpeech immediately - no delay needed
-      startWebSpeech();
-    } else if (isVoskEnabled) {
-      console.log('🎯 WebSpeech not available - using Vosk (Fallback Engine)...');
-      // Vosk will be started by the existing logic below
-    } else {
-      console.warn('⚠️ No speech recognition engines available!');
-      alert('No speech recognition engines are available. Please check your browser compatibility or Vosk server status.');
-    }
-
-    // DISABLED: Use Vosk for both Tagalog and English stories
-    const useVosk = false; // DISABLED
-    /*
+    // Use Vosk for both Tagalog and English stories
     const useVosk = storyLanguage === "tagalog" || storyLanguage === "english";
       if (useVosk) {
         try {
@@ -2662,13 +1940,6 @@ const ReadingSessionPage: React.FC = () => {
         };
         
         const startVosk = async (isReconnect: boolean = false) => {
-          // Check if Vosk is enabled
-          if (!isVoskEnabled) {
-            console.log('🔇 [Teacher] Vosk is disabled - skipping startVosk');
-            setVoskStatus("disconnected");
-            return;
-          }
-          
           const wsUrl = await getVoskWsUrl(storyLanguage);
 
           console.log(`🎯 Connecting to LOCAL Vosk server for ${storyLanguage} recognition`);
@@ -2985,11 +2256,10 @@ const ReadingSessionPage: React.FC = () => {
         setIsRecording(false);
       }
     }
-    */ // END DISABLED VOSK BLOCK
   }
+};
 
-  // DISABLED: Handle Vosk language switching - reconnect with new language if needed
-  /*
+  // Handle Vosk language switching - reconnect with new language if needed
   useEffect(() => {
     // If Vosk is connected and language changes, reconnect with new language
     if (voskSocketRef.current && voskSocketRef.current.readyState === WebSocket.OPEN && isRecording && !isPaused) {
@@ -3027,13 +2297,6 @@ const ReadingSessionPage: React.FC = () => {
 
           // Restart Vosk with new language (using improved audio settings)
           const startVosk = async () => {
-            // Check if Vosk is enabled
-            if (!isVoskEnabled) {
-              console.log('🔇 [Teacher] Vosk is disabled - skipping language switch startVosk');
-              setVoskStatus("disconnected");
-              return;
-            }
-            
             try {
               // Use same improved audio settings as main Vosk initialization
               let stream: MediaStream;
@@ -3207,30 +2470,7 @@ const ReadingSessionPage: React.FC = () => {
         }
       }, 100);
     }
-
-    // Restart WebSpeech if enabled and language changes
-    if (isWebSpeechEnabled && webSpeechRef.current && isRecording && !isPaused) {
-      console.log(`🔄 Language changed to ${storyLanguage}, restarting WebSpeech...`);
-      cleanupWebSpeech();
-      setTimeout(() => {
-        startWebSpeech();
-      }, 300); // Small delay after Vosk restart
-    }
-
-    // Only start WebSpeech if recording is active
-    if (isWebSpeechEnabled && isRecording && !isPaused) {
-      setTimeout(() => {
-        startWebSpeech();
-      }, 200); // Small delay after Vosk
-    }
-    
-    // Log which speech recognition systems are active
-    const activeSystems = [];
-    if (isVoskEnabled) activeSystems.push('Vosk');
-    if (isWebSpeechEnabled && isWebSpeechSupported) activeSystems.push('WebSpeech');
-    console.log(`🎤 Speech Recognition Active: ${activeSystems.join(' + ') || 'None'}`);
   }, [storyLanguage]);
-  */ // END DISABLED VOSK LANGUAGE SWITCHING
 
   // Stop recording and speech recognition
   const handleStopRecording = async () => {
@@ -3258,9 +2498,6 @@ const ReadingSessionPage: React.FC = () => {
 
       // Cleanup Vosk (includes all cleanup logic)
       cleanupVosk();
-
-      // Cleanup WebSpeech
-      cleanupWebSpeech();
 
       // Reset state
       voskFinalTranscriptRef.current = "";
@@ -3839,10 +3076,7 @@ const ReadingSessionPage: React.FC = () => {
   const stuckStartTimeRef = useRef<number>(0);
 
   useEffect(() => {
-    if (!transcript || !realWords.length) return;
-    
-    // Allow processing even when at the last word (don't use >= comparison)
-    if (currentWordIndex > realWords.length) return;
+    if (!transcript || !realWords.length || currentWordIndex >= realWords.length) return;
 
     // Skip validation if optimistic mode is active
     if (optimisticWordIndexRef.current > currentWordIndex) {
@@ -3855,14 +3089,6 @@ const ReadingSessionPage: React.FC = () => {
     const indexChanged = currentWordIndex !== lastProcessedIndexRef.current;
 
     if (!transcriptChanged && !indexChanged) return;
-
-    // CRITICAL: Prevent processing the same transcript content multiple times
-    // This prevents duplicate word marking when WebSpeech sends overlapping transcripts
-    const normalizedTranscript = transcript.toLowerCase().trim();
-    if (normalizedTranscript === lastTranscriptRef.current?.toLowerCase().trim()) {
-      console.log('🔄 Skipping duplicate transcript processing');
-      return;
-    }
 
     lastTranscriptRef.current = transcript;
     lastProcessedIndexRef.current = currentWordIndex;
@@ -3895,18 +3121,8 @@ const ReadingSessionPage: React.FC = () => {
     // User requirement: "if i say 'bata' the mic heard instant get the 'bata' word with 0 delay"
     matchTimeoutRef.current = setTimeout(() => {
       // STRICT FILTERING: Only process real words (2+ chars, mostly letters)
-      // Exception: Allow important single-letter words like "a", "I"
       const transcriptWords = transcript.split(/\s+/).filter(word => {
-        if (!word) return false;
-        
-        // Allow important single-letter words
-        if (word.length === 1) {
-          const normalizedWord = word.toLowerCase();
-          return ['a', 'i'].includes(normalizedWord);
-        }
-        
-        // For longer words, require at least 2 chars and mostly letters
-        if (word.length < 2) return false;
+        if (!word || word.length < 2) return false; // Reject noise/single chars
         const letterCount = (word.match(/[a-zA-Z]/g) || []).length;
         return letterCount >= word.length * 0.7; // At least 70% letters
       });
@@ -3947,22 +3163,13 @@ const ReadingSessionPage: React.FC = () => {
 
         // CHILD-FRIENDLY: Check if expected word starts with last word (e.g., "aso" for "asong")
         // This catches cases where child drops the ending - lowered to 60% for children
-        // CRITICAL: Only match if this is the LAST word in transcript (most recent)
-        // This prevents false matches from older words in the transcript
-        const isLastWord = transcriptWords.length > 0 && lastWord === transcriptWords[transcriptWords.length - 1];
-        if (isLastWord && normExpected.startsWith(normLastWord) && normLastWord.length >= 2) {
+        // CRITICAL: Only match if this is the FIRST word in transcript (most recent)
+        // This prevents false matches from older words
+        const isFirstWord = transcriptWords.indexOf(lastWord) === 0;
+        if (isFirstWord && normExpected.startsWith(normLastWord) && normLastWord.length >= 2) {
           const similarity = normLastWord.length / normExpected.length;
           if (similarity >= 0.60) {  // CHILD-FRIENDLY: 60% of the word (was 75%)
             console.log(`⚡ NEAR-COMPLETE MATCH: "${lastWord}" is 60%+ of "${expectedWord}" - accepting!`);
-
-            // CRITICAL: Check if this word position was already processed to prevent duplicates
-            if (processedWordsRef.current.has(currentWordIndex)) {
-              console.log(`⚠️ PREVENTED DUPLICATE: Word ${currentWordIndex} "${expectedWord}" already processed - skipping near-complete match`);
-              return;
-            }
-
-            // Mark as processed to prevent future duplicates
-            processedWordsRef.current.add(currentWordIndex);
 
             // Mark this word as recognized (for green highlighting)
             setRecognizedWords(prev => new Set(prev).add(currentWordIndex));
@@ -3983,12 +3190,12 @@ const ReadingSessionPage: React.FC = () => {
               console.log(`✓ Yellow already at position ${newIndex} (optimistic move was correct)`);
             }
 
-            // CRITICAL FIX: Clear entire transcript after near-complete match to prevent confusion
-            // Keeping partial words can cause false matches with future expected words
-            voskFinalTranscriptRef.current = "";
-            setTranscript("");
+            // Remove the first word (matched) and keep remaining words
+            const remainingWords = transcriptWords.slice(1); // Remove first word
+            voskFinalTranscriptRef.current = remainingWords.join(' ');
+            setTranscript(remainingWords.join(' '));
             processedTranscriptWordsRef.current = 0;
-            console.log(`🧹 Cleared entire transcript after near-complete match "${lastWord}" to prevent confusion`);
+            console.log(`🧹 Removed near-complete match "${lastWord}", kept ${remainingWords.length} remaining words: [${remainingWords.join(', ')}]`);
 
             return;
           }
@@ -3999,21 +3206,11 @@ const ReadingSessionPage: React.FC = () => {
       // Process multiple words in one go for jet-speed recognition
       console.log(`🔎 Checking ALL ${transcriptWords.length} words in transcript: [${transcriptWords.join(', ')}]`);
 
-      // Process from current position in the story, checking against full transcript
-      const wordsToProcess = transcriptWords; // Use full transcript
-      const originalTranscriptLength = transcriptWords.length; // Capture original length BEFORE any modifications
-      console.log(`🔎 Processing ${wordsToProcess.length} words starting from story position ${currentWordIndex}: [${wordsToProcess.join(', ')}]`);
-
-      if (wordsToProcess.length === 0) {
-        console.log(`✅ No new words to process`);
-        return;
-      }
-
       // ADAPTIVE MATCHING: Use fuzzy matching for fast reading
       const isFastReading = currentReadingSpeed > 4; // More than 4 words per second
       let wordsMatched = 0;
       let currentTranscriptIndex = 0;
-      const matchedWordIndices: Array<{index: number, type: 'correct' | 'mispronounce' | 'substitution', spokenWord: string, expectedWord: string, similarity: number}> = []; // Track all matched word indices with types
+      const matchedWordIndices: number[] = []; // Track all matched word indices
       // insertedWords removed - insertion detection now handled by backend
       
       if (isFastReading && transcriptWords.length >= 3) {
@@ -4036,28 +3233,7 @@ const ReadingSessionPage: React.FC = () => {
                 console.log(`   ⚠️ Skipped ${offset} word(s) during fast reading - not marking as omission yet`);
               }
               
-              // Determine the type of match for proper coloring
-              const normSpoken = normalize(spokenWord);
-              const normExpected = normalize(expectedWord);
-              const similarity = getCachedSimilarity(normSpoken, normExpected);
-              
-              let matchType: 'correct' | 'mispronounce' | 'substitution' = 'correct';
-              
-              if (normSpoken === normExpected) {
-                matchType = 'correct';
-              } else if (similarity >= 0.8) {
-                matchType = 'mispronounce';
-              } else {
-                matchType = 'substitution';
-              }
-              
-              matchedWordIndices.push({
-                index: currentWordIndex + wordsMatched + offset,
-                type: matchType,
-                spokenWord: spokenWord,
-                expectedWord: expectedWord,
-                similarity: similarity
-              });
+              matchedWordIndices.push(currentWordIndex + wordsMatched + offset);
               wordsMatched += offset + 1;
               foundMatch = true;
               break;
@@ -4071,48 +3247,24 @@ const ReadingSessionPage: React.FC = () => {
         }
       } else {
         // Normal sequential matching for slow/normal reading
-        // Simple approach: try to match each transcript word to the current expected word
-        for (let transcriptIndex = 0; transcriptIndex < wordsToProcess.length; transcriptIndex++) {
-          const spokenWord = wordsToProcess[transcriptIndex];
+        while (currentTranscriptIndex < transcriptWords.length && currentWordIndex + wordsMatched < realWords.length) {
+          const spokenWord = transcriptWords[currentTranscriptIndex];
           const expectedWordToMatch = realWords[currentWordIndex + wordsMatched];
-          
-          if (currentWordIndex + wordsMatched >= realWords.length) break; // Don't go past end of story
           
           if (isWordMatch(spokenWord, expectedWordToMatch, true)) {
             console.log(`✅ MATCH #${wordsMatched + 1}: "${spokenWord}" = "${expectedWordToMatch}"`);
             
-            // Determine the type of match for proper coloring
-            const normSpoken = normalize(spokenWord);
-            const normExpected = normalize(expectedWordToMatch);
-            const similarity = getCachedSimilarity(normSpoken, normExpected);
-            
-            let matchType: 'correct' | 'mispronounce' | 'substitution' = 'correct';
-            
-            if (normSpoken === normExpected) {
-              matchType = 'correct';
-              console.log(`   ✅ EXACT MATCH: "${spokenWord}" = "${expectedWordToMatch}"`);
-            } else if (similarity >= 0.8) {
-              matchType = 'mispronounce';
-              console.log(`   🔤 MISPRONUNCIATION: "${spokenWord}" ≈ "${expectedWordToMatch}" (${(similarity * 100).toFixed(1)}%)`);
-            } else {
-              matchType = 'substitution';
-              console.log(`   🔄 SUBSTITUTION: "${spokenWord}" → "${expectedWordToMatch}" (${(similarity * 100).toFixed(1)}%)`);
-            }
-            
-            // Track this matched word index with its type
-            matchedWordIndices.push({
-              index: currentWordIndex + wordsMatched,
-              type: matchType,
-              spokenWord: spokenWord,
-              expectedWord: expectedWordToMatch,
-              similarity: similarity
-            });
+            // Track this matched word index
+            matchedWordIndices.push(currentWordIndex + wordsMatched);
             
             wordsMatched++;
+            currentTranscriptIndex++;
+          } else {
+            // INSERTION DETECTION: Now handled by backend phrase matcher
+            // Old frontend insertion detection disabled to prevent double-counting
             
-            // Remove the matched word from transcript for next iteration
-            wordsToProcess.splice(transcriptIndex, 1);
-            transcriptIndex--; // Adjust index since we removed an element
+            // No match, stop trying to match more words
+            break;
           }
         }
       }
@@ -4120,87 +3272,20 @@ const ReadingSessionPage: React.FC = () => {
       if (wordsMatched > 0) {
         console.log(`🚀 MATCHED ${wordsMatched} WORDS IN SEQUENCE!`);
         
-        // CRITICAL BUG FIX: Ensure we only mark words that were actually spoken AND not already processed
-        // Validate that each matched word index corresponds to a word that was actually in the original transcript
-        // AND hasn't been processed before (prevents duplicate marking from overlapping transcripts)
-        // ADDITIONAL FIX: Prevent marking repeated words that appear later in the story without proper sequence
-        const validatedMatches = matchedWordIndices.filter((match, index) => {
-          const wasActuallySpoken = index < originalTranscriptLength;
-          const notAlreadyProcessed = !processedWordsRef.current.has(match.index);
-          
-          // NEW: Prevent marking words that are too far ahead without proper sequence
-          const isSequentialOrNearby = match.index <= currentWordIndex + index + 2; // Allow max 2 word skip
-          
-          if (!wasActuallySpoken) {
-            console.log(`⚠️ PREVENTED AUTO-MARKING: Word ${match.index} "${match.expectedWord}" was not actually spoken (transcript only had ${originalTranscriptLength} words)`);
-            return false;
-          }
-          
-          if (!notAlreadyProcessed) {
-            console.log(`⚠️ PREVENTED DUPLICATE MARKING: Word ${match.index} "${match.expectedWord}" was already processed in a previous transcript`);
-            return false;
-          }
-          
-          if (!isSequentialOrNearby) {
-            console.log(`⚠️ PREVENTED DISTANT MARKING: Word ${match.index} "${match.expectedWord}" is too far ahead (current: ${currentWordIndex}, match: ${match.index}) - likely repeated word`);
-            return false;
-          }
-          
-          console.log(`✅ VALIDATED: Word ${match.index} "${match.expectedWord}" was actually spoken (position ${index} in transcript) and not yet processed`);
-          
-          return true;
-        });
-        
-        // Mark validated words as processed AFTER validation to prevent race conditions
-        validatedMatches.forEach(match => {
-          processedWordsRef.current.add(match.index);
-        });
-        
-        console.log(`✅ Validated ${validatedMatches.length} of ${matchedWordIndices.length} matches as actually spoken`);
-        
-        // Mark ONLY validated matched words as recognized (green highlighting)
+        // Mark ALL matched words as recognized (green highlighting) in ONE state update
         setRecognizedWords(prev => {
           const newSet = new Set(prev);
-          validatedMatches.forEach(match => {
-            console.log(`   ✅ Marking word ${match.index} "${match.expectedWord}" as recognized (was actually spoken)`);
-            newSet.add(match.index);
-          });
+          matchedWordIndices.forEach(idx => newSet.add(idx));
           return newSet;
         });
+        console.log(`✅ Marked ${matchedWordIndices.length} words as CORRECT: indices [${matchedWordIndices.join(', ')}]`);
         
-        // Apply appropriate word coloring based on match type - ONLY for validated matches
-        setWordColors(prev => {
-          const newMap = new Map(prev);
-          validatedMatches.forEach(match => {
-            newMap.set(match.index, match.type);
-            console.log(`   🎨 Applied ${match.type} color to word ${match.index}: "${match.expectedWord}"`);
-          });
-          return newMap;
-        });
-        
-        // Update miscue counts for non-perfect matches - ONLY for validated matches
-        validatedMatches.forEach(match => {
-          if (match.type === 'mispronounce') {
-            setMiscues(prev => prev + 1);
-            setMiscueTypes(prev => ({ ...prev, mispronunciation: prev.mispronunciation + 1 }));
-            setWordMiscues(prev => new Map(prev).set(match.index, 'mispronunciation'));
-          } else if (match.type === 'substitution') {
-            setMiscues(prev => prev + 1);
-            setMiscueTypes(prev => ({ ...prev, substitution: prev.substitution + 1 }));
-            setWordMiscues(prev => new Map(prev).set(match.index, 'substitution'));
-          }
-        });
-        
-        console.log(`✅ Marked ${validatedMatches.length} words with colors: ${validatedMatches.map(m => `${m.expectedWord}(${m.type})`).join(', ')}`);
-        
-        // Use validated matches count for progression
-        const actualWordsMatched = validatedMatches.length;
         // FAST READING: Track match timestamps for reading speed calculation
         const now = Date.now();
         setMatchTimestamps(prev => {
           const updated = [...prev];
-          // Add timestamp for each VALIDATED matched word
-          for (let i = 0; i < actualWordsMatched; i++) {
+          // Add timestamp for each matched word
+          for (let i = 0; i < wordsMatched; i++) {
             updated.push(now);
           }
           // Keep only last 20 timestamps
@@ -4217,41 +3302,31 @@ const ReadingSessionPage: React.FC = () => {
         // Insertion detection now handled by backend phrase matcher
         // Old frontend insertion processing removed to prevent double-counting
         
-        // Update wordsRead - use VALIDATED matches only
-        setWordsRead(prev => Math.min(prev + actualWordsMatched, words.length));
+        // Update wordsRead
+        setWordsRead(prev => Math.min(prev + wordsMatched, words.length));
         
-        // Move yellow highlight forward by number of VALIDATED matched words
-        const newIndex = currentWordIndex + actualWordsMatched;
+        // Move yellow highlight forward by number of matched words
+        const newIndex = currentWordIndex + wordsMatched;
         
-        console.log(`🎯 WORD PROGRESSION DEBUG:`);
-        console.log(`   Current index: ${currentWordIndex}`);
-        console.log(`   Words matched: ${actualWordsMatched} (validated from ${wordsMatched} total)`);
-        console.log(`   New index: ${newIndex}`);
-        console.log(`   Optimistic index: ${optimisticWordIndexRef.current}`);
-        console.log(`   Validated matches: ${validatedMatches.map(m => `"${m.spokenWord}"->"${m.expectedWord}"`).join(', ')}`);
-        
-        // Log state before update
-        logWordProgressionState('BEFORE UPDATE', currentWordIndex, optimisticWordIndexRef.current, wordsRead, transcript, recognizedWords, realWords);
-        
-        // ⚡ OPTIMISTIC UI: Always update to the new position
-        setCurrentWordIndex(newIndex);
-        optimisticWordIndexRef.current = newIndex;
-        console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex} (+${actualWordsMatched} words)`);
-        
-        console.log(`📊 Words Read incremented to ${Math.min(wordsRead + actualWordsMatched, words.length)}`);
+        // ⚡ OPTIMISTIC UI: Only move if not already at expected position
+        if (newIndex !== optimisticWordIndexRef.current) {
+          setCurrentWordIndex(newIndex);
+          optimisticWordIndexRef.current = newIndex;
+          console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex} (+${wordsMatched} words)`);
+        } else {
+          console.log(`✓ Yellow already at position ${newIndex} (optimistic move was correct)`);
+        }
+        console.log(`📊 Words Read incremented to ${Math.min(wordsRead + wordsMatched, words.length)}`);
 
         // Reset and mark as processed
         lastMiscueWordRef.current = "";
 
-        // Clear transcript after processing matches
-        if (actualWordsMatched > 0) {
-          voskFinalTranscriptRef.current = "";
-          setTranscript("");
-          processedTranscriptWordsRef.current = 0;
-          console.log(`🧹 Processed ${actualWordsMatched} validated words, cleared transcript`);
-        }
-        
-        console.log(`📍 Final position: currentWordIndex=${newIndex}, optimistic=${optimisticWordIndexRef.current}`);
+        // Remove matched words from transcript
+        const remainingWords = transcriptWords.slice(wordsMatched);
+        voskFinalTranscriptRef.current = remainingWords.join(' ');
+        setTranscript(remainingWords.join(' '));
+        processedTranscriptWordsRef.current = 0;
+        console.log(`🧹 Removed ${wordsMatched} matched words, kept ${remainingWords.length} remaining words: [${remainingWords.join(', ')}]`);
 
         // NO cooldown - allow continuous processing for fast readers
         console.log("✅ Matches detected, keeping audio processing active");
@@ -4259,6 +3334,138 @@ const ReadingSessionPage: React.FC = () => {
         return; // Exit early
       } else {
         console.log(`   ✗ "${expectedWord}" NOT found in transcript`);
+
+        // PRIORITY CHECK: Split-word match (check BEFORE omission detection)
+        // Example: Child says "aso pa" for "asong" - this is a mispronunciation, NOT an omission
+        let foundSplitWordMatch = false;
+        if (transcriptWords.length >= 2) {
+          for (let i = 0; i < transcriptWords.length - 1; i++) {
+            const word1 = transcriptWords[i];
+            const word2 = transcriptWords[i + 1];
+            const combinedSpoken = normalize(word1 + word2);
+            const normalizedExpected = normalize(expectedWord);
+            const similarity = getCachedSimilarity(combinedSpoken, normalizedExpected);
+
+            // Also check with space
+            const combinedWithSpace = normalize(word1 + " " + word2);
+            const similarityWithSpace = getCachedSimilarity(combinedWithSpace, normalizedExpected);
+            const bestSimilarity = Math.max(similarity, similarityWithSpace);
+
+            // CHILD-FRIENDLY: Increase threshold to 65% to reduce false positives
+            // The 55% threshold was causing "niya sa" to repeatedly match "niyang"
+            if (bestSimilarity >= 0.65) {
+              console.log(`✅ SPLIT-WORD DETECTED! "${word1} ${word2}" = "${expectedWord}" (${(bestSimilarity * 100).toFixed(0)}% similar) - NOT an omission`);
+              foundSplitWordMatch = true;
+              break;
+            }
+          }
+        }
+
+        // SKIP-AHEAD DETECTION: Check if child skipped this word and read a future word
+        // Example: Story is "May isang asong", child says "May asong" (skipped "isang")
+        // ENHANCED: Check up to 5 words ahead to catch multiple skipped words
+        // STRICT: Only check the LAST 2 words spoken (most recent) to avoid false positives
+        // SAFETY: Only enable after child has read at least 1 word to prevent false omissions at start
+        // CRITICAL: Skip this check if we found a split-word match (to prevent false omissions)
+        // ADAPTIVE: During fast reading (>4 words/sec), be more lenient to avoid false omissions
+        const hasStartedReading = wordsRead > 0 || currentWordIndex > 0;
+        const isFastReading = currentReadingSpeed > 4;
+        const shouldCheckOmission = !isFastReading || (Date.now() - (matchTimestamps[matchTimestamps.length - 1] || 0) > 1500);
+        
+        if (transcriptWords.length > 0 && currentWordIndex < realWords.length - 1 && hasStartedReading && !foundSplitWordMatch && shouldCheckOmission) {
+          if (isFastReading) {
+            console.log(`⚡ FAST READING MODE: Being lenient with omission detection (${currentReadingSpeed.toFixed(1)} words/sec)`);
+          }
+          // Check the LAST 5 words (most recent) to catch skip-ahead
+          // Increased from 2 to 5 to handle cases where child reads multiple words ahead
+          const recentWordsToCheck = transcriptWords.slice(-5);
+
+          // Check up to 5 words ahead in the story
+          const maxLookAhead = Math.min(5, realWords.length - currentWordIndex - 1);
+          let foundFutureWordAt = -1;
+          let matchedFutureWord = '';
+
+          for (let i = 1; i <= maxLookAhead; i++) {
+            const futureExpectedWord = realWords[currentWordIndex + i];
+
+            // Check if any recent word matches this future word
+            const foundMatch = recentWordsToCheck.some(w => {
+              const normSpoken = normalize(w);
+              const normFuture = normalize(futureExpectedWord);
+              if (normSpoken === normFuture) return true;
+
+              // Also check similarity (strict threshold)
+              const distance = levenshtein(normSpoken, normFuture);
+              const maxLength = Math.max(normSpoken.length, normFuture.length);
+              const similarity = 1 - (distance / maxLength);
+              return similarity >= 0.90; // Strict threshold
+            });
+
+            if (foundMatch) {
+              foundFutureWordAt = i;
+              matchedFutureWord = futureExpectedWord;
+              break; // Found the first future word match
+            }
+          }
+
+          if (foundFutureWordAt > 0) {
+            // Child skipped one or more words!
+            // Mark the CURRENT word as omission (the first skipped word)
+            if (!countedMiscuePositionsRef.current.has(currentWordIndex)) {
+              const skippedCount = foundFutureWordAt; // Number of words skipped
+              const futureWordPosition = currentWordIndex + foundFutureWordAt;
+
+              console.log(`⚠️ OMISSION DETECTED! Child skipped "${expectedWord}" (position ${currentWordIndex}) and jumped to "${matchedFutureWord}" (position ${futureWordPosition})`);
+              console.log(`   → Skipped ${skippedCount} word(s) - DepEd Rule: Circle omitted word`);
+
+              countedMiscuePositionsRef.current.add(currentWordIndex);
+              setMiscues(prev => prev + 1);
+              setMiscueTypes(prev => ({ ...prev, omission: prev.omission + 1 }));
+              setWordMiscues(prev => new Map(prev).set(currentWordIndex, 'omission'));
+              setWordMarkings(prev => new Map(prev).set(currentWordIndex, {
+                type: 'omission',
+                marking: `Circle omitted word: "${expectedWord}"`,
+                spokenWord: '',
+                correctWord: expectedWord
+              }));
+
+              // Increment wordsRead for the omitted word (child skipped it, but it counts as attempted)
+              setWordsRead(prev => Math.min(prev + 1, words.length));
+              console.log(`📊 Words Read incremented to ${Math.min(wordsRead + 1, words.length)} (omission counted)`);
+
+              // AUTO-ADVANCE: Move yellow highlight to where the child actually is
+              // CRITICAL FIX: Advance to futureWordPosition (where child jumped to), not just +1
+              // This prevents marking the landing word as omission
+              // Example: Child at "na", skips "naglalakad", says "sa"
+              //   - Mark "naglalakad" as omission ✅
+              //   - Advance to "sa" (futureWordPosition) ✅
+              //   - Don't mark "sa" as omission ✅
+              const newIndex = futureWordPosition;
+              setCurrentWordIndex(newIndex);
+              console.log(`⚠️ Omission marked - auto-advancing yellow highlight from ${currentWordIndex} to ${newIndex} (where child is)`);
+              
+              // Mark the landing word as recognized (child said it correctly)
+              setRecognizedWords(prev => new Set(prev).add(futureWordPosition));
+              console.log(`✅ Marked word ${futureWordPosition} "${matchedFutureWord}" as recognized (landing word after skip)`);
+              
+              // Clear transcript to prevent re-processing
+              voskFinalTranscriptRef.current = "";
+              setTranscript("");
+              processedTranscriptWordsRef.current = 0;
+            } else {
+              console.log(`⚠️ Omission already marked for word "${expectedWord}" at index ${currentWordIndex} - skipping duplicate`);
+              
+              // CRITICAL FIX: Clear transcript even for duplicate omissions
+              // Otherwise transcript accumulates and causes runaway processing
+              voskFinalTranscriptRef.current = "";
+              setTranscript("");
+              processedTranscriptWordsRef.current = 0;
+              console.log(`🧹 Cleared accumulated transcript to prevent runaway processing`);
+            }
+
+            return; // Exit to allow state update to trigger re-render
+          }
+        }
       }
 
       // JET-SPEED: Check RECENT words (last 3 words only - reduced from 5)
@@ -4298,15 +3505,6 @@ const ReadingSessionPage: React.FC = () => {
         const isFirstRecentWord = wordsToCheck.indexOf(spokenWord) === 0;
         if (isFirstRecentWord && isWordMatch(spokenWord, expectedWord, true)) {
           console.log(`✅ MATCH! "${spokenWord}" = "${expectedWord}" - recognized as first word`);
-          
-          // CRITICAL: Check if this word position was already processed to prevent duplicates
-          if (processedWordsRef.current.has(currentWordIndex)) {
-            console.log(`⚠️ PREVENTED DUPLICATE: Word ${currentWordIndex} "${expectedWord}" already processed - skipping match`);
-            return;
-          }
-
-          // Mark as processed to prevent future duplicates
-          processedWordsRef.current.add(currentWordIndex);
           
           // Mark this word as recognized
           setRecognizedWords(prev => new Set(prev).add(currentWordIndex));
@@ -4352,15 +3550,6 @@ const ReadingSessionPage: React.FC = () => {
             if (bestSimilarity >= 0.70) {
               console.log(`✅ SPLIT-WORD MATCH! "${spokenWord} ${nextSpokenWord}" = "${expectedWord}" (${(bestSimilarity * 100).toFixed(0)}% similar)`);
               console.log(`   This is a mispronunciation where child split the word into parts`);
-
-              // CRITICAL: Check if this word position was already processed to prevent duplicates
-              if (processedWordsRef.current.has(currentWordIndex)) {
-                console.log(`⚠️ PREVENTED DUPLICATE: Word ${currentWordIndex} "${expectedWord}" already processed - skipping split-word match`);
-                return;
-              }
-
-              // Mark as processed to prevent future duplicates
-              processedWordsRef.current.add(currentWordIndex);
 
               // Count as mispronunciation
               if (!countedMiscuePositionsRef.current.has(currentWordIndex)) {
@@ -4955,104 +4144,8 @@ const ReadingSessionPage: React.FC = () => {
   useEffect(() => {
     return () => {
       cleanupVosk();
-      cleanupWebSpeech();
     };
   }, []);
-
-  // Ensure at least WebSpeech is enabled (Vosk disabled)
-  useEffect(() => {
-    // If both systems are disabled, enable WebSpeech if supported
-    if (!isVoskEnabled && !isWebSpeechEnabled && isWebSpeechSupported) {
-      console.log('🔄 No speech recognition enabled, auto-enabling WebSpeech...');
-      setIsWebSpeechEnabled(true);
-    }
-  }, [isVoskEnabled, isWebSpeechEnabled, isWebSpeechSupported]);
-
-  // Debug WebSpeech status changes
-  useEffect(() => {
-    console.log('🔍 WebSpeech status changed to:', webSpeechStatus);
-  }, [webSpeechStatus]);
-
-  // Monitor WebSpeech status and auto-restart if it becomes inactive during recording
-  useEffect(() => {
-    // Only monitor during active recording
-    if (!isWebSpeechEnabled || !isRecording || isPaused) return;
-    
-    // If WebSpeech becomes disconnected during recording, restart it
-    if (webSpeechStatus === "disconnected") {
-      console.log('🔄 WebSpeech became inactive during recording - auto-restarting...');
-      
-      // Add a small delay to avoid rapid restarts
-      const restartTimer = setTimeout(() => {
-        if (isRecording && !isPaused && isWebSpeechEnabled && webSpeechStatus === "disconnected") {
-          startWebSpeech();
-        }
-      }, 200); // Reduced delay to 200ms for faster auto-restart
-      
-      return () => clearTimeout(restartTimer);
-    }
-  }, [webSpeechStatus, isRecording, isPaused, isWebSpeechEnabled]);
-
-  // Check WebSpeech API support on component mount and prioritize it
-  useEffect(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const isSupported = !!SpeechRecognition;
-    setIsWebSpeechSupported(isSupported);
-    
-    if (!SpeechRecognition) {
-      console.warn('⚠️ WebSpeech API not supported in this browser - Vosk fallback disabled');
-      // Keep Vosk disabled
-      // setIsVoskEnabled(true); // DISABLED
-      setIsWebSpeechEnabled(false);
-    } else {
-      console.log('✅ WebSpeech API is supported - prioritizing WebSpeech');
-      // PRIORITIZATION ALGORITHM: WebSpeech First
-      // If WebSpeech is supported, enable it by default and disable Vosk
-      setIsWebSpeechEnabled(true);
-      setIsVoskEnabled(false); // DISABLED: Keep Vosk disabled
-      setWebSpeechStatus("ready");
-      
-      console.log('🎯 PRIORITIZATION: WebSpeech enabled as primary engine, Vosk disabled');
-      
-      // Start WebSpeech immediately to be ready
-      setTimeout(() => {
-        if (isWebSpeechEnabled) {
-          console.log('🚀 Pre-starting WebSpeech for instant readiness...');
-          startWebSpeech();
-        }
-      }, 100); // Small delay to ensure state is set
-    }
-  }, []);
-
-  // DISABLED: Monitor Vosk server status and manage Vosk availability
-  /*
-  useEffect(() => {
-    if (voskServerStatus) {
-      const isAvailable = voskServerStatus.isRunning && voskServerStatus.isReachable;
-      setIsVoskServerAvailable(isAvailable);
-      
-      if (!isAvailable) {
-        setVoskServerError(voskServerStatus.error || 'Server not reachable');
-        
-        // If Vosk was enabled but server is not available, disable it and enable WebSpeech
-        if (isVoskEnabled) {
-          console.warn('⚠️ Vosk server not available - switching to WebSpeech');
-          setIsVoskEnabled(false);
-          
-          // Enable WebSpeech if supported
-          if (isWebSpeechSupported) {
-            setIsWebSpeechEnabled(true);
-            setWebSpeechStatus("ready");
-            console.log('🔄 Auto-enabled WebSpeech due to Vosk server unavailability');
-          }
-        }
-      } else {
-        setVoskServerError(null);
-        console.log('✅ Vosk server is available');
-      }
-    }
-  }, [voskServerStatus, isVoskEnabled, isWebSpeechSupported]);
-  */
 
   const [studentNames, setStudentNames] = useState<{ [id: string]: string }>(
     {}
@@ -5531,53 +4624,19 @@ const ReadingSessionPage: React.FC = () => {
     setRecognizedWords(new Set());
     setWordMiscues(new Map());
     setWordMarkings(new Map());
-    setWordColors(new Map()); // ← This was missing! This controls the actual word coloring
     setInsertedWords(new Map());
-    setRepeatedWords(new Map()); // ← Also reset repeated words
-    setStoryVocabulary(new Set()); // ← Reset story vocabulary (will be rebuilt)
     setAudioBlob(null);
+    lastWordTimestampRef.current = Date.now(); // Reset timestamp for next session
     setAudioUrl(null);
     setIsRecording(false);
     setHasStarted(false);
-    
-    // Reset all refs to initial state
-    lastWordTimestampRef.current = Date.now();
-    optimisticWordIndexRef.current = 0;
-    lastProcessedIndexRef.current = -1;
-    lastTranscriptRef.current = '';
-    processedTranscriptWordsRef.current = 0;
-    voskFinalTranscriptRef.current = '';
-    lastPositionRef.current = 0;
-    processedWordsRef.current.clear(); // Clear processed words tracking
-    
-    // Reset speech recognition state
-    setWebSpeechStatus("ready");
-    setVoskStatus("disconnected");
-    
-    // Clear any accumulated transcripts
-    if (webSpeechRef.current) {
-      webSpeechRef.current.abort();
-      webSpeechRef.current = null;
-    }
-    
-    // Reset error states
-    setWebSpeechHasErrors(false);
-    webSpeechRestartAttemptsRef.current = 0;
-    voskReconnectAttemptsRef.current = 0;
-    
-    console.log('🔄 Session reset - all markings and state cleared');
-    
-    // Force a re-render to ensure UI updates immediately
-    setTimeout(() => {
-      console.log('✅ Retry complete - UI should be fully reset');
-    }, 100);
     
     // Show confirmation
     Swal.fire({
       icon: 'success',
       title: 'Session Reset!',
-      text: 'All word markings and progress have been cleared. Ready for a fresh start!',
-      timer: 2500,
+      text: 'You can start a new reading session now.',
+      timer: 2000,
       showConfirmButton: false
     });
   };
@@ -5638,65 +4697,49 @@ const ReadingSessionPage: React.FC = () => {
             </h1>
           </div>
           <div className="flex items-center gap-3 sm:gap-4">
-            {/* Simplified Speech Recognition Status */}
-            <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border">
-              <span className="text-sm font-medium text-gray-700">Speech Recognition:</span>
-              
-              {/* Single Status Indicator - Shows Active Engine */}
-              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium ${
-                isWebSpeechEnabled && isWebSpeechSupported && webSpeechStatus === "connected"
-                  ? "bg-purple-100 text-purple-700"
-                  : isVoskEnabled && voskStatus === "connected"
-                    ? "bg-blue-100 text-blue-700"
-                    : isWebSpeechEnabled && isWebSpeechSupported && webSpeechStatus === "connecting"
-                      ? "bg-yellow-100 text-yellow-700"
-                      : isWebSpeechEnabled && isWebSpeechSupported && webSpeechStatus === "ready"
-                        ? "bg-green-100 text-green-700"
-                        : "bg-gray-100 text-gray-600"
-              }`}>
+            {/* Vosk Connection Indicator - Always visible */}
+            {true && (
+              <div className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-semibold transition-all duration-200 ${
+                voskStatus === "connected"
+                  ? "bg-green-100 text-green-700 border border-green-300"
+                  : voskStatus === "connecting"
+                    ? "bg-yellow-100 text-yellow-700 border border-yellow-300 animate-pulse"
+                    : "bg-red-100 text-red-700 border border-red-300"
+              }`}
+              title={`Vosk Server: ${voskStatus}`}>
                 <span className={`w-2 h-2 rounded-full ${
-                  isWebSpeechEnabled && isWebSpeechSupported && webSpeechStatus === "connected"
-                    ? "bg-purple-500"
-                    : isVoskEnabled && voskStatus === "connected"
-                      ? "bg-blue-500"
-                      : isWebSpeechEnabled && isWebSpeechSupported && webSpeechStatus === "connecting"
-                        ? "bg-yellow-500 animate-pulse"
-                        : isWebSpeechEnabled && isWebSpeechSupported && webSpeechStatus === "ready"
-                          ? "bg-green-500"
-                          : "bg-gray-400"
+                  voskStatus === "connected"
+                    ? "bg-green-500"
+                    : voskStatus === "connecting"
+                      ? "bg-yellow-500 animate-pulse"
+                      : "bg-red-500"
                 }`}></span>
-                <span>
-                  {isWebSpeechEnabled && isWebSpeechSupported && webSpeechStatus === "connected"
-                    ? "WebSpeech Active"
-                    : isWebSpeechEnabled && isWebSpeechSupported && webSpeechStatus === "connecting"
-                      ? "WebSpeech Starting..."
-                      : isWebSpeechEnabled && isWebSpeechSupported && webSpeechStatus === "ready"
-                        ? "WebSpeech Ready"
-                        : !isWebSpeechSupported
-                          ? "WebSpeech Not Supported"
-                          : "Initializing..."}
-                </span>
-                {isWebSpeechEnabled && isWebSpeechSupported && (
-                  <span className="text-xs bg-purple-500 text-white px-1.5 py-0.5 rounded">PRIMARY</span>
-                )}
+                <span className="hidden sm:inline">Vosk: {voskStatus.charAt(0).toUpperCase() + voskStatus.slice(1)}</span>
+                <span className="sm:hidden">{voskStatus === "connected" ? "✓" : voskStatus === "connecting" ? "..." : "✗"}</span>
               </div>
-
-              {/* 100% REAL-TIME: Latency Indicator */}
-              {isRecording && latency > 0 && (
-                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${
+            )}
+            
+            {/* 100% REAL-TIME: Latency Indicator */}
+            {isRecording && latency > 0 && (
+              <div className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-semibold ${
+                latency < 20
+                  ? "bg-green-100 text-green-700 border border-green-300"
+                  : latency < 50
+                    ? "bg-blue-100 text-blue-700 border border-blue-300"
+                    : "bg-orange-100 text-orange-700 border border-orange-300"
+              }`}
+              title={`Connection latency: ${latency}ms`}>
+                <span className={`w-2 h-2 rounded-full ${
                   latency < 20
-                    ? "bg-green-100 text-green-700"
+                    ? "bg-green-500"
                     : latency < 50
-                      ? "bg-blue-100 text-blue-700"
-                      : "bg-orange-100 text-orange-700"
-                }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${
-                    latency < 20 ? "bg-green-500" : latency < 50 ? "bg-blue-500" : "bg-orange-500"
-                  }`}></span>
-                  <span>⏱️ {latency}ms</span>
-                </div>
-              )}
-            </div>
+                      ? "bg-blue-500"
+                      : "bg-orange-500"
+                }`}></span>
+                <span className="hidden sm:inline">⏱️ {latency}ms</span>
+                <span className="sm:hidden">{latency}ms</span>
+              </div>
+            )}
             
             {/* HYBRID: Mode and Reading Speed Indicator */}
             {isRecording && readingSpeed > 0 && (
@@ -5725,13 +4768,13 @@ const ReadingSessionPage: React.FC = () => {
             )}
             {currentSession && (
               <span
-                className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-full text-sm sm:text-base font-semibold transition-all duration-200 ${
-                  currentSession.status === "completed"
+                className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-full text-sm sm:text-base font-semibold transition-all duration-200
+                ${currentSession.status === "completed"
                     ? "bg-green-100 text-green-700"
                     : currentSession.status === "in-progress"
                       ? "bg-blue-100 text-blue-700 animate-pulse"
                       : "bg-yellow-100 text-yellow-700"
-                }`}
+                  }`}
               >
                 {currentSession.status.charAt(0).toUpperCase() +
                   currentSession.status.slice(1)}
@@ -5740,29 +4783,6 @@ const ReadingSessionPage: React.FC = () => {
           </div>
         </div>
       </header>
-
-      {/* Simplified WebSpeech Status - No Complex Dashboard */}
-      {isWebSpeechEnabled && isWebSpeechSupported && (
-        <section className="w-full px-4 sm:px-8 mb-6">
-          <div className="max-w-2xl mx-auto bg-purple-50 border border-purple-200 rounded-lg p-4">
-            <div className="flex items-center gap-3">
-              <div className={`w-3 h-3 rounded-full ${
-                webSpeechStatus === "connected" ? "bg-purple-500" : 
-                webSpeechStatus === "connecting" ? "bg-yellow-500 animate-pulse" : 
-                "bg-gray-400"
-              }`}></div>
-              <span className="text-sm font-medium text-purple-800">
-                WebSpeech: {webSpeechStatus === "connected" ? "Active & Listening" : 
-                          webSpeechStatus === "connecting" ? "Starting..." : 
-                          webSpeechStatus === "ready" ? "Ready" : "Inactive"}
-              </span>
-              {webSpeechStatus === "connected" && (
-                <span className="text-xs bg-purple-500 text-white px-2 py-0.5 rounded">PRIMARY ENGINE</span>
-              )}
-            </div>
-          </div>
-        </section>
-      )}
 
       {/* Story Content + Progress Side by Side */}
       <section className="w-full px-4 pt-6 sm:px-8 mb-6 flex flex-col lg:flex-row gap-4 lg:gap-8 relative z-10">
@@ -5908,9 +4928,10 @@ const ReadingSessionPage: React.FC = () => {
                                   <span
                                     onClick={() => handleWordClick(realWordIndex)}
                                     className={`mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 font-serif text-sm sm:text-lg lg:text-2xl rounded cursor-pointer transition-all ${
-                                      isCurrent 
-                                        ? 'bg-transparent border-4 border-yellow-500 font-bold animate-pulse shadow-lg' 
-                                        : getMiscueColorClasses(wordColors.get(realWordIndex)) || 'bg-transparent border-2 border-gray-300'
+                                      getMiscueColorClasses(wordColors.get(realWordIndex)) || 
+                                      (isCurrent && isRecording && !isCompleted 
+                                        ? 'bg-transparent border-4 border-yellow-400 font-semibold animate-pulse' 
+                                        : 'bg-transparent border-2 border-transparent')
                                     } ${selectedWordIndex === realWordIndex ? 'border-2 border-blue-500' : ''}`}
                                     style={{
                                       fontFamily: recommendedFont.fontFamily,
@@ -6244,10 +5265,10 @@ const ReadingSessionPage: React.FC = () => {
                     onClick={handleStartRecording}
                     className="flex items-center justify-center gap-2 sm:gap-3 px-8 sm:px-12 lg:px-16 py-4 sm:py-5 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 text-white text-lg sm:text-xl lg:text-2xl font-bold hover:scale-105 hover:from-blue-600 hover:to-purple-600 transition-all duration-200 shadow-lg"
                   >
-                    <span>🎤 Start Recording</span>
+                    <span>Start</span>
                   </button>
                   <p className="text-sm text-gray-500 text-center">
-                    WebSpeech will start automatically (Vosk as fallback)
+                    Click to begin recording the student's reading
                   </p>
                 </div>
               ) : (
@@ -6256,80 +5277,6 @@ const ReadingSessionPage: React.FC = () => {
                     <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
                     <span className="text-sm font-semibold text-red-600">Recording in Progress</span>
                   </div>
-                  {!isVoskEnabled && !isWebSpeechEnabled && (
-                    <div className="flex items-center gap-2 mb-2 px-3 py-2 bg-yellow-50 border border-yellow-200 rounded-lg">
-                      <span className="text-yellow-600">⚠️</span>
-                      <span className="text-sm text-yellow-700">Speech recognition is disabled</span>
-                    </div>
-                  )}
-                  {(isWebSpeechEnabled || isVoskEnabled) && (
-                    <div className="flex items-center gap-2 mb-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
-                      <span className="text-green-600">✅</span>
-                      <span className="text-sm text-green-700">
-                        Speech recognition active: {isWebSpeechEnabled ? 'WebSpeech (Primary)' : 'Vosk (Fallback)'}
-                      </span>
-                    </div>
-                  )}
-                  {isWebSpeechEnabled && (
-                    <div className="flex items-center gap-2 mb-2 px-3 py-2 bg-purple-50 border border-purple-200 rounded-lg">
-                      <span className="text-purple-600">🎙️</span>
-                      <span className="text-sm text-purple-700">
-                        WebSpeech: {webSpeechStatus === "connected" ? "Active" : webSpeechStatus === "connecting" ? "Starting..." : webSpeechStatus === "ready" ? "Ready" : "Inactive"}
-                      </span>
-                    </div>
-                  )}
-                  
-                  {/* Speech Recognition Toggle Controls */}
-                  <div className="flex flex-col gap-2 mb-4">
-                    <div className="text-xs text-gray-600 font-medium">Speech Recognition Engine:</div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={toggleWebSpeechConnection}
-                        disabled={!isWebSpeechSupported}
-                        className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                          isWebSpeechEnabled 
-                            ? 'bg-purple-100 text-purple-700 border border-purple-300' 
-                            : 'bg-gray-100 text-gray-600 border border-gray-300 hover:bg-gray-200'
-                        } ${!isWebSpeechSupported ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                        title={isWebSpeechSupported ? 'Toggle WebSpeech (Browser-based)' : 'WebSpeech not supported in this browser'}
-                      >
-                        🎙️ WebSpeech {isWebSpeechEnabled ? '(Active)' : ''}
-                      </button>
-                      
-                      {/* DISABLED: Vosk button */}
-                      {false && (
-                      <button
-                        onClick={toggleVoskConnection}
-                        disabled={!isVoskServerAvailable}
-                        className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                          isVoskEnabled 
-                            ? 'bg-blue-100 text-blue-700 border border-blue-300' 
-                            : 'bg-gray-100 text-gray-600 border border-gray-300 hover:bg-gray-200'
-                        } ${!isVoskServerAvailable ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                        title={isVoskServerAvailable ? 'Toggle Vosk (Server-based)' : 'Vosk server not available'}
-                      >
-                        🤖 Vosk {isVoskEnabled ? '(Active)' : ''}
-                      </button>
-                      )}
-                    </div>
-                    
-                    {/* DISABLED: Vosk Server Status */}
-                    {false && (
-                    <VoskServerStatusIndicator 
-                      showDetails={false}
-                      className="mt-2"
-                      onStatusChange={(isAvailable) => setIsVoskServerAvailable(isAvailable)}
-                    />
-                    )}
-                    
-                    {/* Help Text */}
-                    <div className="text-xs text-gray-500 mt-2 p-2 bg-gray-50 rounded">
-                      💡 <strong>WebSpeech</strong> (browser-based) is prioritized when available. 
-                      <strong>Vosk</strong> (server-based) provides better accuracy and works offline.
-                      Only one engine can be active at a time.
-                    </div>
-                  </div>
-                  
                   <button
                     onClick={handleDownloadAudio}
                     disabled={!audioUrl}
@@ -6349,11 +5296,11 @@ const ReadingSessionPage: React.FC = () => {
                   <span>Complete</span>
                 </button>
               )}
-              {(isRecording || hasStarted) && (
+              {isRecording && (
                 <button
                   onClick={handleRetrySession}
                   className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-yellow-500 to-orange-500 text-white text-base sm:text-lg lg:text-xl font-bold hover:scale-105 transition-all duration-200"
-                  title="Reset session and clear all markings"
+                  title="Retry"
                 >
                   <span>Retry</span>
                 </button>
@@ -6368,189 +5315,41 @@ const ReadingSessionPage: React.FC = () => {
       {/* Heard Mic Display - Real-time recognized text with live updates */}
       {isRecording && (
         <section className="w-full px-4 sm:px-8 pb-8 relative z-10">
-          <div className="max-w-4xl mx-auto">
-            <div className={`grid gap-6 ${isVoskEnabled && isWebSpeechEnabled && isWebSpeechSupported ? 'md:grid-cols-2' : 'grid-cols-1'}`}>
+          <div className="max-w-2xl mx-auto">
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg shadow-lg p-6 border-2 border-blue-200">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-600"></span>
+                </span>
+                Recognized Text (Real-time)
+              </h3>
               
-              {/* Vosk Recognition Display */}
-              {isVoskEnabled && (
-                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg shadow-lg p-6 border-2 border-blue-200">
-                  <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                    <span className="relative flex h-3 w-3">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-600"></span>
-                    </span>
-                    Vosk Recognition
-                  </h3>
-                  
-                  {/* Partial text - shows as user is speaking */}
-                  {partialText && (
-                    <div className="mb-4 p-3 bg-blue-100 rounded-lg border-l-4 border-blue-500 animate-pulse">
-                      <p className="text-xs font-semibold text-blue-700 mb-1">🎤 LISTENING (Partial):</p>
-                      <p className="text-blue-900 font-medium text-base">{partialText}</p>
-                    </div>
-                  )}
-                  
-                  {/* Final text - shows when word is confirmed */}
-                  {finalText && (
-                    <div className="p-3 bg-green-100 rounded-lg border-l-4 border-green-500">
-                      <p className="text-xs font-semibold text-green-700 mb-1">✓ RECOGNIZED (Final):</p>
-                      <p className="text-green-900 font-bold text-lg">{finalText}</p>
-                    </div>
-                  )}
-                  
-                  {/* Listening state - when no text yet */}
-                  {!partialText && !finalText && (
-                    <div className="p-3 bg-gray-100 rounded-lg border-l-4 border-gray-400 animate-pulse">
-                      <p className="text-gray-600 italic flex items-center gap-2">
-                        <span className="inline-block w-2 h-2 bg-gray-400 rounded-full animate-bounce"></span>
-                        Listening for voice input...
-                      </p>
-                    </div>
-                  )}
+              {/* Partial text - shows as user is speaking */}
+              {partialText && (
+                <div className="mb-4 p-3 bg-blue-100 rounded-lg border-l-4 border-blue-500 animate-pulse">
+                  <p className="text-xs font-semibold text-blue-700 mb-1">🎤 LISTENING (Partial):</p>
+                  <p className="text-blue-900 font-medium text-base">{partialText}</p>
                 </div>
               )}
-
-              {/* WebSpeech Recognition Display */}
-              {isWebSpeechEnabled && isWebSpeechSupported && (
-                <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg shadow-lg p-6 border-2 border-purple-200">
-                  <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                    <span className="relative flex h-3 w-3">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-3 w-3 bg-purple-600"></span>
-                    </span>
-                    WebSpeech Recognition
-                  </h3>
-                  
-                  {/* WebSpeech transcript */}
-                  {webSpeechTranscript ? (
-                    <div className="p-3 bg-purple-100 rounded-lg border-l-4 border-purple-500">
-                      <p className="text-xs font-semibold text-purple-700 mb-1">🎙️ WEBSPEECH:</p>
-                      <p className="text-purple-900 font-medium text-base">{webSpeechTranscript}</p>
-                    </div>
-                  ) : webSpeechStatus === "connected" ? (
-                    <div className="p-3 bg-gray-100 rounded-lg border-l-4 border-gray-400 animate-pulse">
-                      <p className="text-gray-600 italic flex items-center gap-2">
-                        <span className="inline-block w-2 h-2 bg-gray-400 rounded-full animate-bounce"></span>
-                        WebSpeech listening...
-                      </p>
-                    </div>
-                  ) : webSpeechStatus === "connecting" ? (
-                    <div className="p-3 bg-yellow-100 rounded-lg border-l-4 border-yellow-400 animate-pulse">
-                      <p className="text-yellow-600 italic flex items-center gap-2">
-                        <span className="inline-block w-2 h-2 bg-yellow-400 rounded-full animate-bounce"></span>
-                        WebSpeech starting...
-                      </p>
-                    </div>
-                  ) : webSpeechStatus === "ready" ? (
-                    <div className="p-3 bg-green-100 rounded-lg border-l-4 border-green-400">
-                      <p className="text-green-600 italic flex items-center gap-2">
-                        <span className="inline-block w-2 h-2 bg-green-400 rounded-full"></span>
-                        WebSpeech ready (click Start Recording)
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="p-3 bg-red-100 rounded-lg border-l-4 border-red-400">
-                      <p className="text-red-600 italic flex items-center gap-2">
-                        <span className="inline-block w-2 h-2 bg-red-400 rounded-full"></span>
-                        WebSpeech not active (Status: {webSpeechStatus})
-                      </p>
-                    </div>
-                  )}
+              
+              {/* Final text - shows when word is confirmed */}
+              {finalText && (
+                <div className="p-3 bg-green-100 rounded-lg border-l-4 border-green-500">
+                  <p className="text-xs font-semibold text-green-700 mb-1">✓ RECOGNIZED (Final):</p>
+                  <p className="text-green-900 font-bold text-lg">{finalText}</p>
                 </div>
               )}
-
-            </div>
-            
-            {/* Comparison Info when both are active */}
-            {isVoskEnabled && isWebSpeechEnabled && isWebSpeechSupported && (voskStatus === "connected" || webSpeechStatus === "connected") && (
-              <div className="mt-4 p-3 bg-gradient-to-r from-blue-50 to-purple-50 border border-gray-200 rounded-lg">
-                <p className="text-sm text-gray-700 text-center">
-                  <span className="font-semibold">Dual Recognition Active:</span> Compare Vosk (server-based) vs WebSpeech (browser-based) results
-                </p>
-              </div>
-            )}
-            
-          </div>
-        </section>
-      )}
-
-      {/* Speech Recognition System Info */}
-      {!isRecording && (
-        <section className="w-full px-4 sm:px-8 pb-4 relative z-10">
-          <div className="max-w-4xl mx-auto">
-            <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-gray-200 rounded-lg p-4">
-              <div className="flex items-center gap-2 justify-center">
-                <span className="text-blue-600">ℹ️</span>
-                <span className="text-sm text-gray-700 text-center">
-                  <span className="font-semibold">Speech Recognition:</span> 
-                  {isWebSpeechEnabled && isWebSpeechSupported
-                    ? " Using WebSpeech (browser-based recognition)"
-                    : " WebSpeech not available"
-                  }
-                </span>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* WebSpeech Error Info */}
-      {isWebSpeechEnabled && webSpeechHasErrors && (
-        <section className="w-full px-4 sm:px-8 pb-4 relative z-10">
-          <div className="max-w-2xl mx-auto">
-            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-              <div className="flex items-center gap-2">
-                <span className="text-orange-600">⚠️</span>
-                <div className="flex-1">
-                  <span className="text-sm text-orange-700 font-medium">
-                    WebSpeech stopped due to repeated errors (likely no microphone input detected).
-                  </span>
-                  <button
-                    onClick={() => {
-                      setWebSpeechHasErrors(false);
-                      webSpeechRestartAttemptsRef.current = 0;
-                      if (isRecording && !isPaused) {
-                        startWebSpeech();
-                      }
-                    }}
-                    className="ml-2 text-orange-600 hover:text-orange-800 underline text-sm"
-                  >
-                    Retry
-                  </button>
+              
+              {/* Listening state - when no text yet */}
+              {!partialText && !finalText && (
+                <div className="p-3 bg-gray-100 rounded-lg border-l-4 border-gray-400 animate-pulse">
+                  <p className="text-gray-600 italic flex items-center gap-2">
+                    <span className="inline-block w-2 h-2 bg-gray-400 rounded-full animate-bounce"></span>
+                    Listening for voice input...
+                  </p>
                 </div>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* WebSpeech Ready State Info - Shows when enabled but not recording */}
-      {!isRecording && isWebSpeechEnabled && isWebSpeechSupported && (
-        <section className="w-full px-4 sm:px-8 pb-4 relative z-10">
-          <div className="max-w-2xl mx-auto">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <div className="flex items-center gap-2">
-                <span className="text-blue-600">⚡</span>
-                <span className="text-sm text-blue-700 font-medium">
-                  WebSpeech is ready. It will start automatically when you begin recording.
-                </span>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* WebSpeech Not Supported Info */}
-      {!isWebSpeechSupported && (
-        <section className="w-full px-4 sm:px-8 pb-4 relative z-10">
-          <div className="max-w-2xl mx-auto">
-            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-              <div className="flex items-center gap-2">
-                <span className="text-orange-600">⚠️</span>
-                <span className="text-sm text-orange-700 font-medium">
-                  WebSpeech API is not supported in this browser. Use Chrome, Edge, or Safari for WebSpeech recognition.
-                </span>
-              </div>
+              )}
             </div>
           </div>
         </section>

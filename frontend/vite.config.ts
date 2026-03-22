@@ -5,9 +5,13 @@ import path from 'path'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react({
-    jsxImportSource: '@emotion/react',
+    // Use ESBuild instead of Babel to avoid parsing issues with complex React components
+    // jsxImportSource: '@emotion/react',
     babel: {
-      plugins: ['@emotion/babel-plugin'],
+      // plugins: ['@emotion/babel-plugin'],
+      parserOpts: {
+        plugins: ['jsx', 'typescript']
+      }
     },
   })],
   optimizeDeps: {

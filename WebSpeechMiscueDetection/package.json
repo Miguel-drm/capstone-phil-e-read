@@ -1,0 +1,60 @@
+{
+  "name": "webspeech-miscue-detection",
+  "version": "1.0.0",
+  "description": "Advanced miscue detection system for WebSpeech API integration",
+  "main": "index.ts",
+  "types": "index.ts",
+  "scripts": {
+    "dev": "tsc --watch",
+    "build": "tsc",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix"
+  },
+  "keywords": [
+    "webspeech",
+    "miscue-detection",
+    "speech-recognition",
+    "reading-assessment",
+    "phonetic-analysis",
+    "educational-technology",
+    "real-time-processing"
+  ],
+  "author": "WebSpeech Miscue Detection Team",
+  "license": "MIT",
+  "dependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "@types/jest": "^29.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "jest": "^29.0.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "react": ">=16.8.0",
+    "react-dom": ">=16.8.0"
+  },
+  "files": [
+    "core/",
+    "utils/",
+    "integration/",
+    "types/",
+    "index.ts",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/webspeech-miscue-detection.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-org/webspeech-miscue-detection/issues"
+  },
+  "homepage": "https://github.com/your-org/webspeech-miscue-detection#readme"
+}
