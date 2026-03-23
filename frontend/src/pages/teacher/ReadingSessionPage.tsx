@@ -29,7 +29,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getUserProfile } from "@/services/authService";
 import gsap from "gsap";
 import { VoskServerStatusIndicator } from "../../components/vosk/VoskServerStatusIndicator";
-import { useVoskServerStatus, isVoskServerAvailable } from "../../utils/voskServerManager";
 
 // WebSpeech API type declarations
 declare global {
@@ -43,6 +42,8 @@ interface SpeechRecognition extends EventTarget {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
+  // Some browsers expose additional optional properties on the Web Speech instance.
+  maxAlternatives?: number;
   start(): void;
   stop(): void;
   abort(): void;
@@ -91,6 +92,32 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.j
 // Helper to check if a word index matches the current word
 function isWordCurrent(realWordIndex: number, currentWordIndex: number): boolean {
   return realWordIndex === currentWordIndex;
+}
+
+/**
+ * Web Speech often concatenates result segments without a space (e.g. "cat." + "It" → "cat.It"),
+ * which breaks whitespace tokenization and desyncs transcript matching from the story cursor.
+ */
+function appendSpeechTranscriptChunk(base: string, chunk: string): string {
+  if (!chunk) return base;
+  if (!base) return chunk;
+  const last = base[base.length - 1];
+  const first = chunk[0];
+  if (/\s/.test(last) || /\s/.test(first)) return base + chunk;
+  return `${base} ${chunk}`;
+}
+
+/** Insert missing spaces after punctuation when the engine returns one glued string (e.g. cat.It). */
+function normalizeGluedTokensInSpeechTranscript(text: string): string {
+  if (!text) return text;
+  let t = text;
+  // Repeat so chained glues like "a.b.C" all get spaces (each pass fixes one boundary).
+  for (let pass = 0; pass < 6; pass++) {
+    const next = t.replace(/([.!?]["'"]?)([A-Za-z])/g, "$1 $2");
+    if (next === t) break;
+    t = next;
+  }
+  return t.replace(/\s+/g, " ").trim();
 }
 
 // Debug helper to log word progression state
@@ -407,6 +434,7 @@ const ReadingSessionPage: React.FC = () => {
     "english"
   );
   const [isVoskEnabled, setIsVoskEnabled] = useState<boolean>(false); // Start disabled - WebSpeech has priority
+  const isVoskEnabledRef = useRef<boolean>(false);
   const [isWebSpeechEnabled, setIsWebSpeechEnabled] = useState<boolean>(true); // Start enabled - WebSpeech priority
   const [isWebSpeechSupported, setIsWebSpeechSupported] = useState<boolean>(false);
   const [webSpeechHasErrors, setWebSpeechHasErrors] = useState<boolean>(false);
@@ -426,12 +454,12 @@ const ReadingSessionPage: React.FC = () => {
   // 100% REAL-TIME: Track word colors for miscue-based highlighting
   // Map of word index to miscue type: 'correct' (green), 'mispronounce' (yellow), 'substitution' (red), 
   // 'omission' (orange), 'insertion' (purple), 'transposition' (blue), 'reversal' (pink), 'self_correct' (cyan), 'current' (yellow border), 'unread' (gray)
-  const [wordColors, setWordColors] = useState<Map<number, 'correct' | 'mispronounce' | 'substitution' | 'omission' | 'insertion' | 'transposition' | 'reversal' | 'self_correct' | 'current' | 'unread'>>(new Map());
+  const [wordColors, setWordColors] = useState<Map<number, 'correct' | 'mispronounce' | 'substitution' | 'omission' | 'insertion' | 'transposition' | 'reversal' | 'self_correct' | 'repetition' | 'current' | 'unread'>>(new Map());
 
   // Heard Mic Display state
   const [partialText, setPartialText] = useState("");
   const [finalText, setFinalText] = useState("");
-  const [frequencyData, setFrequencyData] = useState<Uint8Array | undefined>();
+  const [, setFrequencyData] = useState<Uint8Array | undefined>();
   const [latency, setLatency] = useState<number>(0);  // 100% REAL-TIME: Track latency
   const [hybridMode, setHybridMode] = useState<'word_by_word' | 'multi_word'>('word_by_word');  // HYBRID: Current mode
   const [readingSpeed, setReadingSpeed] = useState<number>(0);  // HYBRID: Words per second
@@ -441,6 +469,9 @@ const ReadingSessionPage: React.FC = () => {
   const webSpeechRef = useRef<SpeechRecognition | null>(null);
   const [webSpeechTranscript, setWebSpeechTranscript] = useState<string>("");
   const webSpeechRestartAttemptsRef = useRef<number>(0);
+  const webSpeechLastStartAttemptRef = useRef<number>(0);
+  /** Prevents overlapping recognition.start() calls that cause aborted/restart storms */
+  const webSpeechIsStartingRef = useRef<boolean>(false);
   const webSpeechLastErrorRef = useRef<string>("");
   const analyserRef = useRef<AnalyserNode | null>(null);
   const processedWordsRef = useRef<Set<number>>(new Set()); // Track which word positions have been processed to prevent duplicates
@@ -464,6 +495,10 @@ const ReadingSessionPage: React.FC = () => {
   // ============================================================================
   // VOSK CONNECTION MANAGEMENT
   // ============================================================================
+
+  useEffect(() => {
+    isVoskEnabledRef.current = isVoskEnabled;
+  }, [isVoskEnabled]);
 
   /**
    * Clean up all Vosk-related resources including WebSocket, audio nodes, and timers.
@@ -685,16 +720,22 @@ const ReadingSessionPage: React.FC = () => {
     // Reset error counters
     webSpeechRestartAttemptsRef.current = 0;
     webSpeechLastErrorRef.current = "";
+    webSpeechIsStartingRef.current = false;
     setWebSpeechHasErrors(false);
   };
 
   /**
    * Start WebSpeech recognition
    */
-  const startWebSpeech = () => {
+  const startWebSpeech = (options?: { bypassDebounce?: boolean }) => {
     if (!isWebSpeechEnabled) {
       console.log('🔇 WebSpeech is disabled - skipping start');
       setWebSpeechStatus("disconnected");
+      return;
+    }
+
+    if (webSpeechIsStartingRef.current) {
+      console.log('⏳ WebSpeech start skipped (already starting — prevents aborted loop)');
       return;
     }
 
@@ -708,6 +749,18 @@ const ReadingSessionPage: React.FC = () => {
     if (webSpeechStatus === "connecting") {
       console.log('🔄 WebSpeech is already connecting - skipping duplicate start');
       return;
+    }
+
+    // Debounce: onend + useEffect can double-call; no-speech retries MUST NOT be blocked
+    if (!options?.bypassDebounce) {
+      const debounceNow = Date.now();
+      if (debounceNow - webSpeechLastStartAttemptRef.current < 220) {
+        console.log('⏳ WebSpeech start skipped (debounced)');
+        return;
+      }
+      webSpeechLastStartAttemptRef.current = debounceNow;
+    } else {
+      webSpeechLastStartAttemptRef.current = Date.now();
     }
 
     // Check if browser supports WebSpeech
@@ -746,38 +799,6 @@ const ReadingSessionPage: React.FC = () => {
         (recognition as any).serviceURI = 'builtin:speech/broadcast';
       }
 
-      recognition.onstart = () => {
-        console.log('🎤 WebSpeech started');
-        setWebSpeechStatus("connected");
-        // Reset error counters on successful start
-        webSpeechRestartAttemptsRef.current = 0;
-        webSpeechLastErrorRef.current = "";
-        setWebSpeechHasErrors(false);
-        
-        // Start health check to ensure WebSpeech stays active
-        if (webSpeechHealthCheckRef.current) {
-          clearInterval(webSpeechHealthCheckRef.current);
-        }
-        
-        webSpeechHealthCheckRef.current = setInterval(() => {
-          // Check if WebSpeech is still active and recording is still on
-          if (isRecording && !isPaused && isWebSpeechEnabled) {
-            if (!webSpeechRef.current || webSpeechStatus === "disconnected") {
-              console.log('🔄 Health check: WebSpeech disconnected, restarting...');
-              // Clear the reference before restarting
-              webSpeechRef.current = null;
-              startWebSpeech();
-            }
-          } else {
-            // Stop health check if not recording
-            if (webSpeechHealthCheckRef.current) {
-              clearInterval(webSpeechHealthCheckRef.current);
-              webSpeechHealthCheckRef.current = null;
-            }
-          }
-        }, 3000); // Check every 3 seconds for better responsiveness
-      };
-
       recognition.onresult = (event) => {
         // Ensure status is correct when receiving results
         if (webSpeechStatus !== "connected") {
@@ -785,19 +806,30 @@ const ReadingSessionPage: React.FC = () => {
           setWebSpeechStatus("connected");
         }
         
+        // Rebuild full transcript from ALL results (not only resultIndex→end) so we never drop
+        // earlier finals when the engine advances resultIndex (fixes "Oh no" + partial follow-up).
         let interimTranscript = '';
         let finalTranscript = '';
-
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
+        let sawNewFinal = false;
+        for (let i = 0; i < event.results.length; i++) {
+          const piece = event.results[i][0].transcript;
           if (event.results[i].isFinal) {
-            finalTranscript += transcript;
+            if (i >= event.resultIndex) sawNewFinal = true;
+            finalTranscript = appendSpeechTranscriptChunk(finalTranscript, piece);
           } else {
-            interimTranscript += transcript;
+            interimTranscript = appendSpeechTranscriptChunk(interimTranscript, piece);
           }
         }
 
-        const fullTranscript = finalTranscript + interimTranscript;
+        // Only reset when THIS event newly finalizes segment(s); otherwise every interim tick
+        // would clear the offset while the same finals remain in results[].
+        if (sawNewFinal) {
+          processedTranscriptWordsRef.current = 0;
+        }
+
+        const fullTranscript = normalizeGluedTokensInSpeechTranscript(
+          appendSpeechTranscriptChunk(finalTranscript, interimTranscript)
+        );
         setWebSpeechTranscript(fullTranscript);
         
         // CRITICAL FIX: Update main transcript state for word matching
@@ -814,6 +846,7 @@ const ReadingSessionPage: React.FC = () => {
       };
 
       recognition.onerror = (event) => {
+        webSpeechIsStartingRef.current = false;
         console.error('❌ WebSpeech error:', event.error, event.message);
         webSpeechLastErrorRef.current = event.error;
         
@@ -837,8 +870,13 @@ const ReadingSessionPage: React.FC = () => {
           // DON'T increment restart attempts for no-speech - this is normal and should not count as failure
           // webSpeechRestartAttemptsRef.current++; // REMOVED - no-speech is not a real error
           
-          // Set status to disconnected but don't return - let onend handle the restart
+          // Set status to disconnected and trigger a quick retry while recording.
           setWebSpeechStatus("disconnected");
+          if (isRecording && !isPaused && isWebSpeechEnabled) {
+            setTimeout(() => {
+              startWebSpeech({ bypassDebounce: true });
+            }, 450);
+          }
           return;
         } else if (event.error === 'network') {
           console.warn(`⚠️ WebSpeech network error (attempt ${webSpeechRestartAttemptsRef.current + 1}/5) - this is normal and will retry`);
@@ -877,6 +915,7 @@ const ReadingSessionPage: React.FC = () => {
       };
 
       recognition.onend = () => {
+        webSpeechIsStartingRef.current = false;
         console.log('🔌 WebSpeech ended');
         setWebSpeechStatus("disconnected");
         
@@ -900,9 +939,9 @@ const ReadingSessionPage: React.FC = () => {
             // Use a shorter delay for restart to make it faster
             setTimeout(() => {
               if (isRecording && !isPaused && isWebSpeechEnabled) {
-                startWebSpeech();
+                startWebSpeech({ bypassDebounce: true });
               }
-            }, 100); // Reduced delay to 100ms for faster restart
+            }, 520); // One restart path; must not race useEffect / no-speech
           } else {
             console.warn('⚠️ WebSpeech restart limit reached - Vosk fallback disabled');
             // AUTOMATIC FALLBACK: Vosk disabled
@@ -923,8 +962,9 @@ const ReadingSessionPage: React.FC = () => {
       webSpeechRef.current = recognition;
       
       // Add startup timeout - if WebSpeech doesn't start within 1 second, show error
+      let didStart = false;
       const startupTimeout = setTimeout(() => {
-        if (webSpeechStatus === "connecting") {
+        if (!didStart) {
           console.warn('⚠️ WebSpeech startup timeout - Vosk fallback disabled');
           setWebSpeechStatus("disconnected");
           setIsWebSpeechEnabled(false);
@@ -944,6 +984,8 @@ const ReadingSessionPage: React.FC = () => {
       
       recognition.onstart = () => {
         clearTimeout(startupTimeout); // Clear timeout on successful start
+        didStart = true;
+        webSpeechIsStartingRef.current = false;
         console.log('🎤 WebSpeech started successfully');
         console.log('🔍 Setting webSpeechStatus to "connected"');
         setWebSpeechStatus("connected");
@@ -960,11 +1002,8 @@ const ReadingSessionPage: React.FC = () => {
         webSpeechHealthCheckRef.current = setInterval(() => {
           // Check if WebSpeech is still active and recording is still on
           if (isRecording && !isPaused && isWebSpeechEnabled) {
-            if (!webSpeechRef.current || webSpeechStatus === "disconnected") {
-              console.log('🔄 Health check: WebSpeech disconnected, restarting...');
-              // Clear the reference before restarting
-              webSpeechRef.current = null;
-              startWebSpeech();
+            if (!webSpeechRef.current) {
+              console.log('⚠️ Health check: WebSpeech ref cleared (onend restarts while recording)');
             }
           } else {
             // Stop health check if not recording
@@ -976,9 +1015,16 @@ const ReadingSessionPage: React.FC = () => {
         }, 5000); // Check every 5 seconds (increased from 3 seconds)
       };
       
-      recognition.start();
+      webSpeechIsStartingRef.current = true;
+      try {
+        recognition.start();
+      } catch (startErr) {
+        webSpeechIsStartingRef.current = false;
+        throw startErr;
+      }
 
     } catch (error) {
+      webSpeechIsStartingRef.current = false;
       console.error('❌ Failed to start WebSpeech:', error);
       setWebSpeechStatus("disconnected");
       
@@ -1208,6 +1254,12 @@ const ReadingSessionPage: React.FC = () => {
       try {
         const msg = JSON.parse(evt.data);
 
+        // Guard: Ignore all Vosk-driven progression updates when Vosk mode is off.
+        // This prevents stale/background socket messages from overriding WebSpeech word index.
+        if (!isVoskEnabledRef.current) {
+          return;
+        }
+
         // Handle server error messages (e.g., model not available)
         if (msg.error) {
           console.error(`❌ Server error: ${msg.error}`);
@@ -1295,7 +1347,7 @@ const ReadingSessionPage: React.FC = () => {
 
         // 100% REAL-TIME: Handle word_match messages for miscue-based word coloring
         if (msg.type === 'word_match') {
-          const { word, expected_word, is_correct, position, advance, new_position, words_read, total_miscues, timestamp, mode, reading_speed, buffer, miscue_type, miscue_severity } = msg;
+          const { word, expected_word, is_correct, position, new_position, words_read, timestamp, mode, reading_speed, miscue_type, miscue_severity } = msg;
           
           // Measure latency
           if (timestamp) {
@@ -1326,7 +1378,13 @@ const ReadingSessionPage: React.FC = () => {
           if (is_correct || miscue_type === 'correct') {
             // CORRECT WORD ✅ - Color it based on miscue type
             setRecognizedWords(prev => new Set(prev).add(position));
-            setCurrentWordIndex(new_position);
+            if (typeof new_position === 'number') {
+              setCurrentWordIndex(prev => {
+                const next = Math.max(prev, new_position);
+                optimisticWordIndexRef.current = Math.max(optimisticWordIndexRef.current, next);
+                return next;
+              });
+            }
             setWordsRead(words_read);
             console.log(`✅ ${miscue_type?.toUpperCase() || 'CORRECT'}: "${word}" at position ${position}`);
           } else {
@@ -1462,7 +1520,6 @@ const ReadingSessionPage: React.FC = () => {
             case 'omission':
               updatePosition(new_position);
               // Omission detection handled server-side
-              setCurrentWordIndex(new_position);
               console.log(`⭕ Omission detected at position ${oldPosition}`);
               break;
               
@@ -1491,7 +1548,7 @@ const ReadingSessionPage: React.FC = () => {
                 
                 console.log(`🔊 Mispronunciation: "${word}" → "${expectedWord}"`);
               }
-              setCurrentWordIndex(new_position);
+              updatePosition(new_position);
               console.log(`� Mispronunciation detected at position ${oldPosition}`);
               break;
               
@@ -1514,7 +1571,7 @@ const ReadingSessionPage: React.FC = () => {
                 setMiscues(prev => prev + 1);
                 setMiscueTypes(prev => ({ ...prev, reversal: prev.reversal + 1 }));
               }
-              setCurrentWordIndex(new_position);
+              updatePosition(new_position);
               console.log(`🔄 Reversal detected at position ${oldPosition}`);
               break;
               
@@ -1553,7 +1610,7 @@ const ReadingSessionPage: React.FC = () => {
                 
                 console.log(`🔄 Substitution: "${word}" → "${expectedWord}"`);
               }
-              setCurrentWordIndex(new_position);
+              updatePosition(new_position);
               console.log(`� Substitution detected at position ${oldPosition}: "${word}"`);
               break;
               
@@ -1584,7 +1641,7 @@ const ReadingSessionPage: React.FC = () => {
                   });
                 }
               }
-              setCurrentWordIndex(new_position);
+              updatePosition(new_position);
               console.log(`➕ Insertion detected at position ${oldPosition}: "${word}"`);
               break;
               
@@ -1613,7 +1670,7 @@ const ReadingSessionPage: React.FC = () => {
                 setMiscues(prev => prev + 1);
                 setMiscueTypes(prev => ({ ...prev, repetition: prev.repetition + 1 }));
               }
-              setCurrentWordIndex(new_position);
+              updatePosition(new_position);
               console.log(`🔁 Repetition detected at position ${oldPosition} (time gap: ${timeGapMs}ms)`);
               break;
               
@@ -1641,7 +1698,7 @@ const ReadingSessionPage: React.FC = () => {
                 
                 console.log(`✅ Self-correction: "${word}" → "${expectedWord}"`);
               }
-              setCurrentWordIndex(new_position);
+              updatePosition(new_position);
               console.log(`✅ Self-correction detected at position ${oldPosition}`);
               break;
               
@@ -1664,7 +1721,7 @@ const ReadingSessionPage: React.FC = () => {
                 setMiscues(prev => prev + 1);
                 setMiscueTypes(prev => ({ ...prev, transposition: prev.transposition + 1 }));
               }
-              setCurrentWordIndex(new_position);
+              updatePosition(new_position);
               console.log(`↔️ Transposition detected at position ${oldPosition}`);
               break;
           }
@@ -1820,7 +1877,7 @@ const ReadingSessionPage: React.FC = () => {
   const [wordMiscues, setWordMiscues] = useState<Map<number, MiscueType>>(new Map());
 
   // Track marking annotations for each word (following DepEd Table 4)
-  const [wordMarkings, setWordMarkings] = useState<Map<number, {
+  const [, setWordMarkings] = useState<Map<number, {
     type: MiscueType;
     marking: string; // The actual marking (underline, circle, caret, etc.)
     spokenWord?: string; // What the child actually said
@@ -1830,7 +1887,7 @@ const ReadingSessionPage: React.FC = () => {
   }>>(new Map());
 
   // Track inserted words (extra words child said) with their position
-  const [insertedWords, setInsertedWords] = useState<Map<number, string[]>>(new Map());
+  const [, setInsertedWords] = useState<Map<number, string[]>>(new Map());
   
   // Track repeated words (words said twice) with their position
   // @ts-expect-error - Unused variable kept for future feature
@@ -1929,11 +1986,23 @@ const ReadingSessionPage: React.FC = () => {
   // Helper: Check if a word contains any alphanumeric character
   const isWordAlphanumeric = (word: string) => /[a-zA-Z0-9]/.test(word);
 
-  // Helper: Extract all readable words (alphanumeric only) from text, skipping punctuation/symbols
+  /**
+   * Extract story tokens for matching — MUST use the same rules as the rendered word boxes
+   * (paragraph.split → trim.split(/\s+/) → token has /\w+/). A global \\b\\w+ regex can disagree
+   * on quoted words / hyphens and causes index "jumping" vs yellow highlight & colors.
+   */
   function extractWordsFromText(text: string): string[] {
-    // This regex matches words including contractions (e.g., "It's", "don't", "I'll")
-    // \b\w+(?:'\w+)?\b matches: word boundary + word chars + optional apostrophe + more word chars
-    return text.match(/\b\w+(?:'\w+)?\b/g) || [];
+    const out: string[] = [];
+    for (const paragraph of text.split("\n")) {
+      const trimmed = paragraph.trim();
+      if (!trimmed) continue;
+      for (const token of trimmed.split(/\s+/)) {
+        if (/\w+/.test(token)) {
+          out.push(token);
+        }
+      }
+    }
+    return out;
   }
 
   // Helper: Detect if a word is likely English (for language validation)
@@ -2024,6 +2093,10 @@ const ReadingSessionPage: React.FC = () => {
   function getPhoneticSimilarity(word1: string, word2: string): number {
     // Common phonetic substitutions that children make
     const phoneticMap: { [key: string]: string[] } = {
+      // STT often hears "Palm" / "pan" for the name Pam
+      'pam': ['palm', 'pan', 'ham', 'sam', 'bam', 'bum'],
+      'palm': ['pam', 'pan'],
+      'bum': ['pam', 'bam'],
       'cat': ['cut', 'cot', 'kit', 'kat'],
       'cut': ['cat', 'cot', 'kit', 'kut'],
       'the': ['da', 'de', 'thee', 'thuh'],
@@ -2045,12 +2118,12 @@ const ReadingSessionPage: React.FC = () => {
       return 0.85; // High similarity for known phonetic variants
     }
 
-    // Check for common ending confusions
+    // Same stem, different last letter (e.g. cats/cath) — require longer stems so "can"/"cat" don't match
     if (word1.length > 2 && word2.length > 2) {
       const stem1 = word1.slice(0, -1);
       const stem2 = word2.slice(0, -1);
-      if (stem1 === stem2) {
-        return 0.8; // High similarity for same stem, different ending
+      if (stem1 === stem2 && stem1.length >= 3) {
+        return 0.8;
       }
     }
 
@@ -2117,6 +2190,15 @@ const ReadingSessionPage: React.FC = () => {
       return true;
     }
 
+    // High string similarity but different words — STT often has both in running text
+    if (
+      (normSpoken === "can" && normExpected === "cat") ||
+      (normSpoken === "cat" && normExpected === "can")
+    ) {
+      console.log(`   ❌ Rejected confusable pair: "${normSpoken}" vs "${normExpected}"`);
+      return false;
+    }
+
     // Add fuzzy matching for better accuracy with child-friendly threshold
     const similarity = getCachedSimilarity(normSpoken, normExpected);
     
@@ -2129,6 +2211,52 @@ const ReadingSessionPage: React.FC = () => {
     console.log(`   ${isFuzzyMatch ? '✅' : '❌'} Fuzzy match: ${similarity.toFixed(3)} (phonetic: ${phoneticSimilarity.toFixed(3)}, best: ${bestSimilarity.toFixed(3)}, threshold: 0.6)`);
     
     return isFuzzyMatch;
+  }
+
+  /**
+   * WebSpeech often sends a full-sentence FINAL after interim results already marked those words.
+   * The repeated phrase (e.g. "It is on the bed.") can wrongly match the *next* identical word in the story
+   * (second "It"). Strip a leading transcript prefix that exactly replays already-recognized story words.
+   */
+  function stripDuplicateStoryPrefixForTranscript(
+    tokens: string[],
+    storyIndex: number,
+    storyWords: string[],
+    recognized: Set<number>
+  ): string[] {
+    if (!tokens.length || storyIndex <= 0) return tokens;
+    const maxLen = Math.min(tokens.length, storyIndex);
+    let maxStrip = 0;
+    for (let strip = maxLen; strip >= 1; strip--) {
+      let ok = true;
+      for (let k = 0; k < strip; k++) {
+        const wi = storyIndex - strip + k;
+        if (wi < 0 || wi >= storyWords.length) {
+          ok = false;
+          break;
+        }
+        if (!recognized.has(wi)) {
+          ok = false;
+          break;
+        }
+        // Strict strip only: fuzzy match here let "can"≈"cat" consume wrong prefix on mega-transcripts
+        if (normalize(tokens[k]) !== normalize(storyWords[wi])) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) {
+        maxStrip = strip;
+        break;
+      }
+    }
+    if (maxStrip > 0) {
+      console.log(
+        `🧹 Stripped ${maxStrip} duplicate transcript token(s) (replay of already-read words ${storyIndex - maxStrip}–${storyIndex - 1})`
+      );
+      return tokens.slice(maxStrip);
+    }
+    return tokens;
   }
 
   // Helper: Split text into display words and normalized words, and mark if each is alphanumeric
@@ -2551,6 +2679,8 @@ const ReadingSessionPage: React.FC = () => {
     setIsPaused(false);
     setHasStarted(true); // Mark that session has started
     setTranscript("");
+    lastTranscriptRef.current = "";
+    lastProcessedTranscriptNormRef.current = "";
     voskFinalTranscriptRef.current = ""; // Reset Vosk transcript accumulator
     setWebSpeechTranscript(""); // Reset WebSpeech transcript
     setWordsRead(0);
@@ -2630,7 +2760,6 @@ const ReadingSessionPage: React.FC = () => {
     }
 
     // DISABLED: Use Vosk for both Tagalog and English stories
-    const useVosk = false; // DISABLED
     /*
     const useVosk = storyLanguage === "tagalog" || storyLanguage === "english";
       if (useVosk) {
@@ -3787,8 +3916,59 @@ const ReadingSessionPage: React.FC = () => {
     }
   }, [storyText, pdfContent]);
 
+  // Pin yellow to first unread when *recognition / miscue maps* change only.
+  // Do NOT depend on currentWordIndex — otherwise this runs right after the matcher advances
+  // but before React commits recognizedWords, and snaps the cursor backward (jumping UI).
+  useEffect(() => {
+    if (!isRecording) return;
+    if (isVoskEnabled) return;
+    const storyLen = realWords.length;
+    if (!storyLen) return;
+
+    let firstUnreadIndex = 0;
+    while (firstUnreadIndex < storyLen) {
+      const isRecognized = recognizedWords.has(firstUnreadIndex);
+      const hasMiscue = wordMiscues.has(firstUnreadIndex);
+      if (!isRecognized && !hasMiscue) break;
+      firstUnreadIndex++;
+    }
+
+    const targetIndex = Math.min(firstUnreadIndex, storyLen);
+
+    setCurrentWordIndex((prev) => {
+      if (prev === targetIndex) return prev;
+      console.log(`🧭 Realigning current word index from ${prev} to ${targetIndex} (first unread word)`);
+      optimisticWordIndexRef.current = targetIndex;
+      lastProcessedIndexRef.current = targetIndex;
+      return targetIndex;
+    });
+  }, [isRecording, isVoskEnabled, realWords.length, recognizedWords, wordMiscues]);
+
+  // Keep visual colors in sync with recognition state.
+  // If a word is recognized but has no explicit miscue color, mark it as correct (green).
+  useEffect(() => {
+    if (!recognizedWords.size) return;
+
+    setWordColors((prev) => {
+      const next = new Map(prev);
+      let changed = false;
+
+      recognizedWords.forEach((idx) => {
+        const existingColor = next.get(idx);
+        // Preserve miscue colors. Only fill missing/unread/current with correct.
+        if (!existingColor || existingColor === "unread" || existingColor === "current") {
+          next.set(idx, "correct");
+          changed = true;
+        }
+      });
+
+      return changed ? next : prev;
+    });
+  }, [recognizedWords]);
+
   // Optimized word matching with memoization and caching
   const lastTranscriptRef = useRef<string>("");
+  const lastProcessedTranscriptNormRef = useRef<string>("");
   const lastProcessedIndexRef = useRef<number>(-1);
   const matchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastMiscueWordRef = useRef<string>(""); // Track last miscue to avoid duplicates
@@ -3841,13 +4021,16 @@ const ReadingSessionPage: React.FC = () => {
   useEffect(() => {
     if (!transcript || !realWords.length) return;
     
-    // Allow processing even when at the last word (don't use >= comparison)
-    if (currentWordIndex > realWords.length) return;
+    // At or past end of story — nothing to match (avoids undefined expected word)
+    if (currentWordIndex >= realWords.length) return;
 
-    // Skip validation if optimistic mode is active
+    // Ref can run ahead of committed React state for one frame; never block matching on that
+    // or new speech will never register (yellow moves but greens stop updating).
     if (optimisticWordIndexRef.current > currentWordIndex) {
-      console.log('⚡ Skipping slow validation (optimistic mode active)');
-      return;
+      console.log(
+        `⚡ Resync optimisticWordIndexRef (${optimisticWordIndexRef.current} → ${currentWordIndex}) so transcript matching can run`
+      );
+      optimisticWordIndexRef.current = currentWordIndex;
     }
 
     // Process if transcript changed OR if we moved to a new word
@@ -3856,15 +4039,16 @@ const ReadingSessionPage: React.FC = () => {
 
     if (!transcriptChanged && !indexChanged) return;
 
-    // CRITICAL: Prevent processing the same transcript content multiple times
-    // This prevents duplicate word marking when WebSpeech sends overlapping transcripts
+    // Prevent processing the exact same normalized transcript twice (overlapping WebSpeech results)
     const normalizedTranscript = transcript.toLowerCase().trim();
-    if (normalizedTranscript === lastTranscriptRef.current?.toLowerCase().trim()) {
+    const lastNorm = lastProcessedTranscriptNormRef.current;
+    if (normalizedTranscript === lastNorm) {
       console.log('🔄 Skipping duplicate transcript processing');
       return;
     }
 
     lastTranscriptRef.current = transcript;
+    lastProcessedTranscriptNormRef.current = normalizedTranscript;
     lastProcessedIndexRef.current = currentWordIndex;
 
     // Reset stuck timer when word changes
@@ -3894,21 +4078,35 @@ const ReadingSessionPage: React.FC = () => {
     // ZERO DELAY RECOGNITION: 5ms delay - absolute minimum to avoid interim results
     // User requirement: "if i say 'bata' the mic heard instant get the 'bata' word with 0 delay"
     matchTimeoutRef.current = setTimeout(() => {
+      // Past end of story — avoid "Expected word: undefined" and bad near-complete matches
+      if (!realWords.length || currentWordIndex >= realWords.length) {
+        if (currentWordIndex >= realWords.length && realWords.length > 0) {
+          console.log(`🏁 Story complete (index ${currentWordIndex} ≥ ${realWords.length}) — skipping transcript match`);
+        }
+        return;
+      }
+
+      // Commas + glued sentence boundaries (same fixes as WebSpeech onresult, for any transcript source).
+      const transcriptForTokens = normalizeGluedTokensInSpeechTranscript(
+        transcript.replace(/,/g, " ").replace(/\s+/g, " ").trim()
+      );
+
       // STRICT FILTERING: Only process real words (2+ chars, mostly letters)
       // Exception: Allow important single-letter words like "a", "I"
-      const transcriptWords = transcript.split(/\s+/).filter(word => {
+      let transcriptWords = transcriptForTokens.split(/\s+/).filter((word) => {
         if (!word) return false;
-        
+
+        // Normalize first so punctuation (.,!," etc.) doesn't cause false rejects.
+        const normalizedWord = normalize(word);
+        if (!normalizedWord) return false;
+
         // Allow important single-letter words
-        if (word.length === 1) {
-          const normalizedWord = word.toLowerCase();
-          return ['a', 'i'].includes(normalizedWord);
+        if (normalizedWord.length === 1) {
+          return ["a", "i"].includes(normalizedWord);
         }
-        
-        // For longer words, require at least 2 chars and mostly letters
-        if (word.length < 2) return false;
-        const letterCount = (word.match(/[a-zA-Z]/g) || []).length;
-        return letterCount >= word.length * 0.7; // At least 70% letters
+
+        // For longer words, require at least 2 valid characters after normalization.
+        return normalizedWord.length >= 2;
       });
 
       if (transcriptWords.length === 0) return;
@@ -3922,12 +4120,17 @@ const ReadingSessionPage: React.FC = () => {
         console.log(`⚡ ADAPTIVE TRIM: Reading speed ${readingSpeed.toFixed(1)} words/sec → buffer size ${optimalBufferSize}`);
         console.log(`   Keeping last ${optimalBufferSize} words (had ${transcriptWords.length})`);
         const trimmedWords = transcriptWords.slice(-optimalBufferSize);
+        transcriptWords = trimmedWords; // CRITICAL: matching must use trimmed list, not full mega-transcript
         voskFinalTranscriptRef.current = trimmedWords.join(' ');
         setTranscript(trimmedWords.join(' '));
-        // Don't reset processedTranscriptWordsRef - let it track naturally
+        processedTranscriptWordsRef.current = 0; // buffer content changed — reprocess from start of slice
       }
 
       const expectedWord = realWords[currentWordIndex];
+      if (expectedWord === undefined || expectedWord === null || String(expectedWord).trim() === '') {
+        console.log(`🏁 No expected word at index ${currentWordIndex} — skipping match`);
+        return;
+      }
 
       console.log(`🎤 Full transcript: "${transcript}"`);
       console.log(`📝 Expected word: "${expectedWord}" at index ${currentWordIndex}`);
@@ -3999,10 +4202,18 @@ const ReadingSessionPage: React.FC = () => {
       // Process multiple words in one go for jet-speed recognition
       console.log(`🔎 Checking ALL ${transcriptWords.length} words in transcript: [${transcriptWords.join(', ')}]`);
 
-      // Process from current position in the story, checking against full transcript
-      const wordsToProcess = transcriptWords; // Use full transcript
-      const originalTranscriptLength = transcriptWords.length; // Capture original length BEFORE any modifications
-      console.log(`🔎 Processing ${wordsToProcess.length} words starting from story position ${currentWordIndex}: [${wordsToProcess.join(', ')}]`);
+      // Process only NEW transcript words to avoid re-matching old words.
+      // This prevents auto-marking next words (e.g., next "It") from previous sentence transcripts.
+      const newWordsStartIndex = Math.min(processedTranscriptWordsRef.current, transcriptWords.length);
+      const sliced = transcriptWords.slice(newWordsStartIndex);
+      const wordsToProcess = stripDuplicateStoryPrefixForTranscript(
+        sliced,
+        currentWordIndex,
+        realWords,
+        recognizedWords
+      );
+      const originalTranscriptLength = wordsToProcess.length;
+      console.log(`🔎 Processing ${wordsToProcess.length} NEW words starting from story position ${currentWordIndex}: [${wordsToProcess.join(', ')}] (start=${newWordsStartIndex})`);
 
       if (wordsToProcess.length === 0) {
         console.log(`✅ No new words to process`);
@@ -4012,29 +4223,25 @@ const ReadingSessionPage: React.FC = () => {
       // ADAPTIVE MATCHING: Use fuzzy matching for fast reading
       const isFastReading = currentReadingSpeed > 4; // More than 4 words per second
       let wordsMatched = 0;
-      let currentTranscriptIndex = 0;
+      // (Legacy) currentTranscriptIndex kept removed to avoid unused-local warnings.
       const matchedWordIndices: Array<{index: number, type: 'correct' | 'mispronounce' | 'substitution', spokenWord: string, expectedWord: string, similarity: number}> = []; // Track all matched word indices with types
       // insertedWords removed - insertion detection now handled by backend
       
-      if (isFastReading && transcriptWords.length >= 3) {
-        console.log(`⚡ FAST READING: Using fuzzy sequence matching for ${transcriptWords.length} words`);
+      if (isFastReading && wordsToProcess.length >= 3) {
+        console.log(`⚡ FAST READING: Using fuzzy sequence matching for ${wordsToProcess.length} words`);
         
-        // Try to match each transcript word to nearby story words (within 3 positions)
-        for (let i = 0; i < transcriptWords.length && currentWordIndex + wordsMatched < realWords.length; i++) {
-          const spokenWord = transcriptWords[i];
+        // STRICT SEQUENCE: Do not skip ahead; only match the current expected word.
+        // This prevents false advances like jumping to the next sentence.
+        for (let i = 0; i < wordsToProcess.length && currentWordIndex + wordsMatched < realWords.length; i++) {
+          const spokenWord = wordsToProcess[i];
           let foundMatch = false;
           
-          // Check current position and next 2 positions
-          for (let offset = 0; offset <= 2 && currentWordIndex + wordsMatched + offset < realWords.length; offset++) {
+          // Check current position only
+          for (let offset = 0; offset <= 0 && currentWordIndex + wordsMatched + offset < realWords.length; offset++) {
             const expectedWord = realWords[currentWordIndex + wordsMatched + offset];
             
             if (isWordMatch(spokenWord, expectedWord, true)) {
               console.log(`✅ FUZZY MATCH #${wordsMatched + 1}: "${spokenWord}" = "${expectedWord}" (offset: ${offset})`);
-              
-              // If offset > 0, we skipped some words (but don't mark as omission during fast reading)
-              if (offset > 0) {
-                console.log(`   ⚠️ Skipped ${offset} word(s) during fast reading - not marking as omission yet`);
-              }
               
               // Determine the type of match for proper coloring
               const normSpoken = normalize(spokenWord);
@@ -4220,8 +4427,19 @@ const ReadingSessionPage: React.FC = () => {
         // Update wordsRead - use VALIDATED matches only
         setWordsRead(prev => Math.min(prev + actualWordsMatched, words.length));
         
-        // Move yellow highlight forward by number of VALIDATED matched words
-        const newIndex = currentWordIndex + actualWordsMatched;
+        // Move yellow highlight to the first truly unread word.
+        // This avoids jump-ahead bugs and prevents auto-marking unseen words as read.
+        const simulatedRecognized = new Set(recognizedWords);
+        validatedMatches.forEach(match => {
+          simulatedRecognized.add(match.index);
+        });
+        let newIndex = 0;
+        while (newIndex < realWords.length) {
+          const alreadyRecognized = simulatedRecognized.has(newIndex);
+          const hasExistingMiscue = wordMiscues.has(newIndex);
+          if (!alreadyRecognized && !hasExistingMiscue) break;
+          newIndex++;
+        }
         
         console.log(`🎯 WORD PROGRESSION DEBUG:`);
         console.log(`   Current index: ${currentWordIndex}`);
@@ -4233,10 +4451,10 @@ const ReadingSessionPage: React.FC = () => {
         // Log state before update
         logWordProgressionState('BEFORE UPDATE', currentWordIndex, optimisticWordIndexRef.current, wordsRead, transcript, recognizedWords, realWords);
         
-        // ⚡ OPTIMISTIC UI: Always update to the new position
+        // ⚡ OPTIMISTIC UI: Update only to computed first unread index
         setCurrentWordIndex(newIndex);
         optimisticWordIndexRef.current = newIndex;
-        console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex} (+${actualWordsMatched} words)`);
+        console.log(`🟡 Yellow highlight moved from ${currentWordIndex} to ${newIndex} (first unread word)`);
         
         console.log(`📊 Words Read incremented to ${Math.min(wordsRead + actualWordsMatched, words.length)}`);
 
@@ -4259,16 +4477,17 @@ const ReadingSessionPage: React.FC = () => {
         return; // Exit early
       } else {
         console.log(`   ✗ "${expectedWord}" NOT found in transcript`);
+        // Mark current transcript as fully consumed to avoid reprocessing old words.
+        processedTranscriptWordsRef.current = transcriptWords.length;
       }
 
-      // JET-SPEED: Check RECENT words (last 3 words only - reduced from 5)
-      // This reduces fuzzy matching overhead while still catching fast readers
-      const recentWordsCount = Math.min(3, transcriptWords.length);
-      const recentWords = transcriptWords.slice(-recentWordsCount);
+      // Fallback pass: only inspect NEW words (never older buffered words).
+      const recentWordsCount = Math.min(3, wordsToProcess.length);
+      const recentWords = wordsToProcess.slice(-recentWordsCount);
 
       // Also track NEW words for miscue detection
-      const newWordsStart = processedTranscriptWordsRef.current;
-      const newWords = transcriptWords.slice(newWordsStart);
+      const newWordsStart = newWordsStartIndex;
+      const newWords = wordsToProcess;
 
       console.log(`🔍 Checking ${recentWords.length} RECENT words: [${recentWords.join(', ')}]`);
       if (newWords.length > 0) {
@@ -4278,8 +4497,7 @@ const ReadingSessionPage: React.FC = () => {
       // If no recent words, don't process
       if (recentWords.length === 0) return;
 
-      // Use recentWords for matching (to catch fast readers)
-      // But use newWords for miscue detection (to avoid counting same word multiple times)
+      // Use ONLY new words for matching/miscue detection to avoid ghost matches.
       const wordsToCheck = recentWords;
       const wordsForMiscueDetection = newWords; // ONLY check NEW words, never fall back to recentWords
 
@@ -4973,24 +5191,20 @@ const ReadingSessionPage: React.FC = () => {
     console.log('🔍 WebSpeech status changed to:', webSpeechStatus);
   }, [webSpeechStatus]);
 
-  // Monitor WebSpeech status and auto-restart if it becomes inactive during recording
+  // Recover only from unexpected "ready" while recording. Do NOT restart on "disconnected" —
+  // onend + no-speech handlers already schedule startWebSpeech; duplicating here caused aborted storms.
   useEffect(() => {
-    // Only monitor during active recording
     if (!isWebSpeechEnabled || !isRecording || isPaused) return;
-    
-    // If WebSpeech becomes disconnected during recording, restart it
-    if (webSpeechStatus === "disconnected") {
-      console.log('🔄 WebSpeech became inactive during recording - auto-restarting...');
-      
-      // Add a small delay to avoid rapid restarts
-      const restartTimer = setTimeout(() => {
-        if (isRecording && !isPaused && isWebSpeechEnabled && webSpeechStatus === "disconnected") {
-          startWebSpeech();
-        }
-      }, 200); // Reduced delay to 200ms for faster auto-restart
-      
-      return () => clearTimeout(restartTimer);
-    }
+    if (webSpeechStatus !== "ready") return;
+
+    console.log(`🔄 WebSpeech stuck "ready" during recording — scheduling single restart...`);
+    const restartTimer = setTimeout(() => {
+      if (isRecording && !isPaused && isWebSpeechEnabled) {
+        startWebSpeech({ bypassDebounce: true });
+      }
+    }, 600);
+
+    return () => clearTimeout(restartTimer);
   }, [webSpeechStatus, isRecording, isPaused, isWebSpeechEnabled]);
 
   // Check WebSpeech API support on component mount and prioritize it
@@ -5057,7 +5271,7 @@ const ReadingSessionPage: React.FC = () => {
   const [studentNames, setStudentNames] = useState<{ [id: string]: string }>(
     {}
   );
-  const [completedStudents, setCompletedStudents] = useState<{
+  const [completedStudents] = useState<{
     [id: string]: boolean;
   }>({});
 
@@ -5333,6 +5547,19 @@ const ReadingSessionPage: React.FC = () => {
     }
   }, [currentWordIndex, isRecording]);
 
+  // Silence "declared but never read" warnings for legacy/Vosk-disabled locals.
+  // These are intentionally kept for future feature re-enabling, but not used in the current WebSpeech-first mode.
+  void getMiscueColor;
+  void getMiscueMarkingStyle;
+  void voskServerError;
+  void setVoskServerError;
+  void voskServerStatus;
+  void initializeMicrophone;
+  void setupAudioContext;
+  void setupVoskMessageHandlers;
+  void setupVoskConnectionHandlers;
+  void filterThroughVocabulary;
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -5514,6 +5741,9 @@ const ReadingSessionPage: React.FC = () => {
     }
   };
 
+  // Silence unused-function warning (ISR saving is currently not triggered in this page flow).
+  void saveISRResult;
+
   // Retry/Reset reading session
   const handleRetrySession = () => {
     // Stop any ongoing recording
@@ -5545,6 +5775,7 @@ const ReadingSessionPage: React.FC = () => {
     optimisticWordIndexRef.current = 0;
     lastProcessedIndexRef.current = -1;
     lastTranscriptRef.current = '';
+    lastProcessedTranscriptNormRef.current = '';
     processedTranscriptWordsRef.current = 0;
     voskFinalTranscriptRef.current = '';
     lastPositionRef.current = 0;
@@ -6445,7 +6676,7 @@ const ReadingSessionPage: React.FC = () => {
                     <div className="p-3 bg-green-100 rounded-lg border-l-4 border-green-400">
                       <p className="text-green-600 italic flex items-center gap-2">
                         <span className="inline-block w-2 h-2 bg-green-400 rounded-full"></span>
-                        WebSpeech ready
+                        WebSpeech ready - did not hear anything yet
                       </p>
                     </div>
                   ) : (
