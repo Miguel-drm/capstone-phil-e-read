@@ -425,8 +425,8 @@ const ReadingSessionPage: React.FC = () => {
 
   // 100% REAL-TIME: Track word colors for miscue-based highlighting
   // Map of word index to miscue type: 'correct' (green), 'mispronounce' (yellow), 'substitution' (red), 
-  // 'omission' (orange), 'insertion' (purple), 'transposition' (blue), 'reversal' (pink), 'self_correct' (cyan), 'current' (yellow border), 'unread' (gray)
-  const [wordColors, setWordColors] = useState<Map<number, 'correct' | 'mispronounce' | 'substitution' | 'omission' | 'insertion' | 'transposition' | 'reversal' | 'self_correct' | 'current' | 'unread'>>(new Map());
+  // 'omission' (orange), 'insertion' (purple), 'transposition' (blue), 'reversal' (pink), 'self_correct' (cyan), 'repetition' (indigo), 'current' (yellow border), 'unread' (gray)
+  const [wordColors, setWordColors] = useState<Map<number, 'correct' | 'mispronounce' | 'substitution' | 'omission' | 'insertion' | 'transposition' | 'reversal' | 'self_correct' | 'repetition' | 'current' | 'unread'>>(new Map());
 
   // Heard Mic Display state
   const [partialText, setPartialText] = useState("");
@@ -739,44 +739,17 @@ const ReadingSessionPage: React.FC = () => {
       recognition.lang = storyLanguage === 'tagalog' ? 'tl-PH' : 'en-US';
       
       // Make WebSpeech more persistent
-      recognition.maxAlternatives = 1;
+      // Note: maxAlternatives is not supported in all browsers
+      try {
+        (recognition as any).maxAlternatives = 1;
+      } catch (e) {
+        // Ignore if not supported
+      }
       
       // Add service hints for better recognition (if supported)
       if ('serviceURI' in recognition) {
         (recognition as any).serviceURI = 'builtin:speech/broadcast';
       }
-
-      recognition.onstart = () => {
-        console.log('🎤 WebSpeech started');
-        setWebSpeechStatus("connected");
-        // Reset error counters on successful start
-        webSpeechRestartAttemptsRef.current = 0;
-        webSpeechLastErrorRef.current = "";
-        setWebSpeechHasErrors(false);
-        
-        // Start health check to ensure WebSpeech stays active
-        if (webSpeechHealthCheckRef.current) {
-          clearInterval(webSpeechHealthCheckRef.current);
-        }
-        
-        webSpeechHealthCheckRef.current = setInterval(() => {
-          // Check if WebSpeech is still active and recording is still on
-          if (isRecording && !isPaused && isWebSpeechEnabled) {
-            if (!webSpeechRef.current || webSpeechStatus === "disconnected") {
-              console.log('🔄 Health check: WebSpeech disconnected, restarting...');
-              // Clear the reference before restarting
-              webSpeechRef.current = null;
-              startWebSpeech();
-            }
-          } else {
-            // Stop health check if not recording
-            if (webSpeechHealthCheckRef.current) {
-              clearInterval(webSpeechHealthCheckRef.current);
-              webSpeechHealthCheckRef.current = null;
-            }
-          }
-        }, 3000); // Check every 3 seconds for better responsiveness
-      };
 
       recognition.onresult = (event) => {
         // Ensure status is correct when receiving results
@@ -922,9 +895,12 @@ const ReadingSessionPage: React.FC = () => {
 
       webSpeechRef.current = recognition;
       
+      // Track if recognition has started successfully
+      let hasStartedSuccessfully = false;
+      
       // Add startup timeout - if WebSpeech doesn't start within 1 second, show error
       const startupTimeout = setTimeout(() => {
-        if (webSpeechStatus === "connecting") {
+        if (!hasStartedSuccessfully) {
           console.warn('⚠️ WebSpeech startup timeout - Vosk fallback disabled');
           setWebSpeechStatus("disconnected");
           setIsWebSpeechEnabled(false);
@@ -944,6 +920,7 @@ const ReadingSessionPage: React.FC = () => {
       
       recognition.onstart = () => {
         clearTimeout(startupTimeout); // Clear timeout on successful start
+        hasStartedSuccessfully = true;
         console.log('🎤 WebSpeech started successfully');
         console.log('🔍 Setting webSpeechStatus to "connected"');
         setWebSpeechStatus("connected");
