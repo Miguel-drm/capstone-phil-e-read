@@ -6247,7 +6247,7 @@ const ReadingSessionPage: React.FC = () => {
                     <span>🎤 Start Recording</span>
                   </button>
                   <p className="text-sm text-gray-500 text-center">
-                    WebSpeech will start automatically (Vosk as fallback)
+                    WebSpeech will start automatically after you click Start Recording (Vosk as fallback)
                   </p>
                 </div>
               ) : (
@@ -6445,7 +6445,7 @@ const ReadingSessionPage: React.FC = () => {
                     <div className="p-3 bg-green-100 rounded-lg border-l-4 border-green-400">
                       <p className="text-green-600 italic flex items-center gap-2">
                         <span className="inline-block w-2 h-2 bg-green-400 rounded-full"></span>
-                        WebSpeech ready (click Start Recording)
+                        WebSpeech ready
                       </p>
                     </div>
                   ) : (
@@ -6518,22 +6518,6 @@ const ReadingSessionPage: React.FC = () => {
                     Retry
                   </button>
                 </div>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* WebSpeech Ready State Info - Shows when enabled but not recording */}
-      {!isRecording && isWebSpeechEnabled && isWebSpeechSupported && (
-        <section className="w-full px-4 sm:px-8 pb-4 relative z-10">
-          <div className="max-w-2xl mx-auto">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <div className="flex items-center gap-2">
-                <span className="text-blue-600">⚡</span>
-                <span className="text-sm text-blue-700 font-medium">
-                  WebSpeech is ready. It will start automatically when you begin recording.
-                </span>
               </div>
             </div>
           </div>
