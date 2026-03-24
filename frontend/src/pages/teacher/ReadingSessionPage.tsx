@@ -378,7 +378,57 @@ const ReadingSessionPage: React.FC = () => {
     };
   }, [isRecording]);
   
-  // Check Vosk connection status
+  // Check WebSpeech support on component mount
+  useEffect(() => {
+    const checkWebSpeechSupport = async () => {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      
+      if (!SpeechRecognition) {
+        console.warn('⚠️ WebSpeech API not supported in this browser');
+        setIsWebSpeechSupported(false);
+        setIsWebSpeechEnabled(false);
+        
+        // Show browser compatibility info
+        const userAgent = navigator.userAgent;
+        const isChrome = userAgent.includes('Chrome');
+        const isEdge = userAgent.includes('Edge');
+        const isSafari = userAgent.includes('Safari') && !userAgent.includes('Chrome');
+        const isFirefox = userAgent.includes('Firefox');
+        
+        if (isFirefox) {
+          console.warn('🦊 Firefox detected - WebSpeech support is limited');
+        } else if (!isChrome && !isEdge && !isSafari) {
+          console.warn('🌐 Unsupported browser - WebSpeech works best in Chrome, Edge, or Safari');
+        }
+        
+        return;
+      }
+
+      // Test if we can create a recognition instance
+      try {
+        const testRecognition = new SpeechRecognition();
+        testRecognition.continuous = true;
+        testRecognition.interimResults = true;
+        
+        // Test microphone permissions
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach(track => track.stop());
+          console.log('✅ WebSpeech supported and microphone permissions granted');
+          setIsWebSpeechSupported(true);
+        } catch (permissionError) {
+          console.warn('⚠️ WebSpeech supported but microphone permission denied');
+          setIsWebSpeechSupported(true); // Still supported, just need permission
+        }
+      } catch (error) {
+        console.error('❌ Error testing WebSpeech support:', error);
+        setIsWebSpeechSupported(false);
+        setIsWebSpeechEnabled(false);
+      }
+    };
+
+    checkWebSpeechSupport();
+  }, []);
 
   // Audio recording state
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
@@ -624,16 +674,6 @@ const ReadingSessionPage: React.FC = () => {
       webSpeechRestartAttemptsRef.current = 0;
       webSpeechLastErrorRef.current = "";
       setWebSpeechHasErrors(false);
-      
-      // PRIORITIZATION: Vosk fallback disabled
-      console.log('🎯 PRIORITIZATION: Vosk fallback disabled - WebSpeech only mode');
-      // setIsVoskEnabled(true); // DISABLED
-      // Start Vosk if recording is active
-      if (isRecording && !isPaused) {
-        setTimeout(() => {
-          preloadVoskConnection();
-        }, 200);
-      }
     } else {
       // Enable WebSpeech (priority engine)
       console.log('🔊 Enabling WebSpeech connection (priority engine)...');
@@ -650,13 +690,12 @@ const ReadingSessionPage: React.FC = () => {
         setVoskStatus("disconnected");
       }
       
+      // Only start if recording is active, otherwise just set to ready
       if (isRecording && !isPaused) {
-        // Start immediately if recording is active
         startWebSpeech();
       } else {
-        // Start WebSpeech immediately to be ready for recording
-        console.log('🎯 Pre-starting WebSpeech to be ready for recording...');
-        startWebSpeech();
+        console.log('🎯 WebSpeech enabled but not starting - waiting for recording to begin');
+        setWebSpeechStatus("ready");
       }
     }
   };
@@ -689,9 +728,9 @@ const ReadingSessionPage: React.FC = () => {
   };
 
   /**
-   * Start WebSpeech recognition
+   * Start WebSpeech recognition with improved error handling
    */
-  const startWebSpeech = () => {
+  const startWebSpeech = async () => {
     if (!isWebSpeechEnabled) {
       console.log('🔇 WebSpeech is disabled - skipping start');
       setWebSpeechStatus("disconnected");
@@ -716,16 +755,29 @@ const ReadingSessionPage: React.FC = () => {
       console.warn('⚠️ WebSpeech API not supported in this browser');
       setWebSpeechStatus("disconnected");
       setIsWebSpeechSupported(false);
-      
-      // AUTOMATIC FALLBACK: Vosk disabled
-      console.log('🔄 AUTOMATIC FALLBACK: Vosk disabled - WebSpeech not supported');
       setIsWebSpeechEnabled(false);
-      // setIsVoskEnabled(true); // DISABLED
-      
-      // Show user-friendly message
-      if (isRecording) {
-        alert('WebSpeech API is not supported in this browser. Switching to Vosk recognition.');
-      }
+      setWebSpeechHasErrors(true);
+      return;
+    }
+
+    // Check if we're online (WebSpeech requires internet)
+    if (!navigator.onLine) {
+      console.warn('⚠️ No internet connection - WebSpeech requires internet');
+      setWebSpeechStatus("disconnected");
+      setWebSpeechHasErrors(true);
+      return;
+    }
+
+    // Check microphone permissions first
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(track => track.stop()); // Stop immediately, we just needed to check permissions
+      console.log('✅ Microphone permissions granted');
+    } catch (permissionError) {
+      console.error('❌ Microphone permission denied:', permissionError);
+      setWebSpeechStatus("disconnected");
+      setIsWebSpeechEnabled(false);
+      setWebSpeechHasErrors(true);
       return;
     }
 
@@ -738,17 +790,20 @@ const ReadingSessionPage: React.FC = () => {
       recognition.interimResults = true;
       recognition.lang = storyLanguage === 'tagalog' ? 'tl-PH' : 'en-US';
       
-      // Make WebSpeech more persistent
-      // Note: maxAlternatives is not supported in all browsers
+      // Set WebSpeech to be more reliableaxAlternatives is not supported in all browsers
       try {
         (recognition as any).maxAlternatives = 1;
       } catch (e) {
-        // Ignore if not supported
+        console.warn('maxAlternatives not supported:', e);
       }
       
       // Add service hints for better recognition (if supported)
-      if ('serviceURI' in recognition) {
-        (recognition as any).serviceURI = 'builtin:speech/broadcast';
+      try {
+        if ('serviceURI' in recognition) {
+          (recognition as any).serviceURI = 'builtin:speech/broadcast';
+        }
+      } catch (e) {
+        console.warn('serviceURI not supported:', e);
       }
 
       recognition.onresult = (event) => {
@@ -794,54 +849,37 @@ const ReadingSessionPage: React.FC = () => {
         if (event.error === 'not-allowed') {
           alert('Microphone access denied. Please allow microphone access for WebSpeech recognition.');
           setWebSpeechStatus("disconnected");
-          setIsWebSpeechEnabled(false); // Disable WebSpeech if permission denied
-          
-          // AUTOMATIC FALLBACK: Vosk disabled
-          console.log('🔄 AUTOMATIC FALLBACK: Vosk disabled - WebSpeech permission denied');
-          // setIsVoskEnabled(true); // DISABLED
+          setIsWebSpeechEnabled(false);
           return;
         } else if (event.error === 'aborted') {
           console.warn('⚠️ WebSpeech was aborted - likely due to rapid restart');
-          // Don't increment restart attempts for aborted - this is usually intentional
           setWebSpeechStatus("disconnected");
           return;
         } else if (event.error === 'no-speech') {
-          console.warn(`⚠️ WebSpeech no-speech error (attempt ${webSpeechRestartAttemptsRef.current + 1}/10) - this is normal when there is no audio input`);
-          // DON'T increment restart attempts for no-speech - this is normal and should not count as failure
-          // webSpeechRestartAttemptsRef.current++; // REMOVED - no-speech is not a real error
-          
-          // Set status to disconnected but don't return - let onend handle the restart
+          console.warn(`⚠️ WebSpeech no-speech error - this is normal when there is no audio input`);
           setWebSpeechStatus("disconnected");
           return;
         } else if (event.error === 'network') {
-          console.warn(`⚠️ WebSpeech network error (attempt ${webSpeechRestartAttemptsRef.current + 1}/5) - this is normal and will retry`);
+          console.warn(`⚠️ WebSpeech network error (attempt ${webSpeechRestartAttemptsRef.current + 1}/5)`);
           webSpeechRestartAttemptsRef.current++;
           
-          // Limit network error restarts
           if (webSpeechRestartAttemptsRef.current >= 5) {
-            console.warn('⚠️ Too many network errors, enabling Vosk fallback');
+            console.warn('⚠️ Too many network errors, disabling WebSpeech');
             setWebSpeechStatus("disconnected");
             setWebSpeechHasErrors(true);
-            
-            // AUTOMATIC FALLBACK: Vosk disabled
-            console.log('🔄 AUTOMATIC FALLBACK: Vosk disabled - WebSpeech network errors');
             setIsWebSpeechEnabled(false);
-            // setIsVoskEnabled(true); // DISABLED
+            alert('WebSpeech is experiencing network issues. Please check your internet connection and try again.');
             return;
           }
         } else {
-          // Other errors - limit restarts
           console.warn(`⚠️ WebSpeech error "${event.error}" (attempt ${webSpeechRestartAttemptsRef.current + 1}/3)`);
           webSpeechRestartAttemptsRef.current++;
           if (webSpeechRestartAttemptsRef.current >= 3) {
-            console.warn('⚠️ Too many WebSpeech errors, enabling Vosk fallback');
+            console.warn('⚠️ Too many WebSpeech errors, disabling');
             setWebSpeechStatus("disconnected");
             setWebSpeechHasErrors(true);
-            
-            // AUTOMATIC FALLBACK: Vosk disabled
-            console.log('🔄 AUTOMATIC FALLBACK: Vosk disabled - WebSpeech persistent errors');
             setIsWebSpeechEnabled(false);
-            // setIsVoskEnabled(true); // DISABLED
+            alert('WebSpeech is experiencing repeated errors. Please refresh the page and try again.');
             return;
           }
         }
@@ -850,7 +888,7 @@ const ReadingSessionPage: React.FC = () => {
       };
 
       recognition.onend = () => {
-        console.log('🔌 WebSpeech ended');
+        console.log('� WebSpeech ended');
         setWebSpeechStatus("disconnected");
         
         // RESTART LOGIC: Only restart during active recording
@@ -861,35 +899,27 @@ const ReadingSessionPage: React.FC = () => {
             console.log('🔄 Resetting restart attempts - had successful speech recognition');
           }
           
-          // CONTINUOUS LISTENING: Always restart WebSpeech when recording is active
-          // Only stop if we hit the restart limit for REAL errors (not no-speech)
-          if (webSpeechRestartAttemptsRef.current < 20 && 
+          // Only restart if we haven't hit the limit and it wasn't a permission error
+          if (webSpeechRestartAttemptsRef.current < 10 && 
               webSpeechLastErrorRef.current !== 'not-allowed') {
-            console.log(`🔄 Auto-restarting WebSpeech for recording (attempt ${webSpeechRestartAttemptsRef.current + 1}/20)...`);
+            console.log(`🔄 Auto-restarting WebSpeech for recording (attempt ${webSpeechRestartAttemptsRef.current + 1}/10)...`);
             
             // Clear the current recognition reference before restarting
             webSpeechRef.current = null;
             
-            // Use a shorter delay for restart to make it faster
+            // Use a longer delay to prevent rapid restart loops
             setTimeout(() => {
               if (isRecording && !isPaused && isWebSpeechEnabled) {
                 startWebSpeech();
               }
-            }, 100); // Reduced delay to 100ms for faster restart
+            }, 1000); // Increased delay to 1 second
           } else {
-            console.warn('⚠️ WebSpeech restart limit reached - Vosk fallback disabled');
-            // AUTOMATIC FALLBACK: Vosk disabled
+            console.warn('⚠️ WebSpeech restart limit reached - stopping attempts');
             setIsWebSpeechEnabled(false);
-            // setIsVoskEnabled(true); // DISABLED
+            setWebSpeechHasErrors(true);
           }
         } else {
-          // Not recording - return to ready state instead of restarting
-          if (isWebSpeechEnabled && !isRecording) {
-            console.log('🔄 WebSpeech ended outside recording - returning to ready state');
-            setWebSpeechStatus("ready");
-          } else {
-            console.log('🛑 Not restarting WebSpeech - recording stopped or WebSpeech disabled');
-          }
+          console.log('� Not restarting WebSpeech - recording stopped or WebSpeech disabled');
         }
       };
 
@@ -898,13 +928,13 @@ const ReadingSessionPage: React.FC = () => {
       // Track if recognition has started successfully
       let hasStartedSuccessfully = false;
       
-      // Add startup timeout - if WebSpeech doesn't start within 1 second, show error
+      // Increase startup timeout to 5 seconds for better reliability
       const startupTimeout = setTimeout(() => {
         if (!hasStartedSuccessfully) {
-          console.warn('⚠️ WebSpeech startup timeout - Vosk fallback disabled');
+          console.warn('⚠️ WebSpeech startup timeout - taking too long to start');
           setWebSpeechStatus("disconnected");
           setIsWebSpeechEnabled(false);
-          // setIsVoskEnabled(true); // DISABLED
+          setWebSpeechHasErrors(true);
           
           // Clean up the failed recognition
           if (webSpeechRef.current) {
@@ -915,15 +945,19 @@ const ReadingSessionPage: React.FC = () => {
             }
             webSpeechRef.current = null;
           }
+          
+          // Don't show alert immediately - let the error UI handle it
+          console.error('WebSpeech startup timeout - check microphone and internet connection');
         }
-      }, 1000); // Reduced timeout to 1 second for faster failure detection
+      }, 5000); // Increased timeout to 5 seconds
       
       recognition.onstart = () => {
-        clearTimeout(startupTimeout); // Clear timeout on successful start
+        clearTimeout(startupTimeout);
         hasStartedSuccessfully = true;
         console.log('🎤 WebSpeech started successfully');
-        console.log('🔍 Setting webSpeechStatus to "connected"');
         setWebSpeechStatus("connected");
+        setIsWebSpeechSupported(true);
+        
         // Reset error counters on successful start
         webSpeechRestartAttemptsRef.current = 0;
         webSpeechLastErrorRef.current = "";
@@ -939,7 +973,6 @@ const ReadingSessionPage: React.FC = () => {
           if (isRecording && !isPaused && isWebSpeechEnabled) {
             if (!webSpeechRef.current || webSpeechStatus === "disconnected") {
               console.log('🔄 Health check: WebSpeech disconnected, restarting...');
-              // Clear the reference before restarting
               webSpeechRef.current = null;
               startWebSpeech();
             }
@@ -950,7 +983,7 @@ const ReadingSessionPage: React.FC = () => {
               webSpeechHealthCheckRef.current = null;
             }
           }
-        }, 5000); // Check every 5 seconds (increased from 3 seconds)
+        }, 10000); // Check every 10 seconds (increased from 5 seconds)
       };
       
       recognition.start();
@@ -958,18 +991,15 @@ const ReadingSessionPage: React.FC = () => {
     } catch (error) {
       console.error('❌ Failed to start WebSpeech:', error);
       setWebSpeechStatus("disconnected");
+      setWebSpeechHasErrors(true);
       
       // Clear the reference on failure
       webSpeechRef.current = null;
       
-      // AUTOMATIC FALLBACK: Vosk disabled
-      console.log('🔄 AUTOMATIC FALLBACK: Vosk disabled - WebSpeech startup failure');
       setIsWebSpeechEnabled(false);
-      // setIsVoskEnabled(true); // DISABLED
       
       if (isRecording) {
-        console.log('🎯 Switching to Vosk for current recording session...');
-        // Vosk will be started by the existing preload logic
+        alert('Failed to start WebSpeech. Please check your microphone permissions and internet connection.');
       }
     }
   };
@@ -6248,10 +6278,46 @@ const ReadingSessionPage: React.FC = () => {
                     </div>
                   )}
                   {isWebSpeechEnabled && (
-                    <div className="flex items-center gap-2 mb-2 px-3 py-2 bg-purple-50 border border-purple-200 rounded-lg">
-                      <span className="text-purple-600">🎙️</span>
-                      <span className="text-sm text-purple-700">
-                        WebSpeech: {webSpeechStatus === "connected" ? "Active" : webSpeechStatus === "connecting" ? "Starting..." : webSpeechStatus === "ready" ? "Ready" : "Inactive"}
+                    <div className={`flex items-center gap-2 mb-2 px-3 py-2 rounded-lg border ${
+                      webSpeechHasErrors 
+                        ? 'bg-red-50 border-red-200' 
+                        : webSpeechStatus === "connected" 
+                          ? 'bg-green-50 border-green-200'
+                          : webSpeechStatus === "connecting"
+                            ? 'bg-yellow-50 border-yellow-200'
+                            : 'bg-purple-50 border-purple-200'
+                    }`}>
+                      <span className={
+                        webSpeechHasErrors 
+                          ? "text-red-600" 
+                          : webSpeechStatus === "connected" 
+                            ? "text-green-600" 
+                            : webSpeechStatus === "connecting"
+                              ? "text-yellow-600"
+                              : "text-purple-600"
+                      }>
+                        {webSpeechHasErrors ? "❌" : webSpeechStatus === "connected" ? "🎙️" : webSpeechStatus === "connecting" ? "⏳" : "🎙️"}
+                      </span>
+                      <span className={`text-sm ${
+                        webSpeechHasErrors 
+                          ? "text-red-700" 
+                          : webSpeechStatus === "connected" 
+                            ? "text-green-700" 
+                            : webSpeechStatus === "connecting"
+                              ? "text-yellow-700"
+                              : "text-purple-700"
+                      }`}>
+                        WebSpeech: {
+                          webSpeechHasErrors 
+                            ? "Error - Check troubleshooting guide above" 
+                            : webSpeechStatus === "connected" 
+                              ? "Active & Listening" 
+                              : webSpeechStatus === "connecting" 
+                                ? "Starting..." 
+                                : webSpeechStatus === "ready" 
+                                  ? "Ready" 
+                                  : "Inactive"
+                        }
                       </span>
                     </div>
                   )}
@@ -6476,24 +6542,47 @@ const ReadingSessionPage: React.FC = () => {
         <section className="w-full px-4 sm:px-8 pb-4 relative z-10">
           <div className="max-w-2xl mx-auto">
             <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-              <div className="flex items-center gap-2">
-                <span className="text-orange-600">⚠️</span>
+              <div className="flex items-start gap-3">
+                <XCircleIcon className="h-5 w-5 text-orange-500 mt-0.5 flex-shrink-0" />
                 <div className="flex-1">
                   <span className="text-sm text-orange-700 font-medium">
-                    WebSpeech stopped due to repeated errors (likely no microphone input detected).
+                    WebSpeech encountered errors and has been disabled.
                   </span>
-                  <button
-                    onClick={() => {
-                      setWebSpeechHasErrors(false);
-                      webSpeechRestartAttemptsRef.current = 0;
-                      if (isRecording && !isPaused) {
-                        startWebSpeech();
-                      }
-                    }}
-                    className="ml-2 text-orange-600 hover:text-orange-800 underline text-sm"
-                  >
-                    Retry
-                  </button>
+                  <div className="mt-2 text-xs text-orange-600">
+                    <strong>Troubleshooting steps:</strong>
+                    <ol className="list-decimal list-inside mt-1 space-y-1">
+                      <li>Check that your microphone is connected and working</li>
+                      <li>Allow microphone permissions when prompted by the browser</li>
+                      <li>Ensure you have a stable internet connection (WebSpeech requires internet)</li>
+                      <li>Try using Chrome, Edge, or Safari (better WebSpeech support)</li>
+                      <li>Close other applications that might be using your microphone</li>
+                    </ol>
+                  </div>
+                  <div className="mt-3 flex space-x-2">
+                    <button
+                      onClick={() => {
+                        setWebSpeechHasErrors(false);
+                        webSpeechRestartAttemptsRef.current = 0;
+                        webSpeechLastErrorRef.current = "";
+                        setIsWebSpeechEnabled(true);
+                        if (isRecording && !isPaused) {
+                          startWebSpeech();
+                        }
+                      }}
+                      className="text-xs bg-orange-100 hover:bg-orange-200 text-orange-700 px-3 py-1 rounded-md transition-colors"
+                    >
+                      Try Again
+                    </button>
+                    <button
+                      onClick={() => {
+                        setWebSpeechHasErrors(false);
+                        setIsWebSpeechEnabled(false);
+                      }}
+                      className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1 rounded-md transition-colors"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
