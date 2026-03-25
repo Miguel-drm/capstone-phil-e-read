@@ -41,6 +41,9 @@ const ReadingSessionPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const [currentWordIndex, setCurrentWordIndex] = useState<number>(0);
+  // Prevent frontend transcript-based fuzzy matching from fighting the backend's
+  // deterministic `word_match` stream.
+  const SERVER_MATCHING_ONLY = true;
   const [words, setWords] = useState<string[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -794,7 +797,7 @@ const ReadingSessionPage: React.FC = () => {
   function isLikelyEnglishWord(word: string): boolean {
     const normalized = normalize(word);
 
-    // Common English-only patterns
+    // VERY CONSERVATIVE English-only patterns (only obvious English words)
     const englishPatterns = [
       /^(th|wh|sh|ch|ph)/i,  // English consonant clusters at start
       /ing$/i,                // -ing ending (rare in Tagalog)
@@ -808,14 +811,12 @@ const ReadingSessionPage: React.FC = () => {
     // Check if word matches English patterns
     const hasEnglishPattern = englishPatterns.some(pattern => pattern.test(normalized));
 
-    // Common English function words
-    // NOTE: Removed "may" because it's also a common Tagalog word (meaning "there is/has")
+    // VERY CONSERVATIVE English function words (only obvious English-only words)
+    // Removed many ambiguous words that could be in other languages
     const englishFunctionWords = [
-      'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-      'of', 'with', 'by', 'from', 'up', 'about', 'into', 'through', 'during',
-      'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
-      'do', 'does', 'did', 'will', 'would', 'should', 'could', 'might',
-      'can', 'must', 'shall', 'this', 'that', 'these', 'those'
+      'the', 'and', 'but', 'through', 'during',
+      'being', 'would', 'should', 'could', 'might',
+      'must', 'shall', 'these', 'those'
     ];
 
     return hasEnglishPattern || englishFunctionWords.includes(normalized);
@@ -827,23 +828,35 @@ const ReadingSessionPage: React.FC = () => {
 
     // Common Tagalog patterns
     const tagalogPatterns = [
-      /^(ng|mga|ka|pa|na|ba|po)/i,  // Tagalog particles/prefixes
+      /^(ng|mga|ka|pa|na|ba|po|ma|naka|nag|mag|pag|um|in|an)/i,  // Tagalog particles/prefixes
       /ng$/i,                         // -ng ending (very common in Tagalog)
       /an$/i,                         // -an ending (common in Tagalog)
       /in$/i,                         // -in ending (Tagalog verb form)
       /ay$/i,                         // -ay ending (Tagalog)
+      /han$/i,                        // -han ending (Tagalog)
+      /hin$/i,                        // -hin ending (Tagalog)
     ];
 
     // Check if word matches Tagalog patterns
     const hasTagalogPattern = tagalogPatterns.some(pattern => pattern.test(normalized));
 
-    // Common Tagalog function words
+    // Common Tagalog function words and content words
     const tagalogFunctionWords = [
       'ang', 'ng', 'sa', 'mga', 'ay', 'na', 'pa', 'ba', 'po', 'opo',
       'ako', 'ikaw', 'siya', 'kami', 'tayo', 'kayo', 'sila',
       'ko', 'mo', 'niya', 'namin', 'natin', 'ninyo', 'nila',
       'ito', 'iyan', 'iyon', 'dito', 'diyan', 'doon',
-      'may', 'mayroon', 'meron'  // Added: "may" is Tagalog (there is/has)
+      'may', 'mayroon', 'meron',  // "may" is Tagalog (there is/has)
+      'si', 'ni', 'kay',          // Personal markers
+      'nasa', 'sa', 'para',       // Prepositions
+      'at', 'o', 'pero',          // Conjunctions
+      'hindi', 'oo', 'opo',       // Yes/No
+      'ano', 'sino', 'saan', 'kailan', 'bakit', 'paano', // Question words
+      'dora', 'maria', 'juan',    // Common Filipino names
+      'baka', 'aso', 'pusa',      // Common animals
+      'bahay', 'sapa', 'ilog',    // Common places/things
+      'katabi', 'kasama', 'kaibigan', // Common descriptive words
+      'nila', 'namin', 'natin'    // Possessive pronouns
     ];
 
     return hasTagalogPattern || tagalogFunctionWords.includes(normalized);
@@ -1161,28 +1174,56 @@ const ReadingSessionPage: React.FC = () => {
 
   /**
    * Detect the primary language of the story based on vocabulary analysis.
-   * Uses existing isLikelyEnglishWord and isLikelyTagalogWord functions.
-   * Returns 'english' or 'tagalog', defaulting to 'english' if inconclusive.
+   * PRIORITIZES TAGALOG DETECTION - defaults to Tagalog if any Tagalog indicators found.
+   * Returns 'english' or 'tagalog'.
    */
   const detectStoryLanguage = (vocabulary: Set<string>): 'english' | 'tagalog' => {
-    let englishCount = 0;
-    let tagalogCount = 0;
+    console.log('🔍 [LANGUAGE-DETECT] Analyzing vocabulary:', Array.from(vocabulary));
 
-    // Count words that match English vs Tagalog patterns
+    // Quick check for obvious Tagalog indicators - if ANY found, use Tagalog
+    const vocabularyArray = Array.from(vocabulary);
+    const obviousTagalogWords = ['nasa', 'may', 'si', 'ni', 'ang', 'sa', 'sapa', 'katabi', 'nila', 'tara', 'tayo', 'sabi', 'dora', 'mga', 'ay', 'na', 'pa', 'ba', 'po'];
+    const hasObviousTagalog = obviousTagalogWords.some(word => 
+      vocabularyArray.some(vocabWord => vocabWord.toLowerCase() === word.toLowerCase())
+    );
+
+    if (hasObviousTagalog) {
+      console.log('🔍 [LANGUAGE-DETECT] Found obvious Tagalog words, FORCING Tagalog detection');
+      return 'tagalog';
+    }
+
+    // Count Tagalog patterns - if ANY Tagalog patterns found, prefer Tagalog
+    let tagalogCount = 0;
+    let obviousEnglishCount = 0;
+
     for (const word of vocabulary) {
-      if (isLikelyEnglishWord(word)) {
-        englishCount++;
+      const isTagalog = isLikelyTagalogWord(word);
+      const isObviousEnglish = isLikelyEnglishWord(word); // Now very conservative
+      
+      if (isTagalog) {
+        tagalogCount++;
+        console.log(`   📝 "${word}" -> Tagalog`);
       }
-      if (isLikelyTagalogWord(word)) {
+      if (isObviousEnglish) {
+        obviousEnglishCount++;
+        console.log(`   📝 "${word}" -> English`);
+      }
+      if (!isTagalog && !isObviousEnglish) {
+        console.log(`   ❓ "${word}" -> Unknown (assuming Tagalog)`);
+        // Treat unknown words as potentially Tagalog
         tagalogCount++;
       }
     }
 
-    // Return the language with more matches
-    // Default to English if counts are equal or both are zero
-    if (tagalogCount > englishCount) {
+    console.log(`🔍 [LANGUAGE-DETECT] Results: Tagalog=${tagalogCount}, Obvious English=${obviousEnglishCount}`);
+
+    // BIAS TOWARD TAGALOG: Only use English if there are obvious English words AND no Tagalog
+    if (tagalogCount > 0) {
+      console.log(`🔍 [LANGUAGE-DETECT] Detected: TAGALOG (found ${tagalogCount} Tagalog indicators)`);
       return 'tagalog';
     }
+    
+    console.log(`🔍 [LANGUAGE-DETECT] Detected: ENGLISH (no Tagalog indicators found)`);
     return 'english';
   };
 
@@ -1319,6 +1360,7 @@ const ReadingSessionPage: React.FC = () => {
     // Helper to get WebSocket URLs
     const getLocalWsUrl = (lang: string) => {
       const normalizedLang = (lang === "tl" || lang === "tagalog") ? "tagalog" : "english";
+      console.log(`🌐 [WebSocket URL] Language: ${lang} -> ${normalizedLang}`);
       return `ws://localhost:2700/?lang=${normalizedLang}`;
     };
     
@@ -1833,9 +1875,18 @@ const ReadingSessionPage: React.FC = () => {
 
 
   // Handle Vosk language switching - reconnect with new language if needed
+  const previousLanguageRef = useRef<string | null>(null);
+  
   useEffect(() => {
-    // If Vosk is connected and language changes, reconnect with new language
-    if (voskSocketRef.current && voskSocketRef.current.readyState === WebSocket.OPEN && isRecording && !isPaused) {
+    // Only reconnect if language actually changed and Vosk is already connected
+    if (
+      voskSocketRef.current && 
+      voskSocketRef.current.readyState === WebSocket.OPEN && 
+      isRecording && 
+      !isPaused &&
+      previousLanguageRef.current !== null && // Ensure this isn't the initial load
+      previousLanguageRef.current !== storyLanguage // Language actually changed
+    ) {
       console.log(`🔄 Language changed to ${storyLanguage}, reconnecting Vosk with new language...`);
       cleanupVosk();
       voskFinalTranscriptRef.current = ""; // Reset transcript
@@ -2091,6 +2142,9 @@ const ReadingSessionPage: React.FC = () => {
         }
       }, 100);
     }
+    
+    // Update the previous language reference
+    previousLanguageRef.current = storyLanguage;
   }, [storyLanguage]);
 
   // Stop recording and speech recognition
@@ -2312,23 +2366,28 @@ const ReadingSessionPage: React.FC = () => {
 
         setCurrentSession(sessionData);
 
-        // Get all stories
-        const stories = await UnifiedStoryService.getInstance().getStories({});
+        let resolvedStoryId: string | undefined;
+        try {
+          const stories = await UnifiedStoryService.getInstance().getStories({});
+          const story = stories.find(
+            (s: Story) => s._id === sessionData.book || s.title === sessionData.book
+          );
+          resolvedStoryId = story?._id;
+        } catch (listErr) {
+          console.warn("Story list lookup failed, will try direct story fetch:", listErr);
+        }
 
-        // Extract story by _id or title for compatibility
-        const story = stories.find(
-          (s: Story) =>
-            s._id === sessionData.book || s.title === sessionData.book
-        );
+        if (!resolvedStoryId && sessionData.book) {
+          resolvedStoryId = String(sessionData.book);
+        }
 
-        if (!story || !story._id) {
+        if (!resolvedStoryId) {
           throw new Error("Story not found");
         }
 
         try {
           // Get the full story details
-          const fullStory =
-            await UnifiedStoryService.getInstance().getStoryById(story._id);
+          const fullStory = await UnifiedStoryService.getInstance().getStoryById(resolvedStoryId);
 
           if (!fullStory) {
             throw new Error("Failed to fetch story details");
@@ -2356,11 +2415,21 @@ const ReadingSessionPage: React.FC = () => {
             }
 
             console.log('📖 [Teacher] Setting story language:', internalLanguage, '(from:', fullStory.language, ')');
-            setStoryLanguage(internalLanguage);
+            // Only set language if it's different to prevent unnecessary useEffect triggers
+            if (storyLanguage !== internalLanguage) {
+              setStoryLanguage(internalLanguage);
+            } else {
+              console.log('📖 [Teacher] Language unchanged, skipping setStoryLanguage');
+            }
           } else {
             // Default to English if no language is specified
             console.log('📖 [Teacher] Setting default story language: english');
-            setStoryLanguage("english");
+            // Only set language if it's different to prevent unnecessary useEffect triggers
+            if (storyLanguage !== "english") {
+              setStoryLanguage("english");
+            } else {
+              console.log('📖 [Teacher] Language unchanged, skipping setStoryLanguage');
+            }
           }
 
           // Set text content first (this is what we want to display)
@@ -2388,8 +2457,11 @@ const ReadingSessionPage: React.FC = () => {
 
             // Only override the language if it wasn't already set from story metadata
             // This allows manual language setting to take precedence
-            if (!fullStory.language) {
+            if (!fullStory.language && storyLanguage !== detectedLanguage) {
+              console.log(`🌐 [LANGUAGE] Setting story language from ${storyLanguage} to ${detectedLanguage}`);
               setStoryLanguage(detectedLanguage);
+            } else if (!fullStory.language) {
+              console.log('📖 [Teacher] Auto-detected language unchanged, skipping setStoryLanguage');
             }
           }
 
@@ -2397,7 +2469,7 @@ const ReadingSessionPage: React.FC = () => {
           if (fullStory.hasPdf) {
             try {
               const pdfUrl = UnifiedStoryService.getInstance().getStoryPdfUrl(
-                story._id
+                resolvedStoryId
               );
               await loadPdfContent(pdfUrl);
             } catch (pdfError) {
@@ -2566,6 +2638,7 @@ const ReadingSessionPage: React.FC = () => {
   const stuckStartTimeRef = useRef<number>(0);
 
   useEffect(() => {
+    if (SERVER_MATCHING_ONLY) return;
     if (!transcript || !realWords.length || currentWordIndex >= realWords.length) return;
 
     // Process if transcript changed OR if we moved to a new word
@@ -4424,6 +4497,7 @@ const ReadingSessionPage: React.FC = () => {
                                 {/* The actual story word */}
                                 <span
                                   ref={isCurrent ? currentWordRef : null}
+                                  data-word-index={realWordIndex}
                                   className={
                                     isSpecialChar
                                       ? "inline-block mr-1 sm:mr-2 lg:mr-3 mb-2 sm:mb-3 px-2 sm:px-3 py-1 sm:py-2 rounded font-serif text-sm sm:text-lg lg:text-2xl text-gray-400 bg-transparent pointer-events-none select-none"

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Connection Test</title>
+</head>
+<body>
+    <h1>Vosk WebSocket Connection Test</h1>
+    <div id="status">Testing...</div>
+    <div id="log"></div>
+    <button onclick="testConnection()">Test Connection</button>
+    <button onclick="closeConnection()">Close Connection</button>
+
+    <script>
+        let ws = null;
+        
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+            console.log(message);
+        }
+        
+        function updateStatus(status) {
+            document.getElementById('status').textContent = status;
+        }
+        
+        function testConnection() {
+            if (ws) {
+                log('Closing existing connection...');
+                ws.close();
+                ws = null;
+            }
+            
+            const url = 'ws://localhost:2700/?lang=tagalog';
+            log(`Connecting to: ${url}`);
+            updateStatus('Connecting...');
+            
+            try {
+                ws = new WebSocket(url);
+                ws.binaryType = 'arraybuffer';
+                
+                ws.onopen = function(event) {
+                    log('✅ WebSocket connected successfully!');
+                    updateStatus('Connected');
+                    
+                    // Send a test configuration
+                    const config = {
+                        config: {
+                            vocabulary: ['nasa', 'may', 'sapa', 'si', 'dora'],
+                            expected_words: ['nasa', 'may', 'sapa', 'si', 'dora'],
+                            use_hybrid_mode: true
+                        }
+                    };
+                    
+                    log('Sending test configuration...');
+                    ws.send(JSON.stringify(config));
+                };
+                
+                ws.onmessage = function(event) {
+                    log(`📨 Received message: ${event.data}`);
+                };
+                
+                ws.onerror = function(error) {
+                    log(`❌ WebSocket error: ${error}`);
+                    log(`Error type: ${error.type}`);
+                    log(`Error target: ${error.target}`);
+                    updateStatus('Error');
+                };
+                
+                ws.onclose = function(event) {
+                    log(`🔴 WebSocket closed. Code: ${event.code}, Reason: ${event.reason}, Clean: ${event.wasClean}`);
+                    updateStatus('Disconnected');
+                    
+                    // Common close codes
+                    const closeCodes = {
+                        1000: 'Normal closure',
+                        1001: 'Going away',
+                        1002: 'Protocol error',
+                        1003: 'Unsupported data',
+                        1006: 'Abnormal closure',
+                        1007: 'Invalid data',
+                        1008: 'Policy violation',
+                        1011: 'Internal server error'
+                    };
+                    
+                    const codeMessage = closeCodes[event.code] || `Unknown code: ${event.code}`;
+                    log(`Close code meaning: ${codeMessage}`);
+                };
+                
+            } catch (error) {
+                log(`❌ Failed to create WebSocket: ${error}`);
+                updateStatus('Failed');
+            }
+        }
+        
+        function closeConnection() {
+            if (ws) {
+                log('Manually closing connection...');
+                ws.close(1000, 'Manual close');
+                ws = null;
+            } else {
+                log('No connection to close');
+            }
+        }
+        
+        // Test connection on page load
+        window.onload = function() {
+            testConnection();
+        };
+    </script>
+</body>
+</html>

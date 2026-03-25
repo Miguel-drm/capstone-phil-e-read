@@ -7,20 +7,13 @@ import time
 import urllib.parse
 import websockets
 import numpy as np
+from typing import List
+import re
 from vosk import Model, KaldiRecognizer
-from word_matcher import WordMatcherSession, check_pronunciation_match as match_pronunciation
-from hybrid_matcher import HybridMatcherSession
-from phonetic_corrector import UltraAdvancedIntelligentPhoneticCorrector
-from miscue_analyzer import UltraAdvancedMiscueAnalyzer
+from word_matcher import WordMatcherSession
+from utils.phil_iri import PhilIRIEngine
 
-# Dictionary API integration for word validation
-try:
-    from dictionary_api_service import get_dictionary_service
-    DICTIONARY_API_AVAILABLE = True
-    print("[OK] Dictionary API service loaded")
-except ImportError as e:
-    DICTIONARY_API_AVAILABLE = False
-    print(f"[WARN] Dictionary API service not available: {e}")
+DEBUG_PHIL_IRI = os.getenv("DEBUG_PHIL_IRI", "false").lower() in {"1", "true", "yes", "on"}
 
 # Server accepts audio in multiple formats and handles processing server-side
 # Supported formats: Float32 (any sample rate), PCM16 (16kHz)
@@ -50,17 +43,103 @@ def downsample_to_16k(audio_data: np.ndarray, source_rate: int) -> np.ndarray:
         return audio_data[:new_length * ratio].reshape(-1, ratio).mean(axis=1)
 def validate_word_for_display(word: str) -> bool:
     """
-    Validate if a word should be displayed - DISABLED, ACCEPT ALL WORDS.
+    IMPROVED: Smart word validation with basic filtering.
     
     Args:
         word: Word to validate
 
     Returns:
-        Always True - accept all words
+        True if word should be accepted, False otherwise
     """
-    # DISABLED: Dictionary validation was blocking legitimate words
-    # Accept all words and let position-based validation handle filtering
+    if not word or len(word.strip()) == 0:
+        return False
+    
+    word_clean = word.strip().lower()
+    
+    # Reject obvious noise/artifacts
+    if len(word_clean) > 20:  # Unreasonably long words
+        return False
+    
+    # Reject words with too many repeated characters (likely artifacts)
+    if len(set(word_clean)) == 1 and len(word_clean) > 3:  # "aaaa", "ssss"
+        return False
+    
+    # Reject words with no vowels (except common exceptions)
+    vowels = set('aeiou')
+    exceptions = {'by', 'my', 'try', 'cry', 'dry', 'fly', 'shy', 'sky', 'why'}
+    if not any(c in vowels for c in word_clean) and word_clean not in exceptions:
+        return False
+    
+    # Accept everything else (let vocabulary filtering handle the rest)
     return True
+
+
+def calculate_word_similarity(word1: str, word2: str) -> float:
+    """
+    Calculate similarity between two words using Levenshtein distance.
+    Returns a value between 0.0 (no similarity) and 1.0 (identical).
+    """
+    if not word1 or not word2:
+        return 0.0
+    
+    if word1 == word2:
+        return 1.0
+    
+    # Simple Levenshtein distance calculation
+    len1, len2 = len(word1), len(word2)
+    if len1 < len2:
+        word1, word2 = word2, word1
+        len1, len2 = len2, len1
+    
+    if len2 == 0:
+        return 0.0
+    
+    # Create distance matrix
+    previous_row = list(range(len2 + 1))
+    for i, c1 in enumerate(word1):
+        current_row = [i + 1]
+        for j, c2 in enumerate(word2):
+            insertions = previous_row[j + 1] + 1
+            deletions = current_row[j] + 1
+            substitutions = previous_row[j] + (c1 != c2)
+            current_row.append(min(insertions, deletions, substitutions))
+        previous_row = current_row
+    
+    # Convert distance to similarity
+    max_len = max(len1, len2)
+    distance = previous_row[-1]
+    similarity = (max_len - distance) / max_len
+    return similarity
+
+
+def normalize_vocab_token(token: str) -> str:
+    """
+    IMPROVED: Better vocabulary normalization that preserves context.
+    """
+    if token is None:
+        return ""
+    
+    # Remove punctuation but preserve apostrophes and hyphens within words
+    normalized = str(token).lower().strip()
+    
+    # Handle contractions and hyphenated words properly
+    import re
+    
+    # First, try to match complete words with internal punctuation
+    word_pattern = r"\b[a-z0-9]+(?:['-][a-z0-9]+)*\b"
+    matches = re.findall(word_pattern, normalized)
+    
+    if matches:
+        # Return the longest match (most complete word)
+        return max(matches, key=len)
+    
+    # Fallback: extract any alphanumeric sequence
+    fallback_matches = re.findall(r"[a-z0-9']+", normalized)
+    if fallback_matches:
+        return max(fallback_matches, key=len)  # Return longest sequence
+    
+    # Last resort: return cleaned input
+    return re.sub(r'[^a-z0-9\'-]', '', normalized)
 
 
 def float32_to_pcm16(audio_data: np.ndarray) -> bytes:
@@ -127,47 +206,38 @@ async def recognize(websocket, path, model):
         detected_language = "tagalog"
     else:
         detected_language = "english"
+
+    # If the server is running tagalog-only (or english-only), clamp the detected language
+    try:
+        available_langs = set(models.keys())
+        if available_langs and detected_language not in available_langs:
+            detected_language = list(available_langs)[0]
+    except Exception:
+        pass
     
-    # REMOVED: word_enhancer - was never actually used, all calls were disabled
-    # The enhancer added complexity without providing value
+
     
-    # Track if grammar has been set
-    grammar_set = False
     # Track audio format from client
     client_sample_rate = 48000  # Default, can be overridden via config
-    
-    # Audio accumulation buffer - INSTANT PROCESSING MODE
-    audio_buffer = bytearray()
-    # INSTANT PROCESSING: Process every single audio chunk immediately
-    # No buffering at all - send to Vosk as soon as we receive it
-    buffer_size_target = 1  # INSTANT: Process immediately, no accumulation
-    
-    # ACCURACY TRACKING: Track metrics for live updates
+
+    # Session data for Phil-IRI summary
     session_start_time = time.time()
-    recognized_words = []  # List of {"word": str, "timestamp": float, "confidence": float} dicts
     vocabulary = set()  # Story vocabulary for server-side filtering
     expected_words = []  # Expected word sequence for accuracy calculation
     total_words_expected = 0
-    miscues = 0  # Total miscues (errors)
-    miscue_types = {
-        "mispronunciation": 0,
-        "omission": 0,
-        "substitution": 0,
-        "insertion": 0,
-        "repetition": 0,
-        "transposition": 0,
-        "reversal": 0
-    }
-    current_word_index = 0  # Track which expected word we're on
-    
-    # LATENCY TRACKING: Track end-to-end latency
-    latency_samples = []  # Store last 10 latency measurements
-    audio_capture_time = time.time()  # Track when audio was captured
-    hybrid_matcher = None  # Hybrid matcher (NEW - switches between 1-by-1 and multi-word)
-    phrase_matcher = None  # Phrase-level matcher (Option 2 for higher accuracy)
-    phonetic_corrector = None  # Phonetic corrector for misheard words (NEW)
-    use_phrase_mode = False  # Whether to use phrase-level matching
-    use_hybrid_mode = True  # Use hybrid matcher by default (NEW)
+    session_transcript_words = []
+    recent_spoken_words: List[str] = []  # For contextual phonetic correction
+    last_accepted_words_lower: List[str] = []  # For partial-text delta gating
+    config_ready = False  # Only process Vosk text after frontend sends config
+    phil_iri_engine = PhilIRIEngine()
+    if DEBUG_PHIL_IRI:
+        print(f"[PHIL-IRI-DEBUG] Engine ready (language={detected_language})")
+
+    word_matcher = None  # Simple word matcher - the only matcher we need
+    # Accumulate tiny browser chunks before sending to Vosk.
+    # 1600 bytes ~= 50ms of 16kHz mono PCM16 audio (FASTER RESPONSE)
+    audio_buffer = bytearray()
+    buffer_size_target = 1600  # Reduced from 3200 for faster word detection
     
     try:
         async for message in websocket:
@@ -189,17 +259,20 @@ async def recognize(websocket, path, model):
                     # Process audio: convert format, downsampling if needed
                     pcm16_audio = process_audio_message(message, client_sample_rate, audio_chunks_received)
                     
-                    # INSTANT PROCESSING: Send to Vosk immediately without any buffering
-                    # Process every single audio chunk as it arrives
-                    
-                    # Send directly to Vosk without accumulation
-                    has_final = recognizer.AcceptWaveform(pcm16_audio)
+                    # Buffer small chunks to improve recognizer stability.
+                    audio_buffer.extend(pcm16_audio)
+                    if len(audio_buffer) < buffer_size_target:
+                        continue
+
+                    audio_chunk = bytes(audio_buffer)
+                    audio_buffer.clear()
+                    has_final = recognizer.AcceptWaveform(audio_chunk)
                     
                     text = ""
                     
                     # DEBUG: Enhanced Vosk debugging to identify recognition issues
                     if audio_chunks_received % 200 == 0:  # Log every 200 chunks
-                        print(f"[DEBUG] Vosk processing: chunk {audio_chunks_received}, has_final={has_final}, audio_bytes={len(pcm16_audio)}")
+                        print(f"[DEBUG] Vosk processing: chunk {audio_chunks_received}, has_final={has_final}, audio_bytes={len(audio_chunk)}")
                     
                     if has_final:
                         # Final result - most accurate
@@ -209,9 +282,12 @@ async def recognize(websocket, path, model):
                         if text:
                             print(f"[AUDIO] Vosk FINAL result: '{text}'")
                         else:
-                            # DEBUG: Log when Vosk returns empty final result
-                            if audio_chunks_received % 500 == 0:  # Log occasionally
-                                print(f"[DEBUG] Vosk final result empty - raw result: {res}")
+                            # Handle empty final result - check if recognizer is working
+                            if audio_chunks_received % 100 == 0:  # Log more frequently for debugging
+                                print(f"[WARN] Vosk final result empty - chunk {audio_chunks_received}")
+                                print(f"   Raw result: {res}")
+                                print(f"   Audio bytes: {len(audio_chunk)}")
+                                # Continue processing - don't skip the chunk
                     else:
                         # Partial result - faster but less accurate
                         pres = json.loads(recognizer.PartialResult())
@@ -219,239 +295,162 @@ async def recognize(websocket, path, model):
                         
                         if text:
                             print(f"[AUDIO] Vosk partial result: '{text}'")
-                        else:
-                            # DEBUG: Log when Vosk returns empty partial result
-                            if audio_chunks_received % 1000 == 0:  # Log occasionally
-                                print(f"[DEBUG] Vosk partial result empty - raw result: {pres}")
-                                print(f"[DEBUG] Audio format check: {len(pcm16_audio)} bytes PCM16, sample_rate={sample_rate}")
-                                
-                                # Check if recognizer is properly initialized
-                                try:
-                                    test_result = recognizer.FinalResult()
-                                    print(f"[DEBUG] Recognizer test: {test_result}")
-                                except Exception as e:
-                                    print(f"[DEBUG] Recognizer error: {e}")
+                        # Don't log empty partial results as frequently - they're normal
                     
-                    if text:
-                        # INSTANT PROCESSING: Skip all confidence checks for maximum speed
-                        # Split into words and process immediately
+                    # Guard: only process final Vosk results for stable word advancement.
+                    # Partial results often repeat the same prefix and can cause duplicate
+                    # word_match events (stuttering / skipping).
+                    if text and has_final and config_ready:
+                        print(f"[VOSK-FINAL] Processing final result: '{text}'")
+                        
+                        # Word boundary detection - ensure we have complete words
                         words = text.split()
+                        print(f"[WORDS] Split into {len(words)} words: {words}")
                         
-                        # INSTANT PROCESSING: Skip duplicate detection for maximum speed
-                        new_words = words
+                        complete_words = []
                         
-                        if new_words:
-                            # INSTANT PROCESSING: Direct vocabulary filtering
-                            filtered_words = []
-                            
-                            for word in new_words:
-                                # EXTREME SPEED: Direct vocabulary check only
-                                if vocabulary and word.lower().strip() in vocabulary:
-                                    filtered_words.append(word)
-                                
-                                if filtered_words:
-                                    # NEW: Use hybrid matcher if initialized (switches between 1-by-1 and multi-word)
-                                    if hybrid_matcher:
-                                        # HYBRID MODE: Intelligent switching based on reading speed
-                                        for word in filtered_words:
-                                            # ADVANCED INTELLIGENT PHONETIC CORRECTION: AI-enhanced with all 8 features
-                                            original_word = word
-                                            if phonetic_corrector:
-                                                # Get context from hybrid matcher for intelligent correction
-                                                current_position = hybrid_matcher.current_position if hasattr(hybrid_matcher, 'current_position') else -1
-                                                context_words = []
+                        for word in words:
+                            # Check if word is complete (not a partial fragment)
+                            word_clean = word.strip().lower()
+                            if len(word_clean) >= 1:  # Allow single letters (like "a", "I")
+                                # Check if it's a real word (not a fragment)
+                                if word_clean.isalpha() or "'" in word_clean or word_clean.isdigit():
+                                    complete_words.append(word)
+                                    print(f"   [COMPLETE] '{word}' -> accepted")
+                                else:
+                                    print(f"   [FRAGMENT] '{word}' -> rejected (not alpha/digit)")
+                            else:
+                                print(f"   [SHORT] '{word}' -> rejected (too short)")
+                        
+                        print(f"[COMPLETE-WORDS] {len(complete_words)} complete words: {complete_words}")
+                        
+                        if complete_words:
+                            # Process complete words only
+                            words = complete_words
+
+                        if words:
+                            print(f"[VOCAB-FILTER] Processing {len(words)} words through vocabulary filter")
+                            accepted_words: List[str] = []
+                            for word in words:
+                                token_norm = normalize_vocab_token(word)
+                                print(f"   [NORMALIZE] '{word}' -> '{token_norm}'")
+                                if token_norm:
+                                    if vocabulary:
+                                        print(f"   [CHECK] Checking '{token_norm}' against vocabulary of {len(vocabulary)} words")
+                                        # Direct match first
+                                        if token_norm in vocabulary:
+                                            accepted_words.append(token_norm)
+                                            print(f"   [MATCH] '{word}' -> '{token_norm}' - direct vocabulary match")
+                                        else:
+                                            # Try fuzzy matching for pronunciation variations
+                                            fuzzy_match_found = False
+                                            best_match = None
+                                            best_similarity = 0.0
+                                            
+                                            for vocab_word in vocabulary:
+                                                similarity = calculate_word_similarity(token_norm, vocab_word)
+                                                if similarity > best_similarity:
+                                                    best_similarity = similarity
+                                                    best_match = vocab_word
                                                 
-                                                # Build context from recent words
-                                                if hasattr(hybrid_matcher, 'recent_words') and hybrid_matcher.recent_words:
-                                                    context_words = list(hybrid_matcher.recent_words)[-3:]  # Last 3 words
-                                                
-                                                # Calculate reading speed (words per minute)
-                                                reading_speed_wpm = 0.0
-                                                if hasattr(hybrid_matcher, 'reading_speed_wpm'):
-                                                    reading_speed_wpm = hybrid_matcher.reading_speed_wpm
-                                                
-                                                # Use HYPER-INTELLIGENCE BREAKTHROUGH correction with all 24 features
-                                                correction_result = phonetic_corrector.correct_word_with_hyper_intelligence_breakthrough(
-                                                    word, context_words, current_position, reading_speed_wpm
-                                                )
-                                                
-                                                if correction_result["was_corrected"]:
-                                                    word = correction_result["corrected"]
-                                                    
-                                                    # Build advanced intelligence info string
-                                                    intelligence_info = []
-                                                    if correction_result["used_context"]:
-                                                        intelligence_info.append(f"context:{correction_result['context_score']:.2f}")
-                                                    if correction_result["used_position"]:
-                                                        intelligence_info.append(f"position:{correction_result['position_score']:.2f}")
-                                                    if correction_result["used_emotional_adaptation"]:
-                                                        intelligence_info.append(f"emotion:{correction_result['emotional_state']}")
-                                                    if correction_result["used_speed_adaptation"]:
-                                                        intelligence_info.append(f"speed:{correction_result['adaptive_sensitivity']:.2f}x")
-                                                    if correction_result["used_difficulty_scoring"]:
-                                                        intelligence_info.append(f"difficulty:{correction_result['pronunciation_difficulty']}")
-                                                    
-                                                    intelligence_str = f" [{','.join(intelligence_info)}]" if intelligence_info else ""
-                                                    
-                                                    print(f"   [HYPER-INTELLIGENCE-BREAKTHROUGH] '{original_word}' → '{word}' "
-                                                          f"({correction_result['confidence_level']}:{correction_result['total_similarity']:.3f})"
-                                                          f" Quantum:{correction_result['quantum_processing_time_microseconds']:.2f}μs"
-                                                          f" Features:{correction_result['total_intelligence_features_used']}/24"
-                                                          f" Transcendent:{correction_result['hyper_intelligence_level']}"
-                                                          f"{intelligence_str}")
-                                                    
-                                                    # Show pronunciation coaching if available
-                                                    coaching = correction_result.get("pronunciation_coaching", {})
-                                                    if coaching.get("tip"):
-                                                        print(f"   [COACHING] {coaching['tip']}")
-                                                    
-                                                    # Show predictions if available
-                                                    predictions = correction_result.get("next_word_predictions", [])
-                                                    if predictions:
-                                                        pred_str = ", ".join([f"{w}({p:.2f})" for w, p in predictions[:2]])
-                                                        print(f"   [PREDICTIONS] Next likely: {pred_str}")
-                                                        
-                                                elif correction_result["high_confidence"]:
-                                                    print(f"   [HYPER-INTELLIGENCE-VERIFIED] '{word}' (exact match, {correction_result['emotional_state']} state, "
-                                                          f"Quantum:{correction_result['quantum_processing_time_microseconds']:.2f}μs, "
-                                                          f"Transcendent:{correction_result['hyper_intelligence_level']})")
+                                                if similarity >= 0.70:  # 70% similarity threshold
+                                                    accepted_words.append(token_norm)
+                                                    fuzzy_match_found = True
+                                                    print(f"   [FUZZY] '{word}' -> '{token_norm}' - fuzzy match with '{vocab_word}' ({similarity:.2f})")
+                                                    break
                                             
-                                            match_result = hybrid_matcher.process_word(word)
-                                            
-                                            # ULTRA-ADVANCED MISCUE ANALYSIS: Analyze the word for miscues
-                                            expected_word = match_result.get("expected_word", "")
-                                            miscue_type = "correct"  # Default
-                                            miscue_severity = "negligible"
-                                            
-                                            if expected_word and miscue_analyzer:
-                                                miscue_event = miscue_analyzer.analyze_miscue(
-                                                    expected_word=expected_word,
-                                                    actual_word=word,
-                                                    position=match_result.get("position", 0),
-                                                    context=context_words,
-                                                    reading_speed=reading_speed_wpm
-                                                )
-                                                
-                                                # Extract miscue type and severity
-                                                miscue_type = miscue_event.miscue_type.value
-                                                miscue_severity = miscue_event.severity.value
-                                                
-                                                # Log miscue analysis results
-                                                if miscue_event.miscue_type.value not in ["correct", "self_correct"]:
-                                                    print(f"   [MISCUE-{miscue_event.miscue_type.value.upper()}] '{expected_word}' → '{word}' "
-                                                          f"(Severity: {miscue_event.severity.value}, "
-                                                          f"Quantum: {miscue_event.quantum_processing_time:.2f}ms)")
-                                                    
-                                                    if miscue_event.neural_pattern_disruption > 0.1:
-                                                        print(f"   [NEURAL-DISRUPTION] Pattern disruption: {miscue_event.neural_pattern_disruption:.2f}")
-                                                    
-                                                    if miscue_event.voice_emotion_impact != "neutral":
-                                                        print(f"   [VOICE-EMOTION] Detected: {miscue_event.voice_emotion_impact}")
-                                                    
-                                                    if miscue_event.comprehension_impact > 0.3:
-                                                        print(f"   [COMPREHENSION-IMPACT] Impact: {miscue_event.comprehension_impact:.2f}")
-                                                
-                                                elif miscue_event.miscue_type.value == "self_correct":
-                                                    print(f"   [SELF-CORRECTION] '{expected_word}' self-corrected "
-                                                          f"(Metacognitive: {miscue_event.neural_pattern_disruption:.2f})")
-                                                
-                                                elif miscue_event.miscue_type.value == "correct":
-                                                    print(f"   [CORRECT-READING] '{word}' read perfectly "
-                                                          f"(Fluency: {miscue_event.neural_pattern_disruption:.2f})")
-                                            
-                                            
-                                            # EXTREME SPEED: Send word_match message immediately with miscue information
-                                            send_time = time.time()
-                                            await websocket.send(json.dumps({
-                                                "type": "word_match",
-                                                "word": word,
-                                                "expected_word": match_result.get("expected_word", ""),
-                                                "is_correct": match_result.get("is_correct", False),
-                                                "position": match_result.get("position", 0),
-                                                "advance": match_result.get("advance", False),
-                                                "new_position": match_result.get("new_position", 0),
-                                                "words_read": match_result.get("words_read", 0),
-                                                "total_miscues": match_result.get("total_miscues", 0),
-                                                "confidence": match_result.get("confidence", 1.0),
-                                                "timestamp": send_time,
-                                                "mode": match_result.get("mode", "word_by_word"),
-                                                "reading_speed": match_result.get("reading_speed", 0.0),
-                                                "buffer": match_result.get("buffer", []),
-                                                # MISCUE INFORMATION FOR WORD COLORING
-                                                "miscue_type": miscue_type,
-                                                "miscue_severity": miscue_severity
-                                            }))
-                                            
-                                            # EXTREME SPEED: Minimal logging
-                                            if audio_chunks_received % 50 == 0:  # Log every 50 chunks instead of every word
-                                                latency_ms = (send_time - audio_receive_time) * 1000
-                                                mode_str = "1-by-1" if match_result.get("mode") == "word_by_word" else "Multi"
-                                                is_correct_str = "[OK]" if match_result.get("is_correct") else "[FAIL]"
-                                                print(f"   [STATS] {is_correct_str} [{mode_str}] '{word}' | Latency: {latency_ms:.0f}ms")
-                                    elif use_phrase_mode and phrase_matcher:
-                                        # PHRASE MODE: Process each word through phrase matcher
-                                        for word in filtered_words:
-                                            match_result = phrase_matcher.process_word(word)
-                                            
-                                            # Calculate current metrics
-                                            elapsed = time.time() - session_start_time
-                                            metrics = phrase_matcher.get_metrics(elapsed)
-                                            
-                                            # 100% REAL-TIME: Send match result IMMEDIATELY with timestamp
-                                            await websocket.send(json.dumps({
-                                                "text": word,
-                                                "match_result": match_result,
-                                                "metrics": metrics,
-                                                "timestamp": time.time()  # Real-time timestamp
-                                            }))
-                                            
-                                            print(f"   [STATS] Phrase Match: {match_result['match_type']} - {match_result['details']}")
-                                    elif word_matcher:
-                                        # WORD MODE: Process each word through word matcher
-                                        for word in filtered_words:
-                                            match_result = word_matcher.process_word(word)
-                                            
-                                            # Calculate current metrics
-                                            elapsed = time.time() - session_start_time
-                                            metrics = word_matcher.get_metrics(elapsed)
-                                            
-                                            # 100% REAL-TIME: Send word_match message for instant green highlighting
-                                            # This is the new format for real-time word-by-word recognition
-                                            await websocket.send(json.dumps({
-                                                "type": "word_match",
-                                                "word": word,
-                                                "expected_word": match_result.get("expected_word", ""),
-                                                "is_correct": match_result.get("is_correct", False),
-                                                "position": match_result.get("position", 0),
-                                                "advance": match_result.get("advance", False),
-                                                "new_position": match_result.get("new_position", 0),
-                                                "words_read": match_result.get("words_read", 0),
-                                                "total_miscues": match_result.get("total_miscues", 0),
-                                                "confidence": match_result.get("confidence", 1.0),
-                                                "timestamp": time.time()  # Real-time timestamp for latency measurement
-                                            }))
-                                            
-                                            is_correct_str = "[OK]" if match_result.get("is_correct") else "[FAIL]"
-                                            print(f"   [STATS] {is_correct_str} Word Match: '{word}' vs '{match_result.get('expected_word', '')}' at position {match_result.get('position', 0)}")
+                                            if not fuzzy_match_found:
+                                                print(f"   [SKIP] '{word}' -> '{token_norm}' - not in vocabulary (best match: '{best_match}' {best_similarity:.2f})")
+                                                # Show some vocabulary for debugging
+                                                vocab_sample = list(vocabulary)[:5]
+                                                print(f"   [VOCAB-SAMPLE] {vocab_sample}")
                                     else:
-                                        # Fallback: Send filtered result without matching
-                                        await websocket.send(json.dumps({
-                                            "text": filtered_text,
-                                            "confidence": 1.0,
-                                            "timestamp": time.time()  # Real-time timestamp
-                                        }))
+                                        accepted_words.append(token_norm)
+                                        print(f"   [NO-VOCAB] '{word}' -> '{token_norm}' - no vocabulary filter, accepted")
                             
-                            # OLD CODE - COMPLETELY DISABLED
-                            # This code is kept for reference but is not executed
-                            # word_enhancer has been removed from the system
+                            print(f"[ACCEPTED] {len(accepted_words)} words accepted: {accepted_words}")
+
+                            accepted_lower = [w.lower().strip() for w in accepted_words]
+                            print(f"[ACCEPTED-LOWER] {accepted_lower}")
+
+                            # Compute delta tail vs last accepted words (prefix-based).
+                            print(f"[DELTA] Computing delta. Last accepted: {last_accepted_words_lower}")
+                            if last_accepted_words_lower:
+                                if (
+                                    len(accepted_lower) >= len(last_accepted_words_lower)
+                                    and accepted_lower[: len(last_accepted_words_lower)] == last_accepted_words_lower
+                                ):
+                                    new_words = accepted_words[len(last_accepted_words_lower) :]
+                                    print(f"[DELTA] Prefix match - new words: {new_words}")
+                                elif accepted_lower == last_accepted_words_lower:
+                                    new_words = []
+                                    print(f"[DELTA] Same as last - no new words")
+                                elif len(accepted_lower) > len(last_accepted_words_lower):
+                                    # Vosk revised earlier content; avoid flooding by only taking the last word.
+                                    new_words = accepted_words[-1:]
+                                    print(f"[DELTA] Revision detected - taking last word: {new_words}")
+                                else:
+                                    new_words = []
+                                    print(f"[DELTA] Shorter than last - no new words")
+                            else:
+                                new_words = accepted_words
+                                print(f"[DELTA] First words - all new: {new_words}")
+
+                            # Update last accepted snapshot even if no new words.
+                            last_accepted_words_lower = accepted_lower
+                            print(f"[DELTA] Updated last accepted to: {last_accepted_words_lower}")
+
+                            if DEBUG_PHIL_IRI and has_final:
+                                print(
+                                    f"[VOSK-FINAL-DELTA] text='{text}' "
+                                    f"accepted={accepted_lower} new={ [w.lower().strip() for w in new_words] if new_words else []}"
+                                )
+
+                            if new_words:
+                                print(f"[PROCESSING] {len(new_words)} new words: {new_words}")
+                                
+                                # SIMPLE WORD MATCHING - No complex hybrid or phonetic correction
+                                if word_matcher:
+                                    for word in new_words:
+                                        session_transcript_words.append(word)
+                                        match_result = word_matcher.process_word(word)
+                                        
+                                        # Send word_match event to frontend
+                                        send_time = time.time()
+                                        
+                                        await websocket.send(json.dumps({
+                                            "type": "word_match",
+                                            "word": word,
+                                            "expected_word": match_result.get("expected_word", ""),
+                                            "is_correct": match_result.get("is_correct", False),
+                                            "position": match_result.get("position", 0),
+                                            "advance": match_result.get("advance", False),
+                                            "new_position": match_result.get("new_position", 0),
+                                            "words_read": match_result.get("words_read", 0),
+                                            "total_miscues": match_result.get("total_miscues", 0),
+                                            "confidence": match_result.get("confidence", 1.0),
+                                            "timestamp": send_time,
+                                            # MISCUE INFORMATION
+                                            "miscue_type": match_result.get("miscue_type", "substitution"),
+                                            "miscue_severity": match_result.get("miscue_severity", "moderate"),
+                                            # POSITION RECONCILIATION
+                                            "server_position": word_matcher.current_position,
+                                            "server_words_read": word_matcher.words_read,
+                                            "reconciliation_timestamp": send_time
+                                        }))
+                                else:
+                                    # No matcher configured - just send basic text
+                                    session_transcript_words.extend(new_words)
+                                    await websocket.send(json.dumps({
+                                        "text": " ".join(new_words),
+                                        "confidence": 1.0,
+                                        "timestamp": time.time(),
+                                    }))
                         else:
                             # Partial result - process but don't send (prevents jumping)
                             pres = json.loads(recognizer.PartialResult())
                             partial = pres.get("partial", "").strip()
-                            if partial:
-                                # Track partial for stability, but don't send to prevent jumping
-                                # (word_enhancer removed - not needed for current implementation)
-                                pass
+                            # Track partial for stability, but don't send to prevent jumping
                 elif isinstance(message, str):
                     # Handle JSON configuration messages
                     try:
@@ -470,71 +469,41 @@ async def recognize(websocket, path, model):
                             
                             # ACCURACY: Store vocabulary for server-side filtering
                             if "vocabulary" in config:
-                                vocabulary = set(word.lower().strip() for word in config["vocabulary"])
+                                vocabulary = set(
+                                    filter(
+                                        None,
+                                        (normalize_vocab_token(word) for word in config["vocabulary"]),
+                                    )
+                                )
                                 print(f"[OK] Vocabulary loaded: {len(vocabulary)} words for server-side filtering")
+                                # Debug: Show first 10 vocabulary words
+                                vocab_sample = list(vocabulary)[:10]
+                                print(f"   Sample vocabulary: {vocab_sample}")
+                                # Debug: Show vocabulary normalization examples
+                                if len(vocabulary) > 0:
+                                    first_word = list(vocabulary)[0]
+                                    print(f"   Normalization example: raw -> normalized")
+                                    print(f"   '{first_word}' -> '{normalize_vocab_token(first_word)}'")
+                            else:
+                                print(f"[WARN] No vocabulary provided in config")
                             
                             # ACCURACY: Store expected word sequence for accuracy calculation
                             if "expected_words" in config:
-                                expected_words = [word.strip() for word in config["expected_words"]]  # Keep original case
+                                # Normalize for matcher stability but keep index count unchanged.
+                                expected_words = [
+                                    normalize_vocab_token(word) or str(word).strip().lower()
+                                    for word in config["expected_words"]
+                                ]
                                 total_words_expected = len(expected_words)
-                                current_word_index = 0  # Reset word index
+                                if DEBUG_PHIL_IRI:
+                                    print(f"[PHIL-IRI-DEBUG] expected_words loaded: {total_words_expected}")
+                                config_ready = True
                                 
-                                # Check if hybrid mode is requested (NEW)
-                                use_hybrid_mode = config.get("use_hybrid_mode", True)
-                                
-                                if use_hybrid_mode:
-                                    # Initialize hybrid matcher (NEW - switches between 1-by-1 and multi-word)
-                                    hybrid_matcher = HybridMatcherSession(expected_words, detected_language)
-                                    print(f"[OK] Expected word sequence loaded: {total_words_expected} words")
-                                    print(f"[OK] HYBRID MATCHER initialized for {detected_language} language")
-                                    print(f"   Mode: Adaptive (switches between 1-by-1 and multi-word based on reading speed)")
-                                    
-                                    # Initialize ULTRA-ADVANCED INTELLIGENT phonetic corrector (AI-enhanced)
-                                    story_text = " ".join(expected_words)  # Reconstruct story text for context
-                                    user_id = f"user_{int(time.time())}"  # Generate user ID for session
-                                    phonetic_corrector = UltraAdvancedIntelligentPhoneticCorrector(
-                                        expected_words, detected_language, story_text, user_id
-                                    )
-                                    print(f"[OK] HYPER-INTELLIGENCE BREAKTHROUGH PHONETIC CORRECTOR initialized for {detected_language} language")
-                                    print(f"   ⚡ HYPER-INTELLIGENCE FEATURES: 24/24 active (8 Original + 8 Ultra-Advanced + 8 Hyper-Intelligence)")
-                                    print(f"   🌌 Quantum Neural Networks, 🧠 Predictive Consciousness, 📐 Dimensional Analysis")
-                                    print(f"   💫 Quantum Emotional Entanglement, 🧬 Synaptic Memory, ⏰ Temporal Intelligence")
-                                    print(f"   🌊 Consciousness Flow, 🌟 Omniscient Patterns - TRANSCENDENT INTELLIGENCE ACHIEVED")
-                                    print(f"   📊 Story words: {len(expected_words)}, Quantum processing: sub-femtosecond")
-                                    print(f"   👤 User profile: {user_id} (hyper-intelligence learning enabled)")
-                                    # Initialize ULTRA-ADVANCED MISCUE ANALYZER
-                                    miscue_analyzer = UltraAdvancedMiscueAnalyzer(phonetic_corrector)
-                                    print(f"[OK] ULTRA-ADVANCED MISCUE ANALYZER initialized")
-                                    print(f"   🎯 8 Miscue types: MISPRONOUNCE, SUBSTITUTION, OMISSION, TRANSPOSITION, REVERSAL, INSERTION, SELF-CORRECT, CORRECT")
-                                    print(f"   🧠 Individual analyzers with 16 intelligence layers each")
-                                    print(f"   📊 Comprehensive miscue analysis and pattern recognition")
-                                    
-                                    word_matcher = None  # Disable regular word matcher
-                                    phrase_matcher = None  # Disable phrase matcher
-                                else:
-                                    # Check if phrase mode is requested
-                                    use_phrase_mode = config.get("use_phrase_mode", False)
-                                use_phrase_mode = config.get("use_phrase_mode", False)
-                                
-                                if use_phrase_mode:
-                                    # Initialize phrase matcher (Option 2 - higher accuracy)
-                                    try:
-                                        from phrase_matcher import PhraseMatcherSession
-                                        phrase_matcher = PhraseMatcherSession(expected_words, detected_language)
-                                        print(f"[OK] Expected word sequence loaded: {total_words_expected} words")
-                                        print(f"[OK] PHRASE MATCHER initialized for {detected_language} language (Option 2)")
-                                        print(f"   Using phrase-level assessment for 85-95% accuracy")
-                                    except ImportError as e:
-                                        print(f"[WARN] Phrase matcher not available: {e}")
-                                        print(f"   Falling back to word-level matcher")
-                                        use_phrase_mode = False
-                                        word_matcher = WordMatcherSession(expected_words, detected_language)
-                                        print(f"[OK] Word matcher initialized for {detected_language} language")
-                                else:
-                                    # Initialize word matcher session (Option 1 - original)
-                                    word_matcher = WordMatcherSession(expected_words, detected_language)
-                                    print(f"[OK] Expected word sequence loaded: {total_words_expected} words")
-                                    print(f"[OK] Word matcher initialized for {detected_language} language")
+                                # SIMPLE WORD MATCHING - No complex hybrid or phrase matchers
+                                word_matcher = WordMatcherSession(expected_words, detected_language)
+                                print(f"[OK] Expected word sequence loaded: {total_words_expected} words")
+                                print(f"[OK] Word matcher initialized for {detected_language} language")
+
                             
                             # Check for grammar or word_list constraint
                             grammar = config.get("grammar") or config.get("word_list")
@@ -565,7 +534,6 @@ async def recognize(websocket, path, model):
                                     grammar_json = json.dumps(grammar_list)
                                     recognizer = KaldiRecognizer(model, sample_rate, grammar_json)
                                     recognizer.SetWords(True)
-                                    grammar_set = True
                                     unique_words = len(set(grammar_list))
                                     print(f"[OK] Enhanced grammar constraint applied: {unique_words} unique words ({len(grammar_list)} total with boosting)")
                                     await websocket.send(json.dumps({
@@ -678,7 +646,7 @@ async def recognize(websocket, path, model):
                 # Only process if we have NEW words beyond what was already sent
                 if len(final_words) <= words_sent_count:
                     print(f"   [INFO] Final result contains no new words (already sent {words_sent_count} words)")
-                    return  # Exit without sending - no new words
+                    final_words = []
                 
                 # Extract only NEW words not already sent
                 new_words = final_words[words_sent_count:]
@@ -692,17 +660,31 @@ async def recognize(websocket, path, model):
                     
                     # Check if we have story vocabulary loaded
                     if vocabulary:
-                        word_lower = word.lower().strip()
+                        # FIXED: Use same normalization for both vocabulary and spoken words
+                        word_normalized = normalize_vocab_token(word)
                         
-                        # 1. Direct match in vocabulary - STRICT MATCH
-                        if word_lower in vocabulary:
+                        # 1. Direct match in vocabulary - CONSISTENT NORMALIZATION
+                        if word_normalized in vocabulary:
                             should_accept = True
-                            print(f"   [OK] '{word}' - in vocabulary")
+                            print(f"   [OK] '{word}' (normalized: '{word_normalized}') - in vocabulary")
                         else:
-                            # Word NOT in vocabulary - REJECT IT
-                            # Don't accept ANY words that aren't in the story
-                            print(f"   [FAIL] '{word}' - NOT in story vocabulary, REJECTED")
-                            should_accept = False
+                            # Try fuzzy matching for pronunciation variations
+                            fuzzy_match_found = False
+                            for vocab_word in vocabulary:
+                                similarity = calculate_word_similarity(word_normalized, vocab_word)
+                                if similarity >= 0.70:  # 70% similarity threshold
+                                    should_accept = True
+                                    fuzzy_match_found = True
+                                    print(f"   [OK] '{word}' - fuzzy match with '{vocab_word}' ({similarity:.2f})")
+                                    break
+                            
+                            if not fuzzy_match_found:
+                                # Word NOT in vocabulary - REJECT IT
+                                print(f"   [FAIL] '{word}' (normalized: '{word_normalized}') - NOT in story vocabulary, REJECTED")
+                                # Debug: Show some vocabulary words for comparison
+                                vocab_sample = list(vocabulary)[:5]
+                                print(f"   [DEBUG] Vocabulary sample: {vocab_sample}")
+                                should_accept = False
                     else:
                         # No vocabulary loaded - REJECT ALL WORDS (don't accept fallback)
                         # This prevents random word detection when vocabulary isn't set
@@ -715,6 +697,7 @@ async def recognize(websocket, path, model):
                 if filtered_words:
                     filtered_text = ' '.join(filtered_words)
                     print(f"   [OK] Final result: Accepted \"{filtered_text}\"")
+                    session_transcript_words.extend(filtered_words)
                     
                     # Send final result (only NEW words)
                     await websocket.send(json.dumps({
@@ -722,6 +705,23 @@ async def recognize(websocket, path, model):
                         "confidence": 1.0,
                         "final": True
                     }))
+
+            # Send end-of-session Phil-IRI summary when we have data.
+            if expected_words and session_transcript_words:
+                phil_iri_result = phil_iri_engine.analyze(
+                    target_text=" ".join(expected_words),
+                    student_transcript=" ".join(session_transcript_words),
+                )
+                if DEBUG_PHIL_IRI:
+                    print(
+                        f"[PHIL-IRI-DEBUG] summary accuracy={phil_iri_result.get('accuracy_rate')} "
+                        f"level={phil_iri_result.get('reading_level')} "
+                        f"miscues={phil_iri_result.get('miscue_summary')}"
+                    )
+                await websocket.send(json.dumps({
+                    "type": "phil_iri_summary",
+                    **phil_iri_result
+                }))
         except Exception as e:
             print(f"[WARN]️ Error sending final result: {e}")
             pass
@@ -746,53 +746,53 @@ async def handler(ws, path):
         print(f"   Available models: {list(models.keys())}")
         print(f"{'='*60}")
         
-        # Select model based on language
+        # Select model based on language.
+        # If the requested model isn't available (tagalog-only server),
+        # fall back to the available one instead of hard-failing.
         if language == "english" or language == "en":
+            requested_language = "english"
             model = models.get("english")
             if not model:
-                error_msg = f"English model not loaded. Available models: {', '.join(models.keys())}"
-                print(f"[FAIL] {error_msg}")
-                print(f"   Available models: {list(models.keys())}")
-                print(f"   💡 To load English model:")
-                print(f"      1. Download: python download_huggingface_model.py")
-                print(f"      2. Or set SERVICE_LANGUAGE=english to load only English")
-                print(f"      3. Or remove SERVICE_LANGUAGE to load both models")
-                print(f"   Action: Closing connection with error code 1008")
-                print(f"{'='*60}\n")
-                try:
-                    # Send error message before closing
-                    await ws.send(json.dumps({
-                        "error": error_msg,
-                        "available_models": list(models.keys()),
-                        "requested_language": language
-                    }))
-                    await ws.close(code=1008, reason=error_msg)
-                except:
-                    pass  # Connection may already be closed
-                return
-        else:  # Default to tagalog
+                # Tagalog-only fallback.
+                model = models.get("tagalog")
+                if model:
+                    language = "tagalog"
+                    print("[WARN] English requested but only Tagalog model is loaded; falling back to Tagalog.")
+                else:
+                    error_msg = f"Requested language model not loaded. Available models: {', '.join(models.keys())}"
+                    print(f"[FAIL] {error_msg}")
+                    try:
+                        await ws.send(json.dumps({
+                            "error": error_msg,
+                            "available_models": list(models.keys()),
+                            "requested_language": requested_language
+                        }))
+                        await ws.close(code=1008, reason=error_msg)
+                    except:
+                        pass
+                    return
+        else:
+            requested_language = "tagalog"
             model = models.get("tagalog")
             if not model:
-                error_msg = f"Tagalog model not loaded. Available models: {', '.join(models.keys())}"
-                print(f"[FAIL] {error_msg}")
-                print(f"   Available models: {list(models.keys())}")
-                print(f"   💡 To load Tagalog model:")
-                print(f"      1. Download: python download_huggingface_model.py")
-                print(f"      2. Or set SERVICE_LANGUAGE=tagalog to load only Tagalog")
-                print(f"      3. Or remove SERVICE_LANGUAGE to load both models")
-                print(f"   Action: Closing connection with error code 1008")
-                print(f"{'='*60}\n")
-                try:
-                    # Send error message before closing
-                    await ws.send(json.dumps({
-                        "error": error_msg,
-                        "available_models": list(models.keys()),
-                        "requested_language": language
-                    }))
-                    await ws.close(code=1008, reason=error_msg)
-                except:
-                    pass  # Connection may already be closed
-                return
+                # English-only fallback.
+                model = models.get("english")
+                if model:
+                    language = "english"
+                    print("[WARN] Tagalog requested but only English model is loaded; falling back to English.")
+                else:
+                    error_msg = f"Requested language model not loaded. Available models: {', '.join(models.keys())}"
+                    print(f"[FAIL] {error_msg}")
+                    try:
+                        await ws.send(json.dumps({
+                            "error": error_msg,
+                            "available_models": list(models.keys()),
+                            "requested_language": requested_language
+                        }))
+                        await ws.close(code=1008, reason=error_msg)
+                    except:
+                        pass
+                    return
         
         print(f"[OK] Model found: {language}")
         print(f"   Starting recognition...")
@@ -1022,12 +1022,14 @@ async def main():
             sys.stdout.flush()
             await asyncio.Future()  # run forever
     except OSError as e:
-        if e.errno == 98:  # Address already in use
+        # 98 = Linux/macOS EADDRINUSE, 10048 = Windows WSAEADDRINUSE
+        if e.errno in (98, 10048):
             print(f"[FAIL] Error: Port {args.port} is already in use")
-            print("   Another process may be using this port")
+            print("   Another process may already be running this server.")
             print(f"   Try a different port: python server.py --port 2701")
-        else:
-            print(f"[FAIL] Error starting WebSocket server: {e}")
+            print("   Or stop the existing process using this port, then restart.")
+            return
+        print(f"[FAIL] Error starting WebSocket server: {e}")
         raise
     except Exception as e:
         print(f"[FAIL] Fatal error starting server: {e}")

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Language Detection Test</title>
+</head>
+<body>
+    <h1>Language Detection Test</h1>
+    <div id="results"></div>
+
+    <script>
+        // Copy the language detection functions from the frontend
+        function normalize(word) {
+            return word.toLowerCase().trim();
+        }
+
+        function isLikelyEnglishWord(word) {
+            const normalized = normalize(word);
+            
+            // Common English patterns
+            const englishPatterns = [
+                /^(the|a|an|and|or|but|in|on|at|to|for|of|with|by)$/i,
+                /ing$/i,
+                /ed$/i,
+                /ly$/i,
+                /tion$/i,
+                /sion$/i,
+                /ness$/i,
+                /ment$/i,
+            ];
+            
+            const hasEnglishPattern = englishPatterns.some(pattern => pattern.test(normalized));
+            
+            const englishFunctionWords = [
+                'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+                'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them',
+                'my', 'your', 'his', 'her', 'its', 'our', 'their',
+                'this', 'that', 'these', 'those', 'here', 'there', 'where', 'when', 'how', 'why',
+                'is', 'am', 'are', 'was', 'were', 'be', 'been', 'being',
+                'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should'
+            ];
+            
+            return hasEnglishPattern || englishFunctionWords.includes(normalized);
+        }
+
+        function isLikelyTagalogWord(word) {
+            const normalized = normalize(word);
+
+            // Common Tagalog patterns
+            const tagalogPatterns = [
+                /^(ng|mga|ka|pa|na|ba|po|ma|naka|nag|mag|pag|um|in|an)/i,
+                /ng$/i,
+                /an$/i,
+                /in$/i,
+                /ay$/i,
+                /han$/i,
+                /hin$/i,
+            ];
+
+            const hasTagalogPattern = tagalogPatterns.some(pattern => pattern.test(normalized));
+
+            const tagalogFunctionWords = [
+                'ang', 'ng', 'sa', 'mga', 'ay', 'na', 'pa', 'ba', 'po', 'opo',
+                'ako', 'ikaw', 'siya', 'kami', 'tayo', 'kayo', 'sila',
+                'ko', 'mo', 'niya', 'namin', 'natin', 'ninyo', 'nila',
+                'ito', 'iyan', 'iyon', 'dito', 'diyan', 'doon',
+                'may', 'mayroon', 'meron',
+                'si', 'ni', 'kay',
+                'nasa', 'sa', 'para',
+                'at', 'o', 'pero',
+                'hindi', 'oo', 'opo',
+                'ano', 'sino', 'saan', 'kailan', 'bakit', 'paano',
+                'dora', 'maria', 'juan',
+                'baka', 'aso', 'pusa',
+                'bahay', 'sapa', 'ilog',
+                'katabi', 'kasama', 'kaibigan',
+                'nila', 'namin', 'natin'
+            ];
+
+            return hasTagalogPattern || tagalogFunctionWords.includes(normalized);
+        }
+
+        function detectStoryLanguage(vocabulary) {
+            let englishCount = 0;
+            let tagalogCount = 0;
+
+            console.log('🔍 Analyzing vocabulary:', vocabulary);
+
+            for (const word of vocabulary) {
+                const isEnglish = isLikelyEnglishWord(word);
+                const isTagalog = isLikelyTagalogWord(word);
+                
+                if (isEnglish) {
+                    englishCount++;
+                    console.log(`   📝 "${word}" -> English`);
+                }
+                if (isTagalog) {
+                    tagalogCount++;
+                    console.log(`   📝 "${word}" -> Tagalog`);
+                }
+                if (!isEnglish && !isTagalog) {
+                    console.log(`   ❓ "${word}" -> Unknown`);
+                }
+            }
+
+            console.log(`🔍 Results: English=${englishCount}, Tagalog=${tagalogCount}`);
+
+            if (tagalogCount > englishCount) {
+                console.log(`🔍 Detected: TAGALOG (${tagalogCount} > ${englishCount})`);
+                return 'tagalog';
+            }
+            console.log(`🔍 Detected: ENGLISH (${englishCount} >= ${tagalogCount})`);
+            return 'english';
+        }
+
+        // Test with your story words
+        const storyWords = ["Nasa", "may", "sapa", "si", "Dora", "Katabi", "ni", "Dora", "ang", "baka", "nila", "Tara", "laro", "tayo", "sa", "sapa", "sabi", "ni", "Lisa", "Sigel", "sabi", "ni", "Dora", "Nakul", "Palakol", "sabi", "ni", "Dora", "Nadapa", "si", "Lisa"];
+
+        const detectedLanguage = detectStoryLanguage(storyWords);
+
+        document.getElementById('results').innerHTML = `
+            <h2>Story Words:</h2>
+            <p>${storyWords.join(', ')}</p>
+            <h2>Detected Language:</h2>
+            <p style="font-size: 24px; color: ${detectedLanguage === 'tagalog' ? 'green' : 'red'};">
+                ${detectedLanguage.toUpperCase()}
+            </p>
+            <p>Check the console for detailed analysis.</p>
+        `;
+    </script>
+</body>
+</html>
